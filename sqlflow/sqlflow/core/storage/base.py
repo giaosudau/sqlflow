@@ -1,7 +1,7 @@
 """Base storage manager for SQLFlow."""
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 
 class StorageManagerProtocol(ABC):
@@ -10,36 +10,33 @@ class StorageManagerProtocol(ABC):
     @abstractmethod
     def store(self, key: str, data: Any) -> None:
         """Store data with a key.
-        
+
         Args:
             key: Key to store data under
             data: Data to store
         """
-        pass
 
     @abstractmethod
     def retrieve(self, key: str) -> Any:
         """Retrieve data by key.
-        
+
         Args:
             key: Key to retrieve data for
-            
+
         Returns:
             Retrieved data
         """
-        pass
 
     @abstractmethod
     def exists(self, key: str) -> bool:
         """Check if a key exists.
-        
+
         Args:
             key: Key to check
-            
+
         Returns:
             True if the key exists, False otherwise
         """
-        pass
 
 
 class MemoryStorageManager(StorageManagerProtocol):
@@ -51,7 +48,7 @@ class MemoryStorageManager(StorageManagerProtocol):
 
     def store(self, key: str, data: Any) -> None:
         """Store data with a key.
-        
+
         Args:
             key: Key to store data under
             data: Data to store
@@ -60,13 +57,13 @@ class MemoryStorageManager(StorageManagerProtocol):
 
     def retrieve(self, key: str) -> Any:
         """Retrieve data by key.
-        
+
         Args:
             key: Key to retrieve data for
-            
+
         Returns:
             Retrieved data
-            
+
         Raises:
             KeyError: If the key does not exist
         """
@@ -76,10 +73,10 @@ class MemoryStorageManager(StorageManagerProtocol):
 
     def exists(self, key: str) -> bool:
         """Check if a key exists.
-        
+
         Args:
             key: Key to check
-            
+
         Returns:
             True if the key exists, False otherwise
         """
