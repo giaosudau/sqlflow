@@ -1,8 +1,11 @@
 """Dependency resolution for SQLFlow pipelines."""
 
-from typing import Dict, List, Set
+import logging
+from typing import Dict, List, Optional, Set
 
 from sqlflow.sqlflow.core.errors import CircularDependencyError
+
+logger = logging.getLogger(__name__)
 
 
 class DependencyResolver:
@@ -14,6 +17,7 @@ class DependencyResolver:
         self.visited: Set[str] = set()
         self.temp_visited: Set[str] = set()
         self.execution_order: List[str] = []
+        self.last_resolved_order: Optional[List[str]] = None
 
     def add_dependency(self, pipeline: str, depends_on: str) -> None:
         """Add a dependency between pipelines.
@@ -54,8 +58,21 @@ class DependencyResolver:
         self.execution_order = []
 
         self._visit(start_pipeline)
-
+        
+        self.last_resolved_order = self.execution_order.copy()
         return self.execution_order
+        
+    def validate(self, pipeline: str) -> None:
+        """Validate that a pipeline has no circular dependencies.
+        
+        Args:
+            pipeline: Pipeline to validate
+            
+        Raises:
+            CircularDependencyError: If a circular dependency is detected
+        """
+        # This will raise CircularDependencyError if a cycle is detected
+        self.resolve_dependencies(pipeline)
 
     def _visit(self, pipeline: str) -> None:
         """Visit a pipeline and its dependencies.
