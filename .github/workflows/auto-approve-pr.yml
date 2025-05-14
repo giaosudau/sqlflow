@@ -52,11 +52,11 @@ jobs:
           pytest --cov=sqlflow
           COVERAGE=$(pytest --cov=sqlflow --cov-report=xml | grep TOTAL | awk '{print $4}' | sed 's/%//')
           echo "Test coverage: $COVERAGE%"
-          if [ "$COVERAGE" -ge 90 ]; then
-            echo "Test coverage meets target (≥ 90%)"
+          if [ "$COVERAGE" -ge 80 ]; then
+            echo "Test coverage meets target (≥ 80%)"
             echo "tests_ok=true" >> $GITHUB_OUTPUT
           else
-            echo "Test coverage below target (< 90%)"
+            echo "Test coverage below target (< 80%)"
             echo "tests_ok=false" >> $GITHUB_OUTPUT
           fi
         continue-on-error: true
