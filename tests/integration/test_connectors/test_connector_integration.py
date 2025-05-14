@@ -79,14 +79,18 @@ def test_csv_to_parquet_conversion(sample_csv_file, temp_dir):
 
     csv_data = pd.read_csv(sample_csv_file)
     parquet_data = pq.read_table(parquet_path).to_pandas()
-    
+
     csv_data_str = csv_data.astype(str)
     parquet_data_str = parquet_data.astype(str)
-    
+
     for df in [csv_data_str, parquet_data_str]:
         for col in df.columns:
-            df[col] = df[col].str.lower().where(df[col].isin(['true', 'false', 'True', 'False']), df[col])
-    
+            df[col] = (
+                df[col]
+                .str.lower()
+                .where(df[col].isin(["true", "false", "True", "False"]), df[col])
+            )
+
     pd.testing.assert_frame_equal(
         csv_data_str.reset_index(drop=True),
         parquet_data_str.reset_index(drop=True),
@@ -112,11 +116,15 @@ def test_connector_engine_integration(sample_csv_file, sample_parquet_file, temp
 
     csv_data_str = csv_data.astype(str)
     parquet_data_str = parquet_data.astype(str)
-    
+
     for df in [csv_data_str, parquet_data_str]:
         for col in df.columns:
-            df[col] = df[col].str.lower().where(df[col].isin(['true', 'false', 'True', 'False']), df[col])
-    
+            df[col] = (
+                df[col]
+                .str.lower()
+                .where(df[col].isin(["true", "false", "True", "False"]), df[col])
+            )
+
     pd.testing.assert_frame_equal(
         csv_data_str.reset_index(drop=True),
         parquet_data_str.reset_index(drop=True),
@@ -128,11 +136,15 @@ def test_connector_engine_integration(sample_csv_file, sample_parquet_file, temp
     exported_data = pq.read_table(output_path).to_pandas()
     csv_data_str = csv_data.astype(str)
     exported_data_str = exported_data.astype(str)
-    
+
     for df in [csv_data_str, exported_data_str]:
         for col in df.columns:
-            df[col] = df[col].str.lower().where(df[col].isin(['true', 'false', 'True', 'False']), df[col])
-    
+            df[col] = (
+                df[col]
+                .str.lower()
+                .where(df[col].isin(["true", "false", "True", "False"]), df[col])
+            )
+
     pd.testing.assert_frame_equal(
         csv_data_str.reset_index(drop=True),
         exported_data_str.reset_index(drop=True),

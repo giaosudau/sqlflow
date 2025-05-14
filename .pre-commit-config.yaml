@@ -1,0 +1,51 @@
+repos:
+-   repo: local
+    hooks:
+    -   id: autoflake
+        name: autoflake
+        entry: autoflake
+        language: python
+        types: [python]
+        args: [
+            '--in-place',
+            '--remove-all-unused-imports',
+            '--remove-unused-variables',
+            '--expand-star-imports',
+            '--ignore-init-module-imports',
+        ]
+        require_serial: true
+
+    -   id: black
+        name: black
+        entry: black
+        language: python
+        types: [python]
+        require_serial: true
+
+    -   id: isort
+        name: isort
+        entry: isort
+        language: python
+        types: [python]
+        args: ['--profile', 'black']
+        require_serial: true
+
+    -   id: flake8
+        name: flake8
+        entry: flake8
+        language: python
+        types: [python]
+        args: [
+            '--ignore=E501,E221,E222,E223,E224,E303,E301,E302,E402,F401,F841,E741,W291,W293,D100,D101,W503,W504,E203',
+            '--max-complexity=10',
+        ]
+        require_serial: true
+
+    -   id: python-tests
+        name: Run Python Tests
+        entry: bash -c 'pip install -e ".[test]" && python -m pytest'
+        language: python
+        types: [python]
+        pass_filenames: false
+        always_run: true
+        require_serial: true

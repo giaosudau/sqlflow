@@ -129,10 +129,12 @@ class CSVConnector(Connector):
                 raise ValueError(f"File not found: {self.path}")
 
             if self.has_header:
-                with open(self.path, 'r', encoding=self.encoding) as f:
-                    reader = csv.reader(f, delimiter=self.delimiter, quotechar=self.quote_char)
+                with open(self.path, "r", encoding=self.encoding) as f:
+                    reader = csv.reader(
+                        f, delimiter=self.delimiter, quotechar=self.quote_char
+                    )
                     header_row = next(reader)
-                
+
                 read_options = csv_arrow.ReadOptions(
                     skip_rows=1, encoding=self.encoding
                 )
@@ -140,18 +142,22 @@ class CSVConnector(Connector):
                     delimiter=self.delimiter, quote_char=self.quote_char
                 )
                 convert_options = csv_arrow.ConvertOptions()
-                
+
                 table = csv_arrow.read_csv(
                     self.path,
                     read_options=read_options,
                     parse_options=parse_options,
-                    convert_options=convert_options
+                    convert_options=convert_options,
                 )
-                
+
                 import pyarrow as pa
-                fields = [pa.field(name, dtype) for name, dtype in zip(header_row, table.schema.types)]
+
+                fields = [
+                    pa.field(name, dtype)
+                    for name, dtype in zip(header_row, table.schema.types)
+                ]
                 schema = pa.schema(fields)
-                
+
                 table = pa.Table.from_arrays(table.columns, schema=schema)
             else:
                 read_options = csv_arrow.ReadOptions(
@@ -161,12 +167,12 @@ class CSVConnector(Connector):
                     delimiter=self.delimiter, quote_char=self.quote_char
                 )
                 convert_options = csv_arrow.ConvertOptions()
-                
+
                 table = csv_arrow.read_csv(
                     self.path,
                     read_options=read_options,
                     parse_options=parse_options,
-                    convert_options=convert_options
+                    convert_options=convert_options,
                 )
 
             self.state = ConnectorState.READY
@@ -213,24 +219,25 @@ class CSVConnector(Connector):
                 logging.warning("Filters are not supported for CSV and will be ignored")
 
             import pandas as pd
-            
+
             df = pd.read_csv(
                 self.path,
                 sep=self.delimiter,
                 header=0 if self.has_header else None,
                 quotechar=self.quote_char,
                 encoding=self.encoding,
-                dtype=str  # Ensure all columns are read as strings by default
+                dtype=str,  # Ensure all columns are read as strings by default
             )
-            
+
             if columns:
                 df = df[columns]
-                
+
             import pyarrow as pa
+
             table = pa.Table.from_pandas(df)
-            
+
             yield DataChunk(table)
-            
+
             self.state = ConnectorState.READY
         except Exception as e:
             self.state = ConnectorState.ERROR

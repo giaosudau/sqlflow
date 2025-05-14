@@ -4,10 +4,7 @@ import json
 import logging
 import threading
 import time
-from typing import Any, Dict, List
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 from sqlflow.sqlflow.core.executors.task_status import TaskState, TaskStatus
 from sqlflow.sqlflow.core.executors.thread_pool_executor import ThreadPoolTaskExecutor

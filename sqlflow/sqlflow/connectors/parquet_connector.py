@@ -10,21 +10,25 @@ from sqlflow.sqlflow.connectors.base import (
     ConnectionTestResult,
     Connector,
     ConnectorState,
+    ExportConnector,
     Schema,
 )
 from sqlflow.sqlflow.connectors.data_chunk import DataChunk
-from sqlflow.sqlflow.connectors.registry import register_connector, register_export_connector
+from sqlflow.sqlflow.connectors.registry import (
+    register_connector,
+    register_export_connector,
+)
 from sqlflow.sqlflow.core.errors import ConnectorError
 
 
 @register_connector("PARQUET")
 @register_export_connector("PARQUET")
-class ParquetConnector(Connector):
+class ParquetConnector(Connector, ExportConnector):
     """Connector for Parquet files."""
 
     def __init__(self):
         """Initialize a ParquetConnector."""
-        super().__init__()
+        Connector.__init__(self)
         self.path: Optional[str] = None
         self.use_memory_map: bool = True
 
@@ -51,6 +55,47 @@ class ParquetConnector(Connector):
                 self.name or "PARQUET", f"Configuration failed: {str(e)}"
             )
 
+    def _check_existing_file(self) -> ConnectionTestResult:
+        """Check if the file exists and is readable.
+
+        Returns:
+            ConnectionTestResult: Result of the check
+        """
+        try:
+            pq.ParquetFile(self.path)
+            self.state = ConnectorState.READY
+            return ConnectionTestResult(True)
+        except Exception as e:
+            self.state = ConnectorState.ERROR
+            return ConnectionTestResult(
+                False, f"File exists but is not readable: {str(e)}"
+            )
+
+    def _check_directory(self) -> ConnectionTestResult:
+        """Check if the directory exists and is writable.
+
+        Returns:
+            ConnectionTestResult: Result of the check
+        """
+        if self.path is None:
+            self.state = ConnectorState.ERROR
+            return ConnectionTestResult(False, "Path not configured")
+
+        directory = os.path.dirname(os.path.abspath(str(self.path)))
+        if not os.path.exists(directory):
+            try:
+                os.makedirs(directory, exist_ok=True)
+            except Exception as e:
+                self.state = ConnectorState.ERROR
+                return ConnectionTestResult(False, f"Cannot create directory: {str(e)}")
+
+        if not os.access(directory, os.W_OK):
+            self.state = ConnectorState.ERROR
+            return ConnectionTestResult(False, f"Directory not writable: {directory}")
+
+        self.state = ConnectorState.READY
+        return ConnectionTestResult(True)
+
     def test_connection(self) -> ConnectionTestResult:
         """Test if the Parquet file exists and is readable, or if the directory is writable.
 
@@ -64,28 +109,9 @@ class ParquetConnector(Connector):
                 return ConnectionTestResult(False, "Path not configured")
 
             if os.path.exists(self.path):
-                try:
-                    pq.ParquetFile(self.path)
-                    self.state = ConnectorState.READY
-                    return ConnectionTestResult(True)
-                except Exception as e:
-                    self.state = ConnectorState.ERROR
-                    return ConnectionTestResult(False, f"File exists but is not readable: {str(e)}")
-            
-            directory = os.path.dirname(os.path.abspath(self.path))
-            if not os.path.exists(directory):
-                try:
-                    os.makedirs(directory, exist_ok=True)
-                except Exception as e:
-                    self.state = ConnectorState.ERROR
-                    return ConnectionTestResult(False, f"Cannot create directory: {str(e)}")
-            
-            if not os.access(directory, os.W_OK):
-                self.state = ConnectorState.ERROR
-                return ConnectionTestResult(False, f"Directory not writable: {directory}")
-            
-            self.state = ConnectorState.READY
-            return ConnectionTestResult(True)
+                return self._check_existing_file()
+
+            return self._check_directory()
         except Exception as e:
             self.state = ConnectorState.ERROR
             return ConnectionTestResult(False, str(e))
@@ -148,7 +174,9 @@ class ParquetConnector(Connector):
                 self.name or "PARQUET", f"Schema retrieval failed: {str(e)}"
             )
 
-    def _convert_filters(self, filters: Dict[str, Any]) -> List[List[Tuple[str, str, Any]]]:
+    def _convert_filters(
+        self, filters: Dict[str, Any]
+    ) -> List[List[Tuple[str, str, Any]]]:
         """Convert SQLFlow filter format to PyArrow filter format.
 
         Args:
@@ -207,7 +235,7 @@ class ParquetConnector(Connector):
             if not os.path.exists(self.path):
                 raise ValueError(f"File not found: {self.path}")
 
-            parquet_file = pq.ParquetFile(self.path)
+            pq.ParquetFile(self.path)
 
             if filters:
                 parquet_filters = self._convert_filters(filters)
@@ -261,7 +289,11 @@ class ParquetConnector(Connector):
 
             table = data_chunk.arrow_table
 
-            if mode == "append" and os.path.exists(write_path) and os.path.getsize(write_path) > 0:
+            if (
+                mode == "append"
+                and os.path.exists(write_path)
+                and os.path.getsize(write_path) > 0
+            ):
                 try:
                     existing_table = pq.read_table(write_path)
 
@@ -277,7 +309,10 @@ class ParquetConnector(Connector):
                     table = pa.concat_tables([existing_table, table])
                 except Exception as e:
                     import logging
-                    logging.warning(f"Could not read existing Parquet file for append: {str(e)}")
+
+                    logging.warning(
+                        f"Could not read existing Parquet file for append: {str(e)}"
+                    )
 
             pq.write_table(table, write_path, compression="snappy")
 

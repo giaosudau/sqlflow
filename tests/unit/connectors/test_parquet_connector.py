@@ -207,7 +207,10 @@ def test_parquet_connector_filters(sample_parquet_file):
         assert len(chunks) == 1
         chunk = chunks[0]
         df = chunk.pandas_df
-        assert df.shape == (3, 3)  # Matches rows 3, 4, and 5 due to floating point comparison
+        assert df.shape == (
+            3,
+            3,
+        )  # Matches rows 3, 4, and 5 due to floating point comparison
         assert set(df["id"]) == {3, 4, 5}
         assert set(df["name"]) == {"Charlie", "Dave", "Eve"}
 

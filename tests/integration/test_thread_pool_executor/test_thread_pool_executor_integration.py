@@ -3,9 +3,7 @@
 import json
 import logging
 import time
-from typing import Any, Dict, List
-
-import pytest
+from typing import Any, Dict
 
 from sqlflow.sqlflow.core.executors.thread_pool_executor import (
     TaskState,

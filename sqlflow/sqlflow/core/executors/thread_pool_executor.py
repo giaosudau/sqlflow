@@ -7,11 +7,9 @@ import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor as ConcurrentThreadPoolExecutor
-from concurrent.futures import as_completed
-from typing import Any, Dict, List, Optional, Set, Union
+from typing import Any, Dict, List, Optional, Set
 
 from sqlflow.sqlflow.core.dependencies import DependencyResolver
-from sqlflow.sqlflow.core.errors import ExecutionError
 from sqlflow.sqlflow.core.executors.base_executor import BaseExecutor
 from sqlflow.sqlflow.core.executors.task_status import TaskState, TaskStatus
 
