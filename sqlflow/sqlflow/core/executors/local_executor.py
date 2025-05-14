@@ -16,15 +16,15 @@ class LocalExecutor(BaseExecutor):
 
     def execute(self, plan: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Execute a pipeline plan.
-        
+
         Args:
             plan: List of operations to execute
-            
+
         Returns:
             Dict containing execution results
         """
         self.results = {}
-        
+
         for step in plan:
             try:
                 step_result = self.execute_step(step)
@@ -35,15 +35,15 @@ class LocalExecutor(BaseExecutor):
                 self.results["error"] = str(e)
                 self.results["failed_step"] = step["id"]
                 break
-                
+
         return self.results
 
     def execute_step(self, step: Dict[str, Any]) -> Dict[str, Any]:
         """Execute a single step in the pipeline.
-        
+
         Args:
             step: Operation to execute
-            
+
         Returns:
             Dict containing execution results
         """
@@ -51,7 +51,7 @@ class LocalExecutor(BaseExecutor):
 
     def can_resume(self) -> bool:
         """Check if the executor supports resuming from failure.
-        
+
         Returns:
             True if the executor supports resuming, False otherwise
         """
@@ -59,16 +59,16 @@ class LocalExecutor(BaseExecutor):
 
     def resume(self) -> Dict[str, Any]:
         """Resume execution from the last failure.
-        
+
         Returns:
             Dict containing execution results
         """
         if not self.can_resume():
             return {"status": "nothing_to_resume"}
-            
+
         failed_step = self.failed_step
         self.failed_step = None
-        
+
         try:
             step_result = self.execute_step(failed_step)
             self.results[failed_step["id"]] = step_result
@@ -78,5 +78,5 @@ class LocalExecutor(BaseExecutor):
             self.results["error"] = str(e)
             self.results["failed_step"] = failed_step["id"]
             return self.results
-            
+
         return self.results

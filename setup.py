@@ -1,6 +1,6 @@
 """Setup script for SQLFlow."""
 
-from setuptools import setup, find_packages
+from setuptools import find_packages, setup
 
 setup(
     name="sqlflow",
@@ -13,7 +13,19 @@ setup(
         "pandas",
         "pyarrow",
         "click",
+        "networkx",
     ],
+    extras_require={
+        "dev": [
+            "pytest>=7.0.0",
+            "pytest-cov>=4.1.0",
+            "black>=22.1.0",
+            "isort>=5.10.1",
+            "mypy>=0.931",
+            "flake8>=4.0.1",
+            "autoflake>=2.2.0",
+        ],
+    },
     entry_points={
         "console_scripts": [
             "sqlflow=sqlflow.sqlflow.main:main",

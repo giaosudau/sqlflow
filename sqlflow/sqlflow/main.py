@@ -7,7 +7,6 @@ import click
 @click.version_option()
 def main():
     """SQLFlow - SQL-based data pipeline tool."""
-    pass
 
 
 @main.command()

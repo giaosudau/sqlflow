@@ -8,7 +8,7 @@ class SQLFlowError(Exception):
 
     def __init__(self, message: str):
         """Initialize a SQLFlowError.
-        
+
         Args:
             message: Error message
         """
@@ -21,7 +21,7 @@ class CircularDependencyError(SQLFlowError):
 
     def __init__(self, cycle: List[str]):
         """Initialize a CircularDependencyError.
-        
+
         Args:
             cycle: List of pipeline names forming a cycle
         """
@@ -36,7 +36,7 @@ class ValidationError(SQLFlowError):
 
     def __init__(self, message: str, errors: Optional[List[str]] = None):
         """Initialize a ValidationError.
-        
+
         Args:
             message: Error message
             errors: List of validation errors
@@ -53,7 +53,7 @@ class ConnectorError(SQLFlowError):
 
     def __init__(self, connector_name: str, message: str):
         """Initialize a ConnectorError.
-        
+
         Args:
             connector_name: Name of the connector
             message: Error message
@@ -67,7 +67,7 @@ class ExecutionError(SQLFlowError):
 
     def __init__(self, pipeline_name: str, step_name: str, message: str):
         """Initialize an ExecutionError.
-        
+
         Args:
             pipeline_name: Name of the pipeline
             step_name: Name of the step that failed
@@ -75,4 +75,6 @@ class ExecutionError(SQLFlowError):
         """
         self.pipeline_name = pipeline_name
         self.step_name = step_name
-        super().__init__(f"Execution error in pipeline '{pipeline_name}', step '{step_name}': {message}")
+        super().__init__(
+            f"Execution error in pipeline '{pipeline_name}', step '{step_name}': {message}"
+        )

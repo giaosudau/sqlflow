@@ -3,7 +3,7 @@
 import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Any, Union
+from typing import Any, Dict, List, Optional
 
 
 class PipelineStep(ABC):
@@ -16,7 +16,6 @@ class PipelineStep(ABC):
         Returns:
             List of validation error messages, empty if valid
         """
-        pass
 
 
 @dataclass
@@ -54,18 +53,18 @@ class SourceDefinitionStep(PipelineStep):
 @dataclass
 class LoadStep(PipelineStep):
     """Represents a LOAD directive in the pipeline.
-    
+
     Example:
         LOAD users_table FROM users_source;
     """
-    
+
     table_name: str
     source_name: str
     line_number: Optional[int] = None
-    
+
     def validate(self) -> List[str]:
         """Validate the LOAD directive.
-        
+
         Returns:
             List of validation error messages, empty if valid
         """
@@ -80,7 +79,7 @@ class LoadStep(PipelineStep):
 @dataclass
 class ExportStep(PipelineStep):
     """Represents an EXPORT directive in the pipeline.
-    
+
     Example:
         EXPORT
           SELECT * FROM users
@@ -91,16 +90,16 @@ class ExportStep(PipelineStep):
             "header": true
         };
     """
-    
+
     sql_query: str
     destination_uri: str
     connector_type: str
     options: Dict[str, Any]
     line_number: Optional[int] = None
-    
+
     def validate(self) -> List[str]:
         """Validate the EXPORT directive.
-        
+
         Returns:
             List of validation error messages, empty if valid
         """
@@ -119,18 +118,18 @@ class ExportStep(PipelineStep):
 @dataclass
 class IncludeStep(PipelineStep):
     """Represents an INCLUDE directive in the pipeline.
-    
+
     Example:
         INCLUDE "common/utils.sf" AS utils;
     """
-    
+
     file_path: str
     alias: str
     line_number: Optional[int] = None
-    
+
     def validate(self) -> List[str]:
         """Validate the INCLUDE directive.
-        
+
         Returns:
             List of validation error messages, empty if valid
         """
@@ -139,29 +138,29 @@ class IncludeStep(PipelineStep):
             errors.append("INCLUDE directive requires a file path")
         if not self.alias:
             errors.append("INCLUDE directive requires an alias (AS keyword)")
-        
+
         _, ext = os.path.splitext(self.file_path)
         if not ext:
             errors.append("INCLUDE file path must have an extension")
-        
+
         return errors
 
 
 @dataclass
 class SetStep(PipelineStep):
     """Represents a SET directive in the pipeline.
-    
+
     Example:
         SET table_name = "users";
     """
-    
+
     variable_name: str
     variable_value: str
     line_number: Optional[int] = None
-    
+
     def validate(self) -> List[str]:
         """Validate the SET directive.
-        
+
         Returns:
             List of validation error messages, empty if valid
         """
@@ -170,6 +169,36 @@ class SetStep(PipelineStep):
             errors.append("SET directive requires a variable name")
         if not self.variable_value:
             errors.append("SET directive requires a variable value")
+        return errors
+
+
+@dataclass
+class SQLBlockStep(PipelineStep):
+    """Represents a SQL block in the pipeline, such as CREATE TABLE.
+
+    Example:
+        CREATE TABLE customer_ltv AS
+        SELECT
+          customer_id,
+          PYTHON_FUNC("helpers.calculate_ltv", raw_sales, 0.08) AS ltv
+        FROM raw_sales;
+    """
+
+    table_name: str
+    sql_query: str
+    line_number: Optional[int] = None
+
+    def validate(self) -> List[str]:
+        """Validate the SQL block.
+
+        Returns:
+            List of validation error messages, empty if valid
+        """
+        errors = []
+        if not self.table_name:
+            errors.append("SQL block requires a table name")
+        if not self.sql_query:
+            errors.append("SQL block requires a SQL query")
         return errors
 
 
@@ -202,5 +231,5 @@ class Pipeline:
         for i, step in enumerate(self.steps):
             step_errors = step.validate()
             for error in step_errors:
-                errors.append(f"Step {i+1}: {error}")
+                errors.append(f"Step {i + 1}: {error}")
         return errors
