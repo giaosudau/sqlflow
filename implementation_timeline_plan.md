@@ -67,19 +67,19 @@ This plan breaks down the roadmap into epics, milestones, and tasks sized to ~4 
 
 ### Milestone 2.2: Database & Cloud Connectors (Weeks 7–8)
 
-- **Task 2.2.1**: Postgres Source connector  
+- **Task 2.2.1**: Postgres Source connector ✅  
   - **Outcome**: Read table via psycopg2, parameterized queries.  
   - **DoD**: CI integration test against test Postgres container.
 
-- **Task 2.2.2**: Postgres Export connector  
+- **Task 2.2.2**: Postgres Export connector ✅  
   - **Outcome**: Write DataChunk batches to temp table.  
   - **DoD**: Round-trip test: load then export back matches input.
 
-- **Task 2.2.3**: S3 Export connector  
+- **Task 2.2.3**: S3 Export connector ✅  
   - **Outcome**: Upload files with multipart, chunk retry.  
   - **DoD**: Mock S3 tests for file presence and integrity.
 
-- **Task 2.2.4**: REST Export connector  
+- **Task 2.2.4**: REST Export connector ✅  
   - **Outcome**: POST JSON batches to endpoint.  
   - **DoD**: Mock HTTP server tests for correct payload.
 
