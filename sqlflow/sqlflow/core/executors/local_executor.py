@@ -1,8 +1,12 @@
 """Local executor for SQLFlow pipelines."""
 
+import logging
 from typing import Any, Dict, List, Optional, Set
 
+from sqlflow.sqlflow.core.dependencies import DependencyResolver
 from sqlflow.sqlflow.core.executors.base_executor import BaseExecutor
+
+logger = logging.getLogger(__name__)
 
 
 class LocalExecutor(BaseExecutor):
@@ -13,17 +17,37 @@ class LocalExecutor(BaseExecutor):
         self.executed_steps: Set[str] = set()
         self.failed_step: Optional[Dict[str, Any]] = None
         self.results: Dict[str, Any] = {}
+        self.dependency_resolver: Optional[DependencyResolver] = None
 
-    def execute(self, plan: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def execute(
+        self,
+        plan: List[Dict[str, Any]],
+        dependency_resolver: Optional[DependencyResolver] = None,
+    ) -> Dict[str, Any]:
         """Execute a pipeline plan.
 
         Args:
             plan: List of operations to execute
+            dependency_resolver: Optional DependencyResolver to cross-check execution order
 
         Returns:
             Dict containing execution results
         """
         self.results = {}
+        self.dependency_resolver = dependency_resolver
+
+        if (
+            dependency_resolver is not None
+            and dependency_resolver.last_resolved_order is not None
+        ):
+            plan_ids = [step["id"] for step in plan]
+
+            if plan_ids != dependency_resolver.last_resolved_order:
+                logger.warning(
+                    "Execution order mismatch detected. Plan order: %s, Resolved order: %s",
+                    plan_ids,
+                    dependency_resolver.last_resolved_order,
+                )
 
         for step in plan:
             try:
@@ -68,6 +92,9 @@ class LocalExecutor(BaseExecutor):
 
         failed_step = self.failed_step
         self.failed_step = None
+
+        if failed_step is None:
+            return {"status": "nothing_to_resume"}
 
         try:
             step_result = self.execute_step(failed_step)
