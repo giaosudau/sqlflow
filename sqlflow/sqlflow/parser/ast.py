@@ -51,6 +51,32 @@ class SourceDefinitionStep(PipelineStep):
 
 
 @dataclass
+class LoadStep(PipelineStep):
+    """Represents a LOAD directive in the pipeline.
+    
+    Example:
+        LOAD users_table FROM users_source;
+    """
+    
+    table_name: str
+    source_name: str
+    line_number: Optional[int] = None
+    
+    def validate(self) -> List[str]:
+        """Validate the LOAD directive.
+        
+        Returns:
+            List of validation error messages, empty if valid
+        """
+        errors = []
+        if not self.table_name:
+            errors.append("LOAD directive requires a table name")
+        if not self.source_name:
+            errors.append("LOAD directive requires a source name")
+        return errors
+
+
+@dataclass
 class Pipeline:
     """Represents a complete parsed pipeline.
 

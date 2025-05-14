@@ -3,7 +3,7 @@
 import json
 from typing import Dict, List, Optional, Any, Tuple, Union
 
-from sqlflow.sqlflow.parser.ast import Pipeline, PipelineStep, SourceDefinitionStep
+from sqlflow.sqlflow.parser.ast import Pipeline, PipelineStep, SourceDefinitionStep, LoadStep
 from sqlflow.sqlflow.parser.lexer import Lexer, Token, TokenType
 
 
@@ -76,6 +76,8 @@ class Parser:
         
         if token.type == TokenType.SOURCE:
             return self._parse_source_statement()
+        elif token.type == TokenType.LOAD:
+            return self._parse_load_statement()
         
         self._advance()
         return None
@@ -181,6 +183,31 @@ class Parser:
         """
         return self.tokens[self.current - 1]
     
+    def _parse_load_statement(self) -> LoadStep:
+        """Parse a LOAD statement.
+        
+        Returns:
+            LoadStep
+            
+        Raises:
+            ParserError: If the LOAD statement cannot be parsed
+        """
+        load_token = self._consume(TokenType.LOAD, "Expected 'LOAD'")
+        
+        table_name_token = self._consume(TokenType.IDENTIFIER, "Expected table name after 'LOAD'")
+        
+        self._consume(TokenType.FROM, "Expected 'FROM' after table name")
+        
+        source_name_token = self._consume(TokenType.IDENTIFIER, "Expected source name after 'FROM'")
+        
+        self._consume(TokenType.SEMICOLON, "Expected ';' after LOAD statement")
+        
+        return LoadStep(
+            table_name=table_name_token.value,
+            source_name=source_name_token.value,
+            line_number=load_token.line
+        )
+    
     def _synchronize(self) -> None:
         """Synchronize the parser after an error.
         
@@ -194,6 +221,7 @@ class Parser:
                 
             if self._peek().type in (
                 TokenType.SOURCE,
+                TokenType.LOAD,
             ):
                 return
                 
