@@ -120,6 +120,10 @@ def _compile_single_pipeline(pipeline_path: str, output: Optional[str] = None):
         typer.echo(f"Compiled pipeline '{pipeline_name}'")
         typer.echo(f"Found {len(plan)} operations in the execution plan")
 
+        for op in plan:
+            op_id = op.get("id", "unknown")
+            typer.echo(f"  - {op_id}")
+
         op_types = {}
         for op in plan:
             op_type = op.get("type", "unknown")
