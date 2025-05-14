@@ -23,11 +23,12 @@ def compile_pipeline(
         None, help="Name of the pipeline (omit .sf extension)"
     ),
     output: Optional[str] = typer.Option(
-        None, help="Custom output file for the execution plan (default: target/compiled/)"
+        None,
+        help="Custom output file for the execution plan (default: target/compiled/)",
     ),
 ):
     """Parse and validate pipeline(s), output execution plan.
-    
+
     The execution plan is automatically saved to the project's target/compiled directory.
     """
     project = Project(os.getcwd())
@@ -35,7 +36,7 @@ def compile_pipeline(
         project.project_dir,
         project.config.get("paths", {}).get("pipelines", "pipelines"),
     )
-    
+
     target_dir = os.path.join(project.project_dir, "target", "compiled")
     os.makedirs(target_dir, exist_ok=True)
 
@@ -115,19 +116,19 @@ def _compile_single_pipeline(pipeline_path: str, output: Optional[str] = None):
         pipeline_name = os.path.basename(pipeline_path)
         if pipeline_name.endswith(".sf"):
             pipeline_name = pipeline_name[:-3]
-            
+
         typer.echo(f"Compiled pipeline '{pipeline_name}'")
         typer.echo(f"Found {len(plan)} operations in the execution plan")
-        
+
         op_types = {}
         for op in plan:
             op_type = op.get("type", "unknown")
             op_types[op_type] = op_types.get(op_type, 0) + 1
-            
+
         typer.echo("\nOperation types:")
         for op_type, count in op_types.items():
             typer.echo(f"  - {op_type}: {count}")
-            
+
         if output:
             with open(output, "w") as f:
                 f.write(plan_json)
