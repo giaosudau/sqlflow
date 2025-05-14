@@ -87,19 +87,19 @@ This plan breaks down the roadmap into epics, milestones, and tasks sized to ~4 
 
 ### Milestone 3.1: CLI Core (Weeks 9–10)
 
-- **Task 3.1.1**: `sqlflow init` command  
+- **Task 3.1.1**: `sqlflow init` command ✅  
   - **Outcome**: Scaffolds project structure.  
   - **DoD**: File existence checks, sample files present.
 
-- **Task 3.1.2**: `compile` command  
+- **Task 3.1.2**: `compile` command ✅  
   - **Outcome**: Produces execution plan output.  
   - **DoD**: CLI test captures and validates plan text.
 
-- **Task 3.1.3**: `run` command  
+- **Task 3.1.3**: `run` command ✅  
   - **Outcome**: Executes sample pipeline end-to-end.  
   - **DoD**: Integration test runs a simple CSV→SQL→CSV pipeline.
 
-- **Task 3.1.4**: `list` & `describe` commands  
+- **Task 3.1.4**: `list` & `describe` commands ✅  
   - **Outcome**: Lists pipelines and shows metadata.  
   - **DoD**: Tests for correct listings and descriptions.
 
