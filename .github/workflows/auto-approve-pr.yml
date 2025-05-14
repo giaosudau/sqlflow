@@ -1,0 +1,122 @@
+name: Auto-Approve PR
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  auto-approve:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install black isort flake8 mypy pytest pytest-cov
+
+      - name: Check PR size
+        id: pr-size
+        run: |
+          PR_DIFF_LINES=$(git diff --stat origin/${{ github.base_ref }} | tail -n 1 | awk '{print $4}')
+          echo "PR diff lines: $PR_DIFF_LINES"
+          if [ "$PR_DIFF_LINES" -le 200 ]; then
+            echo "PR size is within limits (≤ 200 lines)"
+            echo "pr_size_ok=true" >> $GITHUB_OUTPUT
+          else
+            echo "PR size exceeds limits (> 200 lines)"
+            echo "pr_size_ok=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Check code style
+        id: code-style
+        run: |
+          black --check .
+          isort --check-only .
+          flake8 .
+          mypy .
+          echo "code_style_ok=true" >> $GITHUB_OUTPUT
+        continue-on-error: true
+
+      - name: Run tests
+        id: tests
+        run: |
+          pytest --cov=sqlflow
+          COVERAGE=$(pytest --cov=sqlflow --cov-report=xml | grep TOTAL | awk '{print $4}' | sed 's/%//')
+          echo "Test coverage: $COVERAGE%"
+          if [ "$COVERAGE" -ge 90 ]; then
+            echo "Test coverage meets target (≥ 90%)"
+            echo "tests_ok=true" >> $GITHUB_OUTPUT
+          else
+            echo "Test coverage below target (< 90%)"
+            echo "tests_ok=false" >> $GITHUB_OUTPUT
+          fi
+        continue-on-error: true
+
+      - name: Check PR description
+        id: pr-description
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const pr = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number
+            });
+            
+            const description = pr.data.body || '';
+            
+            // Check if PR description includes What, Why, How, and Testing sections
+            const hasWhat = description.includes('## What') || description.includes('# What');
+            const hasWhy = description.includes('## Why') || description.includes('# Why');
+            const hasHow = description.includes('## How') || description.includes('# How');
+            const hasTesting = description.includes('## Testing') || description.includes('# Testing');
+            
+            const descriptionOk = hasWhat && hasWhy && hasHow && hasTesting;
+            
+            core.setOutput('pr_description_ok', descriptionOk ? 'true' : 'false');
+            
+            if (descriptionOk) {
+              console.log('PR description includes all required sections');
+            } else {
+              console.log('PR description is missing required sections');
+              if (!hasWhat) console.log('Missing "What" section');
+              if (!hasWhy) console.log('Missing "Why" section');
+              if (!hasHow) console.log('Missing "How" section');
+              if (!hasTesting) console.log('Missing "Testing" section');
+            }
+
+      - name: Auto-approve PR
+        if: steps.pr-size.outputs.pr_size_ok == 'true' && steps.code-style.outputs.code_style_ok == 'true' && steps.tests.outputs.tests_ok == 'true' && steps.pr-description.outputs.pr_description_ok == 'true'
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const pull_number = context.issue.number;
+            
+            // Add auto-approval comment
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number: pull_number,
+              body: 'This PR meets all coding standards and has comprehensive test coverage. Auto-approving based on coding rules.'
+            });
+            
+            // Approve the PR
+            await github.rest.pulls.createReview({
+              owner,
+              repo,
+              pull_number,
+              event: 'APPROVE',
+              body: 'Auto-approved: PR meets all coding standards and requirements.'
+            });
