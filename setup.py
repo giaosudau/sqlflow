@@ -14,6 +14,9 @@ setup(
         "pyarrow",
         "click",
         "networkx",
+        "psycopg2-binary",  # For PostgreSQL connectors
+        "boto3",  # For S3 connector
+        "requests",  # For REST connector
     ],
     package_data={
         "sqlflow": ["py.typed"],
