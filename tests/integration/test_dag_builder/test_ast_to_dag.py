@@ -1,7 +1,7 @@
 """Integration tests for AST to DAG conversion."""
 
 import os
-import unittest
+import pytest
 from pathlib import Path
 
 from sqlflow.sqlflow.parser.ast import Pipeline, SourceDefinitionStep, LoadStep, ExportStep, SQLBlockStep
@@ -10,7 +10,7 @@ from sqlflow.sqlflow.visualizer.dag_builder import DAGBuilder, PipelineDAG
 from sqlflow.sqlflow.visualizer.dag_builder_ast import ASTDAGBuilder
 
 
-class TestASTToDAG(unittest.TestCase):
+class TestASTToDAG:
     """Test AST to DAG conversion."""
 
     def test_simple_pipeline_to_dag(self):
@@ -41,7 +41,7 @@ class TestASTToDAG(unittest.TestCase):
         dag_builder = ASTDAGBuilder()
         dag = dag_builder.build_dag_from_ast(pipeline)
         
-        self.assertEqual(len(dag.get_all_nodes()), 3)
+        assert len(dag.get_all_nodes()) == 3
         
         source_node = None
         load_node = None
@@ -56,12 +56,12 @@ class TestASTToDAG(unittest.TestCase):
             elif attrs.get("type") == "EXPORT":
                 export_node = node_id
                 
-        self.assertIsNotNone(source_node)
-        self.assertIsNotNone(load_node)
-        self.assertIsNotNone(export_node)
+        assert source_node is not None
+        assert load_node is not None
+        assert export_node is not None
         
-        self.assertIn(source_node, dag.get_predecessors(load_node))
-        self.assertIn(load_node, dag.get_predecessors(export_node))
+        assert source_node in dag.get_predecessors(load_node)
+        assert load_node in dag.get_predecessors(export_node)
         
     def test_multi_statement_script(self):
         """Test assembling a DAG from a multi-statement script."""
@@ -89,7 +89,7 @@ class TestASTToDAG(unittest.TestCase):
         dag_builder = ASTDAGBuilder()
         dag = dag_builder.build_dag_from_ast(pipeline)
         
-        self.assertEqual(len(dag.get_all_nodes()), 3)
+        assert len(dag.get_all_nodes()) == 3
         
         source_node = None
         load_node = None
@@ -104,12 +104,12 @@ class TestASTToDAG(unittest.TestCase):
             elif attrs.get("type") == "EXPORT":
                 export_node = node_id
                 
-        self.assertIsNotNone(source_node)
-        self.assertIsNotNone(load_node)
-        self.assertIsNotNone(export_node)
+        assert source_node is not None
+        assert load_node is not None
+        assert export_node is not None
         
-        self.assertIn(source_node, dag.get_predecessors(load_node))
-        self.assertIn(load_node, dag.get_predecessors(export_node))
+        assert source_node in dag.get_predecessors(load_node)
+        assert load_node in dag.get_predecessors(export_node)
         
     def test_sql_block_in_dag(self):
         """Test assembling a DAG with SQL blocks."""
@@ -143,7 +143,7 @@ class TestASTToDAG(unittest.TestCase):
         dag_builder = ASTDAGBuilder()
         dag = dag_builder.build_dag_from_ast(pipeline)
         
-        self.assertEqual(len(dag.get_all_nodes()), 4)
+        assert len(dag.get_all_nodes()) == 4
         
         source_node = None
         load_node = None
@@ -161,11 +161,11 @@ class TestASTToDAG(unittest.TestCase):
             elif attrs.get("type") == "EXPORT":
                 export_node = node_id
                 
-        self.assertIsNotNone(source_node)
-        self.assertIsNotNone(load_node)
-        self.assertIsNotNone(sql_block_node)
-        self.assertIsNotNone(export_node)
+        assert source_node is not None
+        assert load_node is not None
+        assert sql_block_node is not None
+        assert export_node is not None
         
-        self.assertIn(source_node, dag.get_predecessors(load_node))
-        self.assertIn(load_node, dag.get_predecessors(sql_block_node))
-        self.assertIn(sql_block_node, dag.get_predecessors(export_node))
+        assert source_node in dag.get_predecessors(load_node)
+        assert load_node in dag.get_predecessors(sql_block_node)
+        assert sql_block_node in dag.get_predecessors(export_node)

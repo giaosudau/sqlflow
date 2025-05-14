@@ -13,7 +13,18 @@ setup(
         "pandas",
         "pyarrow",
         "click",
+        "networkx",
     ],
+    extras_require={
+        "dev": [
+            "pytest>=7.0.0",
+            "pytest-cov>=4.1.0",
+            "black>=22.1.0",
+            "isort>=5.10.1",
+            "mypy>=0.931",
+            "flake8>=4.0.1",
+        ],
+    },
     entry_points={
         "console_scripts": [
             "sqlflow=sqlflow.sqlflow.main:main",
