@@ -1,4 +1,3 @@
-
 # SQLFlow Technical Design Document
 
 ## Executive Summary
@@ -16,7 +15,7 @@ SQLFlow is an end-to-end, SQL-centric data transformation framework that empower
    Support any data source or destination via pluggable connectors (SaaS APIs, file systems, databases, HTTP endpoints).
 
 3. **Powerful Transformations**  
-   Combine DuckDB’s high-performance SQL engine with pandas-based Python UDFs for complex logic.
+   Combine DuckDB's high-performance SQL engine with pandas-based Python UDFs for complex logic.
 
 4. **Modular Extensibility**  
    Enable easy development of new connectors, engines, and pipeline directives through a clear plugin interface.
@@ -26,8 +25,8 @@ SQLFlow is an end-to-end, SQL-centric data transformation framework that empower
 
 ### 1.2 Key Principles
 
-- **SQL-First**: Leverage users’ existing SQL skills; minimize context switching.  
-- **Simplicity**: Clear, consistent syntax; avoid hidden “magic.”  
+- **SQL-First**: Leverage users' existing SQL skills; minimize context switching.  
+- **Simplicity**: Clear, consistent syntax; avoid hidden "magic."  
 - **Pythonic**: Follow Python community conventions in APIs and code.  
 - **Modularity**: Decouple parser, compiler, runtime, connectors, and CLI into interchangeable components.  
 - **Performance**: Optimize by pushing down filters, parallel execution, Arrow-based zero-copy transfers, and cost-based engine selection.
@@ -138,7 +137,7 @@ Note: All pipeline-related commands are organized under the `pipeline` subcomman
 ### 5.1 Phased Workflow
 
 1. **Parsing**  
-   - Extend DuckDB’s parser to recognize SQLFlow directives.  
+   - Extend DuckDB's parser to recognize SQLFlow directives.  
 2. **Compilation**  
    - Build an AST → dependency graph (DAG of operations).  
 3. **Optimization**  
@@ -231,7 +230,7 @@ FROM raw_sales;
   2. sqlflow init my_project  
   3. Write simple .sf with SOURCE/LOAD/EXPORT  
   4. sqlflow pipeline run example  
-- Tutorials: “From Business Ask to Pipeline” guides.  
+- Tutorials: "From Business Ask to Pipeline" guides.  
 - Cheat Sheets: Core directives, variable syntax, connector patterns.  
 - Deployment Recipes: Local, Airflow operator, Kubernetes+Celery, Serverless.
 

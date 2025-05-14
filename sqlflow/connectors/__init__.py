@@ -17,3 +17,5 @@ __all__ = [
     "register_connector",
     "register_export_connector",
 ]
+
+# Ensure built-in connectors are registered

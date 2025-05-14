@@ -4,6 +4,18 @@ SOURCE sample TYPE CSV PARAMS {
   "has_header": true
 };
 
+SOURCE customers_src TYPE CSV PARAMS {
+  "path": "data/customers.csv",
+  "has_header": true
+};
+LOAD customers FROM customers_src;
+
+SOURCE products_src TYPE CSV PARAMS {
+  "path": "data/products.csv",
+  "has_header": true
+};
+LOAD products FROM products_src;
+
 -- Load data into tables
 LOAD raw_data FROM sample;
 
@@ -17,9 +29,9 @@ SELECT
   s.product_id,
   p.name AS product_name,
   p.category,
-  s.quantity,
-  s.price,
-  (s.quantity * s.price) AS total_amount,
+  CAST(s.quantity AS INTEGER) AS quantity,
+  CAST(s.price AS DOUBLE) AS price,
+  (CAST(s.quantity AS INTEGER) * CAST(s.price AS DOUBLE)) AS total_amount,
   s.order_date
 FROM raw_data s
 JOIN customers c ON s.customer_id = c.customer_id

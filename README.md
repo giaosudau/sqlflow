@@ -127,3 +127,19 @@ For more information, see the [documentation](https://sqlflow.readthedocs.io).
 ## License
 
 MIT
+
+## Profile Configuration Example
+
+To configure the DuckDB engine, set the path in your profile YAML (e.g., `profiles/default.yml`) under the `engines` key:
+
+```yaml
+engines:
+  duckdb:
+    type: duckdb
+    path: target/default.db
+```
+
+- `type`: The engine type (currently only 'duckdb' is supported).
+- `path`: Path to the DuckDB database file. Use `:memory:` for an in-memory database.
+
+The executor will use this path for all transformations and table storage. If not set, it defaults to `:memory:`.

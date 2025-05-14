@@ -1,9 +1,15 @@
 """Tests for the dependency resolver."""
 
+import os
+import shutil
+import tempfile
+
 import pytest
+import yaml
 
 from sqlflow.core.dependencies import DependencyResolver
 from sqlflow.core.errors import CircularDependencyError
+from sqlflow.core.executors.local_executor import LocalExecutor
 
 
 class TestDependencyResolver:
@@ -99,3 +105,38 @@ class TestDependencyResolver:
         assert "pipeline_b" in cycle
         assert "pipeline_c" in cycle
         assert cycle[-1] == "pipeline_a"
+
+
+def make_temp_project_with_profile(duckdb_path=None):
+    temp_dir = tempfile.mkdtemp()
+    os.makedirs(os.path.join(temp_dir, "profiles"), exist_ok=True)
+    profile = {
+        "engines": {
+            "duckdb": {
+                "type": "duckdb",
+            }
+        }
+    }
+    if duckdb_path is not None:
+        profile["engines"]["duckdb"]["path"] = duckdb_path
+    with open(os.path.join(temp_dir, "profiles", "default.yml"), "w") as f:
+        yaml.dump(profile, f)
+    with open(os.path.join(temp_dir, "sqlflow.yml"), "w") as f:
+        yaml.dump({"default_profile": "default", "paths": {"profiles": "profiles"}}, f)
+    return temp_dir
+
+
+def test_local_executor_duckdb_path_config(monkeypatch):
+    temp_dir = make_temp_project_with_profile("/tmp/test_duckdb_config.db")
+    monkeypatch.chdir(temp_dir)
+    executor = LocalExecutor()
+    assert executor.duckdb_engine.database_path == "/tmp/test_duckdb_config.db"
+    shutil.rmtree(temp_dir)
+
+
+def test_local_executor_duckdb_path_default(monkeypatch):
+    temp_dir = make_temp_project_with_profile(None)
+    monkeypatch.chdir(temp_dir)
+    executor = LocalExecutor()
+    assert executor.duckdb_engine.database_path == ":memory:"
+    shutil.rmtree(temp_dir)
