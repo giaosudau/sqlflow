@@ -33,7 +33,7 @@ This plan breaks down the roadmap into epics, milestones, and tasks sized to ~4 
   - **Outcome**: Compiler raises error on circular dependencies.  
   - **DoD**: Test pipeline with cycle → error.
 
-- **Task 1.2.2**: Operation planner  
+- **Task 1.2.2**: Operation planner ✅  
   - **Outcome**: Map DAG nodes to execution plan items.  
   - **DoD**: Verify plan order matches dependencies.
 
