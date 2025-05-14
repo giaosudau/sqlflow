@@ -1,6 +1,6 @@
 """Error classes for SQLFlow."""
 
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 
 class SQLFlowError(Exception):
@@ -78,3 +78,17 @@ class ExecutionError(SQLFlowError):
         super().__init__(
             f"Execution error in pipeline '{pipeline_name}', step '{step_name}': {message}"
         )
+
+
+class PlanningError(SQLFlowError):
+    """Error raised when planning operations fails."""
+
+    def __init__(self, message: str, details: Optional[Dict[str, Any]] = None):
+        """Initialize a PlanningError.
+
+        Args:
+            message: Error message
+            details: Additional details about the error
+        """
+        self.details = details or {}
+        super().__init__(f"Planning error: {message}")
