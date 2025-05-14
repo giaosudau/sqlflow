@@ -72,6 +72,25 @@ class ExecutionPlanBuilder:
         Args:
             pipeline: The pipeline to build a dependency graph for
         """
+        table_to_step = self._build_table_to_step_mapping(pipeline)
+
+        for i, step in enumerate(pipeline.steps):
+            if isinstance(step, SQLBlockStep):
+                self._analyze_sql_dependencies(step, table_to_step)
+            elif isinstance(step, ExportStep):
+                self._analyze_export_dependencies(step, table_to_step)
+
+    def _build_table_to_step_mapping(
+        self, pipeline: Pipeline
+    ) -> Dict[str, PipelineStep]:
+        """Build a mapping from table names to their defining steps.
+
+        Args:
+            pipeline: The pipeline to build the mapping for
+
+        Returns:
+            A dictionary mapping table names to their defining steps
+        """
         table_to_step = {}
 
         for step in pipeline.steps:
@@ -80,37 +99,55 @@ class ExecutionPlanBuilder:
             elif isinstance(step, SQLBlockStep):
                 table_to_step[step.table_name] = step
 
-        # Second pass: analyze dependencies
-        for i, step in enumerate(pipeline.steps):
-            if isinstance(step, SQLBlockStep):
-                # In a real implementation, we would parse the SQL query
-                sql_query = step.sql_query.lower()
+        return table_to_step
 
-                if "filtered_users" in sql_query and step.table_name == "user_stats":
-                    filtered_users_step = table_to_step.get("filtered_users")
-                    if filtered_users_step:
-                        self._add_dependency(step, filtered_users_step)
-                    continue
+    def _analyze_sql_dependencies(
+        self, step: SQLBlockStep, table_to_step: Dict[str, PipelineStep]
+    ) -> None:
+        """Analyze dependencies for a SQL step.
 
-                for table_name, table_step in table_to_step.items():
-                    if table_step == step:
-                        continue
+        Args:
+            step: The SQL step to analyze
+            table_to_step: A mapping from table names to their defining steps
+        """
+        sql_query = step.sql_query.lower()
 
-                    if (
-                        f"from {table_name}" in sql_query
-                        or f"join {table_name}" in sql_query
-                    ):
-                        self._add_dependency(step, table_step)
+        if "filtered_users" in sql_query and step.table_name == "user_stats":
+            filtered_users_step = table_to_step.get("filtered_users")
+            if filtered_users_step:
+                self._add_dependency(step, filtered_users_step)
+            return
 
-            elif isinstance(step, ExportStep):
-                sql_query = step.sql_query.lower()
+        self._find_table_references(step, sql_query, table_to_step)
 
-                for table_name, table_step in table_to_step.items():
-                    if (
-                        f"from {table_name}" in sql_query
-                        or f"join {table_name}" in sql_query
-                    ):
-                        self._add_dependency(step, table_step)
+    def _analyze_export_dependencies(
+        self, step: ExportStep, table_to_step: Dict[str, PipelineStep]
+    ) -> None:
+        """Analyze dependencies for an export step.
+
+        Args:
+            step: The export step to analyze
+            table_to_step: A mapping from table names to their defining steps
+        """
+        sql_query = step.sql_query.lower()
+        self._find_table_references(step, sql_query, table_to_step)
+
+    def _find_table_references(
+        self, step: PipelineStep, sql_query: str, table_to_step: Dict[str, PipelineStep]
+    ) -> None:
+        """Find table references in a SQL query and add dependencies.
+
+        Args:
+            step: The step to add dependencies to
+            sql_query: The SQL query to analyze
+            table_to_step: A mapping from table names to their defining steps
+        """
+        for table_name, table_step in table_to_step.items():
+            if table_step == step:
+                continue
+
+            if f"from {table_name}" in sql_query or f"join {table_name}" in sql_query:
+                self._add_dependency(step, table_step)
 
     def _add_dependency(
         self, dependent_step: PipelineStep, dependency_step: PipelineStep
@@ -191,16 +228,45 @@ class ExecutionPlanBuilder:
         Returns:
             A list of step IDs in execution order
         """
-        resolver = DependencyResolver()
-        for step_id, dependencies in self.step_dependencies.items():
-            for dependency in dependencies:
-                resolver.add_dependency(step_id, dependency)
-
+        resolver = self._create_dependency_resolver()
         all_step_ids = list(self.step_id_map.values())
 
         if not all_step_ids:
             return []
 
+        entry_points = self._find_entry_points(resolver, all_step_ids)
+        execution_order = self._build_execution_order(resolver, entry_points)
+
+        # Make sure all steps are included in the execution order
+        self._ensure_all_steps_included(execution_order, all_step_ids)
+
+        return execution_order
+
+    def _create_dependency_resolver(self) -> DependencyResolver:
+        """Create a dependency resolver with the current dependencies.
+
+        Returns:
+            A dependency resolver with the current dependencies
+        """
+        resolver = DependencyResolver()
+        for step_id, dependencies in self.step_dependencies.items():
+            for dependency in dependencies:
+                resolver.add_dependency(step_id, dependency)
+
+        return resolver
+
+    def _find_entry_points(
+        self, resolver: DependencyResolver, all_step_ids: List[str]
+    ) -> List[str]:
+        """Find entry points for the execution order.
+
+        Args:
+            resolver: The dependency resolver
+            all_step_ids: All step IDs
+
+        Returns:
+            A list of entry points
+        """
         entry_points = []
         for step_id in all_step_ids:
             if step_id not in resolver.dependencies:
@@ -209,6 +275,20 @@ class ExecutionPlanBuilder:
         if not entry_points and all_step_ids:
             entry_points = [all_step_ids[0]]
 
+        return entry_points
+
+    def _build_execution_order(
+        self, resolver: DependencyResolver, entry_points: List[str]
+    ) -> List[str]:
+        """Build the execution order from entry points.
+
+        Args:
+            resolver: The dependency resolver
+            entry_points: The entry points
+
+        Returns:
+            A list of step IDs in execution order
+        """
         execution_order = []
         for entry_point in entry_points:
             # Skip if this step is already in the execution order
@@ -221,12 +301,20 @@ class ExecutionPlanBuilder:
                 if step_id not in execution_order:
                     execution_order.append(step_id)
 
-        # Make sure all steps are included in the execution order
+        return execution_order
+
+    def _ensure_all_steps_included(
+        self, execution_order: List[str], all_step_ids: List[str]
+    ) -> None:
+        """Ensure all steps are included in the execution order.
+
+        Args:
+            execution_order: The current execution order
+            all_step_ids: All step IDs
+        """
         for step_id in all_step_ids:
             if step_id not in execution_order:
                 execution_order.append(step_id)
-
-        return execution_order
 
     def _build_execution_step(self, pipeline_step: PipelineStep) -> Dict[str, Any]:
         """Build an execution step from a pipeline step.
