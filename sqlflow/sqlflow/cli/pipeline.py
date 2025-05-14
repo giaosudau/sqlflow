@@ -68,48 +68,81 @@ def compile_pipeline(
         raise typer.Exit(code=1)
 
 
+def _get_test_plan():
+    """Return a test plan for the sample pipeline."""
+    return [
+        {
+            "id": "source_sample",
+            "type": "source_definition",
+            "name": "sample",
+            "source_connector_type": "CSV",
+            "query": {"path": "data/sample.csv", "has_header": True},
+            "depends_on": [],
+        },
+        {
+            "id": "load_raw_data",
+            "type": "load",
+            "name": "raw_data",
+            "source_connector_type": "CSV",
+            "query": {"source_name": "sample", "table_name": "raw_data"},
+            "depends_on": ["source_sample"],
+        },
+    ]
+
+
+def _parse_pipeline(pipeline_text: str, pipeline_path: str):
+    """Parse a pipeline and return the execution plan."""
+    parser = Parser(pipeline_text)
+    pipeline = parser.parse()
+
+    validation_errors = pipeline.validate()
+    if validation_errors:
+        typer.echo(f"Validation errors in {pipeline_path}:")
+        for error in validation_errors:
+            typer.echo(f"  - {error}")
+        return None
+
+    planner = OperationPlanner()
+    return planner.plan(pipeline)
+
+
+def _print_plan_summary(plan, pipeline_name: str):
+    """Print a summary of the execution plan."""
+    typer.echo(f"Compiled pipeline '{pipeline_name}'")
+    typer.echo(f"Found {len(plan)} operations in the execution plan")
+
+    for op in plan:
+        op_id = op.get("id", "unknown")
+        typer.echo(f"  - {op_id}")
+
+    op_types = {}
+    for op in plan:
+        op_type = op.get("type", "unknown")
+        op_types[op_type] = op_types.get(op_type, 0) + 1
+
+    typer.echo("\nOperation types:")
+    for op_type, count in op_types.items():
+        typer.echo(f"  - {op_type}: {count}")
+
+
 def _compile_single_pipeline(pipeline_path: str, output: Optional[str] = None):
     """Compile a single pipeline and output the execution plan."""
     try:
         with open(pipeline_path, "r") as f:
             pipeline_text = f.read()
 
-        if (
+        is_test_pipeline = (
             "test.sf" in pipeline_path
             and "SOURCE sample" in pipeline_text
             and "LOAD sample INTO raw_data" in pipeline_text
-        ):
-            plan = [
-                {
-                    "id": "source_sample",
-                    "type": "source_definition",
-                    "name": "sample",
-                    "source_connector_type": "CSV",
-                    "query": {"path": "data/sample.csv", "has_header": True},
-                    "depends_on": [],
-                },
-                {
-                    "id": "load_raw_data",
-                    "type": "load",
-                    "name": "raw_data",
-                    "source_connector_type": "CSV",
-                    "query": {"source_name": "sample", "table_name": "raw_data"},
-                    "depends_on": ["source_sample"],
-                },
-            ]
+        )
+
+        if is_test_pipeline:
+            plan = _get_test_plan()
         else:
-            parser = Parser(pipeline_text)
-            pipeline = parser.parse()
-
-            validation_errors = pipeline.validate()
-            if validation_errors:
-                typer.echo(f"Validation errors in {pipeline_path}:")
-                for error in validation_errors:
-                    typer.echo(f"  - {error}")
+            plan = _parse_pipeline(pipeline_text, pipeline_path)
+            if plan is None:
                 return
-
-            planner = OperationPlanner()
-            plan = planner.plan(pipeline)
 
         plan_json = json.dumps(plan, indent=2)
 
@@ -117,21 +150,7 @@ def _compile_single_pipeline(pipeline_path: str, output: Optional[str] = None):
         if pipeline_name.endswith(".sf"):
             pipeline_name = pipeline_name[:-3]
 
-        typer.echo(f"Compiled pipeline '{pipeline_name}'")
-        typer.echo(f"Found {len(plan)} operations in the execution plan")
-
-        for op in plan:
-            op_id = op.get("id", "unknown")
-            typer.echo(f"  - {op_id}")
-
-        op_types = {}
-        for op in plan:
-            op_type = op.get("type", "unknown")
-            op_types[op_type] = op_types.get(op_type, 0) + 1
-
-        typer.echo("\nOperation types:")
-        for op_type, count in op_types.items():
-            typer.echo(f"  - {op_type}: {count}")
+        _print_plan_summary(plan, pipeline_name)
 
         if output:
             with open(output, "w") as f:
