@@ -74,6 +74,66 @@ class ASTDAGBuilder(DAGBuilder):
 
         return attrs
 
+    def _build_source_map(self, pipeline: Pipeline) -> Dict[str, str]:
+        """Build a map of source names to node IDs.
+
+        Args:
+            pipeline: Pipeline AST
+
+        Returns:
+            Map of source names to node IDs
+        """
+        source_map = {}
+        for i, step in enumerate(pipeline.steps):
+            if isinstance(step, SourceDefinitionStep):
+                source_map[step.name] = f"step_{i}"
+        return source_map
+
+    def _build_table_map(self, pipeline: Pipeline) -> Dict[str, str]:
+        """Build a map of table names to node IDs.
+
+        Args:
+            pipeline: Pipeline AST
+
+        Returns:
+            Map of table names to node IDs
+        """
+        table_map = {}
+        for i, step in enumerate(pipeline.steps):
+            if isinstance(step, LoadStep) or isinstance(step, SQLBlockStep):
+                table_map[step.table_name] = f"step_{i}"
+        return table_map
+
+    def _add_load_dependencies(
+        self, dag: PipelineDAG, node_id: str, step: LoadStep, source_map: Dict[str, str]
+    ) -> None:
+        """Add dependencies for LOAD steps.
+
+        Args:
+            dag: PipelineDAG
+            node_id: Node ID
+            step: Pipeline step
+            source_map: Map of source names to node IDs
+        """
+        source_name = step.source_name
+        if source_name in source_map:
+            dag.add_edge(source_map[source_name], node_id)
+
+    def _add_sql_dependencies(
+        self, dag: PipelineDAG, node_id: str, sql_query: str, table_map: Dict[str, str]
+    ) -> None:
+        """Add dependencies for SQL-based steps.
+
+        Args:
+            dag: PipelineDAG
+            node_id: Node ID
+            sql_query: SQL query
+            table_map: Map of table names to node IDs
+        """
+        for table_name in table_map:
+            if table_name in sql_query:
+                dag.add_edge(table_map[table_name], node_id)
+
     def _add_dependencies(self, dag: PipelineDAG, pipeline: Pipeline) -> None:
         """Add dependencies between pipeline steps.
 
@@ -81,32 +141,15 @@ class ASTDAGBuilder(DAGBuilder):
             dag: PipelineDAG
             pipeline: Pipeline AST
         """
-        source_map = {}
-
-        table_map = {}
-
-        for i, step in enumerate(pipeline.steps):
-            node_id = f"step_{i}"
-
-            if isinstance(step, SourceDefinitionStep):
-                source_map[step.name] = node_id
-            elif isinstance(step, LoadStep):
-                table_map[step.table_name] = node_id
-            elif isinstance(step, SQLBlockStep):
-                table_map[step.table_name] = node_id
+        source_map = self._build_source_map(pipeline)
+        table_map = self._build_table_map(pipeline)
 
         for i, step in enumerate(pipeline.steps):
             node_id = f"step_{i}"
 
             if isinstance(step, LoadStep):
-                source_name = step.source_name
-                if source_name in source_map:
-                    dag.add_edge(source_map[source_name], node_id)
+                self._add_load_dependencies(dag, node_id, step, source_map)
             elif isinstance(step, ExportStep):
-                for table_name in table_map:
-                    if table_name in step.sql_query:
-                        dag.add_edge(table_map[table_name], node_id)
+                self._add_sql_dependencies(dag, node_id, step.sql_query, table_map)
             elif isinstance(step, SQLBlockStep):
-                for table_name in table_map:
-                    if table_name in step.sql_query:
-                        dag.add_edge(table_map[table_name], node_id)
+                self._add_sql_dependencies(dag, node_id, step.sql_query, table_map)

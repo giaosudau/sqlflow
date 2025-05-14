@@ -105,7 +105,7 @@ class TestParser:
             "connection": "postgresql://user:pass@localhost:5432/db",
             "table": "users"
         };
-        
+
         SOURCE sales TYPE CSV PARAMS {
             "path": "data/sales.csv",
             "has_header": true
@@ -139,7 +139,7 @@ class TestParser:
             "connection": "postgresql://user:pass@localhost:5432/db",
             "table": "users"
         };
-        
+
         LOAD users_table FROM users;"""
 
         parser = Parser(text)

@@ -41,7 +41,6 @@ def sample_pipeline() -> str:
         "connection": "postgresql://user:pass@localhost:5432/db",
         "table": "users"
     };
-    
     SOURCE sales TYPE CSV PARAMS {
         "path": "data/sales.csv",
         "has_header": true
