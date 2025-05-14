@@ -77,6 +77,45 @@ class LoadStep(PipelineStep):
 
 
 @dataclass
+class ExportStep(PipelineStep):
+    """Represents an EXPORT directive in the pipeline.
+    
+    Example:
+        EXPORT
+          SELECT * FROM users
+        TO "s3://bucket/users.csv"
+        TYPE CSV
+        OPTIONS {
+            "delimiter": ",",
+            "header": true
+        };
+    """
+    
+    sql_query: str
+    destination_uri: str
+    connector_type: str
+    options: Dict[str, Any]
+    line_number: Optional[int] = None
+    
+    def validate(self) -> List[str]:
+        """Validate the EXPORT directive.
+        
+        Returns:
+            List of validation error messages, empty if valid
+        """
+        errors = []
+        if not self.sql_query:
+            errors.append("EXPORT directive requires a SQL query")
+        if not self.destination_uri:
+            errors.append("EXPORT directive requires a destination URI")
+        if not self.connector_type:
+            errors.append("EXPORT directive requires a connector TYPE")
+        if not self.options:
+            errors.append("EXPORT directive requires OPTIONS")
+        return errors
+
+
+@dataclass
 class Pipeline:
     """Represents a complete parsed pipeline.
 

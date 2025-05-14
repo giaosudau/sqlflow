@@ -3,7 +3,7 @@
 import json
 from typing import Dict, List, Optional, Any, Tuple, Union
 
-from sqlflow.sqlflow.parser.ast import Pipeline, PipelineStep, SourceDefinitionStep, LoadStep
+from sqlflow.sqlflow.parser.ast import Pipeline, PipelineStep, SourceDefinitionStep, LoadStep, ExportStep
 from sqlflow.sqlflow.parser.lexer import Lexer, Token, TokenType
 
 
@@ -78,6 +78,8 @@ class Parser:
             return self._parse_source_statement()
         elif token.type == TokenType.LOAD:
             return self._parse_load_statement()
+        elif token.type == TokenType.EXPORT:
+            return self._parse_export_statement()
         
         self._advance()
         return None
@@ -208,6 +210,53 @@ class Parser:
             line_number=load_token.line
         )
     
+    def _parse_export_statement(self) -> ExportStep:
+        """Parse an EXPORT statement.
+        
+        Returns:
+            ExportStep
+            
+        Raises:
+            ParserError: If the EXPORT statement cannot be parsed
+        """
+        export_token = self._consume(TokenType.EXPORT, "Expected 'EXPORT'")
+        
+        self._consume(TokenType.SELECT, "Expected 'SELECT' after 'EXPORT'")
+        
+        sql_query_tokens = ["SELECT"]
+        while not self._check(TokenType.TO) and not self._is_at_end():
+            sql_query_tokens.append(self._advance().value)
+        
+        sql_query = " ".join(sql_query_tokens)
+        
+        self._consume(TokenType.TO, "Expected 'TO' after SQL query")
+        
+        destination_uri_token = self._consume(TokenType.STRING, "Expected destination URI string after 'TO'")
+        destination_uri = destination_uri_token.value.strip('"')
+        
+        self._consume(TokenType.TYPE, "Expected 'TYPE' after destination URI")
+        
+        connector_type_token = self._consume(TokenType.IDENTIFIER, "Expected connector type after 'TYPE'")
+        
+        self._consume(TokenType.OPTIONS, "Expected 'OPTIONS' after connector type")
+        
+        options_token = self._consume(TokenType.JSON_OBJECT, "Expected JSON object after 'OPTIONS'")
+        
+        try:
+            options = json.loads(options_token.value)
+        except json.JSONDecodeError:
+            raise ParserError("Invalid JSON in OPTIONS", options_token.line, options_token.column)
+        
+        self._consume(TokenType.SEMICOLON, "Expected ';' after EXPORT statement")
+        
+        return ExportStep(
+            sql_query=sql_query,
+            destination_uri=destination_uri,
+            connector_type=connector_type_token.value,
+            options=options,
+            line_number=export_token.line
+        )
+    
     def _synchronize(self) -> None:
         """Synchronize the parser after an error.
         
@@ -222,6 +271,7 @@ class Parser:
             if self._peek().type in (
                 TokenType.SOURCE,
                 TokenType.LOAD,
+                TokenType.EXPORT,
             ):
                 return
                 

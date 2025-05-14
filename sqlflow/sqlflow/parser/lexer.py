@@ -14,6 +14,10 @@ class TokenType(Enum):
     PARAMS = auto()
     LOAD = auto()
     FROM = auto()
+    EXPORT = auto()
+    TO = auto()
+    OPTIONS = auto()
+    SELECT = auto()
     
     IDENTIFIER = auto()
     STRING = auto()
@@ -66,6 +70,10 @@ class Lexer:
             (TokenType.PARAMS, re.compile(r'PARAMS\b', re.IGNORECASE)),
             (TokenType.LOAD, re.compile(r'LOAD\b', re.IGNORECASE)),
             (TokenType.FROM, re.compile(r'FROM\b', re.IGNORECASE)),
+            (TokenType.EXPORT, re.compile(r'EXPORT\b', re.IGNORECASE)),
+            (TokenType.TO, re.compile(r'TO\b', re.IGNORECASE)),
+            (TokenType.OPTIONS, re.compile(r'OPTIONS\b', re.IGNORECASE)),
+            (TokenType.SELECT, re.compile(r'SELECT\b', re.IGNORECASE)),
             (TokenType.SEMICOLON, re.compile(r';')),
             (TokenType.IDENTIFIER, re.compile(r'[a-zA-Z_][a-zA-Z0-9_]*')),
             (TokenType.STRING, re.compile(r'"(?:[^"\\]|\\.)*"')),
