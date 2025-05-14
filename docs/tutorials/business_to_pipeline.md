@@ -171,10 +171,11 @@ Before running the pipeline, let's compile it to validate the syntax and see the
 
 ```bash
 # Compile the pipeline to validate syntax and see execution plan
-sqlflow pipeline compile daily_sales_report --output plan.json
+sqlflow pipeline compile daily_sales_report
 
+# The execution plan is automatically saved to the project's target directory
 # View the execution plan
-cat plan.json
+cat target/compiled/daily_sales_report.json
 ```
 
 The execution plan shows the DAG (Directed Acyclic Graph) of operations that will be performed, including:

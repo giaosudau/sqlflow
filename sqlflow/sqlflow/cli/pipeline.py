@@ -23,15 +23,21 @@ def compile_pipeline(
         None, help="Name of the pipeline (omit .sf extension)"
     ),
     output: Optional[str] = typer.Option(
-        None, help="Output file for the execution plan (default: stdout)"
+        None, help="Custom output file for the execution plan (default: target/compiled/)"
     ),
 ):
-    """Parse and validate pipeline(s), output execution plan."""
+    """Parse and validate pipeline(s), output execution plan.
+    
+    The execution plan is automatically saved to the project's target/compiled directory.
+    """
     project = Project(os.getcwd())
     pipelines_dir = os.path.join(
         project.project_dir,
         project.config.get("paths", {}).get("pipelines", "pipelines"),
     )
+    
+    target_dir = os.path.join(project.project_dir, "target", "compiled")
+    os.makedirs(target_dir, exist_ok=True)
 
     if pipeline_name is None:
         if not os.path.exists(pipelines_dir):
@@ -46,13 +52,16 @@ def compile_pipeline(
 
         for file_name in pipeline_files:
             pipeline_path = os.path.join(pipelines_dir, file_name)
-            _compile_single_pipeline(pipeline_path, output)
+            pipeline_name = file_name[:-3]
+            auto_output = os.path.join(target_dir, f"{pipeline_name}.json")
+            _compile_single_pipeline(pipeline_path, output or auto_output)
 
         return
 
     try:
         pipeline_path = resolve_pipeline_name(pipeline_name, pipelines_dir)
-        _compile_single_pipeline(pipeline_path, output)
+        auto_output = os.path.join(target_dir, f"{pipeline_name}.json")
+        _compile_single_pipeline(pipeline_path, output or auto_output)
     except FileNotFoundError as e:
         typer.echo(str(e))
         raise typer.Exit(code=1)
@@ -103,11 +112,28 @@ def _compile_single_pipeline(pipeline_path: str, output: Optional[str] = None):
 
         plan_json = json.dumps(plan, indent=2)
 
+        pipeline_name = os.path.basename(pipeline_path)
+        if pipeline_name.endswith(".sf"):
+            pipeline_name = pipeline_name[:-3]
+            
+        typer.echo(f"Compiled pipeline '{pipeline_name}'")
+        typer.echo(f"Found {len(plan)} operations in the execution plan")
+        
+        op_types = {}
+        for op in plan:
+            op_type = op.get("type", "unknown")
+            op_types[op_type] = op_types.get(op_type, 0) + 1
+            
+        typer.echo("\nOperation types:")
+        for op_type, count in op_types.items():
+            typer.echo(f"  - {op_type}: {count}")
+            
         if output:
             with open(output, "w") as f:
                 f.write(plan_json)
-            typer.echo(f"Execution plan written to {output}")
+            typer.echo(f"\nExecution plan written to {output}")
         else:
+            typer.echo("\nExecution plan:")
             typer.echo(plan_json)
 
     except Exception as e:
