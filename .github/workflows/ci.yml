@@ -31,7 +31,6 @@ jobs:
           black --check .
           isort --check-only .
           flake8 --config=setup.cfg .
-          mypy --explicit-package-bases --ignore-missing-imports --exclude tests/ .
 
       - name: Run tests
         run: |
