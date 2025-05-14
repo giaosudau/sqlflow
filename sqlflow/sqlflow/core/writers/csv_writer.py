@@ -2,7 +2,7 @@
 
 import csv
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 import pandas as pd
 
@@ -16,19 +16,19 @@ class CSVWriter(WriterProtocol):
         self, data: Any, destination: str, options: Optional[Dict[str, Any]] = None
     ) -> None:
         """Write data to a CSV file.
-        
+
         Args:
             data: Data to write (pandas DataFrame or similar)
             destination: Path to the CSV file
             options: Options for the writer
         """
         options = options or {}
-        
+
         os.makedirs(os.path.dirname(os.path.abspath(destination)), exist_ok=True)
-        
+
         if not isinstance(data, pd.DataFrame):
             data = pd.DataFrame(data)
-            
+
         data.to_csv(
             destination,
             index=options.get("include_index", False),

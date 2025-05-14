@@ -1,6 +1,6 @@
 """DAG builder for SQLFlow pipelines."""
 
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List
 
 import networkx as nx
 
@@ -15,7 +15,7 @@ class PipelineDAG:
 
     def add_node(self, node_id: str, **attrs) -> None:
         """Add a node to the DAG.
-        
+
         Args:
             node_id: Unique identifier for the node
             **attrs: Node attributes
@@ -25,7 +25,7 @@ class PipelineDAG:
 
     def add_edge(self, from_node: str, to_node: str) -> None:
         """Add an edge between nodes.
-        
+
         Args:
             from_node: Source node ID
             to_node: Target node ID
@@ -34,10 +34,10 @@ class PipelineDAG:
 
     def get_node_attributes(self, node_id: str) -> Dict[str, str]:
         """Get attributes for a node.
-        
+
         Args:
             node_id: Node ID
-            
+
         Returns:
             Dict of node attributes
         """
@@ -45,7 +45,7 @@ class PipelineDAG:
 
     def get_all_nodes(self) -> List[str]:
         """Get all node IDs.
-        
+
         Returns:
             List of node IDs
         """
@@ -53,10 +53,10 @@ class PipelineDAG:
 
     def get_predecessors(self, node_id: str) -> List[str]:
         """Get predecessors of a node.
-        
+
         Args:
             node_id: Node ID
-            
+
         Returns:
             List of predecessor node IDs
         """
@@ -64,10 +64,10 @@ class PipelineDAG:
 
     def get_successors(self, node_id: str) -> List[str]:
         """Get successors of a node.
-        
+
         Args:
             node_id: Node ID
-            
+
         Returns:
             List of successor node IDs
         """
@@ -75,7 +75,7 @@ class PipelineDAG:
 
     def has_cycles(self) -> bool:
         """Check if the DAG has cycles.
-        
+
         Returns:
             True if the DAG has cycles, False otherwise
         """
@@ -83,7 +83,7 @@ class PipelineDAG:
 
     def topological_sort(self) -> List[str]:
         """Sort nodes in topological order.
-        
+
         Returns:
             List of node IDs in topological order
         """
@@ -95,25 +95,25 @@ class DAGBuilder:
 
     def build_dag(self, pipeline_steps: List[Dict]) -> PipelineDAG:
         """Build a DAG from pipeline steps.
-        
+
         Args:
             pipeline_steps: List of pipeline steps
-            
+
         Returns:
             PipelineDAG
         """
         dag = PipelineDAG()
-        
+
         for step in pipeline_steps:
             dag.add_node(
                 step["id"],
                 label=step.get("name", step["id"]),
                 type=step.get("type", "unknown"),
             )
-            
+
         for step in pipeline_steps:
             if "depends_on" in step:
                 for dependency in step["depends_on"]:
                     dag.add_edge(dependency, step["id"])
-                    
+
         return dag

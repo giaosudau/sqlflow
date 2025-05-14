@@ -1,7 +1,7 @@
 """Protocol definitions for SQLFlow components."""
 
-from abc import ABC, abstractmethod
-from typing import Any, Dict, Iterator, List, Optional, Protocol, runtime_checkable
+from abc import abstractmethod
+from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
 
 
 @runtime_checkable
@@ -9,7 +9,9 @@ class WriterProtocol(Protocol):
     """Protocol for data writers."""
 
     @abstractmethod
-    def write(self, data: Any, destination: str, options: Optional[Dict[str, Any]] = None) -> None:
+    def write(
+        self, data: Any, destination: str, options: Optional[Dict[str, Any]] = None
+    ) -> None:
         """Write data to a destination.
 
         Args:
@@ -17,7 +19,6 @@ class WriterProtocol(Protocol):
             destination: Destination to write to
             options: Options for the writer
         """
-        pass
 
 
 @runtime_checkable
@@ -34,7 +35,6 @@ class ExecutorProtocol(Protocol):
         Returns:
             Dict containing execution results
         """
-        pass
 
 
 @runtime_checkable
@@ -49,7 +49,6 @@ class StorageManagerProtocol(Protocol):
             key: Key to store data under
             data: Data to store
         """
-        pass
 
     @abstractmethod
     def retrieve(self, key: str) -> Any:
@@ -61,7 +60,6 @@ class StorageManagerProtocol(Protocol):
         Returns:
             Retrieved data
         """
-        pass
 
     @abstractmethod
     def exists(self, key: str) -> bool:
@@ -73,4 +71,3 @@ class StorageManagerProtocol(Protocol):
         Returns:
             True if the key exists, False otherwise
         """
-        pass

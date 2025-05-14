@@ -1,15 +1,15 @@
 """Pytest configuration for SQLFlow tests."""
 
-import os
-import pytest
 import tempfile
 from typing import Generator
+
+import pytest
 
 
 @pytest.fixture
 def temp_dir() -> Generator[str, None, None]:
     """Create a temporary directory for tests.
-    
+
     Yields:
         Path to the temporary directory
     """
@@ -20,7 +20,7 @@ def temp_dir() -> Generator[str, None, None]:
 @pytest.fixture
 def sample_source_directive() -> str:
     """Return a sample SOURCE directive for testing.
-    
+
     Returns:
         Sample SOURCE directive text
     """
@@ -33,7 +33,7 @@ def sample_source_directive() -> str:
 @pytest.fixture
 def sample_pipeline() -> str:
     """Return a sample pipeline for testing.
-    
+
     Returns:
         Sample pipeline text
     """

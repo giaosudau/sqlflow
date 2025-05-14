@@ -12,7 +12,7 @@ class DuckDBWriter(WriterProtocol):
 
     def __init__(self, connection: Optional[duckdb.DuckDBPyConnection] = None):
         """Initialize a DuckDBWriter.
-        
+
         Args:
             connection: DuckDB connection, or None to create a new one
         """
@@ -22,15 +22,14 @@ class DuckDBWriter(WriterProtocol):
         self, data: Any, destination: str, options: Optional[Dict[str, Any]] = None
     ) -> None:
         """Write data to a DuckDB table.
-        
+
         Args:
             data: Data to write
             destination: Table name to write to
             options: Options for the writer
         """
         options = options or {}
-        
+
         if options.get("create_table", True):
             pass
-            
-        pass
+

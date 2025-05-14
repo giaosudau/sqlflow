@@ -16,7 +16,6 @@ class PipelineStep(ABC):
         Returns:
             List of validation error messages, empty if valid
         """
-        pass
 
 
 @dataclass

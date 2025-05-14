@@ -1,6 +1,6 @@
 """Setup script for SQLFlow."""
 
-from setuptools import setup, find_packages
+from setuptools import find_packages, setup
 
 setup(
     name="sqlflow",
@@ -23,6 +23,7 @@ setup(
             "isort>=5.10.1",
             "mypy>=0.931",
             "flake8>=4.0.1",
+            "autoflake>=2.2.0",
         ],
     },
     entry_points={

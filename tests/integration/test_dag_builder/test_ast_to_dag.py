@@ -5,7 +5,6 @@ from sqlflow.sqlflow.parser.ast import (
     LoadStep,
     Pipeline,
     SourceDefinitionStep,
-    SQLBlockStep,
 )
 from sqlflow.sqlflow.parser.parser import Parser
 from sqlflow.sqlflow.visualizer.dag_builder_ast import ASTDAGBuilder
