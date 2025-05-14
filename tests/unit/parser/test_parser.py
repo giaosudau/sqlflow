@@ -1,6 +1,5 @@
 """Tests for the SQLFlow parser."""
 
-
 import pytest
 
 from sqlflow.sqlflow.parser.ast import (

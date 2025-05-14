@@ -1,6 +1,5 @@
 """Renderer for SQLFlow pipeline visualizations."""
 
-
 from sqlflow.sqlflow.visualizer.dag_builder import PipelineDAG
 
 

@@ -32,4 +32,3 @@ class DuckDBWriter(WriterProtocol):
 
         if options.get("create_table", True):
             pass
-

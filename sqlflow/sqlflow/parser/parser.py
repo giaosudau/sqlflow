@@ -120,9 +120,7 @@ class Parser:
             TokenType.IDENTIFIER, "Expected connector type after 'TYPE'"
         )
 
-        self._consume(
-            TokenType.PARAMS, "Expected 'PARAMS' after connector type"
-        )
+        self._consume(TokenType.PARAMS, "Expected 'PARAMS' after connector type")
 
         params_token = self._consume(
             TokenType.JSON_OBJECT, "Expected JSON object after 'PARAMS'"
@@ -272,9 +270,7 @@ class Parser:
             TokenType.IDENTIFIER, "Expected connector type after 'TYPE'"
         )
 
-        self._consume(
-            TokenType.OPTIONS, "Expected 'OPTIONS' after connector type"
-        )
+        self._consume(TokenType.OPTIONS, "Expected 'OPTIONS' after connector type")
 
         options_token = self._consume(
             TokenType.JSON_OBJECT, "Expected JSON object after 'OPTIONS'"
@@ -287,9 +283,7 @@ class Parser:
                 "Invalid JSON in OPTIONS", options_token.line, options_token.column
             )
 
-        self._consume(
-            TokenType.SEMICOLON, "Expected ';' after EXPORT statement"
-        )
+        self._consume(TokenType.SEMICOLON, "Expected ';' after EXPORT statement")
 
         return ExportStep(
             sql_query=sql_query,

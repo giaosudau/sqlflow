@@ -42,9 +42,7 @@ class ASTToDAGConverter:
 
         return self.dag_builder.build_dag(pipeline_steps)
 
-    def _convert_step_to_dict(
-        self, step: PipelineStep, index: int
-    ) -> Optional[Dict]:
+    def _convert_step_to_dict(self, step: PipelineStep, index: int) -> Optional[Dict]:
         """Convert a pipeline step to a dictionary.
 
         Args:

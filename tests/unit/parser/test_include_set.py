@@ -1,6 +1,5 @@
 """Tests for INCLUDE and SET directives in the SQLFlow parser."""
 
-
 import pytest
 
 from sqlflow.sqlflow.parser.ast import IncludeStep, SetStep

@@ -105,14 +105,12 @@ class Lexer:
     def _tokenize_next(self) -> None:
         """Tokenize the next token in the input text."""
         for token_type, pattern in self.patterns:
-            match = pattern.match(self.text[self.pos:])
+            match = pattern.match(self.text[self.pos :])
             if match:
                 value = match.group(0)
 
                 if token_type not in (TokenType.WHITESPACE, TokenType.COMMENT):
-                    self.tokens.append(
-                        Token(token_type, value, self.line, self.column)
-                    )
+                    self.tokens.append(Token(token_type, value, self.line, self.column))
 
                 for char in value:
                     if char == "\n":
@@ -128,9 +126,7 @@ class Lexer:
             json_value, success = self._extract_json_object()
             if success:
                 self.tokens.append(
-                    Token(
-                        TokenType.JSON_OBJECT, json_value, self.line, self.column
-                    )
+                    Token(TokenType.JSON_OBJECT, json_value, self.line, self.column)
                 )
 
                 for char in json_value:
@@ -184,6 +180,6 @@ class Lexer:
                 elif char == "}":
                     depth -= 1
                     if depth == 0:
-                        return self.text[start_pos:i + 1], True
+                        return self.text[start_pos : i + 1], True
 
         return "", False
