@@ -3,10 +3,8 @@
 import json
 import logging
 import os
-import time
 from dataclasses import asdict
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional
 
 import duckdb
 
@@ -212,7 +210,7 @@ class DuckDBStateBackend:
             ) = row
 
             dependencies = json.loads(dependencies_json)
-            metadata = json.loads(metadata_json)
+            json.loads(metadata_json)
 
             task_status = TaskStatus(
                 id=task_id,

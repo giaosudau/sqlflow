@@ -1,11 +1,8 @@
 """Unit tests for the DuckDB state backend."""
 
-import json
 import os
 import tempfile
 import uuid
-from pathlib import Path
-from typing import Dict, List
 
 import pytest
 

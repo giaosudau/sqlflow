@@ -1,8 +1,5 @@
 """Integration tests for cycle detection in SQLFlow pipelines."""
 
-import os
-import tempfile
-
 import pytest
 
 from sqlflow.sqlflow.core.dependencies import DependencyResolver

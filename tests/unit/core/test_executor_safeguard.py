@@ -1,9 +1,6 @@
 """Tests for the executor safeguard."""
 
-import logging
 from unittest.mock import patch
-
-import pytest
 
 from sqlflow.sqlflow.core.dependencies import DependencyResolver
 from sqlflow.sqlflow.core.executors.local_executor import LocalExecutor
