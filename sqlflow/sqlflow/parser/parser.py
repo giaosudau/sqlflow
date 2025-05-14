@@ -3,7 +3,10 @@
 import json
 from typing import Dict, List, Optional, Any, Tuple, Union
 
-from sqlflow.sqlflow.parser.ast import Pipeline, PipelineStep, SourceDefinitionStep, LoadStep, ExportStep
+from sqlflow.sqlflow.parser.ast import (
+    Pipeline, PipelineStep, SourceDefinitionStep, LoadStep, ExportStep,
+    IncludeStep, SetStep
+)
 from sqlflow.sqlflow.parser.lexer import Lexer, Token, TokenType
 
 
@@ -80,6 +83,10 @@ class Parser:
             return self._parse_load_statement()
         elif token.type == TokenType.EXPORT:
             return self._parse_export_statement()
+        elif token.type == TokenType.INCLUDE:
+            return self._parse_include_statement()
+        elif token.type == TokenType.SET:
+            return self._parse_set_statement()
         
         self._advance()
         return None
@@ -257,6 +264,65 @@ class Parser:
             line_number=export_token.line
         )
     
+    def _parse_include_statement(self) -> IncludeStep:
+        """Parse an INCLUDE statement.
+        
+        Returns:
+            IncludeStep
+            
+        Raises:
+            ParserError: If the INCLUDE statement cannot be parsed
+        """
+        include_token = self._consume(TokenType.INCLUDE, "Expected 'INCLUDE'")
+        
+        file_path_token = self._consume(TokenType.STRING, "Expected file path string after 'INCLUDE'")
+        file_path = file_path_token.value.strip('"')
+        
+        self._consume(TokenType.AS, "Expected 'AS' after file path")
+        
+        alias_token = self._consume(TokenType.IDENTIFIER, "Expected alias after 'AS'")
+        
+        self._consume(TokenType.SEMICOLON, "Expected ';' after INCLUDE statement")
+        
+        return IncludeStep(
+            file_path=file_path,
+            alias=alias_token.value,
+            line_number=include_token.line
+        )
+    
+    def _parse_set_statement(self) -> SetStep:
+        """Parse a SET statement.
+        
+        Returns:
+            SetStep
+            
+        Raises:
+            ParserError: If the SET statement cannot be parsed
+        """
+        set_token = self._consume(TokenType.SET, "Expected 'SET'")
+        
+        variable_name_token = self._consume(TokenType.IDENTIFIER, "Expected variable name after 'SET'")
+        
+        equals_token = self._advance()
+        if equals_token.value != "=":
+            raise ParserError("Expected '=' after variable name", equals_token.line, equals_token.column)
+        
+        value_token = self._advance()
+        if value_token.type not in (TokenType.STRING, TokenType.NUMBER, TokenType.IDENTIFIER):
+            raise ParserError("Expected value after '='", value_token.line, value_token.column)
+        
+        variable_value = value_token.value
+        if value_token.type == TokenType.STRING:
+            variable_value = variable_value.strip('"')
+        
+        self._consume(TokenType.SEMICOLON, "Expected ';' after SET statement")
+        
+        return SetStep(
+            variable_name=variable_name_token.value,
+            variable_value=variable_value,
+            line_number=set_token.line
+        )
+    
     def _synchronize(self) -> None:
         """Synchronize the parser after an error.
         
@@ -272,6 +338,8 @@ class Parser:
                 TokenType.SOURCE,
                 TokenType.LOAD,
                 TokenType.EXPORT,
+                TokenType.INCLUDE,
+                TokenType.SET,
             ):
                 return
                 
