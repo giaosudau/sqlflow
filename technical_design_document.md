@@ -72,16 +72,24 @@ my_project/
 ### 3.2 CLI Commands
 
 ```bash
-sqlflow init [project_name]       # Scaffold a new project
-sqlflow compile                   # Parse & compile scripts to an execution plan
-sqlflow run [pipeline.sf]         # Execute one or more pipelines
-sqlflow list pipelines            # List defined pipelines
-sqlflow describe [resource]       # Show details (table, connector)
-sqlflow viz [pipeline.sf]         # Render DAG visualization
-sqlflow connect list              # List available connectors
-sqlflow connect test [connector]  # Validate connector configuration
-sqlflow docs generate             # Generate HTML/Markdown docs
+# Core commands
+sqlflow init [project_name]                                # Scaffold a new project
+sqlflow --version                                          # Show version and exit
+
+# Pipeline commands (grouped under 'pipeline' subcommand)
+sqlflow pipeline compile [pipeline_name] [--output file]   # Parse & validate pipeline(s), output execution plan
+sqlflow pipeline run [pipeline_name] [--vars '{"key": "value"}']  # Execute a pipeline end-to-end
+sqlflow pipeline list                                      # List available pipelines in the project
+
+# Future commands (post-MVP)
+sqlflow describe [resource]                                # Show details (table, connector)
+sqlflow viz [pipeline_name]                                # Render DAG visualization
+sqlflow connect list                                       # List available connectors
+sqlflow connect test [connector]                           # Validate connector configuration
+sqlflow docs generate                                      # Generate HTML/Markdown docs
 ```
+
+Note: All pipeline-related commands are organized under the `pipeline` subcommand for clarity and future extensibility. Pipeline names are referenced without the `.sf` extension.
 
 ## 4. DSL Extensions
 
@@ -222,7 +230,7 @@ FROM raw_sales;
   1. pip install sqlflow  
   2. sqlflow init my_project  
   3. Write simple .sf with SOURCE/LOAD/EXPORT  
-  4. sqlflow run pipelines/simple.sf  
+  4. sqlflow pipeline run example  
 - Tutorials: “From Business Ask to Pipeline” guides.  
 - Cheat Sheets: Core directives, variable syntax, connector patterns.  
 - Deployment Recipes: Local, Airflow operator, Kubernetes+Celery, Serverless.

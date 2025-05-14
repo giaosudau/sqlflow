@@ -1,0 +1,7 @@
+customer_id,name,email,region,signup_date
+1234,John Smith,john.smith@example.com,North America,2022-01-15
+3456,Maria Garcia,maria.garcia@example.com,Europe,2022-03-22
+5678,Wei Zhang,wei.zhang@example.com,Asia Pacific,2021-11-05
+7890,Ahmed Hassan,ahmed.hassan@example.com,Middle East,2022-05-10
+8765,Emma Wilson,emma.wilson@example.com,Europe,2021-09-18
+9012,Carlos Rodriguez,carlos.rodriguez@example.com,South America,2022-02-28

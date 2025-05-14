@@ -1,0 +1,8 @@
+-- Example SQLFlow pipeline
+
+SOURCE sample TYPE CSV PARAMS {
+  "path": "data/sales_2023-10-25.csv",
+  "has_header": true
+};
+
+LOAD raw_data FROM sample;

@@ -1,0 +1,33 @@
+-- Simple test pipeline for tutorial verification
+
+-- Define data sources
+SOURCE sales TYPE CSV PARAMS {
+  "path": "data/sales_2023-10-25.csv",
+  "has_header": true
+};
+
+SOURCE customers TYPE CSV PARAMS {
+  "path": "data/customers.csv",
+  "has_header": true
+};
+
+SOURCE products TYPE CSV PARAMS {
+  "path": "data/products.csv",
+  "has_header": true
+};
+
+-- Load data into tables
+LOAD raw_sales FROM sales;
+LOAD customers_table FROM customers;
+LOAD products_table FROM products;
+
+-- Create a simple join
+CREATE TABLE sales_summary AS
+SELECT 
+  s.order_id,
+  s.customer_id,
+  s.product_id,
+  s.quantity,
+  s.price,
+  (s.quantity * s.price) AS total_amount
+FROM raw_sales s;
