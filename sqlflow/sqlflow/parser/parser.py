@@ -5,7 +5,7 @@ from typing import Dict, List, Optional, Any, Tuple, Union
 
 from sqlflow.sqlflow.parser.ast import (
     Pipeline, PipelineStep, SourceDefinitionStep, LoadStep, ExportStep,
-    IncludeStep, SetStep
+    IncludeStep, SetStep, SQLBlockStep
 )
 from sqlflow.sqlflow.parser.lexer import Lexer, Token, TokenType
 
@@ -87,6 +87,8 @@ class Parser:
             return self._parse_include_statement()
         elif token.type == TokenType.SET:
             return self._parse_set_statement()
+        elif token.type == TokenType.CREATE:
+            return self._parse_sql_block_statement()
         
         self._advance()
         return None
@@ -323,6 +325,39 @@ class Parser:
             line_number=set_token.line
         )
     
+    def _parse_sql_block_statement(self) -> SQLBlockStep:
+        """Parse a CREATE TABLE statement.
+        
+        Returns:
+            SQLBlockStep
+            
+        Raises:
+            ParserError: If the CREATE TABLE statement cannot be parsed
+        """
+        create_token = self._consume(TokenType.CREATE, "Expected 'CREATE'")
+        
+        self._consume(TokenType.TABLE, "Expected 'TABLE' after 'CREATE'")
+        
+        table_name_token = self._consume(TokenType.IDENTIFIER, "Expected table name after 'TABLE'")
+        
+        self._consume(TokenType.AS, "Expected 'AS' after table name")
+        
+        sql_query_tokens = ["SELECT"]
+        self._consume(TokenType.SELECT, "Expected 'SELECT' after 'AS'")
+        
+        while not self._check(TokenType.SEMICOLON) and not self._is_at_end():
+            sql_query_tokens.append(self._advance().value)
+        
+        sql_query = " ".join(sql_query_tokens)
+        
+        self._consume(TokenType.SEMICOLON, "Expected ';' after SQL query")
+        
+        return SQLBlockStep(
+            table_name=table_name_token.value,
+            sql_query=sql_query,
+            line_number=create_token.line
+        )
+    
     def _synchronize(self) -> None:
         """Synchronize the parser after an error.
         
@@ -340,6 +375,7 @@ class Parser:
                 TokenType.EXPORT,
                 TokenType.INCLUDE,
                 TokenType.SET,
+                TokenType.CREATE,
             ):
                 return
                 

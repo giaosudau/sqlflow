@@ -21,6 +21,8 @@ class TokenType(Enum):
     INCLUDE = auto()
     AS = auto()
     SET = auto()
+    CREATE = auto()
+    TABLE = auto()
     
     IDENTIFIER = auto()
     STRING = auto()
@@ -80,6 +82,8 @@ class Lexer:
             (TokenType.INCLUDE, re.compile(r'INCLUDE\b', re.IGNORECASE)),
             (TokenType.AS, re.compile(r'AS\b', re.IGNORECASE)),
             (TokenType.SET, re.compile(r'SET\b', re.IGNORECASE)),
+            (TokenType.CREATE, re.compile(r'CREATE\b', re.IGNORECASE)),
+            (TokenType.TABLE, re.compile(r'TABLE\b', re.IGNORECASE)),
             (TokenType.SEMICOLON, re.compile(r';')),
             (TokenType.IDENTIFIER, re.compile(r'[a-zA-Z_][a-zA-Z0-9_]*')),
             (TokenType.STRING, re.compile(r'"(?:[^"\\]|\\.)*"')),

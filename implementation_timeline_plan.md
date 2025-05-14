@@ -23,7 +23,7 @@ This plan breaks down the roadmap into epics, milestones, and tasks sized to ~4 
   - **Outcome**: Parser AST nodes for `INCLUDE` and `SET`.  
   - **DoD**: Tests for file path parsing, variable assignment.
 
-- **Task 1.1.5**: Extend AST → DAG builder  
+- **Task 1.1.5**: Extend AST → DAG builder ✅  
   - **Outcome**: Build node types for each directive.  
   - **DoD**: Integration test assembles DAG from multi-statement script.
 

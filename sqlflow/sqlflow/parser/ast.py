@@ -174,6 +174,36 @@ class SetStep(PipelineStep):
 
 
 @dataclass
+class SQLBlockStep(PipelineStep):
+    """Represents a SQL block in the pipeline, such as CREATE TABLE.
+    
+    Example:
+        CREATE TABLE customer_ltv AS
+        SELECT
+          customer_id,
+          PYTHON_FUNC("helpers.calculate_ltv", raw_sales, 0.08) AS ltv
+        FROM raw_sales;
+    """
+    
+    table_name: str
+    sql_query: str
+    line_number: Optional[int] = None
+    
+    def validate(self) -> List[str]:
+        """Validate the SQL block.
+        
+        Returns:
+            List of validation error messages, empty if valid
+        """
+        errors = []
+        if not self.table_name:
+            errors.append("SQL block requires a table name")
+        if not self.sql_query:
+            errors.append("SQL block requires a SQL query")
+        return errors
+
+
+@dataclass
 class Pipeline:
     """Represents a complete parsed pipeline.
 
