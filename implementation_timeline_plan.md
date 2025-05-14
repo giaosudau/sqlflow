@@ -49,19 +49,19 @@ This plan breaks down the roadmap into epics, milestones, and tasks sized to ~4 
 
 ### Milestone 2.1: Core Connector System (Weeks 5–6)
 
-- **Task 2.1.1**: Define `Connector` & `ExportConnector` interfaces  
+- **Task 2.1.1**: Define `Connector` & `ExportConnector` interfaces ✅  
   - **Outcome**: Base classes in codebase.  
   - **DoD**: Lint, type-check, and unit tests for method signatures.
 
-- **Task 2.1.2**: Implement plugin registry  
+- **Task 2.1.2**: Implement plugin registry ✅  
   - **Outcome**: `register_connector` and `register_export_connector` decorators.  
   - **DoD**: Dynamic discovery returns registered classes.
 
-- **Task 2.1.3**: CSV Source connector  
+- **Task 2.1.3**: CSV Source connector ✅  
   - **Outcome**: Read CSV in chunks, infer schema.  
   - **DoD**: Integration test reads sample CSV and matches schema.
 
-- **Task 2.1.4**: Parquet Source connector  
+- **Task 2.1.4**: Parquet Source connector ✅  
   - **Outcome**: Read Parquet via Arrow, infer schema.  
   - **DoD**: Test reading multi-column Parquet file.
 
