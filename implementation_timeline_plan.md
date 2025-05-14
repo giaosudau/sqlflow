@@ -37,11 +37,11 @@ This plan breaks down the roadmap into epics, milestones, and tasks sized to ~4 
   - **Outcome**: Map DAG nodes to execution plan items.  
   - **DoD**: Verify plan order matches dependencies.
 
-- **Task 1.2.3**: Thread-pool task executor  
+- **Task 1.2.3**: Thread-pool task executor ✅  
   - **Outcome**: Execute plan items concurrently.  
   - **DoD**: Integration test with parallelizable tasks logs correct order.
 
-- **Task 1.2.4**: Resume-from-failure logic  
+- **Task 1.2.4**: Resume-from-failure logic ✅  
   - **Outcome**: Executor retries failed tasks and can resume.  
   - **DoD**: Simulate failure mid-pipeline and resume.
 
