@@ -63,55 +63,53 @@ def _compile_single_pipeline(pipeline_path: str, output: Optional[str] = None):
     try:
         with open(pipeline_path, "r") as f:
             pipeline_text = f.read()
-        
-        if "test.sf" in pipeline_path and "SOURCE sample" in pipeline_text and "LOAD sample INTO raw_data" in pipeline_text:
+
+        if (
+            "test.sf" in pipeline_path
+            and "SOURCE sample" in pipeline_text
+            and "LOAD sample INTO raw_data" in pipeline_text
+        ):
             plan = [
                 {
                     "id": "source_sample",
                     "type": "source_definition",
                     "name": "sample",
                     "source_connector_type": "CSV",
-                    "query": {
-                        "path": "data/sample.csv",
-                        "has_header": True
-                    },
-                    "depends_on": []
+                    "query": {"path": "data/sample.csv", "has_header": True},
+                    "depends_on": [],
                 },
                 {
                     "id": "load_raw_data",
                     "type": "load",
                     "name": "raw_data",
                     "source_connector_type": "CSV",
-                    "query": {
-                        "source_name": "sample",
-                        "table_name": "raw_data"
-                    },
-                    "depends_on": ["source_sample"]
-                }
+                    "query": {"source_name": "sample", "table_name": "raw_data"},
+                    "depends_on": ["source_sample"],
+                },
             ]
         else:
             parser = Parser(pipeline_text)
             pipeline = parser.parse()
-            
+
             validation_errors = pipeline.validate()
             if validation_errors:
                 typer.echo(f"Validation errors in {pipeline_path}:")
                 for error in validation_errors:
                     typer.echo(f"  - {error}")
                 return
-                
+
             planner = OperationPlanner()
             plan = planner.plan(pipeline)
-        
+
         plan_json = json.dumps(plan, indent=2)
-        
+
         if output:
             with open(output, "w") as f:
                 f.write(plan_json)
             typer.echo(f"Execution plan written to {output}")
         else:
             typer.echo(plan_json)
-            
+
     except Exception as e:
         typer.echo(f"Error compiling pipeline {pipeline_path}: {str(e)}")
         raise typer.Exit(code=1)
