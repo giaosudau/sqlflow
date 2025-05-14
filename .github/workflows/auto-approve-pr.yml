@@ -62,7 +62,6 @@ jobs:
             echo "Test coverage below target (< 80%)"
             echo "tests_ok=false" >> $GITHUB_OUTPUT
           fi
-        continue-on-error: true
 
       - name: Check PR description
         id: pr-description
