@@ -3,7 +3,7 @@
 import json
 import pytest
 
-from sqlflow.sqlflow.parser.ast import Pipeline, SourceDefinitionStep, LoadStep
+from sqlflow.sqlflow.parser.ast import Pipeline, SourceDefinitionStep, LoadStep, ExportStep
 from sqlflow.sqlflow.parser.lexer import Lexer, TokenType
 from sqlflow.sqlflow.parser.parser import Parser, ParserError
 
@@ -268,3 +268,163 @@ class TestParser:
             line_number=1
         )
         assert "LOAD directive requires a source name" in invalid_step2.validate()
+        
+    def test_export_directive_tokens(self):
+        """Test that the lexer correctly tokenizes an EXPORT directive."""
+        text = """EXPORT
+            SELECT * FROM users
+        TO "s3://bucket/users.csv"
+        TYPE CSV
+        OPTIONS {
+            "delimiter": ",",
+            "header": true
+        };"""
+        
+        lexer = Lexer(text)
+        tokens = lexer.tokenize()
+        
+        tokens = [t for t in tokens if t.type not in (TokenType.WHITESPACE, TokenType.COMMENT)]
+        
+        assert tokens[0].type == TokenType.EXPORT
+        assert tokens[1].type == TokenType.SELECT
+        assert tokens[5].type == TokenType.TO
+        assert tokens[6].type == TokenType.STRING
+        assert tokens[7].type == TokenType.TYPE
+        assert tokens[8].type == TokenType.IDENTIFIER
+        assert tokens[9].type == TokenType.OPTIONS
+        assert tokens[10].type == TokenType.JSON_OBJECT
+        assert tokens[11].type == TokenType.SEMICOLON
+        
+    def test_parse_export_directive(self):
+        """Test that the parser correctly parses an EXPORT directive."""
+        text = """EXPORT
+            SELECT * FROM users
+        TO "s3://bucket/users.csv"
+        TYPE CSV
+        OPTIONS {
+            "delimiter": ",",
+            "header": true
+        };"""
+        
+        parser = Parser(text)
+        pipeline = parser.parse()
+        
+        assert len(pipeline.steps) == 1
+        assert isinstance(pipeline.steps[0], ExportStep)
+        
+        export_step = pipeline.steps[0]
+        assert export_step.sql_query == "SELECT * FROM users"
+        assert export_step.destination_uri == "s3://bucket/users.csv"
+        assert export_step.connector_type == "CSV"
+        assert export_step.options["delimiter"] == ","
+        assert export_step.options["header"] is True
+        
+    def test_parse_export_directive_missing_options(self):
+        """Test that the parser raises an error for an EXPORT directive missing OPTIONS."""
+        text = """EXPORT
+            SELECT * FROM users
+        TO "s3://bucket/users.csv"
+        TYPE CSV;"""
+        
+        parser = Parser(text)
+        with pytest.raises(ParserError) as excinfo:
+            parser.parse()
+        
+        assert "Expected 'OPTIONS' after connector type" in str(excinfo.value)
+        
+    def test_parse_export_directive_missing_type(self):
+        """Test that the parser raises an error for an EXPORT directive missing TYPE."""
+        text = """EXPORT
+            SELECT * FROM users
+        TO "s3://bucket/users.csv"
+        OPTIONS {
+            "delimiter": ",",
+            "header": true
+        };"""
+        
+        parser = Parser(text)
+        with pytest.raises(ParserError) as excinfo:
+            parser.parse()
+        
+        assert "Expected 'TYPE' after destination URI" in str(excinfo.value)
+        
+    def test_parse_export_directive_missing_to(self):
+        """Test that the parser raises an error for an EXPORT directive missing TO."""
+        text = """EXPORT
+            SELECT * FROM users
+        "s3://bucket/users.csv"
+        TYPE CSV
+        OPTIONS {
+            "delimiter": ",",
+            "header": true
+        };"""
+        
+        parser = Parser(text)
+        with pytest.raises(ParserError) as excinfo:
+            parser.parse()
+        
+        assert "Expected 'TO' after SQL query" in str(excinfo.value)
+        
+    def test_parse_export_directive_invalid_json(self):
+        """Test that the parser raises an error for an EXPORT directive with invalid JSON."""
+        text = """EXPORT
+            SELECT * FROM users
+        TO "s3://bucket/users.csv"
+        TYPE CSV
+        OPTIONS {
+            "delimiter": ",",
+            "header": true,
+        };"""
+        
+        parser = Parser(text)
+        with pytest.raises(ParserError) as excinfo:
+            parser.parse()
+        
+        assert "Invalid JSON in OPTIONS" in str(excinfo.value)
+        
+    def test_export_step_validation(self):
+        """Test that ExportStep validation works correctly."""
+        valid_step = ExportStep(
+            sql_query="SELECT * FROM users",
+            destination_uri="s3://bucket/users.csv",
+            connector_type="CSV",
+            options={"delimiter": ",", "header": True},
+            line_number=1
+        )
+        assert valid_step.validate() == []
+        
+        invalid_step1 = ExportStep(
+            sql_query="",
+            destination_uri="s3://bucket/users.csv",
+            connector_type="CSV",
+            options={"delimiter": ",", "header": True},
+            line_number=1
+        )
+        assert "EXPORT directive requires a SQL query" in invalid_step1.validate()
+        
+        invalid_step2 = ExportStep(
+            sql_query="SELECT * FROM users",
+            destination_uri="",
+            connector_type="CSV",
+            options={"delimiter": ",", "header": True},
+            line_number=1
+        )
+        assert "EXPORT directive requires a destination URI" in invalid_step2.validate()
+        
+        invalid_step3 = ExportStep(
+            sql_query="SELECT * FROM users",
+            destination_uri="s3://bucket/users.csv",
+            connector_type="",
+            options={"delimiter": ",", "header": True},
+            line_number=1
+        )
+        assert "EXPORT directive requires a connector TYPE" in invalid_step3.validate()
+        
+        invalid_step4 = ExportStep(
+            sql_query="SELECT * FROM users",
+            destination_uri="s3://bucket/users.csv",
+            connector_type="CSV",
+            options={},
+            line_number=1
+        )
+        assert "EXPORT directive requires OPTIONS" in invalid_step4.validate()
