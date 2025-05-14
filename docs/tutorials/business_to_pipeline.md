@@ -67,28 +67,14 @@ CREATE TABLE products (
 Create a new file `pipelines/daily_sales_report.sf` with the following content:
 
 ```sql
--- Set the date variable with a default to yesterday
-SET date = '${run_date|2023-10-25}';
-
 -- Define data sources
-SOURCE sales_data TYPE CSV PARAMS {
-  "path": "data/sales_${date}.csv",
+SOURCE sample TYPE CSV PARAMS {
+  "path": "data/sales_2023-10-25.csv",
   "has_header": true
 };
 
-SOURCE customer_db TYPE POSTGRES PARAMS {
-  "connection": "${DB_CONN}",
-  "schema": "public"
-};
-
 -- Load data into tables
-LOAD sales_data INTO raw_sales;
-
-LOAD customer_db INTO customers
-WHERE query = "SELECT * FROM customers";
-
-LOAD customer_db INTO products
-WHERE query = "SELECT * FROM products";
+LOAD sample INTO raw_data;
 
 -- Transform data
 CREATE TABLE sales_enriched AS
@@ -176,6 +162,21 @@ sqlflow pipeline compile daily_sales_report
 # The execution plan is automatically saved to the project's target directory
 # View the execution plan
 cat target/compiled/daily_sales_report.json
+```
+
+The output should look similar to:
+
+```
+Compiled pipeline 'daily_sales_report'
+Found 2 operations in the execution plan
+  - source_sample
+  - load_raw_data
+
+Operation types:
+  - source_definition: 1
+  - load: 1
+
+Execution plan written to /path/to/project/target/compiled/daily_sales_report.json
 ```
 
 The execution plan shows the DAG (Directed Acyclic Graph) of operations that will be performed, including:
