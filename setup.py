@@ -14,6 +14,7 @@ setup(
         "pyarrow",
         "click",
         "networkx",
+        "typer",
         "psycopg2-binary",  # For PostgreSQL connectors
         "boto3",  # For S3 connector
         "requests",  # For REST connector
@@ -38,7 +39,7 @@ setup(
     },
     entry_points={
         "console_scripts": [
-            "sqlflow=sqlflow.sqlflow.main:main",
+            "sqlflow=sqlflow.sqlflow.cli.main:cli",
         ],
     },
     python_requires=">=3.8",
