@@ -7,19 +7,19 @@ This plan breaks down the roadmap into epics, milestones, and tasks sized to ~4 
 
 ### Milestone 1.1: Parser & AST (Weeks 1–2)
 
-- **Task 1.1.1**: Add `SOURCE` directive grammar  
+- **Task 1.1.1**: Add `SOURCE` directive grammar  ✅ 
   - **Outcome**: Parser recognizes `SOURCE <name> TYPE <...> PARAMS {...};`  
   - **DoD**: Unit tests for valid and invalid `SOURCE` statements.
 
-- **Task 1.1.2**: Add `LOAD` directive grammar  
+- **Task 1.1.2**: Add `LOAD` directive grammar  ✅ 
   - **Outcome**: Parser includes `LOAD` in AST nodes.  
   - **DoD**: Tests for `LOAD source INTO table;` with and without `WHERE`.
 
-- **Task 1.1.3**: Add `EXPORT` directive grammar  
+- **Task 1.1.3**: Add `EXPORT` directive grammar  ✅ 
   - **Outcome**: AST supports `EXPORT SELECT ... TO ... TYPE ... OPTIONS {...}`.  
   - **DoD**: Tests for missing `OPTIONS`, syntax errors.
 
-- **Task 1.1.4**: Support `INCLUDE` & `SET` directives  
+- **Task 1.1.4**: Support `INCLUDE` & `SET` directives  ✅ 
   - **Outcome**: Parser AST nodes for `INCLUDE` and `SET`.  
   - **DoD**: Tests for file path parsing, variable assignment.
 

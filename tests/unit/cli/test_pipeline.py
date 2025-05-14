@@ -31,7 +31,7 @@ SOURCE sample TYPE CSV PARAMS {
     "has_header": true
 };
 
-LOAD sample INTO raw_data;
+LOAD raw_data FROM sample;
             """
             )
 

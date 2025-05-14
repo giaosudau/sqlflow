@@ -175,6 +175,13 @@ def run_pipeline(
     ),
 ):
     """Execute a pipeline end-to-end."""
+    import logging
+
+    from sqlflow.core.executors.local_executor import LocalExecutor
+    from sqlflow.core.planner import OperationPlanner
+    from sqlflow.parser.parser import Parser
+
+    logger = logging.getLogger("sqlflow.cli.pipeline")
     project = Project(os.getcwd())
     pipelines_dir = os.path.join(
         project.project_dir,
@@ -183,18 +190,47 @@ def run_pipeline(
 
     try:
         variables = parse_vars(vars)
-
         pipeline_path = resolve_pipeline_name(pipeline_name, pipelines_dir)
-
         typer.echo(f"Running pipeline: {pipeline_path}")
         if variables:
             typer.echo(f"With variables: {json.dumps(variables, indent=2)}")
+
+        # Parse pipeline file
+        with open(pipeline_path, "r") as f:
+            pipeline_text = f.read()
+        parser = Parser(pipeline_text)
+        pipeline = parser.parse()
+
+        # Validate pipeline
+        validation_errors = pipeline.validate()
+        if validation_errors:
+            typer.echo(f"Validation errors in {pipeline_path}:")
+            for error in validation_errors:
+                typer.echo(f"  - {error}")
+            raise typer.Exit(code=1)
+
+        # Plan operations
+        planner = OperationPlanner()
+        plan = planner.plan(pipeline)
+        typer.echo(f"Execution plan: {len(plan)} steps")
+        for op in plan:
+            typer.echo(f"  - {op.get('id', 'unknown')} ({op.get('type', 'unknown')})")
+
+        # Execute plan
+        executor = LocalExecutor()
+        results = executor.execute(plan)
+        typer.echo("\nPipeline execution results:")
+        typer.echo(json.dumps(results, indent=2))
 
     except FileNotFoundError as e:
         typer.echo(str(e))
         raise typer.Exit(code=1)
     except ValueError as e:
         typer.echo(f"Error parsing variables: {str(e)}")
+        raise typer.Exit(code=1)
+    except Exception as e:
+        logger.exception("Pipeline execution failed")
+        typer.echo(f"Pipeline execution failed: {str(e)}")
         raise typer.Exit(code=1)
 
 
