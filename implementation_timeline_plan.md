@@ -29,7 +29,7 @@ This plan breaks down the roadmap into epics, milestones, and tasks sized to ~4 
 
 ### Milestone 1.2: Planner & Executor (Weeks 3–4)
 
-- **Task 1.2.1**: DAG cycle detection  
+- **Task 1.2.1**: DAG cycle detection ✅  
   - **Outcome**: Compiler raises error on circular dependencies.  
   - **DoD**: Test pipeline with cycle → error.
 

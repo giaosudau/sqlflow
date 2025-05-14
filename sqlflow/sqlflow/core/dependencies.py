@@ -55,7 +55,6 @@ class DependencyResolver:
 
         self._visit(start_pipeline)
 
-        self.execution_order.reverse()
         return self.execution_order
 
     def _visit(self, pipeline: str) -> None:
