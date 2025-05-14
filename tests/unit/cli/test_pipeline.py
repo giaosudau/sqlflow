@@ -7,7 +7,7 @@ from unittest.mock import patch
 import pytest
 from typer.testing import CliRunner
 
-from sqlflow.sqlflow.cli.main import app
+from sqlflow.cli.main import app
 
 
 @pytest.fixture

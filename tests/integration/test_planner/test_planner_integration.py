@@ -4,8 +4,8 @@ import json
 import os
 import tempfile
 
-from sqlflow.sqlflow.core.planner import OperationPlanner
-from sqlflow.sqlflow.parser.ast import (
+from sqlflow.core.planner import OperationPlanner
+from sqlflow.parser.ast import (
     ExportStep,
     LoadStep,
     Pipeline,

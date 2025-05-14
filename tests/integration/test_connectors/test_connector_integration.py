@@ -10,10 +10,10 @@ import pyarrow.csv as csv_arrow
 import pyarrow.parquet as pq
 import pytest
 
-from sqlflow.sqlflow.connectors.connector_engine import ConnectorEngine
-from sqlflow.sqlflow.connectors.csv_connector import CSVConnector
-from sqlflow.sqlflow.connectors.data_chunk import DataChunk
-from sqlflow.sqlflow.connectors.parquet_connector import ParquetConnector
+from sqlflow.connectors.connector_engine import ConnectorEngine
+from sqlflow.connectors.csv_connector import CSVConnector
+from sqlflow.connectors.data_chunk import DataChunk
+from sqlflow.connectors.parquet_connector import ParquetConnector
 
 
 @pytest.fixture

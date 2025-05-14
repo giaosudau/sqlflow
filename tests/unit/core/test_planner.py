@@ -5,9 +5,9 @@ from unittest.mock import patch
 
 import pytest
 
-from sqlflow.sqlflow.core.errors import PlanningError
-from sqlflow.sqlflow.core.planner import ExecutionPlanBuilder, OperationPlanner
-from sqlflow.sqlflow.parser.ast import (
+from sqlflow.core.errors import PlanningError
+from sqlflow.core.planner import ExecutionPlanBuilder, OperationPlanner
+from sqlflow.parser.ast import (
     ExportStep,
     LoadStep,
     Pipeline,

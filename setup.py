@@ -39,7 +39,7 @@ setup(
     },
     entry_points={
         "console_scripts": [
-            "sqlflow=sqlflow.sqlflow.cli.main:cli",
+            "sqlflow=sqlflow.cli.main:cli",
         ],
     },
     python_requires=">=3.8",

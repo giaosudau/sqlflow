@@ -2,13 +2,13 @@
 
 import pytest
 
-from sqlflow.sqlflow.parser.ast import (
+from sqlflow.parser.ast import (
     ExportStep,
     LoadStep,
     SourceDefinitionStep,
 )
-from sqlflow.sqlflow.parser.lexer import Lexer, TokenType
-from sqlflow.sqlflow.parser.parser import Parser, ParserError
+from sqlflow.parser.lexer import Lexer, TokenType
+from sqlflow.parser.parser import Parser, ParserError
 
 
 class TestLexer:

@@ -5,15 +5,15 @@ from typing import Any, Dict, Iterator, List
 import pyarrow as pa
 import pytest
 
-from sqlflow.sqlflow.connectors.base import (
+from sqlflow.connectors.base import (
     ConnectionTestResult,
     Connector,
     ConnectorState,
     ExportConnector,
     Schema,
 )
-from sqlflow.sqlflow.connectors.data_chunk import DataChunk
-from sqlflow.sqlflow.core.errors import ConnectorError
+from sqlflow.connectors.data_chunk import DataChunk
+from sqlflow.core.errors import ConnectorError
 
 
 class MockConnector(Connector):

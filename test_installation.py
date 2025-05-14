@@ -1,6 +1,6 @@
 """Test script to verify SQLFlow connector framework installation."""
 
-from sqlflow.sqlflow.connectors.registry import get_connector_class
+from sqlflowx.connectors.registry import get_connector_class
 
 print("Import test successful!")
 print(

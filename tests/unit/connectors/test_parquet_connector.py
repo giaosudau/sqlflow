@@ -8,10 +8,10 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from sqlflow.sqlflow.connectors.base import ConnectorState
-from sqlflow.sqlflow.connectors.data_chunk import DataChunk
-from sqlflow.sqlflow.connectors.parquet_connector import ParquetConnector
-from sqlflow.sqlflow.core.errors import ConnectorError
+from sqlflow.connectors.base import ConnectorState
+from sqlflow.connectors.data_chunk import DataChunk
+from sqlflow.connectors.parquet_connector import ParquetConnector
+from sqlflow.core.errors import ConnectorError
 
 
 @pytest.fixture

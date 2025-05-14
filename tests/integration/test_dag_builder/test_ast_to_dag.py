@@ -1,13 +1,13 @@
 """Integration tests for AST to DAG conversion."""
 
-from sqlflow.sqlflow.parser.ast import (
+from sqlflow.parser.ast import (
     ExportStep,
     LoadStep,
     Pipeline,
     SourceDefinitionStep,
 )
-from sqlflow.sqlflow.parser.parser import Parser
-from sqlflow.sqlflow.visualizer.dag_builder_ast import ASTDAGBuilder
+from sqlflow.parser.parser import Parser
+from sqlflow.visualizer.dag_builder_ast import ASTDAGBuilder
 
 
 class TestASTToDAG:

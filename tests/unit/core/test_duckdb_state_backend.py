@@ -6,8 +6,8 @@ import uuid
 
 import pytest
 
-from sqlflow.sqlflow.core.executors.task_status import TaskState, TaskStatus
-from sqlflow.sqlflow.core.storage.duckdb_state_backend import DuckDBStateBackend
+from sqlflow.core.executors.task_status import TaskState, TaskStatus
+from sqlflow.core.storage.duckdb_state_backend import DuckDBStateBackend
 
 
 class TestDuckDBStateBackend:

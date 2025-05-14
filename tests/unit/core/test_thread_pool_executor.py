@@ -6,8 +6,8 @@ import threading
 import time
 from unittest.mock import MagicMock, patch
 
-from sqlflow.sqlflow.core.executors.task_status import TaskState, TaskStatus
-from sqlflow.sqlflow.core.executors.thread_pool_executor import ThreadPoolTaskExecutor
+from sqlflow.core.executors.task_status import TaskState, TaskStatus
+from sqlflow.core.executors.thread_pool_executor import ThreadPoolTaskExecutor
 
 
 class TestTaskStatus:

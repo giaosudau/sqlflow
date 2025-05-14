@@ -7,10 +7,10 @@ from typing import Generator
 import pandas as pd
 import pytest
 
-from sqlflow.sqlflow.connectors.base import ConnectorState
-from sqlflow.sqlflow.connectors.csv_connector import CSVConnector
-from sqlflow.sqlflow.connectors.data_chunk import DataChunk
-from sqlflow.sqlflow.core.errors import ConnectorError
+from sqlflow.connectors.base import ConnectorState
+from sqlflow.connectors.csv_connector import CSVConnector
+from sqlflow.connectors.data_chunk import DataChunk
+from sqlflow.core.errors import ConnectorError
 
 
 @pytest.fixture

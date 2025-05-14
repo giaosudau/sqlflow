@@ -4,9 +4,9 @@ from typing import Any, Dict
 
 import pytest
 
-from sqlflow.sqlflow.connectors import CONNECTOR_REGISTRY
-from sqlflow.sqlflow.connectors.base import Connector, ExportConnector
-from sqlflow.sqlflow.connectors.registry import (
+from sqlflow.connectors import CONNECTOR_REGISTRY
+from sqlflow.connectors.base import Connector, ExportConnector
+from sqlflow.connectors.registry import (
     EXPORT_CONNECTOR_REGISTRY,
     get_connector_class,
     get_export_connector_class,

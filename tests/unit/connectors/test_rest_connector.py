@@ -7,11 +7,11 @@ import pandas as pd
 import pytest
 import requests
 
-from sqlflow.sqlflow.connectors.data_chunk import DataChunk
-from sqlflow.sqlflow.connectors.rest_connector import (
+from sqlflow.connectors.data_chunk import DataChunk
+from sqlflow.connectors.rest_connector import (
     RESTExportConnector,
 )
-from sqlflow.sqlflow.core.errors import ConnectorError
+from sqlflow.core.errors import ConnectorError
 
 
 @pytest.fixture

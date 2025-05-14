@@ -2,8 +2,8 @@
 
 import pytest
 
-from sqlflow.sqlflow.core.dependencies import DependencyResolver
-from sqlflow.sqlflow.core.errors import CircularDependencyError
+from sqlflow.core.dependencies import DependencyResolver
+from sqlflow.core.errors import CircularDependencyError
 
 
 class TestDependencyResolver:

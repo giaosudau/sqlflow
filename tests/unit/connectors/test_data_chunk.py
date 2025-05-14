@@ -4,7 +4,7 @@ import pandas as pd
 import pyarrow as pa
 import pytest
 
-from sqlflow.sqlflow.connectors.data_chunk import DataChunk
+from sqlflow.connectors.data_chunk import DataChunk
 
 
 def test_data_chunk_from_arrow():

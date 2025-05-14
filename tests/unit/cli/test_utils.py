@@ -6,7 +6,7 @@ from unittest import TestCase
 
 import pytest
 
-from sqlflow.sqlflow.cli.utils import parse_vars, resolve_pipeline_name
+from sqlflow.cli.utils import parse_vars, resolve_pipeline_name
 
 
 class TestResolvesPipelineName(TestCase):

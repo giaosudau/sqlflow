@@ -2,8 +2,8 @@
 
 import pytest
 
-from sqlflow.sqlflow.parser.ast import IncludeStep, SetStep
-from sqlflow.sqlflow.parser.parser import Parser, ParserError
+from sqlflow.parser.ast import IncludeStep, SetStep
+from sqlflow.parser.parser import Parser, ParserError
 
 
 def test_include_directive_valid():

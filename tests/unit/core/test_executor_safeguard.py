@@ -2,8 +2,8 @@
 
 from unittest.mock import patch
 
-from sqlflow.sqlflow.core.dependencies import DependencyResolver
-from sqlflow.sqlflow.core.executors.local_executor import LocalExecutor
+from sqlflow.core.dependencies import DependencyResolver
+from sqlflow.core.executors.local_executor import LocalExecutor
 
 
 class TestExecutorSafeguard:
@@ -27,9 +27,7 @@ class TestExecutorSafeguard:
 
         executor = LocalExecutor()
 
-        with patch(
-            "sqlflow.sqlflow.core.executors.local_executor.logger"
-        ) as mock_logger:
+        with patch("sqlflow.core.executors.local_executor.logger") as mock_logger:
             executor.execute(plan, resolver)
             mock_logger.warning.assert_not_called()
 
@@ -51,9 +49,7 @@ class TestExecutorSafeguard:
 
         executor = LocalExecutor()
 
-        with patch(
-            "sqlflow.sqlflow.core.executors.local_executor.logger"
-        ) as mock_logger:
+        with patch("sqlflow.core.executors.local_executor.logger") as mock_logger:
             executor.execute(plan, resolver)
             mock_logger.warning.assert_called_once()
             call_args = mock_logger.warning.call_args[0]
@@ -75,8 +71,6 @@ class TestExecutorSafeguard:
 
         executor = LocalExecutor()
 
-        with patch(
-            "sqlflow.sqlflow.core.executors.local_executor.logger"
-        ) as mock_logger:
+        with patch("sqlflow.core.executors.local_executor.logger") as mock_logger:
             executor.execute(plan)
             mock_logger.warning.assert_not_called()
