@@ -74,7 +74,7 @@ SOURCE sample TYPE CSV PARAMS {
 };
 
 -- Load data into tables
-LOAD sample INTO raw_data;
+LOAD raw_data FROM sample;
 
 -- Transform data
 CREATE TABLE sales_enriched AS
@@ -90,7 +90,7 @@ SELECT
   s.price,
   (s.quantity * s.price) AS total_amount,
   s.order_date
-FROM raw_sales s
+FROM raw_data s
 JOIN customers c ON s.customer_id = c.customer_id
 JOIN products p ON s.product_id = p.product_id;
 
@@ -138,7 +138,7 @@ OPTIONS {
 EXPORT
   SELECT 
     '${date}' AS report_date,
-    (SELECT COUNT(*) FROM raw_sales) AS total_orders,
+    (SELECT COUNT(*) FROM raw_data) AS total_orders,
     (SELECT SUM(total_amount) FROM sales_enriched) AS daily_revenue
 TO "https://api.example.com/notifications"
 TYPE REST
