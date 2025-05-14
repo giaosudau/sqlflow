@@ -58,16 +58,16 @@ class DependencyResolver:
         self.execution_order = []
 
         self._visit(start_pipeline)
-        
+
         self.last_resolved_order = self.execution_order.copy()
         return self.execution_order
-        
+
     def validate(self, pipeline: str) -> None:
         """Validate that a pipeline has no circular dependencies.
-        
+
         Args:
             pipeline: Pipeline to validate
-            
+
         Raises:
             CircularDependencyError: If a circular dependency is detected
         """

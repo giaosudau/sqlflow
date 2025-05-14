@@ -19,7 +19,11 @@ class LocalExecutor(BaseExecutor):
         self.results: Dict[str, Any] = {}
         self.dependency_resolver: Optional[DependencyResolver] = None
 
-    def execute(self, plan: List[Dict[str, Any]], dependency_resolver: Optional[DependencyResolver] = None) -> Dict[str, Any]:
+    def execute(
+        self,
+        plan: List[Dict[str, Any]],
+        dependency_resolver: Optional[DependencyResolver] = None,
+    ) -> Dict[str, Any]:
         """Execute a pipeline plan.
 
         Args:
@@ -32,14 +36,17 @@ class LocalExecutor(BaseExecutor):
         self.results = {}
         self.dependency_resolver = dependency_resolver
 
-        if dependency_resolver is not None and dependency_resolver.last_resolved_order is not None:
+        if (
+            dependency_resolver is not None
+            and dependency_resolver.last_resolved_order is not None
+        ):
             plan_ids = [step["id"] for step in plan]
-            
+
             if plan_ids != dependency_resolver.last_resolved_order:
                 logger.warning(
                     "Execution order mismatch detected. Plan order: %s, Resolved order: %s",
                     plan_ids,
-                    dependency_resolver.last_resolved_order
+                    dependency_resolver.last_resolved_order,
                 )
 
         for step in plan:
