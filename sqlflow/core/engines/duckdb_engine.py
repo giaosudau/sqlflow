@@ -37,15 +37,15 @@ class DuckDBEngine:
         """
         # Use in-memory database if explicitly requested
         if database_path == ":memory:":
-            print("DEBUG: Using true in-memory database")
+            logger.debug("Using true in-memory database")
             return ":memory:"
         # Force a file-based database if none is provided
         elif not database_path:
             default_path = "target/default.db"
-            print(f"DEBUG: No database path provided, using default: {default_path}")
+            logger.debug(f"No database path provided, using default: {default_path}")
             return default_path
         else:
-            print(f"DEBUG: DuckDB engine initializing with path: {database_path}")
+            logger.debug(f"DuckDB engine initializing with path: {database_path}")
             return database_path
 
     def _ensure_directory_exists(self) -> None:
@@ -53,12 +53,12 @@ class DuckDBEngine:
         if self.database_path != ":memory:":
             dir_path = os.path.dirname(self.database_path)
             if dir_path:  # Skip if db file is in current directory (empty dir_path)
-                print(f"DEBUG: Creating directory for DuckDB file: {dir_path}")
+                logger.debug(f"Creating directory for DuckDB file: {dir_path}")
                 try:
                     os.makedirs(dir_path, exist_ok=True)
-                    print(f"DEBUG: Directory created/verified: {dir_path}")
+                    logger.debug(f"Directory created/verified: {dir_path}")
                 except Exception as e:
-                    print(f"DEBUG: Error creating directory: {e}")
+                    logger.error(f"Error creating directory: {e}")
                     # Don't fall back to memory - throw an error instead
                     raise RuntimeError(
                         f"Failed to create directory for DuckDB database: {e}"
@@ -73,13 +73,13 @@ class DuckDBEngine:
         Raises:
             RuntimeError: If connection fails
         """
-        print(f"DEBUG: Connecting to DuckDB database at: {self.database_path}")
+        logger.debug(f"Connecting to DuckDB database at: {self.database_path}")
         try:
             connection = duckdb.connect(self.database_path)
-            print("DEBUG: DuckDB connection established successfully")
+            logger.debug("DuckDB connection established successfully")
             return connection
         except Exception as e:
-            print(f"DEBUG: Error connecting to DuckDB: {e}")
+            logger.error(f"Error connecting to DuckDB: {e}")
             # Don't fall back to memory - throw an error instead
             raise RuntimeError(
                 f"Failed to connect to DuckDB database at {self.database_path}: {e}"
@@ -92,22 +92,22 @@ class DuckDBEngine:
                 # Try to get DuckDB version
                 version_result = self.connection.execute("SELECT version()").fetchone()
                 duckdb_version = version_result[0] if version_result else "unknown"
-                print(f"DEBUG: DuckDB version: {duckdb_version}")
+                logger.debug(f"DuckDB version: {duckdb_version}")
 
                 # Apply settings based on what's likely to be supported
                 try:
                     self.connection.execute("PRAGMA memory_limit='2GB'")
-                    print("DEBUG: Set memory limit to 2GB")
+                    logger.debug("Set memory limit to 2GB")
                 except Exception as e:
-                    print(f"DEBUG: Could not set memory limit: {e}")
+                    logger.debug(f"Could not set memory limit: {e}")
 
                 # Force a checkpoint to ensure data is committed
                 self.connection.execute("CHECKPOINT")
-                print("DEBUG: Initial checkpoint executed successfully")
+                logger.debug("Initial checkpoint executed successfully")
 
-                print("DEBUG: DuckDB persistence settings applied.")
+                logger.debug("DuckDB persistence settings applied.")
             except Exception as e:
-                print(f"DEBUG: Could not apply all DuckDB settings: {e}")
+                logger.warning(f"Could not apply all DuckDB settings: {e}")
                 # Don't fail on pragma errors - these are likely version differences
 
     def _verify_connection(self) -> None:
@@ -118,9 +118,9 @@ class DuckDBEngine:
         """
         try:
             self.connection.execute("SELECT 1").fetchone()
-            print("DEBUG: DuckDB connection verified with test query")
+            logger.debug("DuckDB connection verified with test query")
         except Exception as e:
-            print(f"DEBUG: DuckDB test query failed: {e}")
+            logger.error(f"DuckDB test query failed: {e}")
             raise RuntimeError(f"DuckDB connection test failed: {e}")
 
     def execute_query(self, query: str) -> duckdb.DuckDBPyRelation:
@@ -132,26 +132,26 @@ class DuckDBEngine:
         Returns:
             DuckDB relation object with the query results
         """
-        print(f"DEBUG: Executing DuckDB query: {query[:100]}...")
+        logger.debug(f"Executing DuckDB query: {query[:100]}...")
 
         # Verify connection is still alive
         try:
             self.connection.execute("SELECT 1").fetchone()
-            print("DEBUG: DuckDB connection verified before query")
+            logger.debug("DuckDB connection verified before query")
         except Exception as e:
-            print(f"DEBUG: DuckDB connection lost, reconnecting: {e}")
+            logger.warning(f"DuckDB connection lost, reconnecting: {e}")
             self.__init__(self.database_path)
 
         result = self.connection.execute(query)
-        print("DEBUG: Query executed successfully")
+        logger.debug("Query executed successfully")
 
         # Force checkpoint to ensure data is written to disk
         if self.database_path != ":memory:":
             try:
                 self.connection.execute("CHECKPOINT")
-                print("DEBUG: Checkpoint executed to persist data")
+                logger.debug("Checkpoint executed to persist data")
             except Exception as e:
-                print(f"DEBUG: Error performing checkpoint: {e}")
+                logger.warning(f"Error performing checkpoint: {e}")
                 # Don't raise an error here - checkpoint may not be supported
 
         return result
