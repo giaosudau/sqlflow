@@ -74,12 +74,24 @@ class Project:
         """Get the full path to a pipeline file.
 
         Args:
-            pipeline_name: Name of the pipeline
+            pipeline_name: Name of the pipeline (with or without .sf extension)
 
         Returns:
             Full path to the pipeline file
         """
         pipelines_dir = self.config.get("paths", {}).get("pipelines", "pipelines")
+
+        if os.path.isabs(pipeline_name):
+            if os.path.exists(pipeline_name):
+                return pipeline_name
+            if not pipeline_name.endswith(".sf"):
+                full_path = f"{pipeline_name}.sf"
+                if os.path.exists(full_path):
+                    return full_path
+
+        if pipeline_name.endswith(".sf"):
+            return os.path.join(self.project_dir, pipelines_dir, pipeline_name)
+
         return os.path.join(self.project_dir, pipelines_dir, f"{pipeline_name}.sf")
 
     def get_profile(self, profile_name: Optional[str] = None) -> Dict[str, Any]:
