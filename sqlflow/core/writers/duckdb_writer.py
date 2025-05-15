@@ -34,61 +34,104 @@ class DuckDBWriter(WriterProtocol):
         logger.info(f"Writing data to DuckDB table: {destination}")
 
         try:
-            self._create_table_if_needed(destination, options)
-            self._write_data_to_table(data, destination, options)
+            # Register the data with a temporary name
+            self.connection.register("temp_data", data)
+
+            # Create table if needed and it doesn't exist yet
+            if options.get("create_table", True) and not self._table_exists(
+                destination
+            ):
+                self._create_table_if_needed(destination, data)
+
+            # Write the data
+            if options.get("mode") == "append":
+                self._append_data(destination)
+            else:
+                self._overwrite_data(destination)
+
+            # Persist changes
+            self._execute_checkpoint()
+
             logger.info(f"Successfully wrote data to table {destination}")
         except Exception as e:
             logger.error(f"Error in DuckDBWriter.write: {e}")
             raise
 
-    def _create_table_if_needed(
-        self, destination: str, options: Dict[str, Any]
-    ) -> None:
-        """Create the table if it doesn't exist and create_table option is True.
+    def _create_table_if_needed(self, destination: str, data: Any) -> None:
+        """Create the table if it doesn't exist with the schema from the data.
 
         Args:
             destination: Table name to create
-            options: Writer options
+            data: Data to derive schema from
         """
         logger = logging.getLogger(__name__)
-        if not options.get("create_table", True):
-            return
 
-        logger.debug(f"Creating table {destination} if it doesn't exist")
         try:
+            # Check if table exists
+            table_exists = self._table_exists(destination)
+
+            # If table exists, check if schema matches
+            if table_exists and self._table_schema_matches(destination, data):
+                logger.debug(f"Table {destination} already exists with matching schema")
+                return
+
+            # Drop table if it exists but schema doesn't match
+            if table_exists:
+                logger.debug(
+                    f"Dropping table {destination} to recreate with correct schema"
+                )
+                self.connection.execute(f"DROP TABLE IF EXISTS {destination}")
+
+            # Create table with schema from data
+            logger.debug(f"Creating table {destination} with schema from data")
             self.connection.execute(
-                f"CREATE TABLE IF NOT EXISTS {destination} AS SELECT * FROM data WHERE 1=0"
+                f"CREATE TABLE {destination} AS SELECT * FROM temp_data WHERE 1=0"
             )
             logger.debug(f"Created table {destination}")
         except Exception as e:
             logger.error(f"Error creating table {destination}: {e}")
             raise RuntimeError(f"Failed to create table {destination}: {e}")
 
-    def _write_data_to_table(
-        self, data: Any, destination: str, options: Dict[str, Any]
-    ) -> None:
-        """Write data to the table.
+    def _table_exists(self, table_name: str) -> bool:
+        """Check if a table exists.
 
         Args:
-            data: Data to write
-            destination: Table name to write to
-            options: Writer options
+            table_name: Name of the table to check
+
+        Returns:
+            True if the table exists, False otherwise
         """
-        logger = logging.getLogger(__name__)
-        logger.debug(f"Writing data to table {destination}")
-
         try:
-            self.connection.register("temp_data", data)
+            self.connection.execute(f"SELECT * FROM {table_name} WHERE 1=0")
+            return True
+        except Exception:
+            return False
 
-            if options.get("mode", "overwrite") == "append":
-                self._append_data(destination)
-            else:
-                self._overwrite_data(destination)
+    def _table_schema_matches(self, table_name: str, data: Any) -> bool:
+        """Check if a table's schema matches the data.
 
-            self._execute_checkpoint()
-        except Exception as e:
-            logger.error(f"Error writing data to table {destination}: {e}")
-            raise RuntimeError(f"Failed to write data to table {destination}: {e}")
+        Args:
+            table_name: Name of the table to check
+            data: Data to compare schema with
+
+        Returns:
+            True if the table's schema matches the data, False otherwise
+        """
+        try:
+            # Get column names from the table
+            table_columns = set(
+                self.connection.execute(f"SELECT * FROM {table_name} WHERE 1=0").columns
+            )
+
+            # Get column names from the data (already registered as temp_data)
+            data_columns = set(
+                self.connection.execute("SELECT * FROM temp_data WHERE 1=0").columns
+            )
+
+            # Compare column names
+            return table_columns == data_columns
+        except Exception:
+            return False
 
     def _append_data(self, destination: str) -> None:
         """Append data to the table.

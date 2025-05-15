@@ -145,19 +145,23 @@ class DuckDBEngine:
             logger.warning(f"DuckDB connection lost, reconnecting: {e}")
             self.__init__(self.database_path)
 
-        result = self.connection.execute(query)
-        logger.debug("Query executed successfully")
+        try:
+            result = self.connection.sql(query)
+            logger.debug("Query executed successfully")
 
-        # Force checkpoint to ensure data is written to disk
-        if self.database_path != ":memory:":
-            try:
-                self.connection.execute("CHECKPOINT")
-                logger.debug("Checkpoint executed to persist data")
-            except Exception as e:
-                logger.warning(f"Error performing checkpoint: {e}")
-                # Don't raise an error here - checkpoint may not be supported
+            # Force checkpoint to ensure data is written to disk
+            if self.database_path != ":memory:":
+                try:
+                    self.connection.execute("CHECKPOINT")
+                    logger.debug("Checkpoint executed to persist data")
+                except Exception as e:
+                    logger.warning(f"Error performing checkpoint: {e}")
+                    # Don't raise an error here - checkpoint may not be supported
 
-        return result
+            return result
+        except Exception as e:
+            logger.error(f"Error executing query: {e}")
+            raise RuntimeError(f"Failed to execute query: {e}")
 
     def register_table(self, name: str, data: Any):
         """Register a table in DuckDB.
