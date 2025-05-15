@@ -12,7 +12,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Copy SQLFlow wheel and install it
 COPY dist/*.whl /tmp/
-RUN pip install --no-cache-dir /tmp/*.whl
+RUN pip install --no-cache-dir /tmp/*.whl && \
+    echo '#!/bin/bash' > /usr/local/bin/sqlflow && \
+    echo 'python -m sqlflow.cli.main "$@"' >> /usr/local/bin/sqlflow && \
+    chmod +x /usr/local/bin/sqlflow
 
 # Install additional dependencies for the demo
 RUN pip install --no-cache-dir \
