@@ -67,11 +67,7 @@ echo "Copied wheel to ${ROOT_DIR}/demos/ecommerce_demo/dist/"
 # Navigate to the demo directory
 cd "${ROOT_DIR}/demos/ecommerce_demo"
 
-# Install Docker Compose if not available
-if ! command -v docker-compose &> /dev/null; then
-    echo "Docker Compose not found. Please install it first."
-    exit 1
-fi
+echo "Using Docker Compose v2..."
 
 # Check if SQLFlow Docker image exists, rebuild if not
 if ! docker image inspect sqlflow-ecommerce-demo &> /dev/null; then
@@ -80,11 +76,11 @@ if ! docker image inspect sqlflow-ecommerce-demo &> /dev/null; then
 fi
 
 # Stop and remove containers if they exist
-docker-compose down
+docker compose down
 
 # Recreate and start containers
 echo "Starting containers..."
-docker-compose up -d
+docker compose up -d
 
 # Wait for containers to be ready
 echo "Waiting for containers to be ready..."
@@ -92,10 +88,10 @@ sleep 5
 
 # Run tests to verify the fix
 echo "Running debug tests..."
-docker-compose exec sqlflow python /app/sqlflow/demos/ecommerce_demo/simple_debug.py
+docker compose exec sqlflow python /app/sqlflow/demos/ecommerce_demo/simple_debug.py
 
 echo "Running SQLFlow demo..."
-docker-compose exec sqlflow python -m sqlflow run /app/sqlflow/demos/ecommerce_demo/pipelines/simple_test.sf --profile /app/sqlflow/demos/ecommerce_demo/sqlflow.yml
+docker compose exec sqlflow sqlflow pipeline run /app/sqlflow/demos/ecommerce_demo/pipelines/simple_test.sf
 
 echo "Demo is running! Access services at:
 
@@ -103,10 +99,10 @@ echo "Demo is running! Access services at:
 - Mock Server: http://localhost:1080
 
 To run commands inside the SQLFlow container:
-  docker-compose exec sqlflow bash
+  docker compose exec sqlflow bash
 
 To execute a specific pipeline:
-  docker-compose exec sqlflow python -m sqlflow run /app/sqlflow/demos/ecommerce_demo/pipelines/[pipeline-file].sf --profile /app/sqlflow/demos/ecommerce_demo/sqlflow.yml
+  docker compose exec sqlflow sqlflow pipeline run /app/sqlflow/demos/ecommerce_demo/pipelines/[pipeline-file].sf --vars \"{\\\"date\\\": \\\"$(date '+%Y-%m-%d')\\\"}\"
 
 To stop the demo:
-  docker-compose down"
+  docker compose down"
