@@ -20,6 +20,7 @@ services:
       - AWS_SECRET_ACCESS_KEY=minioadmin
       - API_TOKEN=demo-token
     tty: true
+    command: ["tail", "-f", "/dev/null"]
 
   # PostgreSQL database service
   postgres:
