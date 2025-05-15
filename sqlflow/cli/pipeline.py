@@ -1,15 +1,21 @@
 """Pipeline commands for the SQLFlow CLI."""
 
 import json
+import logging
 import os
 from typing import Optional
 
 import typer
 
 from sqlflow.cli.utils import parse_vars, resolve_pipeline_name
-from sqlflow.core.planner import OperationPlanner
+from sqlflow.core.dependencies import DependencyResolver
+from sqlflow.core.executors.local_executor import LocalExecutor
+from sqlflow.core.planner import Planner
 from sqlflow.parser.parser import Parser
 from sqlflow.project import Project
+
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.DEBUG)
 
 pipeline_app = typer.Typer(
     help="Pipeline management commands",
@@ -102,8 +108,8 @@ def _parse_pipeline(pipeline_text: str, pipeline_path: str):
             typer.echo(f"  - {error}")
         return None
 
-    planner = OperationPlanner()
-    return planner.plan(pipeline)
+    planner = Planner()
+    return planner.create_plan(pipeline)
 
 
 def _print_plan_summary(plan, pipeline_name: str):
@@ -165,6 +171,43 @@ def _compile_single_pipeline(pipeline_path: str, output: Optional[str] = None):
         raise typer.Exit(code=1)
 
 
+def _substitute_pipeline_variables(pipeline_text: str, variables: dict) -> str:
+    """Substitute variables in the pipeline text."""
+    for var_name, var_value in variables.items():
+        placeholder = "${date}" if var_name == "date" else "${" + var_name + "}"
+        pipeline_text = pipeline_text.replace(placeholder, str(var_value))
+    return pipeline_text
+
+
+def _build_dependency_execution_order(plan: list) -> list:
+    """Build execution order for steps based on dependencies."""
+    dependency_resolver = DependencyResolver()
+    for step in plan:
+        step_id = step["id"]
+        for dependency in step.get("depends_on", []):
+            dependency_resolver.add_dependency(step_id, dependency)
+    all_step_ids = [step["id"] for step in plan]
+    entry_points = [
+        step["id"]
+        for step in plan
+        if not step.get("depends_on") or len(step.get("depends_on", [])) == 0
+    ]
+    if not entry_points and all_step_ids:
+        entry_points = [all_step_ids[0]]
+    execution_order = []
+    for entry_point in entry_points:
+        if entry_point in execution_order:
+            continue
+        deps = dependency_resolver.resolve_dependencies(entry_point)
+        for dep in deps:
+            if dep not in execution_order:
+                execution_order.append(dep)
+    for step_id in all_step_ids:
+        if step_id not in execution_order:
+            execution_order.append(step_id)
+    return execution_order
+
+
 @pipeline_app.command("run")
 def run_pipeline(
     pipeline_name: str = typer.Argument(
@@ -175,63 +218,52 @@ def run_pipeline(
     ),
 ):
     """Execute a pipeline end-to-end."""
-    import logging
-
-    from sqlflow.core.executors.local_executor import LocalExecutor
-    from sqlflow.core.planner import OperationPlanner
-    from sqlflow.parser.parser import Parser
-
-    logger = logging.getLogger("sqlflow.cli.pipeline")
-    project = Project(os.getcwd())
-    pipelines_dir = os.path.join(
-        project.project_dir,
-        project.config.get("paths", {}).get("pipelines", "pipelines"),
-    )
-
     try:
         variables = parse_vars(vars)
-        pipeline_path = resolve_pipeline_name(pipeline_name, pipelines_dir)
-        typer.echo(f"Running pipeline: {pipeline_path}")
-        if variables:
-            typer.echo(f"With variables: {json.dumps(variables, indent=2)}")
-
-        # Parse pipeline file
-        with open(pipeline_path, "r") as f:
-            pipeline_text = f.read()
-        parser = Parser(pipeline_text)
-        pipeline = parser.parse()
-
-        # Validate pipeline
-        validation_errors = pipeline.validate()
-        if validation_errors:
-            typer.echo(f"Validation errors in {pipeline_path}:")
-            for error in validation_errors:
-                typer.echo(f"  - {error}")
-            raise typer.Exit(code=1)
-
-        # Plan operations
-        planner = OperationPlanner()
-        plan = planner.plan(pipeline)
-        typer.echo(f"Execution plan: {len(plan)} steps")
-        for op in plan:
-            typer.echo(f"  - {op.get('id', 'unknown')} ({op.get('type', 'unknown')})")
-
-        # Execute plan
-        executor = LocalExecutor()
-        results = executor.execute(plan)
-        typer.echo("\nPipeline execution results:")
-        typer.echo(json.dumps(results, indent=2))
-
-    except FileNotFoundError as e:
-        typer.echo(str(e))
-        raise typer.Exit(code=1)
     except ValueError as e:
         typer.echo(f"Error parsing variables: {str(e)}")
         raise typer.Exit(code=1)
-    except Exception as e:
-        logger.exception("Pipeline execution failed")
-        typer.echo(f"Pipeline execution failed: {str(e)}")
+
+    project = Project(os.getcwd())
+    logger.info(f"Current working directory: {os.getcwd()}")
+    logger.info(f"Project configuration: {project.get_config()}")
+    logger.info(f"Profile configuration: {project.get_profile()}")
+
+    pipeline_path = project.get_pipeline_path(pipeline_name)
+    if not os.path.exists(pipeline_path):
+        typer.echo(f"Pipeline {pipeline_name} not found at {pipeline_path}")
         raise typer.Exit(code=1)
+
+    typer.echo(f"Running pipeline: {pipeline_path}")
+    if variables:
+        typer.echo(f"With variables: {json.dumps(variables, indent=2)}")
+
+    with open(pipeline_path, "r") as f:
+        pipeline_text = f.read()
+
+    pipeline_text = _substitute_pipeline_variables(pipeline_text, variables)
+    parser = Parser()
+    ast = parser.parse(pipeline_text)
+    planner = Planner()
+    plan = planner.create_plan(ast)
+
+    typer.echo(f"Execution plan: {len(plan)} steps")
+    for step in plan:
+        typer.echo(f"  - {step['id']} ({step['type']})")
+
+    execution_order = _build_dependency_execution_order(plan)
+    typer.echo(f"Execution order: {execution_order}")
+
+    executor = LocalExecutor()
+    results = executor.execute(plan, DependencyResolver())
+
+    if results.get("error"):
+        typer.echo(
+            f"Error executing step {results.get('failed_step')}: {results['error']}"
+        )
+
+    typer.echo("\nPipeline execution results:")
+    typer.echo(json.dumps(results, indent=2))
 
 
 @pipeline_app.command("list")
