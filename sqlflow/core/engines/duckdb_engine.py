@@ -2,7 +2,10 @@
 
 import logging
 import os
-from typing import Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional
+
+if TYPE_CHECKING:
+    import pyarrow as pa
 
 import duckdb
 
@@ -369,3 +372,55 @@ class DuckDBEngine:
     def __del__(self) -> None:
         """Close the connection when the object is deleted."""
         self.close()
+
+    def register_arrow(self, table_name: str, arrow_table: "pa.Table") -> None:
+        """Register an Arrow table in DuckDB.
+
+        Args:
+            table_name: Name of the table
+            arrow_table: Arrow table to register
+        """
+        logger.debug(f"Registering Arrow table {table_name}")
+        try:
+            self.connection.register(table_name, arrow_table)
+            logger.info(f"Arrow table {table_name} registered successfully")
+        except Exception as e:
+            logger.error(f"Error registering Arrow table {table_name}: {e}")
+            raise
+
+    def supports_feature(self, feature: str) -> bool:
+        """Check if a feature is supported by this engine.
+
+        Args:
+            feature: Feature to check
+
+        Returns:
+            True if the feature is supported, False otherwise
+        """
+        supported_features = {
+            "arrow": True,
+            "pandas": True,
+            "python_funcs": False,  # To be implemented in post-MVP
+            "transactions": True,
+            "checkpoints": True,
+        }
+
+        is_supported = supported_features.get(feature, False)
+        logger.debug(
+            f"Feature check: {feature} is {'supported' if is_supported else 'not supported'}"
+        )
+        return is_supported
+
+    def register_python_func(self, name: str, func: Any) -> None:
+        """Register a Python function for use in queries.
+
+        Note: This method is planned for post-MVP implementation per the
+        implementation timeline (Task 2.3.1).
+
+        Args:
+            name: Function name to register
+            func: Python function to register
+        """
+        raise NotImplementedError(
+            "Python function support is planned for post-MVP implementation."
+        )
