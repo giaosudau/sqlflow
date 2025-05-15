@@ -17,6 +17,8 @@ setup(
         "typer>=0.9.0",  # Modern CLI framework
         "psycopg2-binary>=2.9.0",  # PostgreSQL connector
         "boto3>=1.26.0",  # AWS S3 connector
+        "s3fs>=2023.9.0",  # S3 filesystem support
+        "fsspec==2023.12.1",  # Filesystem interface (pinned for s3fs compatibility)
         "requests>=2.28.0",  # HTTP/REST connector
         "pyyaml>=6.0",  # Configuration handling
         "typing-extensions>=4.0.0",  # Type hints support
