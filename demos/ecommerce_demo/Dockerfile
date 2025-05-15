@@ -10,11 +10,25 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements and install Python dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Copy SQLFlow wheel and install it
+COPY dist/*.whl /tmp/
+RUN pip install --no-cache-dir /tmp/*.whl
 
-# Copy SQLFlow codebase
+# Install additional dependencies for the demo
+RUN pip install --no-cache-dir \
+    duckdb>=0.9.0 \
+    pandas>=2.0.0 \
+    pyarrow>=14.0.0 \
+    psycopg2-binary>=2.9.0 \
+    sqlalchemy>=2.0.0 \
+    boto3>=1.28.0 \
+    s3fs>=2023.9.0 \
+    fsspec==2023.12.1 \
+    requests>=2.31.0 \
+    pyyaml>=6.0.0 \
+    python-dotenv>=1.0.0
+
+# Copy SQLFlow demo files
 COPY . .
 
 # Create target directory to ensure it exists and set permissions

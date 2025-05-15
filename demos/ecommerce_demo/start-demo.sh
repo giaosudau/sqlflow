@@ -55,12 +55,14 @@ pip install -e .
 
 # Build SQLFlow wheel
 echo "Building wheel..."
+pip install build
 python -m build --wheel
 WHEEL_PATH=$(find "${ROOT_DIR}/dist" -name "sqlflow-*.whl" | sort -r | head -n 1)
 
 # Copy the wheel to the demo dist directory
 mkdir -p "${ROOT_DIR}/demos/ecommerce_demo/dist"
 cp "${WHEEL_PATH}" "${ROOT_DIR}/demos/ecommerce_demo/dist/"
+echo "Copied wheel to ${ROOT_DIR}/demos/ecommerce_demo/dist/"
 
 # Navigate to the demo directory
 cd "${ROOT_DIR}/demos/ecommerce_demo"
