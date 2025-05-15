@@ -39,4 +39,4 @@ ENV PYTHONPATH="/app:${PYTHONPATH}"
 ENV PATH="/app/bin:${PATH}"
 
 # Run SQLFlow demo when container starts
-CMD ["python", "-m", "sqlflow", "run", "demos/ecommerce_demo/pipelines/simple_test.sf", "--profile", "demos/ecommerce_demo/sqlflow.yml"]
+CMD ["sqlflow", "pipeline", "run", "/app/sqlflow/demos/ecommerce_demo/pipelines/simple_test.sf"]
