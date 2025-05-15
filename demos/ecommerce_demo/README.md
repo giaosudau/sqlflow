@@ -118,6 +118,40 @@ The demo includes examples of:
 
 You can modify these configurations in the pipeline file to test with different parameters.
 
+## Business Use Cases Demonstrated
+
+This demo showcases how SQLFlow can be used for real-world ecommerce analytics:
+
+### 1. Sales Performance Analysis
+- Calculate daily revenue and order counts
+- Track sales by product category
+- Analyze regional performance differences
+
+### 2. Customer Insights
+- Calculate customer lifetime value metrics
+- Identify high-value customers
+- Track customer purchase frequency
+
+### 3. Inventory and Product Management
+- Identify best-selling products
+- Analyze product category performance
+- Support inventory forecasting through sales data
+
+### 4. Financial Reporting
+- Generate data for revenue reports
+- Calculate critical KPIs like Average Order Value (AOV)
+- Track growth metrics day-over-day
+
+### 5. Executive Dashboards
+- Prepare visualization-ready data for BI tools
+- Support business decision making with aggregated metrics
+- Enable drill-down analysis from high-level KPIs
+
+To explore these business cases, run the different pipeline examples:
+- `daily_sales_report_docker.sf` - Comprehensive sales analytics
+- `simple_test.sf` - Basic sales summary
+- `visualization_demo.sf` - Data preparation for dashboards
+
 ## Developing with SQLFlow
 
 This demo setup is not only for showcasing SQLFlow capabilities but also serves as a development environment for:
