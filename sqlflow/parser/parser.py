@@ -39,26 +39,40 @@ class Parser:
     The parser converts a sequence of tokens into an AST.
     """
 
-    def __init__(self, text: str):
+    def __init__(self, text: Optional[str] = None):
         """Initialize the parser with input text.
 
         Args:
-            text: The input text to parse
+            text: The input text to parse (optional)
         """
-        self.lexer = Lexer(text)
+        self.lexer = None if text is None else Lexer(text)
         self.tokens: List[Token] = []
         self.current = 0
         self.pipeline = Pipeline()
 
-    def parse(self) -> Pipeline:
+    def parse(self, text: Optional[str] = None) -> Pipeline:
         """Parse the input text into a Pipeline AST.
+
+        Args:
+            text: The input text to parse (optional if provided in constructor)
 
         Returns:
             Pipeline AST
 
         Raises:
             ParserError: If the input text cannot be parsed
+            ValueError: If no text is provided
         """
+        # Reset parser state
+        self.current = 0
+        self.pipeline = Pipeline()
+
+        # If text is provided, create a new lexer
+        if text is not None:
+            self.lexer = Lexer(text)
+        elif self.lexer is None:
+            raise ValueError("No text provided to parse")
+
         self.tokens = self.lexer.tokenize()
 
         while not self._is_at_end():

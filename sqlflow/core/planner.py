@@ -31,6 +31,65 @@ class ExecutionPlanBuilder:
         self.step_id_map: Dict[int, str] = {}  # Maps step object ID to step ID
         self.step_dependencies: Dict[str, List[str]] = {}
 
+    def _get_sources_and_loads(
+        self, pipeline: Pipeline
+    ) -> tuple[Dict[str, SourceDefinitionStep], List[LoadStep]]:
+        """Collect source and load steps from the pipeline.
+
+        Args:
+            pipeline: The pipeline to process
+
+        Returns:
+            Tuple of (source_steps, load_steps)
+        """
+        source_steps = {}
+        load_steps = []
+
+        for step in pipeline.steps:
+            if isinstance(step, SourceDefinitionStep):
+                source_steps[step.name] = step
+            elif isinstance(step, LoadStep):
+                load_steps.append(step)
+
+        return source_steps, load_steps
+
+    def _add_load_dependencies(
+        self, source_steps: Dict[str, SourceDefinitionStep], load_steps: List[LoadStep]
+    ) -> None:
+        """Add dependencies from load steps to their source steps.
+
+        Args:
+            source_steps: Dictionary of source steps by name
+            load_steps: List of load steps
+        """
+        for load_step in load_steps:
+            source_name = load_step.source_name
+            if source_name in source_steps:
+                source_step = source_steps[source_name]
+                self._add_dependency(load_step, source_step)
+
+    def _build_execution_steps(
+        self, pipeline: Pipeline, execution_order: List[str]
+    ) -> List[Dict[str, Any]]:
+        """Create execution steps from pipeline steps in the determined order.
+
+        Args:
+            pipeline: The pipeline with steps
+            execution_order: The resolved execution order of step IDs
+
+        Returns:
+            List of execution steps
+        """
+        execution_steps = []
+        for step_id in execution_order:
+            for pipeline_step in pipeline.steps:
+                if self._get_step_id(pipeline_step) == step_id:
+                    execution_step = self._build_execution_step(pipeline_step)
+                    execution_steps.append(execution_step)
+                    break
+
+        return execution_steps
+
     def build_plan(self, pipeline: Pipeline) -> List[Dict[str, Any]]:
         """Build an execution plan from a pipeline.
 
@@ -43,28 +102,29 @@ class ExecutionPlanBuilder:
         Raises:
             PlanningError: If the plan cannot be built
         """
+        # Initialize state
         self.dependency_resolver = DependencyResolver()
         self.step_id_map = {}
         self.step_dependencies = {}
 
+        # Build dependency graph
         self._build_dependency_graph(pipeline)
 
+        # Setup additional dependencies for correct execution order
+        source_steps, load_steps = self._get_sources_and_loads(pipeline)
+        self._add_load_dependencies(source_steps, load_steps)
+
+        # Generate unique IDs for each step
         self._generate_step_ids(pipeline)
 
+        # Resolve execution order based on dependencies
         try:
             execution_order = self._resolve_execution_order()
         except Exception as e:
             raise PlanningError(f"Failed to resolve execution order: {str(e)}") from e
 
-        execution_steps = []
-        for step_id in execution_order:
-            for pipeline_step in pipeline.steps:
-                if self._get_step_id(pipeline_step) == step_id:
-                    execution_step = self._build_execution_step(pipeline_step)
-                    execution_steps.append(execution_step)
-                    break
-
-        return execution_steps
+        # Create execution steps from pipeline steps in the determined order
+        return self._build_execution_steps(pipeline, execution_order)
 
     def _build_dependency_graph(self, pipeline: Pipeline) -> None:
         """Build a dependency graph from a pipeline.
@@ -422,3 +482,25 @@ class OperationPlanner:
             A plan
         """
         return json.loads(json_str)
+
+
+class Planner:
+    """Main planner class for SQLFlow pipelines."""
+
+    def __init__(self):
+        """Initialize a Planner."""
+        self.operation_planner = OperationPlanner()
+
+    def create_plan(self, pipeline: Pipeline) -> List[Dict[str, Any]]:
+        """Create an execution plan for a pipeline.
+
+        Args:
+            pipeline: The pipeline to create a plan for
+
+        Returns:
+            An execution plan as a list of operations
+
+        Raises:
+            PlanningError: If the plan cannot be created
+        """
+        return self.operation_planner.plan(pipeline)
