@@ -163,11 +163,11 @@ class DuckDBEngine:
             name: Name of the table
             data: Data to register (pandas DataFrame or similar)
         """
-        print(f"DEBUG: Registering table {name}")
+        logger.debug(f"Registering table {name}")
         logger.info(f"Registering table {name} with schema: {data.dtypes}")
         try:
             self.connection.register(name, data)
-            print(f"DEBUG: Table {name} registered successfully")
+            logger.debug(f"Table {name} registered successfully")
 
             # Also create a persistent table if using file-based storage
             if self.database_path != ":memory:":
@@ -176,20 +176,19 @@ class DuckDBEngine:
                     self.connection.execute(
                         f"CREATE TABLE IF NOT EXISTS persistent_{name} AS SELECT * FROM {name}"
                     )
-                    print(f"DEBUG: Created persistent copy of table {name}")
+                    logger.debug(f"Created persistent copy of table {name}")
                     # Checkpoint to ensure it's written to disk
                     try:
                         self.connection.execute("CHECKPOINT")
                     except Exception as e:
-                        print(
-                            f"DEBUG: Error during checkpoint after table creation: {e}"
+                        logger.warning(
+                            f"Error during checkpoint after table creation: {e}"
                         )
                 except Exception as e:
-                    print(f"DEBUG: Could not create persistent table: {e}")
+                    logger.warning(f"Could not create persistent table: {e}")
 
             logger.info(f"Table {name} registered successfully")
         except Exception as e:
-            print(f"DEBUG: Error registering table {name}: {e}")
             logger.error(f"Error registering table {name}: {e}")
             raise
 
@@ -202,7 +201,7 @@ class DuckDBEngine:
         Returns:
             Dict mapping column names to their types
         """
-        print(f"DEBUG: Getting schema for table {name}")
+        logger.debug(f"Getting schema for table {name}")
         try:
             # Try PRAGMA approach first (newer DuckDB)
             try:
@@ -219,11 +218,10 @@ class DuckDBEngine:
                     for row in result.fetchdf().to_dict("records")
                 }
 
-            print(f"DEBUG: Schema for table {name}: {schema}")
+            logger.debug(f"Schema for table {name}: {schema}")
             logger.info(f"Schema for table {name}: {schema}")
             return schema
         except Exception as e:
-            print(f"DEBUG: Error getting schema for table {name}: {e}")
             logger.error(f"Error getting schema for table {name}: {e}")
             raise
 
@@ -236,7 +234,7 @@ class DuckDBEngine:
         Returns:
             True if the table exists, False otherwise
         """
-        print(f"DEBUG: Checking if table {table_name} exists")
+        logger.debug(f"Checking if table {table_name} exists")
         try:
             # Try both regular and persistent variants of the table name
             try:
@@ -267,36 +265,34 @@ class DuckDBEngine:
                     exists2 = False
 
             exists = exists1 or exists2
-            print(
-                f"DEBUG: Table {table_name} exists: {exists} (regular: {exists1}, persistent: {exists2})"
+            logger.debug(
+                f"Table {table_name} exists: {exists} (regular: {exists1}, persistent: {exists2})"
             )
             logger.info(f"Table {table_name} exists: {exists}")
             return exists
         except Exception as e:
-            print(f"DEBUG: Error checking if table {table_name} exists: {e}")
             logger.error(f"Error checking if table {table_name} exists: {e}")
             return False
 
     def commit(self):
         """Commit any pending changes to the database."""
-        print("DEBUG: Committing changes")
+        logger.debug("Committing changes")
         try:
             # Not all DuckDB versions have explicit commit, so try checkpoint first
             try:
                 self.connection.execute("CHECKPOINT")
-                print("DEBUG: Checkpoint executed for commit")
+                logger.debug("Checkpoint executed for commit")
             except Exception:
                 # Fall back to commit if available
                 try:
                     self.connection.commit()
-                    print("DEBUG: Changes committed successfully")
+                    logger.debug("Changes committed successfully")
                 except Exception as e:
-                    print(f"DEBUG: Warning: Could not explicitly commit changes: {e}")
+                    logger.warning(f"Could not explicitly commit changes: {e}")
                     # This is not fatal - DuckDB may auto-commit changes
 
             logger.info("Changes committed successfully")
         except Exception as e:
-            print(f"DEBUG: Error committing changes: {e}")
             logger.error(f"Error committing changes: {e}")
             # No need to re-raise here - DuckDB may still be working correctly
 
@@ -312,8 +308,8 @@ class DuckDBEngine:
         Returns:
             Dict containing execution results
         """
-        print(
-            f"DEBUG: Executing pipeline file: {file_path}, compile_only: {compile_only}"
+        logger.debug(
+            f"Executing pipeline file: {file_path}, compile_only: {compile_only}"
         )
         return {}
 
@@ -326,14 +322,14 @@ class DuckDBEngine:
         Returns:
             Template with variables substituted
         """
-        print(f"DEBUG: Substituting variables in template: {template}")
+        logger.debug(f"Substituting variables in template: {template}")
         result = template
 
         for name, value in self.variables.items():
             placeholder = f"${{{name}}}"
             if placeholder in result:
                 result = result.replace(placeholder, str(value))
-        print(f"DEBUG: Substitution result: {result}")
+        logger.debug(f"Substitution result: {result}")
         return result
 
     def register_variable(self, name: str, value: Any) -> None:
@@ -363,12 +359,12 @@ class DuckDBEngine:
             if self.database_path != ":memory:":
                 try:
                     self.connection.execute("CHECKPOINT")
-                    print("DEBUG: Final checkpoint executed before closing")
+                    logger.debug("Final checkpoint executed before closing")
                 except Exception as e:
-                    print(f"DEBUG: Error performing final checkpoint: {e}")
+                    logger.warning(f"Error performing final checkpoint: {e}")
 
             self.connection.close()
-            print("DEBUG: DuckDB connection closed")
+            logger.debug("DuckDB connection closed")
 
     def __del__(self) -> None:
         """Close the connection when the object is deleted."""
