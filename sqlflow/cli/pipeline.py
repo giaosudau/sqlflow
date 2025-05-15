@@ -215,8 +215,16 @@ def run_pipeline(
     vars: Optional[str] = typer.Option(
         None, help="Pipeline variables as JSON or key=value pairs"
     ),
+    verbose: bool = typer.Option(
+        False, "--verbose", "-v", help="Enable verbose output with debug logging."
+    ),
 ):
     """Execute a pipeline end-to-end."""
+    log_level = logging.DEBUG if verbose else logging.INFO
+    logging.basicConfig(
+        level=log_level,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    )
     try:
         variables = parse_vars(vars)
     except ValueError as e:
