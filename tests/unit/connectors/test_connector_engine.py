@@ -186,3 +186,14 @@ def test_connector_engine_export_data():
 
     with pytest.raises(ConnectorError):
         engine.export_data(table, "output_object", "UNKNOWN", {})
+
+
+def test_builtin_connectors_are_registered():
+    """Test that all built-in connectors are registered after import."""
+    from sqlflow.connectors import CONNECTOR_REGISTRY
+
+    required_connectors = ["CSV", "PARQUET", "POSTGRES", "S3", "REST"]
+    for connector in required_connectors:
+        assert connector in CONNECTOR_REGISTRY, f"Connector {connector} not registered"
+        # We don't need to check if the value is not None here since we want to ensure at least
+        # a placeholder exists in the registry

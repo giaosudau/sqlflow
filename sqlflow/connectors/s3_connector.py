@@ -1,28 +1,36 @@
-"""S3 export connector for SQLFlow."""
+"""S3 connector for SQLFlow."""
 
 import io
-from typing import Any, Dict, Optional
+import uuid
+from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 import boto3
+import pyarrow as pa
 import pyarrow.parquet as pq
 
 from sqlflow.connectors.base import (
     ConnectionTestResult,
+    Connector,
     ConnectorState,
     ExportConnector,
+    Schema,
 )
 from sqlflow.connectors.data_chunk import DataChunk
-from sqlflow.connectors.registry import register_export_connector
+from sqlflow.connectors.registry import (
+    register_connector,
+    register_export_connector,
+)
 from sqlflow.core.errors import ConnectorError
 
 
+@register_connector("S3")
 @register_export_connector("S3")
-class S3ExportConnector(ExportConnector):
-    """Export connector for AWS S3."""
+class S3Connector(Connector, ExportConnector):
+    """Connector for AWS S3."""
 
     def __init__(self):
-        """Initialize an S3ExportConnector."""
-        super().__init__()
+        """Initialize an S3Connector."""
+        Connector.__init__(self)
         self.bucket: Optional[str] = None
         self.prefix: str = ""
         self.region: Optional[str] = None
@@ -150,9 +158,7 @@ class S3ExportConnector(ExportConnector):
             self.state = ConnectorState.CONFIGURED
         except Exception as e:
             self.state = ConnectorState.ERROR
-            raise ConnectorError(
-                self.name or "S3_EXPORT", f"Configuration failed: {str(e)}"
-            )
+            raise ConnectorError(self.name or "S3", f"Configuration failed: {str(e)}")
 
     def _initialize_s3_client(self) -> None:
         """Initialize the S3 client.
@@ -180,7 +186,7 @@ class S3ExportConnector(ExportConnector):
             self.s3_client = session.client("s3", **client_kwargs)
         except Exception as e:
             raise ConnectorError(
-                self.name or "S3_EXPORT", f"Failed to initialize S3 client: {str(e)}"
+                self.name or "S3", f"Failed to initialize S3 client: {str(e)}"
             )
 
     def test_connection(self) -> ConnectionTestResult:
@@ -196,7 +202,7 @@ class S3ExportConnector(ExportConnector):
                 self._initialize_s3_client()
                 if self.s3_client is None:
                     raise ConnectorError(
-                        self.name or "S3_EXPORT", "Failed to initialize S3 client"
+                        self.name or "S3", "Failed to initialize S3 client"
                     )
 
             self.s3_client.list_objects_v2(
@@ -208,6 +214,191 @@ class S3ExportConnector(ExportConnector):
         except Exception as e:
             self.state = ConnectorState.ERROR
             return ConnectionTestResult(False, str(e))
+
+    def discover(self) -> List[str]:
+        """Discover available objects in the S3 bucket.
+
+        Returns:
+            List of object names
+
+        Raises:
+            ConnectorError: If discovery fails
+        """
+        self.validate_state(ConnectorState.CONFIGURED)
+
+        try:
+            if self.s3_client is None:
+                self._initialize_s3_client()
+                if self.s3_client is None:
+                    raise ConnectorError(
+                        self.name or "S3", "Failed to initialize S3 client"
+                    )
+
+            paginator = self.s3_client.get_paginator("list_objects_v2")
+            objects = []
+
+            for page in paginator.paginate(Bucket=self.bucket, Prefix=self.prefix):
+                if "Contents" in page:
+                    objects.extend([obj["Key"] for obj in page["Contents"]])
+
+            return objects
+        except Exception as e:
+            self.state = ConnectorState.ERROR
+            raise ConnectorError(self.name or "S3", f"Discovery failed: {str(e)}")
+
+    def get_schema(self, object_name: str) -> Schema:
+        """Get schema for an S3 object.
+
+        Args:
+            object_name: S3 object key
+
+        Returns:
+            Schema for the object
+
+        Raises:
+            ConnectorError: If schema retrieval fails
+        """
+        self.validate_state(ConnectorState.CONFIGURED)
+
+        try:
+            if self.s3_client is None:
+                self._initialize_s3_client()
+                if self.s3_client is None:
+                    raise ConnectorError(
+                        self.name or "S3", "Failed to initialize S3 client"
+                    )
+
+            response = self.s3_client.get_object(Bucket=self.bucket, Key=object_name)
+            buffer = io.BytesIO(response["Body"].read())
+
+            if object_name.endswith(".parquet"):
+                table = pq.read_table(buffer)
+                return Schema(table.schema)
+            elif object_name.endswith(".csv"):
+                import pandas as pd
+
+                df = pd.read_csv(buffer)
+                table = pa.Table.from_pandas(df)
+                return Schema(table.schema)
+            elif object_name.endswith(".json"):
+                import pandas as pd
+
+                df = pd.read_json(buffer)
+                table = pa.Table.from_pandas(df)
+                return Schema(table.schema)
+            else:
+                raise ValueError(f"Unsupported file format for {object_name}")
+
+        except Exception as e:
+            self.state = ConnectorState.ERROR
+            raise ConnectorError(
+                self.name or "S3", f"Schema retrieval failed: {str(e)}"
+            )
+
+    def _read_parquet(
+        self, buffer: io.BytesIO, columns: Optional[List[str]], batch_size: int
+    ) -> Iterator[DataChunk]:
+        """Read data from a Parquet buffer.
+
+        Args:
+            buffer: BytesIO buffer containing Parquet data
+            columns: Optional list of columns to read
+            batch_size: Number of rows per batch
+
+        Yields:
+            DataChunk objects
+        """
+        table = pq.read_table(buffer)
+        if columns:
+            table = table.select(columns)
+        for i in range(0, len(table), batch_size):
+            batch = table.slice(i, batch_size)
+            yield DataChunk(batch)
+
+    def _read_pandas_format(
+        self,
+        buffer: io.BytesIO,
+        file_format: str,
+        columns: Optional[List[str]],
+        batch_size: int,
+    ) -> Iterator[DataChunk]:
+        """Read data from CSV or JSON format using pandas.
+
+        Args:
+            buffer: BytesIO buffer containing data
+            file_format: Format of the data ('csv' or 'json')
+            columns: Optional list of columns to read
+            batch_size: Number of rows per batch
+
+        Yields:
+            DataChunk objects
+
+        Raises:
+            ValueError: If file_format is not supported
+        """
+        import pandas as pd
+
+        if file_format == "csv":
+            df = pd.read_csv(buffer)
+        elif file_format == "json":
+            df = pd.read_json(buffer)
+        else:
+            raise ValueError(f"Unsupported pandas format: {file_format}")
+
+        if columns:
+            df = df[columns]
+        table = pa.Table.from_pandas(df)
+        for i in range(0, len(table), batch_size):
+            batch = table.slice(i, batch_size)
+            yield DataChunk(batch)
+
+    def read(
+        self,
+        object_name: str,
+        columns: Optional[List[str]] = None,
+        filters: Optional[Dict[str, Any]] = None,
+        batch_size: int = 10000,
+    ) -> Iterator[DataChunk]:
+        """Read data from an S3 object.
+
+        Args:
+            object_name: S3 object key
+            columns: Optional list of columns to read
+            filters: Optional filters to apply
+            batch_size: Number of rows per batch
+
+        Yields:
+            DataChunk objects
+
+        Raises:
+            ConnectorError: If reading fails
+        """
+        self.validate_state(ConnectorState.CONFIGURED)
+
+        try:
+            if self.s3_client is None:
+                self._initialize_s3_client()
+                if self.s3_client is None:
+                    raise ConnectorError(
+                        self.name or "S3", "Failed to initialize S3 client"
+                    )
+
+            response = self.s3_client.get_object(Bucket=self.bucket, Key=object_name)
+            buffer = io.BytesIO(response["Body"].read())
+
+            if object_name.endswith(".parquet"):
+                yield from self._read_parquet(buffer, columns, batch_size)
+            elif object_name.endswith(".csv"):
+                yield from self._read_pandas_format(buffer, "csv", columns, batch_size)
+            elif object_name.endswith(".json"):
+                yield from self._read_pandas_format(buffer, "json", columns, batch_size)
+            else:
+                raise ValueError(f"Unsupported file format for {object_name}")
+
+            self.state = ConnectorState.READY
+        except Exception as e:
+            self.state = ConnectorState.ERROR
+            raise ConnectorError(self.name or "S3", f"Reading failed: {str(e)}")
 
     def _generate_key(self, uuid: str) -> str:
         """Generate a key for the S3 object.
@@ -255,9 +446,7 @@ class S3ExportConnector(ExportConnector):
             else:
                 self._upload_single_part(buffer, key)
         except Exception as e:
-            raise ConnectorError(
-                self.name or "S3_EXPORT", f"Failed to export CSV: {str(e)}"
-            )
+            raise ConnectorError(self.name or "S3", f"Failed to export CSV: {str(e)}")
 
     def _export_parquet(self, data: DataChunk, key: str) -> None:
         """Export data as Parquet to S3.
@@ -287,7 +476,7 @@ class S3ExportConnector(ExportConnector):
                 self._upload_single_part(buffer, key)
         except Exception as e:
             raise ConnectorError(
-                self.name or "S3_EXPORT", f"Failed to export Parquet: {str(e)}"
+                self.name or "S3", f"Failed to export Parquet: {str(e)}"
             )
 
     def _export_json(self, data: DataChunk, key: str) -> None:
@@ -320,9 +509,7 @@ class S3ExportConnector(ExportConnector):
             else:
                 self._upload_single_part(buffer, key)
         except Exception as e:
-            raise ConnectorError(
-                self.name or "S3_EXPORT", f"Failed to export JSON: {str(e)}"
-            )
+            raise ConnectorError(self.name or "S3", f"Failed to export JSON: {str(e)}")
 
     def _prepare_upload_args(self) -> Dict[str, str]:
         """Prepare extra arguments for S3 upload.
@@ -349,7 +536,7 @@ class S3ExportConnector(ExportConnector):
             self._initialize_s3_client()
             if self.s3_client is None:
                 raise ConnectorError(
-                    self.name or "S3_EXPORT", "Failed to initialize S3 client"
+                    self.name or "S3", "Failed to initialize S3 client"
                 )
 
     def _upload_single_part(self, buffer: io.BytesIO, key: str) -> None:
@@ -377,9 +564,7 @@ class S3ExportConnector(ExportConnector):
                         raise
                     buffer.seek(0)
         except Exception as e:
-            raise ConnectorError(
-                self.name or "S3_EXPORT", f"Failed to upload to S3: {str(e)}"
-            )
+            raise ConnectorError(self.name or "S3", f"Failed to upload to S3: {str(e)}")
 
     def _start_multipart_upload(self, key: str) -> str:
         """Start a multipart upload.
@@ -486,9 +671,89 @@ class S3ExportConnector(ExportConnector):
                     )
                 raise
         except Exception as e:
-            raise ConnectorError(
-                self.name or "S3_EXPORT", f"Failed to upload to S3: {str(e)}"
-            )
+            raise ConnectorError(self.name or "S3", f"Failed to upload to S3: {str(e)}")
+
+    def _parse_s3_uri(self, object_name: str) -> Tuple[str, str]:
+        """Parse S3 URI and extract bucket and key.
+
+        Args:
+            object_name: S3 URI or key
+
+        Returns:
+            Tuple of (bucket_name, key)
+        """
+        if object_name.startswith("s3://"):
+            parts = object_name.replace("s3://", "").split("/", 1)
+            if len(parts) == 2:
+                bucket_name, key = parts
+                return bucket_name, key
+            return self.bucket, parts[0]
+        return self.bucket, object_name
+
+    def _generate_file_key(self, key: str, file_uuid: str) -> str:
+        """Generate a complete file key from a directory path or pattern.
+
+        Args:
+            key: Directory path or pattern
+            file_uuid: UUID for the file
+
+        Returns:
+            Complete S3 key for the file
+        """
+        if "/*." in key:
+            dir_path, file_pattern = key.split("/*.", 1)
+            return f"{dir_path}/{file_uuid}.{file_pattern}"
+        return f"{key}/{file_uuid}.{self.format}"
+
+    def _export_data(self, data_chunk: DataChunk, key: str) -> None:
+        """Export data to S3 in the configured format.
+
+        Args:
+            data_chunk: DataChunk to export
+            key: S3 object key
+
+        Raises:
+            ValueError: If format is not supported
+        """
+        if self.format == "csv":
+            self._export_csv(data_chunk, key)
+        elif self.format == "parquet":
+            self._export_parquet(data_chunk, key)
+        elif self.format == "json":
+            self._export_json(data_chunk, key)
+        else:
+            raise ValueError(f"Unsupported format: {self.format}")
+
+    def _write_to_bucket(
+        self, data_chunk: DataChunk, bucket_name: str, key: str, file_uuid: str
+    ) -> None:
+        """Write data to a specific S3 bucket.
+
+        Args:
+            data_chunk: DataChunk to write
+            bucket_name: S3 bucket name
+            key: S3 object key
+            file_uuid: UUID for the file
+
+        Raises:
+            ConnectorError: If writing fails
+        """
+        original_bucket = self.bucket
+        try:
+            if bucket_name != original_bucket:
+                self.bucket = bucket_name
+                print(
+                    f"Using bucket from URI: {bucket_name} instead of configured bucket: {original_bucket}"
+                )
+
+            final_key = self._generate_file_key(key, file_uuid)
+            print(f"Creating file in directory structure: {final_key}")
+            self._export_data(data_chunk, final_key)
+            self.state = ConnectorState.READY
+        finally:
+            # Always restore the original bucket
+            if bucket_name != original_bucket:
+                self.bucket = original_bucket
 
     def write(
         self, object_name: str, data_chunk: DataChunk, mode: str = "append"
@@ -510,26 +775,21 @@ class S3ExportConnector(ExportConnector):
                 self._initialize_s3_client()
                 if self.s3_client is None:
                     raise ConnectorError(
-                        self.name or "S3_EXPORT", "Failed to initialize S3 client"
+                        self.name or "S3", "Failed to initialize S3 client"
                     )
 
-            import uuid
+            # Generate a UUID for filename
+            file_uuid = str(uuid.uuid4())
 
-            key = self._generate_key(str(uuid.uuid4()))
+            # Parse the S3 URI and extract bucket and key
+            bucket_name, key = self._parse_s3_uri(object_name)
 
-            if self.format == "csv":
-                self._export_csv(data_chunk, key)
-            elif self.format == "parquet":
-                self._export_parquet(data_chunk, key)
-            elif self.format == "json":
-                self._export_json(data_chunk, key)
+            # Write to the specified bucket
+            self._write_to_bucket(data_chunk, bucket_name, key, file_uuid)
 
-            self.state = ConnectorState.READY
         except Exception as e:
             self.state = ConnectorState.ERROR
-            raise ConnectorError(
-                self.name or "S3_EXPORT", f"Write operation failed: {str(e)}"
-            )
+            raise ConnectorError(self.name or "S3", f"Write operation failed: {str(e)}")
 
     def close(self) -> None:
         """Close the S3 client."""
