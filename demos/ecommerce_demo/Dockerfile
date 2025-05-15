@@ -39,4 +39,5 @@ ENV PYTHONPATH="/app:${PYTHONPATH}"
 ENV PATH="/app/bin:${PATH}"
 
 # Run SQLFlow demo when container starts
-CMD ["sqlflow", "pipeline", "run", "/app/sqlflow/demos/ecommerce_demo/pipelines/simple_test.sf"]
+# Use bash to ensure PATH is properly set
+CMD ["bash", "-c", "python -m sqlflow.cli.main pipeline run /app/sqlflow/demos/ecommerce_demo/pipelines/simple_test.sf --vars '{\"date\": \"'$(date '+%Y-%m-%d')'\"}' || sleep infinity"]
