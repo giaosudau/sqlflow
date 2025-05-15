@@ -1,10 +1,17 @@
-# SQLFlow project configuration
+# SQLFlow E-commerce demo configuration
+
+version: '1'
+
+# Project information
+project:
+  name: "ecommerce-demo"
+  description: "SQLFlow E-commerce Demo for Connectors"
 
 # Default variables
 variables:
-  run_date: "2023-10-25"
-  DB_CONN: "postgresql://user:pass@localhost:5432/ecommerce"
-  API_TOKEN: "your-api-token"
+  date: "${DATE}"
+  API_TOKEN: "${API_TOKEN}"
+  DB_CONN: "postgresql://sqlflow:sqlflow123@postgres:5432/ecommerce"
 
 # Path configuration
 paths:
@@ -18,4 +25,34 @@ paths:
 engines:
   default: "duckdb"
   duckdb:
-    memory_limit: "4GB"
+    memory_limit: "2GB"
+    type: "duckdb"
+    path: "target/ecommerce_demo_test.db"
+
+# Connector configurations
+connectors:
+  postgres:
+    type: "POSTGRES"
+    params:
+      host: "postgres"
+      port: 5432
+      dbname: "ecommerce"
+      user: "sqlflow"
+      password: "sqlflow123"
+  
+  s3:
+    type: "S3"
+    params:
+      endpoint_url: "http://minio:9000"
+      region: "us-east-1"
+      access_key: "${AWS_ACCESS_KEY_ID}"
+      secret_key: "${AWS_SECRET_ACCESS_KEY}"
+      bucket: "analytics"
+  
+  rest:
+    type: "REST"
+    params:
+      base_url: "http://mockserver:1080"
+      auth_method: "bearer"
+      auth_params:
+        token: "${API_TOKEN}"
