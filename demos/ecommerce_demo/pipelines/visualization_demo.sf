@@ -1,0 +1,90 @@
+-- Visualization Data Preparation Pipeline
+--
+-- Business Purpose:
+--   This pipeline prepares data specifically formatted for visualization dashboards.
+--   It aggregates sales data into different time dimensions (daily, weekly, monthly)
+--   and calculates KPIs that would be useful for executive dashboards.
+--
+-- Pipeline Steps: Load data → Create time dimensions → Aggregate → Export formatted data
+
+-- Define data sources
+SOURCE postgres_source TYPE POSTGRES PARAMS {
+  "host": "postgres",
+  "port": 5432,
+  "dbname": "ecommerce",
+  "user": "sqlflow",
+  "password": "sqlflow123",
+  "table": "sales"
+};
+
+SOURCE pg_products TYPE POSTGRES PARAMS {
+  "host": "postgres",
+  "port": 5432,
+  "dbname": "ecommerce",
+  "user": "sqlflow",
+  "password": "sqlflow123",
+  "table": "products"
+};
+
+-- Load data from Postgres into tables
+LOAD sales FROM postgres_source;
+LOAD products FROM pg_products;
+
+-- Create time dimension table (useful for time-series visualizations)
+CREATE TABLE time_dimensions AS
+SELECT
+  order_date,
+  EXTRACT(YEAR FROM order_date) AS year,
+  EXTRACT(MONTH FROM order_date) AS month,
+  EXTRACT(WEEK FROM order_date) AS week,
+  EXTRACT(DAY FROM order_date) AS day,
+  EXTRACT(DOW FROM order_date) AS day_of_week
+FROM sales;
+
+-- Daily sales aggregation (for time-series charts)
+CREATE TABLE daily_sales_viz AS
+SELECT
+  order_date,
+  COUNT(DISTINCT order_id) AS order_count,
+  SUM(quantity) AS units_sold,
+  SUM(quantity * price) AS revenue
+FROM sales
+GROUP BY order_date
+ORDER BY order_date;
+
+-- Product category performance (for bar/pie charts)
+CREATE TABLE category_sales_viz AS
+SELECT
+  p.category,
+  COUNT(DISTINCT s.order_id) AS order_count,
+  SUM(s.quantity) AS units_sold,
+  SUM(s.quantity * s.price) AS revenue
+FROM sales s
+JOIN products p ON s.product_id = p.product_id
+GROUP BY p.category
+ORDER BY revenue DESC;
+
+-- Export visualization-ready data
+EXPORT SELECT * FROM daily_sales_viz
+TO "s3://analytics/visualizations/daily_sales_${date}.json"
+TYPE S3
+OPTIONS { 
+  "format": "json",
+  "endpoint_url": "http://minio:9000",
+  "region": "us-east-1",
+  "access_key": "minioadmin",
+  "secret_key": "minioadmin",
+  "bucket": "analytics"
+};
+
+EXPORT SELECT * FROM category_sales_viz
+TO "s3://analytics/visualizations/category_sales_${date}.json"
+TYPE S3
+OPTIONS { 
+  "format": "json",
+  "endpoint_url": "http://minio:9000",
+  "region": "us-east-1",
+  "access_key": "minioadmin",
+  "secret_key": "minioadmin",
+  "bucket": "analytics"
+};
