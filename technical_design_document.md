@@ -234,6 +234,17 @@ FROM raw_sales;
 - Cheat Sheets: Core directives, variable syntax, connector patterns.  
 - Deployment Recipes: Local, Airflow operator, Kubernetes+Celery, Serverless.
 
+### 9.1 Ecommerce Demo
+
+The ecommerce demonstration provides a comprehensive example of SQLFlow capabilities:
+
+- **Complete Docker Infrastructure**: Ready-to-run environment with Postgres, MockServer for API simulation, and SQLFlow container
+- **Multiple Pipeline Examples**: From simple CSV processing to complex database-to-S3 flows
+- **Shell Scripts**: Easy initialization in both Bash and Fish shells
+- **Testing Tools**: Scripts for connector testing, data generation, and debugging
+- **Sample Data**: Pre-configured with realistic ecommerce datasets
+- **Documentation**: QUICKSTART.md and comprehensive README.md
+
 ## 10. Roadmap
 
 | Phase                 | Timeline      | Deliverables                                        |

@@ -44,7 +44,7 @@ This plan breaks down the roadmap into epics, milestones, and tasks sized to ~4 
   - **Outcome**: Executor retries failed tasks and can resume.  
   - **DoD**: Simulate failure mid-pipeline and resume.
 
-- **Task 1.2.5**: Integrate pandas for in-memory data transformations  
+- **Task 1.2.5**: Integrate pandas for in-memory data transformations ✅  
   - **Outcome**: Enable pipeline steps to use pandas DataFrames for transformation logic, supporting seamless conversion between SQL and pandas.  
   - **DoD**: Integration test demonstrates a pipeline step using pandas for data manipulation; round-trip conversion between SQL and pandas verified.
 
@@ -60,7 +60,7 @@ This plan breaks down the roadmap into epics, milestones, and tasks sized to ~4 
   - **Outcome**: `register_connector` and `register_export_connector` decorators.  
   - **DoD**: Dynamic discovery returns registered classes.
 
-- **Task 2.1.2a**: Implement dynamic (on-demand) loading of connectors/exporters based on the pipeline plan  
+- **Task 2.1.2a**: Implement dynamic (on-demand) loading of connectors/exporters based on the pipeline plan ✅  
   - **Outcome**: Only connectors/exporters required by the current pipeline plan are loaded into memory at runtime, using dynamic import or registry lookup.  
   - **DoD**: Integration test verifies that only used connectors/exporters are loaded; memory usage and import logs confirm dynamic behavior.
 
@@ -72,7 +72,7 @@ This plan breaks down the roadmap into epics, milestones, and tasks sized to ~4 
   - **Outcome**: Read Parquet via Arrow, infer schema.  
   - **DoD**: Test reading multi-column Parquet file.
 
-- **Task 2.1.5**: Build local file export connectors (CSV, JSON, Parquet)  
+- **Task 2.1.5**: Build local file export connectors (CSV, JSON, Parquet) ✅  
   - **Outcome**: Support exporting pipeline results to local files in CSV, JSON, and Parquet formats for easy demo and common use cases.  
   - **DoD**: Integration tests export data to each format and verify file contents.
 
