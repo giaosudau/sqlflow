@@ -38,6 +38,6 @@ RUN mkdir -p /app/target && chmod 777 /app/target
 ENV PYTHONPATH="/app:${PYTHONPATH}"
 ENV PATH="/app/bin:${PATH}"
 
-# Run SQLFlow demo when container starts
-# Use bash to ensure PATH is properly set
-CMD ["bash", "-c", "python -m sqlflow.cli.main pipeline run /app/sqlflow/demos/ecommerce_demo/pipelines/simple_test.sf --vars '{\"date\": \"'$(date '+%Y-%m-%d')'\"}' || sleep infinity"]
+# Run bash by default to keep container running
+# This allows us to execute commands manually
+CMD ["bash", "-c", "echo 'SQLFlow container is ready. Run pipelines with: python -m sqlflow.cli.main pipeline run <pipeline_file>' && sleep infinity"]
