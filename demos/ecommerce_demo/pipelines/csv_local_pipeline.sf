@@ -1,0 +1,88 @@
+-- Define data sources from CSV files
+SOURCE sales_csv TYPE CSV PARAMS {
+  "path": "data/sales_2023-10-25.csv",
+  "has_header": true
+};
+
+SOURCE customers_csv TYPE CSV PARAMS {
+  "path": "data/customers.csv",
+  "has_header": true
+};
+
+SOURCE products_csv TYPE CSV PARAMS {
+  "path": "data/products.csv",
+  "has_header": true
+};
+
+-- Load data from CSV files into tables
+LOAD sales FROM sales_csv;
+LOAD customers FROM customers_csv;
+LOAD products FROM products_csv;
+
+-- Debug: Count records in each table
+CREATE TABLE debug_table_counts AS 
+SELECT 
+  (SELECT COUNT(*) FROM sales) as sales_count,
+  (SELECT COUNT(*) FROM customers) as customers_count,
+  (SELECT COUNT(*) FROM products) as products_count;
+
+-- Join the data
+CREATE TABLE sales_enriched AS 
+SELECT
+  s.order_id,
+  s.customer_id,
+  c.name AS customer_name,
+  c.region,
+  s.product_id,
+  p.name AS product_name,
+  p.category,
+  CAST(s.quantity AS INTEGER) AS quantity,
+  CAST(s.price AS DOUBLE) AS price,
+  (CAST(s.quantity AS INTEGER) * CAST(s.price AS DOUBLE)) AS total_amount,
+  s.order_date
+FROM sales s
+JOIN customers c ON s.customer_id = c.customer_id
+JOIN products p ON s.product_id = p.product_id;
+
+-- Create summary tables
+CREATE TABLE category_summary AS 
+SELECT
+  category,
+  COUNT(DISTINCT order_id) AS num_orders,
+  SUM(quantity) AS total_items,
+  SUM(total_amount) AS total_revenue
+FROM sales_enriched
+GROUP BY category
+ORDER BY total_revenue DESC;
+
+CREATE TABLE region_summary AS 
+SELECT
+  region,
+  COUNT(DISTINCT order_id) AS num_orders,
+  COUNT(DISTINCT customer_id) AS num_customers,
+  SUM(total_amount) AS total_revenue
+FROM sales_enriched
+GROUP BY region
+ORDER BY total_revenue DESC;
+
+-- Export results to CSV files
+EXPORT SELECT * FROM category_summary
+TO "target/category_summary_${date}.csv"
+TYPE CSV
+OPTIONS { 
+  "header": true
+};
+
+EXPORT SELECT * FROM region_summary
+TO "target/region_summary_${date}.csv"
+TYPE CSV
+OPTIONS { 
+  "header": true
+};
+
+-- Create and export a simple summary
+CREATE TABLE sales_summary AS 
+SELECT
+  COUNT(*) as total_orders,
+  SUM(CAST(quantity AS INTEGER) * CAST(s.price AS DOUBLE)) as total_revenue
+FROM sales s; 

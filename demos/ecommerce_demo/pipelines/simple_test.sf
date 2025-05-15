@@ -29,5 +29,19 @@ SELECT
   s.product_id,
   s.quantity,
   s.price,
-  (s.quantity * s.price) AS total_amount
+  (CAST(s.quantity AS DOUBLE) * CAST(s.price AS DOUBLE)) AS total_amount
 FROM raw_sales s;
+
+
+EXPORT SELECT * FROM sales_summary
+TO "s3://analytics/reports/sales_summary_${date}"
+TYPE S3
+OPTIONS {
+  "format": "parquet",
+  "compression": "snappy",
+  "endpoint_url": "http://localhost:9000",
+  "region": "us-east-1",
+  "access_key": "minioadmin",
+  "secret_key": "minioadmin",
+  "bucket": "analytics"
+};
