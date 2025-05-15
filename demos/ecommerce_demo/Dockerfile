@@ -12,10 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Copy SQLFlow wheel and install it
 COPY dist/*.whl /tmp/
-RUN pip install --no-cache-dir /tmp/*.whl && \
-    echo '#!/bin/bash' > /usr/local/bin/sqlflow && \
-    echo 'python -m sqlflow.cli.main "$@"' >> /usr/local/bin/sqlflow && \
-    chmod +x /usr/local/bin/sqlflow
+RUN pip install --no-cache-dir /tmp/*.whl
 
 # Install additional dependencies for the demo
 RUN pip install --no-cache-dir \
@@ -43,4 +40,4 @@ ENV PATH="/app/bin:${PATH}"
 
 # Run bash by default to keep container running
 # This allows us to execute commands manually
-CMD ["bash", "-c", "echo 'SQLFlow container is ready. Run pipelines with: python -m sqlflow.cli.main pipeline run <pipeline_file>' && sleep infinity"]
+CMD ["tail", "-f", "/dev/null"]
