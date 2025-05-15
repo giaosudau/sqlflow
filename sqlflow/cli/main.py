@@ -1,5 +1,6 @@
 """Main entry point for SQLFlow CLI."""
 
+import logging
 import os
 from typing import Optional
 
@@ -29,8 +30,16 @@ def main(
     version: Optional[bool] = typer.Option(
         None, "--version", callback=version_callback, help="Show version and exit."
     ),
+    verbose: bool = typer.Option(
+        False, "--verbose", "-v", help="Enable verbose output with debug logging."
+    ),
 ):
     """SQLFlow - SQL-based data pipeline tool."""
+    logging_level = logging.DEBUG if verbose else logging.INFO
+    logging.basicConfig(
+        level=logging_level,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    )
 
 
 @app.command()

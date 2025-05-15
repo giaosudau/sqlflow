@@ -15,7 +15,6 @@ from sqlflow.parser.parser import Parser
 from sqlflow.project import Project
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.DEBUG)
 
 pipeline_app = typer.Typer(
     help="Pipeline management commands",
