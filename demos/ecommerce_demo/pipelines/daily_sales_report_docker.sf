@@ -1,3 +1,13 @@
+-- Ecommerce Daily Sales Analysis Pipeline
+--
+-- Business Purpose: 
+--   This pipeline extracts sales data from PostgreSQL, 
+--   enriches it with customer and product information, and generates
+--   business KPIs to help understand sales performance by category and region.
+--   It then exports these insights to S3 and sends notifications via REST API.
+--
+-- Pipeline Steps: Extract → Transform → Load → Notify
+
 -- Define data sources
 SOURCE postgres_source TYPE POSTGRES PARAMS {
   "host": "postgres",
@@ -31,44 +41,53 @@ LOAD sales FROM postgres_source;
 LOAD customers FROM pg_customers;
 LOAD products FROM pg_products;
 
--- Debug: Show sample data with explicit column selection
-CREATE TABLE debug_sales_data AS 
-SELECT 
-  order_id,
+-- Business KPI: Calculate key metrics for customer analytics
+CREATE TABLE customer_analysis AS 
+SELECT
   customer_id,
-  product_id,
-  quantity,
-  price,
-  order_date
-FROM sales 
-LIMIT 5;
+  COUNT(DISTINCT order_id) AS order_count,
+  SUM(quantity * price) AS total_spend,
+  SUM(quantity) AS total_items_purchased,
+  MIN(order_date) AS first_purchase_date,
+  MAX(order_date) AS last_purchase_date
+FROM sales
+GROUP BY customer_id;
 
-CREATE TABLE debug_customers_data AS 
-SELECT 
-  customer_id,
-  name,
-  email,
-  region,
-  signup_date
-FROM customers 
-LIMIT 5;
+-- Business KPI: Calculate Average Order Value (AOV)
+CREATE TABLE average_order_value AS
+SELECT
+  AVG(order_total) AS aov,
+  PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY order_total) AS median_order_value
+FROM (
+  SELECT 
+    order_id, 
+    SUM(quantity * price) AS order_total
+  FROM sales
+  GROUP BY order_id
+) order_totals;
 
--- Debug: Count records in each table
-CREATE TABLE debug_table_counts AS 
-SELECT 
-  (SELECT COUNT(*) FROM sales) as sales_count,
-  (SELECT COUNT(*) FROM customers) as customers_count,
-  (SELECT COUNT(*) FROM products) as products_count;
-
--- Try the join with a simpler query first
-CREATE TABLE debug_join_test AS 
-SELECT 
-  s.order_id,
-  s.customer_id,
-  c.name as customer_name
-FROM sales s
-LEFT JOIN customers c ON s.customer_id = c.customer_id
-LIMIT 5;
+-- Business KPI: Calculate Day-over-Day growth
+CREATE TABLE daily_growth AS
+SELECT
+  current_day.order_date,
+  current_day.daily_revenue,
+  previous_day.daily_revenue AS previous_day_revenue,
+  (current_day.daily_revenue - previous_day.daily_revenue) / 
+    NULLIF(previous_day.daily_revenue, 0) * 100 AS growth_percentage
+FROM (
+  SELECT 
+    order_date, 
+    SUM(quantity * price) AS daily_revenue
+  FROM sales
+  GROUP BY order_date
+) current_day
+LEFT JOIN (
+  SELECT 
+    order_date, 
+    SUM(quantity * price) AS daily_revenue
+  FROM sales
+  GROUP BY order_date
+) previous_day ON current_day.order_date = previous_day.order_date + INTERVAL '1 day';
 
 -- Original transformation with explicit schema
 CREATE TABLE sales_enriched AS 
@@ -123,6 +142,34 @@ OPTIONS {
 
 EXPORT SELECT * FROM region_summary
 TO "s3://analytics/reports/region_summary_${date}.parquet"
+TYPE S3
+OPTIONS { 
+  "format": "parquet",
+  "compression": "snappy",
+  "endpoint_url": "http://minio:9000",
+  "region": "us-east-1",
+  "access_key": "minioadmin",
+  "secret_key": "minioadmin",
+  "bucket": "analytics"
+};
+
+-- Export customer analysis KPIs to S3
+EXPORT SELECT * FROM customer_analysis
+TO "s3://analytics/reports/customer_analysis_${date}.parquet"
+TYPE S3
+OPTIONS { 
+  "format": "parquet",
+  "compression": "snappy",
+  "endpoint_url": "http://minio:9000",
+  "region": "us-east-1",
+  "access_key": "minioadmin",
+  "secret_key": "minioadmin",
+  "bucket": "analytics"
+};
+
+-- Export average order value KPIs to S3
+EXPORT SELECT * FROM average_order_value
+TO "s3://analytics/reports/average_order_value_${date}.parquet"
 TYPE S3
 OPTIONS { 
   "format": "parquet",

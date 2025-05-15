@@ -1,4 +1,12 @@
--- Simple test pipeline for tutorial verification
+-- Simple Test Pipeline for Ecommerce Data Analysis
+--
+-- Business Purpose: 
+--   This pipeline demonstrates a simple data workflow that loads sales data from CSV files,
+--   transforms it to calculate revenue metrics, and exports the results to S3 storage.
+--   This represents a basic analytics workflow that would be used to calculate daily
+--   sales performance in an ecommerce business.
+--
+-- Pipeline Steps: Load data → Transform → Export to S3
 
 -- Define data sources
 SOURCE sales TYPE CSV PARAMS {
@@ -21,7 +29,9 @@ LOAD raw_sales FROM sales;
 LOAD customers_table FROM customers;
 LOAD products_table FROM products;
 
--- Create a simple join
+-- Create sales summary with revenue calculation
+-- Business context: This transformation calculates the total revenue for each order
+-- which is a fundamental business metric for financial reporting.
 CREATE TABLE sales_summary AS
 SELECT 
   s.order_id,
