@@ -1,0 +1,19 @@
+version: 1
+project:
+  name: ecommerce-demo
+  description: SQLFlow E-commerce Demo for Connectors
+
+variables:
+  date: ${DATE}
+  API_TOKEN: ${API_TOKEN}
+
+connectors:
+  s3:
+    type: S3
+    params:
+      endpoint_url: http://localhost:9000
+      region: us-east-1
+      access_key: minioadmin
+      secret_key: minioadmin
+      bucket: analytics
+      mock_mode: false 

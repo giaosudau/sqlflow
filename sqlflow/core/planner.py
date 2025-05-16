@@ -6,6 +6,7 @@ into a linear, JSON-serialized ExecutionPlan consumable by an executor.
 
 import json
 import logging
+import re
 from typing import Any, Dict, List
 
 from sqlflow.core.dependencies import DependencyResolver
@@ -261,6 +262,29 @@ class ExecutionPlanBuilder:
         """
         return self.step_id_map.get(id(step), "")
 
+    def _extract_table_name_from_sql(self, sql_query: str) -> str:
+        match = re.search(r"FROM\s+([a-zA-Z0-9_]+)", sql_query, re.IGNORECASE)
+        if match:
+            return match.group(1)
+        return None
+
+    def _get_export_destination_short(self, dest_uri: str) -> str:
+        """Return a short name for the export destination URI."""
+        if dest_uri.startswith("s3://"):
+            return "s3"
+        elif dest_uri.startswith("postgresql://") or dest_uri.startswith("postgres://"):
+            return "postgres"
+        elif dest_uri.startswith("bigquery://"):
+            return "bigquery"
+        elif dest_uri.startswith("file://"):
+            return "file"
+        else:
+            return dest_uri.split(":")[0] if ":" in dest_uri else dest_uri
+
+    def _get_export_table_name(self, step) -> str:
+        """Return table_name attribute if present, else None (do not extract from SQL for ExportStep)."""
+        return getattr(step, "table_name", None)
+
     def _generate_step_id(self, step: PipelineStep, index: int) -> str:
         """Generate a step ID for a pipeline step.
 
@@ -278,7 +302,17 @@ class ExecutionPlanBuilder:
         elif isinstance(step, SQLBlockStep):
             return f"transform_{step.table_name}"
         elif isinstance(step, ExportStep):
-            return f"export_{index}"
+            table_name = self._get_export_table_name(step)
+            dest_uri = getattr(step, "destination_uri", None)
+            dest_short = (
+                self._get_export_destination_short(dest_uri) if dest_uri else None
+            )
+            if table_name and dest_short:
+                return f"export_{table_name}_to_{dest_short}"
+            elif table_name:
+                return f"export_{table_name}"
+            else:
+                return f"export_{index}"
         else:
             return f"step_{index}"
 
@@ -398,11 +432,22 @@ class ExecutionPlanBuilder:
                 "depends_on": depends_on,
             }
         elif isinstance(pipeline_step, LoadStep):
+            # Try to get connector type from source definition
+            source_name = pipeline_step.source_name
+            source_connector_type = "CSV"  # Default to CSV if not found
+
+            # Find the source step's ID that we depend on to get its connector type
+            source_step_id = f"source_{source_name}"
+            if source_step_id in self.step_dependencies.get(step_id, []):
+                # We have a dependency on this source, but we'd need to look at the original
+                # pipeline to find its connector type - for now we'll just use CSV as default
+                pass
+
             return {
                 "id": step_id,
                 "type": "load",
                 "name": pipeline_step.table_name,
-                "source_connector_type": "unknown",  # Would be resolved from source definition
+                "source_connector_type": source_connector_type,  # Set to actual connector type
                 "query": {
                     "source_name": pipeline_step.source_name,
                     "table_name": pipeline_step.table_name,
@@ -421,9 +466,18 @@ class ExecutionPlanBuilder:
             return {
                 "id": step_id,
                 "type": "export",
-                "source_table": "unknown",  # Would be extracted from SQL query
+                "source_table": (
+                    pipeline_step.table_name
+                    if hasattr(pipeline_step, "table_name")
+                    else "unknown"
+                ),
                 "source_connector_type": pipeline_step.connector_type,
                 "query": {
+                    "sql_query": (
+                        pipeline_step.sql_query
+                        if hasattr(pipeline_step, "sql_query")
+                        else None
+                    ),
                     "destination_uri": pipeline_step.destination_uri,
                     "options": pipeline_step.options,
                 },

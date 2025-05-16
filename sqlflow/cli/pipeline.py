@@ -327,33 +327,195 @@ def _substitute_pipeline_variables(pipeline_text: str, variables: dict) -> str:
     return handler.substitute_variables(pipeline_text)
 
 
-def _build_dependency_execution_order(plan: list) -> list:
-    """Build execution order for steps based on dependencies."""
+def _build_dependency_resolver(plan: list) -> DependencyResolver:
+    """Build and return a DependencyResolver for the plan."""
     dependency_resolver = DependencyResolver()
     for step in plan:
         step_id = step["id"]
         for dependency in step.get("depends_on", []):
             dependency_resolver.add_dependency(step_id, dependency)
-    all_step_ids = [step["id"] for step in plan]
-    entry_points = [
+    return dependency_resolver
+
+
+def _find_entry_points(plan: list) -> list:
+    """Find entry points (steps with no dependencies) in the plan."""
+    return [
         step["id"]
         for step in plan
         if not step.get("depends_on") or len(step.get("depends_on", [])) == 0
     ]
-    if not entry_points and all_step_ids:
-        entry_points = [all_step_ids[0]]
+
+
+def _build_execution_order_from_entry_points(
+    dependency_resolver: DependencyResolver, entry_points: list
+) -> list:
+    """Build execution order from entry points using the dependency resolver."""
     execution_order = []
     for entry_point in entry_points:
-        if entry_point in execution_order:
-            continue
-        deps = dependency_resolver.resolve_dependencies(entry_point)
-        for dep in deps:
-            if dep not in execution_order:
-                execution_order.append(dep)
+        try:
+            deps = dependency_resolver.resolve_dependencies(entry_point)
+            for dep in deps:
+                if dep not in execution_order:
+                    execution_order.append(dep)
+        except Exception as e:
+            typer.echo(
+                f"Warning: Error resolving dependencies from {entry_point}: {str(e)}"
+            )
+    return execution_order
+
+
+def _resolve_and_build_execution_order(plan: list) -> tuple[DependencyResolver, list]:
+    """Resolve dependencies and build execution order for the pipeline plan."""
+    dependency_resolver = _build_dependency_resolver(plan)
+    all_step_ids = [step["id"] for step in plan]
+    entry_points = _find_entry_points(plan)
+    if not entry_points and plan:
+        entry_points = [plan[0]["id"]]
+    execution_order = _build_execution_order_from_entry_points(
+        dependency_resolver, entry_points
+    )
     for step_id in all_step_ids:
         if step_id not in execution_order:
             execution_order.append(step_id)
-    return execution_order
+    dependency_resolver.last_resolved_order = execution_order
+    return dependency_resolver, execution_order
+
+
+def _print_summary(summary: dict) -> None:
+    """Print the summary of pipeline execution results."""
+    success_color = typer.colors.GREEN
+    error_color = typer.colors.RED
+    warning_color = typer.colors.YELLOW
+    total_steps = summary.get("total_steps", 0)
+    successful_steps = summary.get("successful_steps", 0)
+    failed_steps = summary.get("failed_steps", 0)
+    typer.echo(f"Total steps: {total_steps}")
+    if successful_steps == total_steps:
+        typer.echo(
+            typer.style(
+                "✅ All steps executed successfully!", fg=success_color, bold=True
+            )
+        )
+    else:
+        success_percent = (
+            (successful_steps / total_steps) * 100 if total_steps > 0 else 0
+        )
+        typer.echo(
+            typer.style(
+                f"⚠️ {successful_steps}/{total_steps} steps succeeded ({success_percent:.1f}%)",
+                fg=warning_color if success_percent > 0 else error_color,
+                bold=True,
+            )
+        )
+        if failed_steps > 0:
+            typer.echo(
+                typer.style(
+                    f"❌ {failed_steps} steps failed", fg=error_color, bold=True
+                )
+            )
+
+
+def _print_status_by_step_type(by_type: dict) -> None:
+    """Print detailed status by step type."""
+    success_color = typer.colors.GREEN
+    error_color = typer.colors.RED
+    warning_color = typer.colors.YELLOW
+    info_color = typer.colors.BLUE
+    typer.echo("\nStatus by step type:")
+    for step_type, info in by_type.items():
+        total = info.get("total", 0)
+        success = info.get("success", 0)
+        failed = info.get("failed", 0)
+        status_color = (
+            success_color
+            if success == total
+            else warning_color if success > 0 else error_color
+        )
+        typer.echo(
+            f"  {typer.style(step_type, fg=info_color)}: {typer.style(f'{success}/{total}', fg=status_color)} completed successfully"
+        )
+        if failed > 0:
+            typer.echo(f"  Failed {step_type} steps:")
+            for step in info.get("steps", []):
+                if step.get("status") != "success":
+                    step_id = step.get("id", "unknown")
+                    error = step.get("error", "Unknown error")
+                    typer.echo(typer.style(f"    - {step_id}: {error}", fg=error_color))
+
+
+def _print_export_steps_status(plan: list, results: dict) -> None:
+    """Print the status of export steps."""
+    error_color = typer.colors.RED
+    export_steps = [step for step in plan if step.get("type") == "export"]
+    if export_steps:
+        typer.echo("\nExport steps status:")
+        for step in export_steps:
+            status = (
+                "success"
+                if step["id"] in results
+                and results[step["id"]].get("status") == "success"
+                else "failed/not executed"
+            )
+            destination = step.get("query", {}).get("destination_uri", "unknown")
+            typer.echo(f"  {step['id']}: {status} - Target: {destination}")
+            if step["id"] in results and results[step["id"]].get("status") == "failed":
+                error = results[step["id"]].get("error", "Unknown error")
+                typer.echo(typer.style(f"    Error: {error}", fg=error_color))
+            elif status == "failed/not executed":
+                dependencies = step.get("depends_on", [])
+                failed_deps = [
+                    dep
+                    for dep in dependencies
+                    if dep in results and results[dep].get("status") == "failed"
+                ]
+                if failed_deps:
+                    deps_str = ", ".join(failed_deps)
+                    typer.echo(
+                        typer.style(
+                            f"    Error: Not executed because dependencies failed: {deps_str}",
+                            fg=error_color,
+                        )
+                    )
+
+
+def _report_pipeline_results(plan: list, results: dict) -> None:
+    """Prints a summary and details of pipeline execution results."""
+    typer.echo("\n" + "=" * 80)
+    typer.echo("Pipeline Execution Results".center(80))
+    typer.echo("=" * 80 + "\n")
+    summary = results.get("summary", {})
+    if summary:
+        _print_summary(summary)
+        _print_status_by_step_type(summary.get("by_type", {}))
+    else:
+        typer.echo(json.dumps(results, indent=2))
+    _print_export_steps_status(plan, results)
+
+
+def _resolve_pipeline_path(project: Project, pipeline_name: str) -> str:
+    """Resolve the full path to the pipeline file given its name and project."""
+    if "/" in pipeline_name:
+        if pipeline_name.endswith(".sf"):
+            return os.path.join(project.project_dir, pipeline_name)
+        else:
+            return os.path.join(project.project_dir, f"{pipeline_name}.sf")
+    else:
+        return project.get_pipeline_path(pipeline_name)
+
+
+def _read_and_substitute_pipeline(pipeline_path: str, variables: dict) -> str:
+    """Read the pipeline file and apply variable substitution."""
+    with open(pipeline_path, "r") as f:
+        pipeline_text = f.read()
+    return _substitute_pipeline_variables(pipeline_text, variables)
+
+
+def _parse_and_plan_pipeline(pipeline_text: str) -> list:
+    """Parse the pipeline text and create an execution plan."""
+    parser = Parser()
+    ast = parser.parse(pipeline_text)
+    planner = Planner()
+    return planner.create_plan(ast)
 
 
 @pipeline_app.command("run")
@@ -377,7 +539,7 @@ def run_pipeline(
     logger.info(f"Project configuration: {project.get_config()}")
     logger.info(f"Profile configuration: {project.get_profile()}")
 
-    pipeline_path = project.get_pipeline_path(pipeline_name)
+    pipeline_path = _resolve_pipeline_path(project, pipeline_name)
     if not os.path.exists(pipeline_path):
         typer.echo(f"Pipeline {pipeline_name} not found at {pipeline_path}")
         raise typer.Exit(code=1)
@@ -386,32 +548,30 @@ def run_pipeline(
     if variables:
         typer.echo(f"With variables: {json.dumps(variables, indent=2)}")
 
-    with open(pipeline_path, "r") as f:
-        pipeline_text = f.read()
-
-    pipeline_text = _substitute_pipeline_variables(pipeline_text, variables)
-    parser = Parser()
-    ast = parser.parse(pipeline_text)
-    planner = Planner()
-    plan = planner.create_plan(ast)
+    try:
+        pipeline_text = _read_and_substitute_pipeline(pipeline_path, variables)
+        plan = _parse_and_plan_pipeline(pipeline_text)
+    except Exception as e:
+        typer.echo(f"Error parsing pipeline: {str(e)}")
+        logger.exception("Pipeline parsing error")
+        raise typer.Exit(code=1)
 
     typer.echo(f"Execution plan: {len(plan)} steps")
     for step in plan:
         typer.echo(f"  - {step['id']} ({step['type']})")
 
-    execution_order = _build_dependency_execution_order(plan)
-    typer.echo(f"Execution order: {execution_order}")
+    dependency_resolver, execution_order = _resolve_and_build_execution_order(plan)
+    typer.echo(f"Final execution order: {execution_order}")
 
     executor = LocalExecutor()
-    results = executor.execute(plan, DependencyResolver())
+    results = executor.execute(plan, dependency_resolver)
 
     if results.get("error"):
         typer.echo(
             f"Error executing step {results.get('failed_step')}: {results['error']}"
         )
 
-    typer.echo("\nPipeline execution results:")
-    typer.echo(json.dumps(results, indent=2))
+    _report_pipeline_results(plan, results)
 
 
 @pipeline_app.command("list")

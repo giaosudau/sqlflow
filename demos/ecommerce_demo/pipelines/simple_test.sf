@@ -43,5 +43,6 @@ OPTIONS {
   "region": "us-east-1",
   "access_key": "minioadmin",
   "secret_key": "minioadmin",
-  "bucket": "analytics"
+  "bucket": "analytics",
+  "mock_mode": false
 };

@@ -1,6 +1,7 @@
 """S3 connector for SQLFlow."""
 
 import io
+import logging
 import uuid
 from typing import Any, Dict, Iterator, List, Optional, Tuple
 
@@ -21,6 +22,8 @@ from sqlflow.connectors.registry import (
     register_export_connector,
 )
 from sqlflow.core.errors import ConnectorError
+
+logger = logging.getLogger(__name__)
 
 
 @register_connector("S3")
@@ -148,6 +151,13 @@ class S3Connector(Connector, ExportConnector):
             ConnectorError: If configuration fails
         """
         try:
+            # Check for mock mode for testing
+            self.mock_mode = params.get("mock_mode", False)
+            if self.mock_mode:
+                logger.debug("Using S3 connector in mock mode (dry run)")
+                self.state = ConnectorState.CONFIGURED
+                return
+
             self._validate_bucket(params)
             self._configure_connection_params(params)
             self._validate_format(params)
@@ -193,27 +203,31 @@ class S3Connector(Connector, ExportConnector):
         """Test the connection to S3.
 
         Returns:
-            Result of the connection test
+            Connection test result
         """
-        self.validate_state(ConnectorState.CONFIGURED)
+        # Allow testing in mock mode
+        if getattr(self, "mock_mode", False):
+            logger.debug("[MOCK] Connection test bypassed in mock mode")
+            return ConnectionTestResult(True, "Mock mode active")
 
         try:
             if self.s3_client is None:
                 self._initialize_s3_client()
                 if self.s3_client is None:
-                    raise ConnectorError(
-                        self.name or "S3", "Failed to initialize S3 client"
-                    )
+                    return ConnectionTestResult(False, "Failed to initialize S3 client")
 
-            self.s3_client.list_objects_v2(
-                Bucket=self.bucket, MaxKeys=1, Prefix=self.prefix
-            )
+            # Test with a basic head_bucket operation for the configured bucket
+            if self.bucket:
+                self.s3_client.head_bucket(Bucket=self.bucket)
+            else:
+                # No bucket configured, can't test connection
+                return ConnectionTestResult(False, "No bucket configured")
 
             self.state = ConnectorState.READY
             return ConnectionTestResult(True)
         except Exception as e:
             self.state = ConnectorState.ERROR
-            return ConnectionTestResult(False, str(e))
+            return ConnectionTestResult(False, f"S3 connection test failed: {str(e)}")
 
     def discover(self) -> List[str]:
         """Discover available objects in the S3 bucket.
@@ -742,12 +756,12 @@ class S3Connector(Connector, ExportConnector):
         try:
             if bucket_name != original_bucket:
                 self.bucket = bucket_name
-                print(
+                logger.debug(
                     f"Using bucket from URI: {bucket_name} instead of configured bucket: {original_bucket}"
                 )
 
             final_key = self._generate_file_key(key, file_uuid)
-            print(f"Creating file in directory structure: {final_key}")
+            logger.debug(f"Creating file in directory structure: {final_key}")
             self._export_data(data_chunk, final_key)
             self.state = ConnectorState.READY
         finally:
@@ -771,6 +785,14 @@ class S3Connector(Connector, ExportConnector):
         self.validate_state(ConnectorState.CONFIGURED)
 
         try:
+            # Handle mock mode for testing
+            if getattr(self, "mock_mode", False):
+                logger.debug(
+                    f"DEBUG: [MOCK] Would write {len(data_chunk.pandas_df)} rows to {object_name} (format: {self.format})"
+                )
+                self.state = ConnectorState.READY
+                return
+
             if self.s3_client is None:
                 self._initialize_s3_client()
                 if self.s3_client is None:
