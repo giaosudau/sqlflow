@@ -13,6 +13,8 @@ from sqlflow.connectors.data_chunk import DataChunk
 from sqlflow.core.dependencies import DependencyResolver
 from sqlflow.core.engines.duckdb_engine import DuckDBEngine
 from sqlflow.core.executors.base_executor import BaseExecutor
+from sqlflow.core.sql_generator import SQLGenerator
+from sqlflow.core.storage.artifact_manager import ArtifactManager
 from sqlflow.project import Project
 
 logger = logging.getLogger(__name__)
@@ -21,19 +23,37 @@ logger = logging.getLogger(__name__)
 class LocalExecutor(BaseExecutor):
     """Executes pipelines sequentially in a single process."""
 
-    def __init__(self, profile_name: str = "dev"):
-        """Initialize a LocalExecutor with a given profile."""
+    def __init__(self, profile_name: str = "dev", project_dir: Optional[str] = None):
+        """Initialize a LocalExecutor with a given profile.
+
+        Args:
+            profile_name: Name of the profile to use
+            project_dir: Project directory (default: current working directory)
+        """
+        self.project = Project(project_dir or os.getcwd(), profile_name=profile_name)
+        self.profile = self.project.get_profile()
+        self.duckdb_engine = DuckDBEngine(self.profile)
+        self.connector_engine = ConnectorEngine()
+        self.sql_generator = SQLGenerator(dialect="duckdb")
+        self.results: Dict[str, Any] = {}
+        self.step_table_map: Dict[str, str] = {}
+        self.step_output_mapping: Dict[str, List[str]] = {}
+        self.table_data: Dict[str, DataChunk] = {}
+        self.source_connectors: Dict[str, str] = {}
         self.executed_steps: Set[str] = set()
         self.failed_step: Optional[Dict[str, Any]] = None
-        self.results: Dict[str, Any] = {}
-        self.dependency_resolver: Optional[DependencyResolver] = None
-        self.connector_engine = ConnectorEngine()
+        self.logger = logger
+
+        # Attributes to be set by the calling context (e.g., CLI run command)
+        self.artifact_manager: Optional[ArtifactManager] = None
+        self.execution_id: Optional[str] = None
+
         # Load DuckDB config from profile only
-        project = Project(os.getcwd(), profile_name=profile_name)
-        profile = project.get_profile()
-        duckdb_config = profile.get("engines", {}).get("duckdb", {})
+        duckdb_config = self.profile.get("engines", {}).get("duckdb", {})
         self.duckdb_mode = duckdb_config.get("mode", "memory")
         duckdb_path = duckdb_config.get("path", None)
+
+        # Handle DuckDB database path
         if self.duckdb_mode == "memory":
             logger.info("[SQLFlow] LocalExecutor: DuckDB running in memory mode.")
             duckdb_path = ":memory:"
@@ -45,7 +65,25 @@ class LocalExecutor(BaseExecutor):
                 raise ValueError(
                     "DuckDB persistent mode requires a 'path' in profile config."
                 )
-        self.duckdb_engine = DuckDBEngine(duckdb_path)
+            # Ensure the directory for the DuckDB file exists
+            db_dir = os.path.dirname(duckdb_path)
+            if db_dir and not os.path.exists(db_dir):
+                os.makedirs(db_dir, exist_ok=True)
+            # Use the exact path from the profile
+            logger.info(
+                f"[SQLFlow] Using exact database path from profile: {duckdb_path}"
+            )
+
+        try:
+            self.duckdb_engine = DuckDBEngine(duckdb_path)
+        except Exception as e:
+            logger.error(f"Error initializing DuckDB engine: {e}")
+            # Fall back to in-memory if we can't use the file-based DB
+            logger.info(
+                "[SQLFlow] Failed to initialize persistent database, falling back to in-memory mode"
+            )
+            self.duckdb_engine = DuckDBEngine(":memory:")
+
         self.table_data: Dict[str, DataChunk] = {}  # In-memory table state
         self.source_connectors: Dict[str, str] = {}  # Map source name to connector type
         self.step_table_map: Dict[str, str] = {}  # Map step ID to table name
@@ -53,13 +91,56 @@ class LocalExecutor(BaseExecutor):
             {}
         )  # Map step ID to list of table names it produces
 
-    def _execute_steps_in_original_order(self, steps):
+        # Attributes to be set by the calling context (e.g., CLI run command)
+        self.execution_id: Optional[str] = None
+
+    def _cleanup_old_database_files(
+        self, directory: str, base_name: str, keep_last: int = 5
+    ) -> None:
+        """Clean up old database files to prevent accumulation.
+        This method is no longer used if exact db paths are enforced.
+        Kept for potential future use if naming strategy changes.
+
+        Args:
+            directory: Directory containing database files
+            base_name: Base name of the database files
+            keep_last: Number of most recent files to keep
+        """
+        logger.debug(
+            "[SQLFlow] _cleanup_old_database_files is currently not active due to exact DB path usage."
+        )
+        return  # No longer cleaning up if using exact path from profile
+        # try:
+        #     import glob
+        #     import os
+
+        #     # Find all files matching the pattern
+        #     pattern = os.path.join(directory, f"{base_name}_*")
+        #     db_files = glob.glob(pattern)
+
+        #     # Sort by modification time (new
+        #     db_files.sort(key=lambda x: os.path.getmtime(x), reverse=True)
+
+        #     # Keep the most recent files, delete the rest
+        #     if len(db_files) > keep_last:
+        #         for old_file in db_files[keep_last:]:
+        #             try:
+        #                 logger.info(f"[SQLFlow] Removing old database file: {old_file}")
+        #                 os.remove(old_file)
+        #             except Exception as e:
+        #                 logger.warning(f"[SQLFlow] Failed to remove old database file {old_file}: {e}")
+        # except Exception as e:
+        #     logger.warning(f"[SQLFlow] Error during database cleanup: {e}")
+
+    def _execute_steps_in_original_order(
+        self, steps, pipeline_name: Optional[str] = None
+    ):
         for step in steps:
             step_id = step["id"]
             logger.debug(
                 "Executing step %s (%s) in original order", step_id, step["type"]
             )
-            result = self.execute_step(step)
+            result = self.execute_step(step, pipeline_name)
             self.results[step_id] = result
             logger.debug("Step %s execution result: %s", step_id, result)
             if result.get("status") == "failed":
@@ -73,7 +154,9 @@ class LocalExecutor(BaseExecutor):
                 )
             self.executed_steps.add(step_id)
 
-    def _execute_steps_in_dependency_order(self, steps, dependency_resolver):
+    def _execute_steps_in_dependency_order(
+        self, steps, dependency_resolver, pipeline_name: Optional[str] = None
+    ):
         for step_id in dependency_resolver.last_resolved_order:
             step = next((s for s in steps if s["id"] == step_id), None)
             if step is None:
@@ -81,7 +164,7 @@ class LocalExecutor(BaseExecutor):
                 logger.debug("Step %s not found in plan", step_id)
                 continue
             logger.debug("Executing step %s (%s)", step_id, step["type"])
-            result = self.execute_step(step)
+            result = self.execute_step(step, pipeline_name)
             self.results[step_id] = result
             logger.debug("Step %s execution result: %s", step_id, result)
             if result.get("status") == "failed":
@@ -143,14 +226,36 @@ class LocalExecutor(BaseExecutor):
         self,
         steps: List[Dict[str, Any]],
         dependency_resolver: Optional[DependencyResolver] = None,
+        pipeline_name: Optional[str] = None,
+        variables: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        """Execute a pipeline."""
+        """Execute a pipeline.
+
+        Args:
+            steps: List of operations to execute
+            dependency_resolver: Optional DependencyResolver
+            pipeline_name: Name of the pipeline
+            variables: Variables for variable substitution
+
+        Returns:
+            Execution results
+        """
         self.executed_steps = set()
         self.failed_step = None
         self.results = {}
         self.dependency_resolver = dependency_resolver
         self.step_table_map = {}
         self.step_output_mapping = {}
+
+        # Initialize execution tracking if pipeline_name is provided
+        if pipeline_name:
+            self.execution_id, _ = self.artifact_manager.initialize_execution(
+                pipeline_name, variables or {}, self.profile_name
+            )
+        else:
+            self.execution_id = None
+
+        # Check if we have a valid dependency order
         if (
             dependency_resolver is not None
             and dependency_resolver.last_resolved_order is not None
@@ -158,6 +263,7 @@ class LocalExecutor(BaseExecutor):
         ):
             logger.warning("No steps to execute in pipeline")
             return {"status": "no_steps"}
+
         logger.debug("Dependency resolver: %s", dependency_resolver)
         logger.debug(
             "Dependencies: %s",
@@ -167,11 +273,13 @@ class LocalExecutor(BaseExecutor):
             "Last resolved order: %s",
             dependency_resolver.last_resolved_order if dependency_resolver else "None",
         )
+
+        # Execute operations based on dependency order
         if not dependency_resolver or not dependency_resolver.last_resolved_order:
             logger.debug(
                 "No valid dependency order - executing all steps in original order"
             )
-            self._execute_steps_in_original_order(steps)
+            self._execute_steps_in_original_order(steps, pipeline_name)
         elif dependency_resolver is not None:
             logger.debug("Steps to execute: %d", len(steps))
             step_ids = [step["id"] for step in steps]
@@ -193,44 +301,165 @@ class LocalExecutor(BaseExecutor):
                     logger.debug("⚠️ Execution order mismatch detected.")
                     logger.debug("Plan order: %s", filtered_plan_order)
                     logger.debug("Resolved dependency order: %s", resolved_order)
-                self._execute_steps_in_dependency_order(steps, dependency_resolver)
+                self._execute_steps_in_dependency_order(
+                    steps, dependency_resolver, pipeline_name
+                )
             else:
                 logger.debug(
                     "⚠️ No resolved order in dependency resolver. Will execute all steps in their original order."
                 )
-                self._execute_steps_in_original_order(steps)
+                self._execute_steps_in_original_order(steps, pipeline_name)
         else:
             logger.debug(
                 "No dependency resolver provided. Executing steps in original order."
             )
-            self._execute_steps_in_original_order(steps)
+            self._execute_steps_in_original_order(steps, pipeline_name)
+
+        # Generate execution summary
         self._generate_step_summary(steps)
-        logger.debug("Final execution results: %s", self.results)
+
+        # Record execution completion if tracking
+        if pipeline_name and self.execution_id:
+            success = "error" not in self.results
+            self.artifact_manager.finalize_execution(pipeline_name, success)
+
         return self.results
 
-    def execute_step(self, step: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute a single step in the pipeline."""
-        try:
-            step_type = step["type"]
-            if step_type == "source_definition":
-                return self._execute_source_definition(step)
-            elif step_type == "load":
-                return self._execute_load(step)
-            elif step_type == "transform":
-                return self._execute_transform(step)
-            elif step_type == "export":
-                return self._execute_export(step)
+    def _handle_artifact_recording(
+        self,
+        event_type: str,  # "start" or "completion"
+        pipeline_name: Optional[str],
+        step_id: str,
+        step_type: str,
+        sql: Optional[str] = None,  # For start event
+        result: Optional[Dict[str, Any]] = None,  # For completion event
+        success_status: Optional[bool] = None,  # For completion event
+    ):
+        """Helper to record operation start or completion if tracking is active."""
+        if not (pipeline_name and self.execution_id and self.artifact_manager):
+            return
+
+        if event_type == "start":
+            if sql is not None:
+                self.artifact_manager.record_operation_start(
+                    pipeline_name, step_id, step_type, sql
+                )
             else:
-                # Only warn for unknown step types if not a test (for unit test compatibility)
-                if step_type != "test":
-                    logger.warning(f"Unknown step type: {step_type}")
-                return {
-                    "status": "skipped",
-                    "reason": f"Unknown step type: {step_type}",
+                logger.warning(
+                    f"SQL not provided for artifact recording of step start: {step_id}"
+                )
+        elif event_type == "completion":
+            if result is None or success_status is None:
+                logger.warning(
+                    f"Result or success_status not provided for artifact recording of step completion: {step_id}"
+                )
+                # Fallback to a generic error if crucial info is missing
+                _result = result or {}
+                _success = success_status if success_status is not None else False
+                _error_payload = {
+                    "error": _result.get(
+                        "error", "Unknown error during artifact recording"
+                    )
                 }
+                self.artifact_manager.record_operation_completion(
+                    pipeline_name,
+                    step_id,
+                    _success,
+                    _error_payload if not _success else _result,
+                )
+                return
+
+            if success_status:
+                self.artifact_manager.record_operation_completion(
+                    pipeline_name, step_id, True, result
+                )
+            else:
+                error_payload = {
+                    "error": result.get("error", "Unknown error"),
+                }
+                self.artifact_manager.record_operation_completion(
+                    pipeline_name, step_id, False, error_payload
+                )
+        else:
+            logger.warning(
+                f"Unknown artifact event_type: {event_type} for step {step_id}"
+            )
+
+    def execute_step(
+        self, step: Dict[str, Any], pipeline_name: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Execute a single step."""
+        step_id = step.get("id", "unknown")
+        step_type = step.get("type", "unknown")
+        current_step_result: Dict[str, Any] = {}
+        sql_for_artifact: Optional[str] = None
+
+        try:
+            # Generate SQL for artifact recording if needed, outside the main execution try-catch
+            if pipeline_name and self.execution_id and self.artifact_manager:
+                variables = (
+                    {}
+                )  # Should be passed from execute() context or class member
+                context = {"variables": variables, "execution_id": self.execution_id}
+                sql_for_artifact = self.sql_generator.generate_operation_sql(
+                    step, context
+                )
+
+            self._handle_artifact_recording(
+                "start", pipeline_name, step_id, step_type, sql=sql_for_artifact
+            )
+
+            # Execute the step based on its type
+            if step_type == "source_definition":
+                current_step_result = self._execute_source_definition(step)
+            elif step_type == "load":
+                current_step_result = self._execute_load(step)
+            elif step_type == "transform":
+                current_step_result = self._execute_transform(step)
+            elif step_type == "export":
+                current_step_result = self._execute_export(step)
+            else:
+                logger.warning(f"Unknown step type: {step_type} for step {step_id}")
+                current_step_result = {
+                    "status": "failed",
+                    "error": f"Unknown step type: {step_type}",
+                }
+
+            # Determine success status for artifact recording
+            success_status = current_step_result.get("status") == "success"
+            self._handle_artifact_recording(
+                "completion",
+                pipeline_name,
+                step_id,
+                step_type,
+                result=current_step_result,
+                success_status=success_status,
+            )
+
         except Exception as e:
-            logger.error(f"Error executing step {step.get('id', '?')}: {e}")
-            return {"status": "failed", "error": str(e)}
+            logger.exception(f"Unhandled error executing step {step_id}: {str(e)}")
+            current_step_result = {
+                "status": "failed",
+                "error": f"Unhandled error: {str(e)}",
+            }
+            # Record operation failure if an overarching exception occurred
+            # Ensure we pass a valid result structure for artifact recording
+            self._handle_artifact_recording(
+                "completion",
+                pipeline_name,
+                step_id,
+                step_type,
+                result=current_step_result,
+                success_status=False,
+            )
+
+        # Update executor's internal state
+        self.results[step_id] = current_step_result
+        self.executed_steps.add(step_id)
+        if current_step_result.get("status") == "failed":
+            self.failed_step = step
+
+        return current_step_result
 
     def _execute_source_definition(self, step: Dict[str, Any]) -> Dict[str, Any]:
         name = step["name"]

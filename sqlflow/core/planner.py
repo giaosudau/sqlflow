@@ -263,9 +263,40 @@ class ExecutionPlanBuilder:
         return self.step_id_map.get(id(step), "")
 
     def _extract_table_name_from_sql(self, sql_query: str) -> str:
-        match = re.search(r"FROM\s+([a-zA-Z0-9_]+)", sql_query, re.IGNORECASE)
-        if match:
-            return match.group(1)
+        """Extract table name from a SQL query.
+
+        Args:
+            sql_query: SQL query to extract table name from
+
+        Returns:
+            Table name or None if not found
+        """
+        # Handle different SQL patterns
+
+        # Try FROM clause
+        from_match = re.search(r"FROM\s+([a-zA-Z0-9_]+)", sql_query, re.IGNORECASE)
+        if from_match:
+            return from_match.group(1)
+
+        # Try INSERT INTO clause
+        insert_match = re.search(
+            r"INSERT\s+INTO\s+([a-zA-Z0-9_]+)", sql_query, re.IGNORECASE
+        )
+        if insert_match:
+            return insert_match.group(1)
+
+        # Try UPDATE clause
+        update_match = re.search(r"UPDATE\s+([a-zA-Z0-9_]+)", sql_query, re.IGNORECASE)
+        if update_match:
+            return update_match.group(1)
+
+        # Try CREATE TABLE clause
+        create_match = re.search(
+            r"CREATE\s+TABLE\s+([a-zA-Z0-9_]+)", sql_query, re.IGNORECASE
+        )
+        if create_match:
+            return create_match.group(1)
+
         return None
 
     def _get_export_destination_short(self, dest_uri: str) -> str:
@@ -282,8 +313,24 @@ class ExecutionPlanBuilder:
             return dest_uri.split(":")[0] if ":" in dest_uri else dest_uri
 
     def _get_export_table_name(self, step) -> str:
-        """Return table_name attribute if present, else None (do not extract from SQL for ExportStep)."""
-        return getattr(step, "table_name", None)
+        """Return table_name attribute if present, else try to extract from SQL query.
+
+        Args:
+            step: The export step
+
+        Returns:
+            Table name as string, or None if not found
+        """
+        # First check if table_name attribute exists
+        table_name = getattr(step, "table_name", None)
+        if table_name:
+            return table_name
+
+        # If no table_name but has SQL query, try to extract from SQL
+        if hasattr(step, "sql_query") and step.sql_query:
+            return self._extract_table_name_from_sql(step.sql_query)
+
+        return None
 
     def _generate_step_id(self, step: PipelineStep, index: int) -> str:
         """Generate a step ID for a pipeline step.
@@ -303,16 +350,24 @@ class ExecutionPlanBuilder:
             return f"transform_{step.table_name}"
         elif isinstance(step, ExportStep):
             table_name = self._get_export_table_name(step)
-            dest_uri = getattr(step, "destination_uri", None)
-            dest_short = (
-                self._get_export_destination_short(dest_uri) if dest_uri else None
+            if not table_name and hasattr(step, "sql_query"):
+                # Try to extract table name from SQL query
+                extracted_table = self._extract_table_name_from_sql(step.sql_query)
+                if extracted_table:
+                    table_name = extracted_table
+
+            # Get connector type shortname
+            connector_type = (
+                step.connector_type.lower()
+                if hasattr(step, "connector_type")
+                else "unknown"
             )
-            if table_name and dest_short:
-                return f"export_{table_name}_to_{dest_short}"
-            elif table_name:
-                return f"export_{table_name}"
+
+            # Use consistent format: {task_type}_{connector}_{source_table}
+            if table_name:
+                return f"export_{connector_type}_{table_name}"
             else:
-                return f"export_{index}"
+                return f"export_{connector_type}_{index}"
         else:
             return f"step_{index}"
 
@@ -463,14 +518,31 @@ class ExecutionPlanBuilder:
                 "depends_on": depends_on,
             }
         elif isinstance(pipeline_step, ExportStep):
+            # Extract table name from SQL query for export steps
+            table_name = "unknown"
+            if hasattr(pipeline_step, "table_name") and pipeline_step.table_name:
+                table_name = pipeline_step.table_name
+            elif hasattr(pipeline_step, "sql_query") and pipeline_step.sql_query:
+                extracted_table = self._extract_table_name_from_sql(
+                    pipeline_step.sql_query
+                )
+                if extracted_table:
+                    table_name = extracted_table
+
+            # Get connector type shortname
+            connector_type = (
+                pipeline_step.connector_type.lower()
+                if hasattr(pipeline_step, "connector_type")
+                else "unknown"
+            )
+
+            # Generate ID following the format {task_type}_{connector}_{source_table}
+            export_id = f"export_{connector_type}_{table_name}"
+
             return {
-                "id": step_id,
+                "id": export_id,
                 "type": "export",
-                "source_table": (
-                    pipeline_step.table_name
-                    if hasattr(pipeline_step, "table_name")
-                    else "unknown"
-                ),
+                "source_table": table_name,
                 "source_connector_type": pipeline_step.connector_type,
                 "query": {
                     "sql_query": (

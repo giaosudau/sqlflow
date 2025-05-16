@@ -5,8 +5,9 @@ This guide will help you quickly start the SQLFlow ecommerce demo environment.
 > **Important: Profile-Driven Configuration**
 > All environment and engine configurations for this demo (and SQLFlow projects in general) are managed via **profiles** located in the `profiles/` directory.
 > - Use `--profile dev` for local development. This typically uses an **in-memory DuckDB** (fast, no data saved to disk).
-> - Use `--profile production` for simulated production runs. This typically uses a **persistent DuckDB** (data saved to `target/ecommerce_demo_prod.db` as configured in `profiles/production.yml`).
+> - Use `--profile production` for simulated production runs. This typically uses a **persistent DuckDB** (data saved to `target/ecommerce_demo_prod.db` as configured in `profiles/production.yml`, using this exact path). SQLFlow will use the exact `path` specified in the profile for persistent DuckDB files.
 > Edit the appropriate profile YAML file (e.g., `profiles/dev.yml`, `profiles/production.yml`) to change connector settings, engine parameters (like DuckDB mode or path), or define variables.
+> Also, remember that the `target/run/<pipeline_name>/` directory containing artifacts for a specific pipeline run is cleared and recreated each time `sqlflow pipeline run` is executed.
 
 ## Prerequisites
 
@@ -171,7 +172,7 @@ This profile simulates a production setup, notably by using a persistent DuckDB.
 # Example: profiles/production.yml
 engines:
   duckdb:
-    mode: persistent  # DuckDB saves data to the specified file.
+    mode: persistent  # DuckDB saves data to the specified file. SQLFlow uses this exact path.
     path: target/ecommerce_demo_prod.db # All tables, including transforms, are saved here.
     memory_limit: 8GB # Example memory limit for prod
 variables:

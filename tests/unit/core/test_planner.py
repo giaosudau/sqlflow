@@ -157,7 +157,7 @@ class TestExecutionPlanBuilder:
             connector_type="csv",
             options={"delimiter": ","},
         )
-        assert builder._generate_step_id(export_step, 3) == "export_3"
+        assert builder._generate_step_id(export_step, 3) == "export_csv_users_summary"
 
 
 class TestOperationPlanner:

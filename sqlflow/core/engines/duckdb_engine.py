@@ -20,11 +20,33 @@ class DuckDBEngine:
             database_path: Path to the DuckDB database file, or None for in-memory
         """
         self.database_path = self._setup_database_path(database_path)
-        self._ensure_directory_exists()
-        self.connection = self._establish_connection()
-        self._configure_persistence()
+        self.connection = None  # Initialize connection to None for safety
         self.variables: Dict[str, Any] = {}
-        self._verify_connection()
+
+        try:
+            self._ensure_directory_exists()
+            self.connection = self._establish_connection()
+            self._configure_persistence()
+            self._verify_connection()
+        except Exception as e:
+            logger.error(f"Error initializing DuckDB engine: {e}")
+            if self.database_path != ":memory:":
+                # Fall back to in-memory if file-based connection fails
+                logger.warning(f"Falling back to in-memory database due to error: {e}")
+                print(f"WARNING: Falling back to in-memory database due to error: {e}")
+                self.database_path = ":memory:"
+                try:
+                    self.connection = duckdb.connect(":memory:")
+                    print(
+                        "DEBUG: Successfully connected to fallback in-memory database"
+                    )
+                except Exception as fallback_error:
+                    logger.error(
+                        f"Error connecting to fallback in-memory database: {fallback_error}"
+                    )
+                    print(
+                        f"ERROR: Could not connect to fallback in-memory database: {fallback_error}"
+                    )
 
     def _setup_database_path(self, database_path: Optional[str] = None) -> str:
         """Set up the database path based on input.
@@ -75,7 +97,8 @@ class DuckDBEngine:
         """
         print(f"DEBUG: Connecting to DuckDB database at: {self.database_path}")
         try:
-            connection = duckdb.connect(self.database_path)
+            # Connect with standard parameters
+            connection = duckdb.connect(self.database_path, read_only=False)
             print("DEBUG: DuckDB connection established successfully")
             return connection
         except Exception as e:
@@ -358,7 +381,7 @@ class DuckDBEngine:
 
     def close(self) -> None:
         """Close the DuckDB connection."""
-        if self.connection:
+        if hasattr(self, "connection") and self.connection is not None:
             # Force checkpoint before closing
             if self.database_path != ":memory:":
                 try:
@@ -368,8 +391,13 @@ class DuckDBEngine:
                     print(f"DEBUG: Error performing final checkpoint: {e}")
 
             self.connection.close()
+            self.connection = None
             print("DEBUG: DuckDB connection closed")
 
     def __del__(self) -> None:
         """Close the connection when the object is deleted."""
-        self.close()
+        try:
+            self.close()
+        except Exception as e:
+            # Suppress errors in __del__ to prevent issues during garbage collection
+            print(f"DEBUG: Error during DuckDBEngine cleanup: {e}")

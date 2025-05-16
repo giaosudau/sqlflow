@@ -31,7 +31,11 @@ class TestExecutorSafeguard:
 
         executor = LocalExecutor()
 
-        with patch("sqlflow.core.executors.local_executor.logger") as mock_logger:
+        with patch(
+            "sqlflow.core.executors.local_executor.logger"
+        ) as mock_logger, patch.object(
+            LocalExecutor, "execute_step", return_value={"status": "success"}
+        ) as mock_execute_step:
             executor.execute(plan, resolver)
             mock_logger.warning.assert_not_called()
 
@@ -53,7 +57,11 @@ class TestExecutorSafeguard:
 
         executor = LocalExecutor()
 
-        with patch("sqlflow.core.executors.local_executor.logger") as mock_logger:
+        with patch(
+            "sqlflow.core.executors.local_executor.logger"
+        ) as mock_logger, patch.object(
+            LocalExecutor, "execute_step", return_value={"status": "success"}
+        ) as mock_execute_step:
             executor.execute(plan, resolver)
             mock_logger.warning.assert_called_once()
             call_args = mock_logger.warning.call_args[0]
@@ -75,7 +83,11 @@ class TestExecutorSafeguard:
 
         executor = LocalExecutor()
 
-        with patch("sqlflow.core.executors.local_executor.logger") as mock_logger:
+        with patch(
+            "sqlflow.core.executors.local_executor.logger"
+        ) as mock_logger, patch.object(
+            LocalExecutor, "execute_step", return_value={"status": "success"}
+        ) as mock_execute_step:
             executor.execute(plan)
             mock_logger.warning.assert_not_called()
 

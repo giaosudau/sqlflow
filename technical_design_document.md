@@ -161,7 +161,7 @@ variables:
 engines:
   duckdb:
     mode: persistent
-    path: "target/prod_data.db"
+    path: "target/prod_data.db"  # SQLFlow uses this exact path for the DuckDB file
 ```
 
 Pipeline (`.sf` file):
@@ -196,7 +196,8 @@ Running `sqlflow pipeline run my_pipeline --profile production` would use `run_d
 3. **Optimization**  
    - Cost-based engine selection (if multiple engines configured), predicate pushdown, parallelization.  
 4. **Execution**  
-   - Task executor runs DAG using the engine configured in the active profile (e.g., DuckDB in memory or persistent mode).  
+   - Task executor runs DAG using the engine configured in the active profile (e.g., DuckDB in memory or persistent mode using the exact specified path).
+   - The `target/run/<pipeline_name>/` directory is cleared at the start of each `sqlflow pipeline run`.
    - Supports resumption, status tracking.  
 
 ### 5.2 SQLEngine Interface
@@ -285,8 +286,8 @@ FROM raw_sales;
 - Quick Start:  
   1. pip install sqlflow  
   2. sqlflow init my_project  
-  3. Edit `my_project/profiles/dev.yml` to set DuckDB to memory mode (default) or persistent for testing.
-  4. Create `my_project/profiles/production.yml` for persistent DuckDB and production settings.
+  3. Edit `my_project/profiles/dev.yml` to set DuckDB to memory mode (default) or persistent for testing. If persistent, SQLFlow will use the exact `path` specified.
+  4. Create `my_project/profiles/production.yml` for persistent DuckDB (using the exact `path` you specify) and production settings.
   5. Write simple .sf with SOURCE/LOAD/EXPORT.
   6. `sqlflow pipeline run example --profile dev` (for quick, in-memory tests)
   7. `sqlflow pipeline run example --profile production` (for runs that persist data)
@@ -321,7 +322,7 @@ The ecommerce demonstration provides a comprehensive example of SQLFlow capabili
 -- This pipeline expects variables like DB_CONN, S3_BUCKET, and run_date
 -- to be defined in the active profile (e.g., profiles/production.yml)
 -- or passed via --vars.
--- The DuckDB engine mode (memory/persistent) and path would also be set in the profile.
+-- The DuckDB engine mode (memory/persistent) and path (used exactly as specified) would also be set in the profile.
 
 SET date = '${run_date|2025-05-14}';
 

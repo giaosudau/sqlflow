@@ -96,6 +96,8 @@ def test_cli_run_profile_memory_mode(tmp_path, monkeypatch):
             {
                 "execute": lambda self, plan, dep: {"summary": {}},
                 "duckdb_engine": type("D", (), {"path": ":memory:"})(),
+                "results": {},
+                "_generate_step_summary": lambda self, ops: None,
             },
         )(),
     )
@@ -123,6 +125,8 @@ def test_cli_run_profile_persistent_mode(tmp_path, monkeypatch):
             {
                 "execute": lambda self, plan, dep: {"summary": {}},
                 "duckdb_engine": type("D", (), {"path": "prod.db"})(),
+                "results": {},
+                "_generate_step_summary": lambda self, ops: None,
             },
         )(),
     )

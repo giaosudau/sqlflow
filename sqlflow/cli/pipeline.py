@@ -3,14 +3,18 @@
 import json
 import logging
 import os
-from typing import Optional
+from datetime import datetime
+from typing import Any, Dict, List, Optional, Tuple
 
 import typer
 
 from sqlflow.cli.utils import parse_vars, resolve_pipeline_name
+from sqlflow.cli.variable_handler import VariableHandler
 from sqlflow.core.dependencies import DependencyResolver
 from sqlflow.core.executors.local_executor import LocalExecutor
 from sqlflow.core.planner import Planner
+from sqlflow.core.sql_generator import SQLGenerator
+from sqlflow.core.storage.artifact_manager import ArtifactManager
 from sqlflow.parser.parser import Parser
 from sqlflow.project import Project
 
@@ -23,14 +27,255 @@ pipeline_app = typer.Typer(
 )
 
 
+def _get_pipeline_info(
+    pipeline_name: str, profile: str, variables: Optional[Dict[str, Any]] = None
+) -> Tuple[Project, str, str]:
+    """Get project, pipeline path, and target path for a pipeline.
+
+    Args:
+        pipeline_name: Name of the pipeline
+        profile: Profile to use
+        variables: Variables for the pipeline
+
+    Returns:
+        Tuple of (project, pipeline_path, target_path)
+    """
+    project = Project(os.getcwd(), profile_name=profile)
+    pipeline_path = _resolve_pipeline_path(project, pipeline_name)
+    if not os.path.exists(pipeline_path):
+        typer.echo(f"Pipeline {pipeline_name} not found at {pipeline_path}")
+        raise typer.Exit(code=1)
+
+    target_dir = os.path.join(project.project_dir, "target", "compiled")
+    os.makedirs(target_dir, exist_ok=True)
+    target_path = os.path.join(target_dir, f"{pipeline_name}.json")
+
+    return project, pipeline_path, target_path
+
+
+def _compile_pipeline_to_plan(
+    pipeline_path: str,
+    target_path: str,
+    variables: Optional[Dict[str, Any]] = None,
+    save_plan: bool = True,
+) -> List[Dict[str, Any]]:
+    """Compile a pipeline file to an execution plan.
+
+    Args:
+        pipeline_path: Path to the pipeline file
+        target_path: Path to save the compilation output
+        variables: Variables for variable substitution
+        save_plan: Whether to save the plan to disk
+
+    Returns:
+        Execution plan as a list of operations
+    """
+    # Step 1: Read the pipeline file
+    pipeline_text = _read_pipeline_file(pipeline_path)
+    pipeline_name = os.path.basename(pipeline_path)
+    if pipeline_name.endswith(".sf"):
+        pipeline_name = pipeline_name[:-3]
+
+    # Step 2: Apply variable substitution if variables are provided
+    if variables:
+        pipeline_text = _apply_variable_substitution(pipeline_text, variables)
+
+    # Step 3: Handle test pipeline or regular pipeline
+    if _is_test_pipeline(pipeline_path, pipeline_text):
+        operations = _get_test_plan()
+    else:
+        try:
+            # Parse pipeline
+            parser = Parser()
+            pipeline = parser.parse(pipeline_text)
+
+            # Create execution plan
+            planner = Planner()
+            operations = planner.create_plan(pipeline)
+        except Exception as e:
+            logger.error(f"Error creating execution plan: {str(e)}")
+            typer.echo(f"Error creating execution plan: {str(e)}")
+            raise typer.Exit(code=1)
+
+    # Step 4: Create full plan with metadata
+    plan = {
+        "pipeline_metadata": {
+            "name": pipeline_name,
+            "compiled_at": datetime.now().isoformat(),
+            "compiler_version": "0.1.0",
+            "variables": variables or {},
+        },
+        "operations": operations,
+        "execution_graph": _build_execution_graph(operations),
+    }
+
+    # Step 5: Print summary
+    _print_plan_summary(operations, pipeline_name)
+
+    # Step 6: Write output if requested
+    if save_plan:
+        os.makedirs(os.path.dirname(target_path), exist_ok=True)
+        with open(target_path, "w") as f:
+            json.dump(plan, f, indent=2)
+        typer.echo(f"\nExecution plan written to {target_path}")
+
+    return operations
+
+
+def _build_execution_graph(operations: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Build execution graph metadata from operations.
+
+    Args:
+        operations: List of operations.
+
+    Returns:
+        Execution graph metadata.
+    """
+    # Build lineage map
+    lineage = {}
+    for op in operations:
+        op_id = op.get("id", "")
+        depends_on = op.get("depends_on", [])
+        if depends_on:
+            lineage[op_id] = depends_on
+
+    # Find entry and terminal points
+    all_ops = {op.get("id", "") for op in operations}
+    all_deps = set()
+    for deps in lineage.values():
+        all_deps.update(deps)
+
+    entry_points = list(all_ops - all_deps)
+    terminal_points = []
+
+    for op_id in all_ops:
+        is_terminal = True
+        for deps in lineage.values():
+            if op_id in deps:
+                is_terminal = False
+                break
+        if is_terminal:
+            terminal_points.append(op_id)
+
+    return {
+        "entry_points": entry_points,
+        "terminal_points": terminal_points,
+        "lineage": lineage,
+    }
+
+
+def _prepare_compile_environment(
+    vars_arg: Optional[str], profile_arg: str
+) -> Tuple[Optional[Dict[str, Any]], Project, str, str]:
+    """Parses variables, sets up project, and resolves common paths for compilation."""
+    try:
+        variables = parse_vars(vars_arg)
+    except ValueError as e:
+        typer.echo(f"Error parsing variables: {str(e)}")
+        raise typer.Exit(code=1)
+
+    project = Project(os.getcwd(), profile_name=profile_arg)
+    profile_dict = project.get_profile()
+    pipelines_dir = os.path.join(
+        project.project_dir,
+        profile_dict.get("paths", {}).get("pipelines", "pipelines"),
+    )
+    target_dir = os.path.join(project.project_dir, "target", "compiled")
+    os.makedirs(target_dir, exist_ok=True)
+    return variables, project, pipelines_dir, target_dir
+
+
+def _do_compile_single_pipeline(
+    pipeline_name: str,
+    output_override: Optional[str],
+    variables: Optional[Dict[str, Any]],
+    pipelines_dir: str,
+    target_dir: str,
+):
+    """Compiles a single specified pipeline."""
+    try:
+        pipeline_path = resolve_pipeline_name(pipeline_name, pipelines_dir)
+        # Use pipeline_name for the .json file, not a potentially longer pipeline_path
+        name_without_ext = (
+            pipeline_name if not pipeline_name.endswith(".sf") else pipeline_name[:-3]
+        )
+        auto_output_path = os.path.join(target_dir, f"{name_without_ext}.json")
+        final_output_path = output_override or auto_output_path
+
+        _compile_pipeline_to_plan(pipeline_path, final_output_path, variables)
+
+        if variables:  # Log applied variables only once after successful compilation
+            typer.echo(f"Applied variables: {json.dumps(variables, indent=2)}")
+
+    except FileNotFoundError as e:
+        typer.echo(str(e))
+        raise typer.Exit(code=1)
+    except Exception as e:
+        typer.echo(f"Unexpected error compiling pipeline {pipeline_name}: {str(e)}")
+        logger.exception(f"Unexpected compilation error for {pipeline_name}")
+        raise typer.Exit(code=1)
+
+
+def _do_compile_all_pipelines(
+    pipelines_dir: str, target_dir: str, variables: Optional[Dict[str, Any]]
+):
+    """Compiles all .sf pipelines in the specified directory."""
+    if not os.path.exists(pipelines_dir):
+        typer.echo(f"Pipelines directory '{pipelines_dir}' not found.")
+        raise typer.Exit(code=1)
+
+    pipeline_files = [f for f in os.listdir(pipelines_dir) if f.endswith(".sf")]
+
+    if not pipeline_files:
+        typer.echo(f"No pipeline files found in '{pipelines_dir}'.")
+        # Consider if this should be an error or just a silent return.
+        # For now, exiting as it implies a misconfiguration or empty project.
+        raise typer.Exit(code=1)
+
+    typer.echo(
+        f"Found {len(pipeline_files)} pipeline(s) in '{pipelines_dir}'. Compiling all..."
+    )
+    compiled_count = 0
+    error_count = 0
+
+    for file_name in pipeline_files:
+        pipeline_path = os.path.join(pipelines_dir, file_name)
+        name_without_ext = file_name[:-3]
+        auto_output_path = os.path.join(target_dir, f"{name_without_ext}.json")
+        try:
+            typer.echo(f"Compiling {file_name}...")
+            _compile_pipeline_to_plan(pipeline_path, auto_output_path, variables)
+            compiled_count += 1
+        except Exception as e:
+            error_count += 1
+            typer.echo(f"Error compiling pipeline {file_name}: {str(e)}")
+            logger.exception(f"Error compiling pipeline {file_name}")
+            # Continue to compile other pipelines
+
+    if (
+        variables and compiled_count > 0
+    ):  # Log variables if any pipeline was successfully compiled with them
+        typer.echo(
+            f"Applied variables to all compiled pipelines: {json.dumps(variables, indent=2)}"
+        )
+
+    if error_count > 0:
+        typer.echo(
+            f"Finished compiling all. {compiled_count} succeeded, {error_count} failed."
+        )
+        raise typer.Exit(code=1)  # Exit with error if any compilation failed
+    else:
+        typer.echo(f"Successfully compiled {compiled_count} pipeline(s).")
+
+
 @pipeline_app.command("compile")
 def compile_pipeline(
     pipeline_name: Optional[str] = typer.Argument(
-        None, help="Name of the pipeline (omit .sf extension)"
+        None, help="Name of the pipeline (omit .sf extension, or provide full path)"
     ),
     output: Optional[str] = typer.Option(
         None,
-        help="Custom output file for the execution plan (default: target/compiled/)",
+        help="Custom output file for the execution plan (default: target/compiled/<pipeline_name>.json). Only applies when a single pipeline_name is provided.",
     ),
     vars: Optional[str] = typer.Option(
         None, help="Pipeline variables as JSON or key=value pairs"
@@ -39,55 +284,49 @@ def compile_pipeline(
         "dev", "--profile", "-p", help="Profile to use (default: dev)"
     ),
 ):
-    """Parse and validate pipeline(s), output execution plan.
-
+    """Parse and validate pipeline(s), output execution plan(s).
+    If pipeline_name is not provided, all pipelines in the project's pipeline directory are compiled.
     The execution plan is automatically saved to the project's target/compiled directory.
     """
-    try:
-        variables = parse_vars(vars)
-    except ValueError as e:
-        typer.echo(f"Error parsing variables: {str(e)}")
-        raise typer.Exit(code=1)
-
-    project = Project(os.getcwd(), profile_name=profile)
-    profile_dict = project.get_profile()
-    pipelines_dir = os.path.join(
-        project.project_dir,
-        profile_dict.get("paths", {}).get("pipelines", "pipelines"),
+    _variables, _project, _pipelines_dir, _target_dir = _prepare_compile_environment(
+        vars, profile
     )
 
-    target_dir = os.path.join(project.project_dir, "target", "compiled")
-    os.makedirs(target_dir, exist_ok=True)
+    if pipeline_name:
+        if os.path.isfile(pipeline_name):  # User provided a full path
+            # For a full path, we might want a different output directory logic or let _compile_pipeline_to_plan handle it based on 'output'
+            # For now, assume target_dir is still relevant for consistency, or let 'output' override.
+            # The `resolve_pipeline_name` might not be needed if full path is given.
+            # This path needs careful consideration.
+            # Let's simplify: if it's a file, treat it as the pipeline_path directly.
+            # The 'output' argument will determine where it goes.
+            _pipeline_path = pipeline_name
+            _name_for_output = os.path.splitext(os.path.basename(_pipeline_path))[0]
+            _auto_output_path = os.path.join(_target_dir, f"{_name_for_output}.json")
+            _final_output_path = output or _auto_output_path
+            try:
+                _compile_pipeline_to_plan(
+                    _pipeline_path, _final_output_path, _variables
+                )
+                if _variables:
+                    typer.echo(f"Applied variables: {json.dumps(_variables, indent=2)}")
+            except Exception as e:
+                typer.echo(
+                    f"Unexpected error compiling pipeline {_pipeline_path}: {str(e)}"
+                )
+                logger.exception(f"Unexpected compilation error for {_pipeline_path}")
+                raise typer.Exit(code=1)
 
-    if pipeline_name is None:
-        if not os.path.exists(pipelines_dir):
-            typer.echo(f"Pipelines directory '{pipelines_dir}' not found.")
-            raise typer.Exit(code=1)
-
-        pipeline_files = [f for f in os.listdir(pipelines_dir) if f.endswith(".sf")]
-
-        if not pipeline_files:
-            typer.echo(f"No pipeline files found in '{pipelines_dir}'.")
-            raise typer.Exit(code=1)
-
-        for file_name in pipeline_files:
-            pipeline_path = os.path.join(pipelines_dir, file_name)
-            pipeline_name = file_name[:-3]
-            auto_output = os.path.join(target_dir, f"{pipeline_name}.json")
-            _compile_single_pipeline(pipeline_path, output or auto_output, variables)
-
-        return
-
-    try:
-        pipeline_path = resolve_pipeline_name(pipeline_name, pipelines_dir)
-        auto_output = os.path.join(target_dir, f"{pipeline_name}.json")
-        _compile_single_pipeline(pipeline_path, output or auto_output, variables)
-
-        if variables:
-            typer.echo(f"Applied variables: {json.dumps(variables, indent=2)}")
-    except FileNotFoundError as e:
-        typer.echo(str(e))
-        raise typer.Exit(code=1)
+        else:  # User provided a name to be resolved
+            _do_compile_single_pipeline(
+                pipeline_name, output, _variables, _pipelines_dir, _target_dir
+            )
+    else:
+        if output:
+            typer.echo(
+                "Warning: --output option is ignored when compiling all pipelines."
+            )
+        _do_compile_all_pipelines(_pipelines_dir, _target_dir, _variables)
 
 
 def _get_test_plan():
@@ -113,53 +352,51 @@ def _get_test_plan():
 
 
 def _parse_pipeline(pipeline_text: str, pipeline_path: str):
-    """Parse a pipeline and return the execution plan."""
-    logger.debug(f"Parsing pipeline:\n{pipeline_text}")
+    """Parse a pipeline file using the SQLFlow parser.
 
-    parser = Parser()
+    Args:
+        pipeline_text: Text of the pipeline file
+        pipeline_path: Path to the pipeline file
+
+    Returns:
+        Parsed pipeline object
+    """
     try:
+        parser = Parser()
         pipeline = parser.parse(pipeline_text)
-        logger.debug(f"Parsed pipeline: {pipeline}")
+        return pipeline
     except Exception as e:
-        logger.error(f"Error parsing pipeline: {str(e)}")
         typer.echo(f"Error parsing pipeline {pipeline_path}: {str(e)}")
         return None
 
-    validation_errors = pipeline.validate()
-    if validation_errors:
-        typer.echo(f"Validation errors in {pipeline_path}:")
-        for error in validation_errors:
-            typer.echo(f"  - {error}")
-        return None
 
-    planner = Planner()
-    try:
-        plan = planner.create_plan(pipeline)
-        logger.debug(f"Created execution plan: {plan}")
-        return plan
-    except Exception as e:
-        logger.error(f"Error creating execution plan: {str(e)}")
-        typer.echo(f"Error creating execution plan: {str(e)}")
-        return None
+def _print_plan_summary(operations: List[Dict[str, Any]], pipeline_name: str):
+    """Print a summary of an execution plan.
 
+    Args:
+        operations: List of operations in the plan
+        pipeline_name: Name of the pipeline
+    """
+    step_types = {}
+    for op in operations:
+        step_type = op.get("type", "unknown")
+        if step_type not in step_types:
+            step_types[step_type] = 0
+        step_types[step_type] += 1
 
-def _print_plan_summary(plan, pipeline_name: str):
-    """Print a summary of the execution plan."""
-    typer.echo(f"Compiled pipeline '{pipeline_name}'")
-    typer.echo(f"Found {len(plan)} operations in the execution plan")
-
-    for op in plan:
-        op_id = op.get("id", "unknown")
-        typer.echo(f"  - {op_id}")
-
-    op_types = {}
-    for op in plan:
-        op_type = op.get("type", "unknown")
-        op_types[op_type] = op_types.get(op_type, 0) + 1
-
-    typer.echo("\nOperation types:")
-    for op_type, count in op_types.items():
+    typer.echo(f"Pipeline: {pipeline_name}")
+    typer.echo(f"Total operations: {len(operations)}")
+    typer.echo("Operations by type:")
+    for op_type, count in step_types.items():
         typer.echo(f"  - {op_type}: {count}")
+    typer.echo("\nDependencies:")
+
+    for op in operations:
+        depends_on = op.get("depends_on", [])
+        if depends_on:
+            typer.echo(f"  - {op['id']} depends on: {', '.join(depends_on)}")
+        else:
+            typer.echo(f"  - {op['id']}: no dependencies")
 
 
 def _read_pipeline_file(pipeline_path: str) -> str:
@@ -281,36 +518,17 @@ def _compile_single_pipeline(
 ):
     """Compile a single pipeline and output the execution plan."""
     try:
-        # Step 1: Read the pipeline file
-        pipeline_text = _read_pipeline_file(pipeline_path)
+        operations = _compile_pipeline_to_plan(
+            pipeline_path=pipeline_path,
+            target_path=output,
+            variables=variables,
+            save_plan=output is not None,
+        )
 
-        # Step 2: Apply variable substitution if variables are provided
-        if variables:
-            pipeline_text = _apply_variable_substitution(pipeline_text, variables)
-
-        # Step 3: Handle test pipeline or regular pipeline
-        if _is_test_pipeline(pipeline_path, pipeline_text):
-            plan = _get_test_plan()
-        else:
-            plan = _generate_execution_plan(pipeline_text, pipeline_path)
-
-        # Step 4: Convert plan to JSON
-        plan_json = json.dumps(plan, indent=2)
-
-        # Step 5: Get pipeline name for display
-        pipeline_name = os.path.basename(pipeline_path)
-        if pipeline_name.endswith(".sf"):
-            pipeline_name = pipeline_name[:-3]
-
-        # Step 6: Print summary
-        _print_plan_summary(plan, pipeline_name)
-
-        # Step 7: Write output or print to console
-        if output:
-            _write_execution_plan(plan, output)
-        else:
+        if not output:
+            operations_json = json.dumps(operations, indent=2)
             typer.echo("\nExecution plan:")
-            typer.echo(plan_json)
+            typer.echo(operations_json)
 
     except typer.Exit:
         raise
@@ -318,9 +536,6 @@ def _compile_single_pipeline(
         typer.echo(f"Unexpected error compiling pipeline {pipeline_path}: {str(e)}")
         logger.exception("Unexpected compilation error")
         raise typer.Exit(code=1)
-
-
-from sqlflow.cli.variable_handler import VariableHandler
 
 
 def _substitute_pipeline_variables(pipeline_text: str, variables: dict) -> str:
@@ -482,18 +697,20 @@ def _print_export_steps_status(plan: list, results: dict) -> None:
                     )
 
 
-def _report_pipeline_results(plan: list, results: dict) -> None:
-    """Prints a summary and details of pipeline execution results."""
-    typer.echo("\n" + "=" * 80)
-    typer.echo("Pipeline Execution Results".center(80))
-    typer.echo("=" * 80 + "\n")
+def _report_pipeline_results(operations: List[Dict[str, Any]], results: Dict[str, Any]):
+    """Report the results of pipeline execution.
+
+    Args:
+        operations: List of operations in the plan
+        results: Results of execution
+    """
     summary = results.get("summary", {})
     if summary:
         _print_summary(summary)
         _print_status_by_step_type(summary.get("by_type", {}))
-    else:
-        typer.echo(json.dumps(results, indent=2))
-    _print_export_steps_status(plan, results)
+
+    # Print export results if there are exports
+    _print_export_steps_status(operations, results)
 
 
 def _resolve_pipeline_path(project: Project, pipeline_name: str) -> str:
@@ -522,6 +739,187 @@ def _parse_and_plan_pipeline(pipeline_text: str) -> list:
     return planner.create_plan(ast)
 
 
+def _load_execution_plan(plan_path: str) -> List[Dict[str, Any]]:
+    """Load execution plan from a JSON file.
+
+    Args:
+        plan_path: Path to the execution plan JSON file
+
+    Returns:
+        Execution plan as a list of operations
+
+    Raises:
+        typer.Exit: If the plan cannot be loaded
+    """
+    try:
+        with open(plan_path, "r") as f:
+            return json.load(f)
+    except Exception as e:
+        typer.echo(f"Error loading execution plan from {plan_path}: {str(e)}")
+        raise typer.Exit(code=1)
+
+
+# Helper function to set up the run environment
+def _setup_run_environment(
+    pipeline_name_arg: str, vars_arg: Optional[str], profile_arg: str
+) -> Tuple[Project, Optional[Dict[str, Any]], str, ArtifactManager, str, str]:
+    """Parses variables, sets up project, artifact manager, paths, and logs profile info."""
+    try:
+        variables = parse_vars(vars_arg)
+    except ValueError as e:
+        typer.echo(f"Error parsing variables: {str(e)}")
+        raise typer.Exit(code=1)
+
+    project = Project(os.getcwd(), profile_name=profile_arg)
+    artifact_manager = ArtifactManager(project.project_dir)
+    artifact_manager.clean_run_dir(pipeline_name_arg)
+
+    pipeline_path = _resolve_pipeline_path(project, pipeline_name_arg)
+    if not os.path.exists(pipeline_path):
+        typer.echo(f"Pipeline {pipeline_name_arg} not found at {pipeline_path}")
+        raise typer.Exit(code=1)
+
+    compiled_plan_path = artifact_manager.get_compiled_path(pipeline_name_arg)
+
+    profile_config = project.get_profile()
+    typer.echo(f"[SQLFlow] Using profile: {profile_arg}")
+    duckdb_mode = (
+        profile_config.get("engines", {}).get("duckdb", {}).get("mode", "memory")
+    )
+    duckdb_path_info = (
+        profile_config.get("engines", {}).get("duckdb", {}).get("path", None)
+    )
+    if duckdb_mode == "memory":
+        typer.echo(
+            "🚨 Running in DuckDB memory mode: results will NOT be saved after process exit."
+        )
+    else:
+        typer.echo(
+            f"💾 Running in DuckDB persistent mode: results saved to {duckdb_path_info or '[not set]'}."
+        )
+
+    typer.echo(f"Running pipeline: {pipeline_path}")
+    if variables:
+        typer.echo(f"With variables: {json.dumps(variables, indent=2)}")
+
+    return (
+        project,
+        variables,
+        profile_arg,
+        artifact_manager,
+        pipeline_path,
+        compiled_plan_path,
+    )
+
+
+# Helper function to get execution operations (compile or load)
+def _get_execution_operations(
+    from_compiled_arg: bool,
+    compiled_plan_path: str,
+    pipeline_path: str,
+    variables: Optional[Dict[str, Any]],
+    pipeline_name: str,
+) -> List[Dict[str, Any]]:
+    """Loads a compiled plan or compiles the pipeline to get operations."""
+    if from_compiled_arg:
+        typer.echo(f"Using existing compilation from {compiled_plan_path}")
+        if not os.path.exists(compiled_plan_path):
+            typer.echo(
+                f"No existing compilation found at {compiled_plan_path}. "
+                f"Run 'sqlflow pipeline compile {pipeline_name}' first or remove --from-compiled flag."
+            )
+            raise typer.Exit(code=1)
+        try:
+            with open(compiled_plan_path, "r") as f:
+                plan_data = json.load(f)
+            return plan_data.get("operations", [])
+        except Exception as e:
+            typer.echo(f"Error loading compiled plan: {str(e)}")
+            raise typer.Exit(code=1)
+    else:
+        typer.echo(f"Compiling pipeline: {pipeline_path}")
+        try:
+            return _compile_pipeline_to_plan(
+                pipeline_path=pipeline_path,
+                target_path=compiled_plan_path,  # Save compilation here
+                variables=variables,
+            )
+        except Exception as e:
+            typer.echo(f"Error compiling pipeline: {str(e)}")
+            logger.exception("Pipeline compilation error")
+            raise typer.Exit(code=1)
+
+
+# Helper function to execute operations and report results
+def _execute_pipeline_operations_and_report(
+    operations: List[Dict[str, Any]],
+    pipeline_name: str,
+    profile_name: str,
+    variables: Optional[Dict[str, Any]],
+    artifact_manager: ArtifactManager,
+    execution_id: str,
+):
+    """Executes the pipeline operations and reports results."""
+    if not operations:
+        typer.echo("No operations to execute.")
+        artifact_manager.finalize_execution(
+            pipeline_name, True
+        )  # Finalize with success if no ops
+        return
+
+    typer.echo(f"Execution plan: {len(operations)} steps")
+    for op in operations:
+        typer.echo(f"  - {op['id']} ({op['type']})")
+
+    dependency_resolver, execution_order = _resolve_and_build_execution_order(
+        operations
+    )
+    typer.echo(f"Final execution order: {execution_order}")
+
+    sql_generator = SQLGenerator(dialect="duckdb")  # TODO: Make dialect configurable
+    executor = LocalExecutor(profile_name=profile_name)
+    # Set execution_id and artifact_manager on the executor instance for its internal use
+    executor.execution_id = execution_id
+    executor.artifact_manager = artifact_manager
+    # executor.sql_generator is already initialized by its __init__
+
+    success = True
+
+    typer.echo("Executing pipeline...")
+    for operation_id in execution_order:
+        operation = next((op for op in operations if op["id"] == operation_id), None)
+        if not operation:
+            logger.warning(
+                f"Operation {operation_id} in execution_order not found in operations list."
+            )
+            continue
+
+        context = {"variables": variables or {}, "execution_id": execution_id}
+        sql = sql_generator.generate_operation_sql(operation, context)
+
+        # Pass pipeline_name to execute_step for artifact recording
+        artifact_manager.record_operation_start(
+            pipeline_name, operation_id, operation.get("type", "unknown"), sql
+        )
+
+        typer.echo(f"  Executing {operation_id}...")
+        # Pass pipeline_name to execute_step so it can also record artifacts if it needs to
+        result = executor.execute_step(operation, pipeline_name=pipeline_name)
+
+        # record_operation_completion is now handled inside execute_step
+        # so we only need to check the result status here for breaking the loop
+        if result.get("status") != "success":
+            success = False
+            typer.echo(f"    ❌ Failed: {result.get('error', 'Unknown error')}")
+            # No need to call artifact_manager.record_operation_completion for failure here
+            # as execute_step is expected to do it.
+            break
+
+    artifact_manager.finalize_execution(pipeline_name, success)
+    executor._generate_step_summary(operations)
+    _report_pipeline_results(operations, executor.results)
+
+
 @pipeline_app.command("run")
 def run_pipeline(
     pipeline_name: str = typer.Argument(
@@ -533,63 +931,42 @@ def run_pipeline(
     profile: str = typer.Option(
         "dev", "--profile", "-p", help="Profile to use (default: dev)"
     ),
+    from_compiled: bool = typer.Option(
+        False,
+        "--from-compiled",
+        help="Use existing compilation in target/compiled/ instead of recompiling",
+    ),
 ):
-    """Execute a pipeline end-to-end using the selected profile."""
-    try:
-        variables = parse_vars(vars)
-    except ValueError as e:
-        typer.echo(f"Error parsing variables: {str(e)}")
-        raise typer.Exit(code=1)
+    """Execute a pipeline end-to-end using the selected profile.
+    This command automatically compiles the pipeline before running it, unless
+    --from-compiled is specified, in which case it uses the existing compiled plan.
+    """
+    (
+        _project,
+        _variables,
+        _profile_name,
+        _artifact_manager,
+        _pipeline_path,
+        _compiled_plan_path,
+    ) = _setup_run_environment(pipeline_name, vars, profile)
 
-    project = Project(os.getcwd(), profile_name=profile)
-    typer.echo(f"[SQLFlow] Using profile: {profile}")
-    profile_config = project.get_profile()
-    duckdb_mode = (
-        profile_config.get("engines", {}).get("duckdb", {}).get("mode", "memory")
+    operations = _get_execution_operations(
+        from_compiled, _compiled_plan_path, _pipeline_path, _variables, pipeline_name
     )
-    duckdb_path = profile_config.get("engines", {}).get("duckdb", {}).get("path", None)
-    if duckdb_mode == "memory":
-        typer.echo(
-            "🚨 Running in DuckDB memory mode: results will NOT be saved after process exit."
-        )
-    else:
-        typer.echo(
-            f"💾 Running in DuckDB persistent mode: results saved to {duckdb_path or '[not set]'}."
-        )
 
-    pipeline_path = _resolve_pipeline_path(project, pipeline_name)
-    if not os.path.exists(pipeline_path):
-        typer.echo(f"Pipeline {pipeline_name} not found at {pipeline_path}")
-        raise typer.Exit(code=1)
+    # Initialize execution tracking - this returns execution_id needed by the execute helper
+    execution_id, _ = _artifact_manager.initialize_execution(
+        pipeline_name, _variables or {}, _profile_name
+    )
 
-    typer.echo(f"Running pipeline: {pipeline_path}")
-    if variables:
-        typer.echo(f"With variables: {json.dumps(variables, indent=2)}")
-
-    try:
-        pipeline_text = _read_and_substitute_pipeline(pipeline_path, variables)
-        plan = _parse_and_plan_pipeline(pipeline_text)
-    except Exception as e:
-        typer.echo(f"Error parsing pipeline: {str(e)}")
-        logger.exception("Pipeline parsing error")
-        raise typer.Exit(code=1)
-
-    typer.echo(f"Execution plan: {len(plan)} steps")
-    for step in plan:
-        typer.echo(f"  - {step['id']} ({step['type']})")
-
-    dependency_resolver, execution_order = _resolve_and_build_execution_order(plan)
-    typer.echo(f"Final execution order: {execution_order}")
-
-    executor = LocalExecutor(profile_name=profile)
-    results = executor.execute(plan, dependency_resolver)
-
-    if results.get("error"):
-        typer.echo(
-            f"Error executing step {results.get('failed_step')}: {results['error']}"
-        )
-
-    _report_pipeline_results(plan, results)
+    _execute_pipeline_operations_and_report(
+        operations,
+        pipeline_name,  # Pass original pipeline_name
+        _profile_name,
+        _variables,
+        _artifact_manager,
+        execution_id,
+    )
 
 
 @pipeline_app.command("list")

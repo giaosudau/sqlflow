@@ -201,12 +201,13 @@ Now that we've validated the pipeline, let's run it with specific parameters. We
 # Ensure your production profile (e.g., profiles/production.yml) is set up.
 # It should define engine settings (like DuckDB mode: persistent, path: ...),
 # and any necessary production variables (e.g., actual DB_CONN, API_TOKEN).
+# SQLFlow will use the exact `path` specified for the persistent DuckDB file.
 
 # Example: profiles/production.yml might contain:
 # engines:
 #   duckdb:
 #     mode: persistent
-#     path: target/ecommerce_analytics_prod.db
+#     path: target/ecommerce_analytics_prod.db # SQLFlow uses this exact path
 # variables:
 #   DB_CONN: "postgresql://prod_user:prod_pass@prod_host:5432/ecommerce_prod"
 #   API_TOKEN: "your-real-production-api-token"
@@ -216,9 +217,10 @@ sqlflow pipeline run daily_sales_report --profile production --vars '{"run_date"
 ```
 
 This command:
-1. Uses the `production` profile, loading its engine configurations (e.g., for a persistent DuckDB) and any defined variables.
+1. Uses the `production` profile, loading its engine configurations (e.g., for a persistent DuckDB using the exact specified path) and any defined variables.
 2. Sets the `run_date` variable to "2023-10-25" (overriding any `run_date` in the profile if present).
 3. Executes the pipeline end-to-end. If using a persistent DuckDB as per the profile, all tables, including `sales_enriched`, `category_summary`, and `region_summary`, would be saved in the specified DuckDB file.
+   The `target/run/daily_sales_report/` directory containing logs and artifacts for this specific run is cleared before execution and repopulated during the run.
 
 ## Step 6: Monitoring and Troubleshooting
 

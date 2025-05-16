@@ -64,7 +64,7 @@ This profile would be used for production runs, often with persistent storage.
 engines:
   duckdb:
     mode: persistent  # Data is saved to disk
-    path: target/prod.db # Path where the DuckDB database file will be stored
+    path: target/prod.db # Path where the DuckDB database file will be stored. SQLFlow uses this exact path.
     memory_limit: 8GB
 # Add production variables, paths, or connector settings
 ```
@@ -92,7 +92,7 @@ SQLFlow's integrated DuckDB engine can operate in two distinct modes, configured
 
 -   **Persistent mode (`mode: persistent`)**:
     *   Recommended for production environments or when data needs to be preserved.
-    *   DuckDB writes data to a specified database file on disk.
+    *   DuckDB writes data to a specified database file on disk. SQLFlow will use the exact `path` you provide.
     *   All tables created during the pipeline, including intermediate transform tables, are persisted in this file.
     *   You must specify a `path` for the database file.
     *   Example in profile:
@@ -100,11 +100,13 @@ SQLFlow's integrated DuckDB engine can operate in two distinct modes, configured
         engines:
           duckdb:
             mode: persistent
-            path: target/my_production_data.db # All tables will be saved here
+            path: target/my_production_data.db # All tables will be saved here using this exact path.
             memory_limit: 8GB
         ```
 
 Switching between modes is as simple as changing the `mode` (and `path` for persistent) in your profile YAML and running your pipeline with that profile.
+
+Also, note that for each pipeline run, the specific run artifact directory `target/run/<pipeline_name>/` is cleared and recreated to ensure a clean state for execution logs and artifacts for that particular run.
 
 ## SQLFlow SQL Syntax Reference
 
@@ -200,12 +202,12 @@ MIT
 ## FAQ
 
 **Q: Where do I configure DuckDB and other engine settings?**
-A: All engine settings, including DuckDB's mode (memory or persistent) and path (for persistent mode), are configured in your profile YAML files (e.g., `profiles/dev.yml`, `profiles/production.yml`) under the `engines` key.
+A: All engine settings, including DuckDB's mode (memory or persistent) and path (for persistent mode), are configured in your profile YAML files (e.g., `profiles/dev.yml`, `profiles/production.yml`) under the `engines` key. SQLFlow uses the exact `path` specified for persistent DuckDB files.
 
 **Q: How do I switch between memory and persistent DuckDB modes?**
 A: Edit the active profile's YAML file. For DuckDB:
    - For in-memory mode (common for dev): Set `engines.duckdb.mode: memory`.
-   - For persistent mode (common for prod): Set `engines.duckdb.mode: persistent` and provide a `engines.duckdb.path: path/to/your/db_file.db`.
+   - For persistent mode (common for prod): Set `engines.duckdb.mode: persistent` and provide a `engines.duckdb.path: path/to/your/db_file.db`. SQLFlow will use this exact path.
    Then, run your pipeline using that profile (e.g., `sqlflow pipeline run my_pipeline --profile your_profile_name`).
 
 **Q: How do I add new environments (e.g., staging)?**
