@@ -1,11 +1,13 @@
 """Main entry point for SQLFlow CLI."""
 
 import os
+import sys
 from typing import Optional
 
 import typer
 
 from sqlflow import __version__
+from sqlflow.cli import connect
 from sqlflow.cli.pipeline import pipeline_app
 from sqlflow.project import Project
 
@@ -15,6 +17,7 @@ app = typer.Typer(
 )
 
 app.add_typer(pipeline_app, name="pipeline")
+app.add_typer(connect.app, name="connect")
 
 
 def version_callback(value: bool):
@@ -91,8 +94,46 @@ OPTIONS { "header": true, "delimiter": "," };
 
 def cli():
     """Entry point for the command line."""
-    app()
+    # Fix for the help command issue with Typer
+    if len(sys.argv) == 1 or "--help" in sys.argv or "-h" in sys.argv:
+        print("SQLFlow - SQL-based data pipeline tool.")
+        print("\nCommands:")
+        print("  pipeline    Work with SQLFlow pipelines.")
+        print("  connect     Manage and test connection profiles.")
+        print("  init        Initialize a new SQLFlow project.")
+        print("\nOptions:")
+        print("  --version   Show version and exit.")
+        print("  --help      Show this message and exit.")
+
+        if len(sys.argv) == 1:
+            # No arguments provided, exit with standard help code
+            return 0
+
+        # Check if help is requested for a specific command
+        if len(sys.argv) > 2 and ("--help" in sys.argv or "-h" in sys.argv):
+            command = sys.argv[1]
+            if command == "pipeline":
+                print("\nPipeline Commands:")
+                print("  list        List available pipelines.")
+                print("  compile     Compile a pipeline.")
+                print("  run         Run a pipeline.")
+                print("  validate    Validate a pipeline.")
+            elif command == "connect":
+                print("\nConnect Commands:")
+                print("  list        List available connections.")
+                print("  test        Test a connection.")
+            return 0
+
+        return 0
+
+    # For non-help commands, attempt to run the app
+    try:
+        app()
+    except Exception as e:
+        typer.echo(f"Error: {str(e)}")
+        return 1
+    return 0
 
 
 if __name__ == "__main__":
-    app()
+    sys.exit(cli())

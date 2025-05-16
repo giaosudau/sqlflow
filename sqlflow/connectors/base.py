@@ -19,6 +19,14 @@ class ConnectorState(Enum):
     ERROR = auto()
 
 
+class ConnectorType(Enum):
+    """Type of connector based on data flow direction."""
+
+    SOURCE = "source"  # Can only read data (source connector)
+    EXPORT = "export"  # Can only write data (export connector)
+    BIDIRECTIONAL = "bidirectional"  # Can both read and write data
+
+
 class ConnectionTestResult:
     """Result of a connection test."""
 
@@ -83,6 +91,7 @@ class Connector(ABC):
         """Initialize a connector."""
         self.state = ConnectorState.CREATED
         self.name: Optional[str] = None
+        self.connector_type = ConnectorType.SOURCE
 
     @abstractmethod
     def configure(self, params: Dict[str, Any]) -> None:
@@ -175,6 +184,7 @@ class ExportConnector(ABC):
         """Initialize an export connector."""
         self.state = ConnectorState.CREATED
         self.name: Optional[str] = None
+        self.connector_type = ConnectorType.EXPORT
 
     @abstractmethod
     def configure(self, params: Dict[str, Any]) -> None:
@@ -225,3 +235,103 @@ class ExportConnector(ABC):
                 self.name or "unknown",
                 f"Invalid state: expected one of {valid_states}, got {self.state}",
             )
+
+
+class BidirectionalConnector(Connector, ExportConnector):
+    """Base class for connectors that support both source and export operations."""
+
+    def __init__(self):
+        """Initialize a bidirectional connector."""
+        # Call both parent __init__ methods explicitly
+        Connector.__init__(self)
+        # Don't re-initialize state in ExportConnector.__init__
+        # since it's already initialized in Connector.__init__
+        # and we want to avoid potential state conflicts
+
+        # Set the connector type explicitly
+        self.connector_type = ConnectorType.BIDIRECTIONAL
+
+    # Explicitly declare abstract methods that must be implemented by concrete classes
+    # This ensures they're properly checked even if the class overrides parent methods
+
+    @abstractmethod
+    def configure(self, params: Dict[str, Any]) -> None:
+        """Configure the connector with parameters.
+
+        Args:
+            params: Configuration parameters
+
+        Raises:
+            ConnectorError: If configuration fails
+        """
+
+    @abstractmethod
+    def test_connection(self) -> ConnectionTestResult:
+        """Test the connection.
+
+        Returns:
+            Result of the connection test
+        """
+
+    @abstractmethod
+    def discover(self) -> List[str]:
+        """Discover available objects.
+
+        Returns:
+            List of object names
+
+        Raises:
+            ConnectorError: If discovery fails
+        """
+
+    @abstractmethod
+    def get_schema(self, object_name: str) -> Schema:
+        """Get schema for an object.
+
+        Args:
+            object_name: Name of the object
+
+        Returns:
+            Schema for the object
+
+        Raises:
+            ConnectorError: If schema retrieval fails
+        """
+
+    @abstractmethod
+    def read(
+        self,
+        object_name: str,
+        columns: Optional[List[str]] = None,
+        filters: Optional[Dict[str, Any]] = None,
+        batch_size: int = 10000,
+    ) -> Iterator[DataChunk]:
+        """Read data from the source.
+
+        Args:
+            object_name: Name of the object to read
+            columns: Optional list of columns to read
+            filters: Optional filters to apply
+            batch_size: Number of rows per batch
+
+        Returns:
+            Iterator yielding DataChunk objects
+
+        Raises:
+            ConnectorError: If reading fails
+        """
+
+    @abstractmethod
+    def write(
+        self, object_name: str, data_chunk: DataChunk, mode: str = "append"
+    ) -> None:
+        """Write data to the destination.
+
+        Args:
+            object_name: Name of the object to write to
+            data_chunk: Data to write
+            mode: Write mode (append, overwrite, etc.)
+
+        Raises:
+            ConnectorError: If writing fails
+        """

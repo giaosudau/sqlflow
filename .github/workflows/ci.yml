@@ -30,7 +30,7 @@ jobs:
         run: |
           black --check .
           isort --check-only .
-          flake8 --config=setup.cfg .
+          flake8 .
 
       - name: Run tests
         run: |
