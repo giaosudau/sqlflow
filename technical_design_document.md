@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-SQLFlow is an end-to-end, SQL-centric data transformation framework that empowers data analysts and engineers at small and medium enterprises (SMEs) to rapidly translate business requirements into production-grade pipelines. It extends standard SQL with pipeline directives (e.g., SOURCE, LOAD, EXPORT, ENGINE, INCLUDE), integrates seamlessly with Python via zero-copy Apache Arrow transfers, and embraces a modular, plugin-based architecture for both ingestion and export. Designed for familiarity (dbt-style CLI, directory structure) and extensibility (custom connectors, Python UDFs), SQLFlow sits uniquely at the intersection of ELT tools (dbt, Airbyte), orchestration engines (Airflow, Prefect), and hybrid SQL+Python platforms—delivering full control over data movement, transformation, and delivery without sacrificing simplicity or performance.
+SQLFlow is an end-to-end, SQL-centric data transformation framework that empowers data analysts and engineers at small and medium enterprises (SMEs) to rapidly translate business requirements into production-grade pipelines. It extends standard SQL with pipeline directives (e.g., SOURCE, LOAD, EXPORT, INCLUDE), integrates seamlessly with Python via zero-copy Apache Arrow transfers, and embraces a modular, plugin-based architecture for both ingestion and export. Configuration is profile-driven, allowing for distinct settings (e.g., in-memory vs. persistent DuckDB) for different environments like development and production. Designed for familiarity (dbt-style CLI, directory structure) and extensibility (custom connectors, Python UDFs), SQLFlow sits uniquely at the intersection of ELT tools (dbt, Airbyte), orchestration engines (Airflow, Prefect), and hybrid SQL+Python platforms—delivering full control over data movement, transformation, and delivery without sacrificing simplicity or performance.
 
 ## 1. Goals & Principles
 
@@ -54,7 +54,9 @@ SQLFlow is an end-to-end, SQL-centric data transformation framework that empower
 
 ```
 my_project/
-├── sqlflow.yml           # Global config: engines, variables, profiles
+├── profiles/               # Profile configurations (dev.yml, production.yml, etc.)
+│   ├── dev.yml             # Default profile for local development (e.g., in-memory DuckDB)
+│   └── production.yml      # Profile for production (e.g., persistent DuckDB, specific connectors)
 ├── pipelines/            # Declarative pipeline scripts (.sf)
 │   ├── daily_sales.sf
 │   └── weekly_report.sf
@@ -68,6 +70,8 @@ my_project/
 └── tests/                # Pipeline and unit tests
 ```
 
+Project-specific settings that are not environment-dependent (e.g., project name, required SQLFlow version) can be placed in an optional `sqlflow_project.yml` file at the root. However, all environment-specific configurations, including engine settings (like DuckDB mode and path), variables, and connector parameters, are managed through `profiles/*.yml` files.
+
 ### 3.2 CLI Commands
 
 ```bash
@@ -77,7 +81,7 @@ sqlflow --version                                          # Show version and ex
 
 # Pipeline commands (grouped under 'pipeline' subcommand)
 sqlflow pipeline compile [pipeline_name] [--output file]   # Parse & validate pipeline(s), output execution plan
-sqlflow pipeline run [pipeline_name] [--vars '{"key": "value"}']  # Execute a pipeline end-to-end
+sqlflow pipeline run [pipeline_name] [--vars '{"key": "value"}'] [--profile <profile_name>] # Execute a pipeline end-to-end using a specific profile (defaults to 'dev')
 sqlflow pipeline list                                      # List available pipelines in the project
 
 # Future commands (post-MVP)
@@ -100,16 +104,17 @@ Note: All pipeline-related commands are organized under the `pipeline` subcomman
   ```
 - **LOAD**  
   ```sql
-  LOAD <source_name> INTO <table_name> [WHERE …];
+  LOAD <table_name> FROM <source_name>;
   ```
 - **INCLUDE**  
   ```sql
   INCLUDE "path/to/file.sf" [AS <alias>];
   ```
-- **ENGINE**  
+- **ENGINE** (Deprecated - Configure in Profiles)
   ```sql
-  ENGINE <engine_name> OPTIONS { … };
+  -- ENGINE <engine_name> OPTIONS { … }; -- DEPRECATED: Engine configurations are now primarily managed via profiles.
   ```
+  While the `ENGINE` directive might still be parsed, engine selection and detailed configuration (e.g., DuckDB mode, path, memory limits) are now primarily controlled by the active profile specified via the CLI (`--profile <name>`). This allows for more flexible and environment-specific engine setups.
 - **EXPORT**  
   ```sql
   EXPORT
@@ -128,9 +133,56 @@ Note: All pipeline-related commands are organized under the `pipeline` subcomman
 ### 4.2 Advanced Flow Controls
 
 - **SET** (variables)  
+  ```sql
+  SET variable_name = "value";
+  SET date = "${run_date|2023-10-25}";  -- With default value
+  ```
 - **IF/ELSE** (conditional)  
 - **FOR EACH** (iteration)  
 - **DEPENDS_ON** (cross-pipeline dependencies)  
+
+### 4.3 Variable Substitution
+
+SQLFlow supports variable substitution in strings and JSON objects using the `${var}` syntax:
+
+- Variables can be set with the `SET` directive within a pipeline.
+- Variables can be defined in the active profile YAML under a `variables:` key.
+- Variables can have default values: `${var|default}`
+- Variables passed during execution via `--vars '{"var":"value"}'` override profile and `SET` variables.
+- Variables can be used in paths, queries, and connection parameters.
+- JSON objects support variable substitution with proper validation.
+
+Example using profile variables:
+Assume `profiles/production.yml` contains:
+```yaml
+variables:
+  run_date: "2023-10-26"
+  S3_BUCKET: "my-prod-bucket"
+engines:
+  duckdb:
+    mode: persistent
+    path: "target/prod_data.db"
+```
+
+Pipeline (`.sf` file):
+```sql
+-- run_date will default to "2023-10-25" if not set in profile or --vars
+SET date = "${run_date|2023-10-25}"; 
+
+SOURCE sales TYPE CSV PARAMS {
+  "path": "data/sales_${date}.csv", 
+  "has_header": true
+};
+
+EXPORT SELECT * FROM data 
+TO "s3://${S3_BUCKET}/${date}/data.csv" 
+TYPE S3
+OPTIONS {
+  "content_type": "text/csv",
+  "acl": "private"
+};
+```
+Running `sqlflow pipeline run my_pipeline --profile production` would use `run_date: "2023-10-26"` and `S3_BUCKET: "my-prod-bucket"`.
 
 ## 5. Architecture
 
@@ -140,15 +192,20 @@ Note: All pipeline-related commands are organized under the `pipeline` subcomman
    - Extend DuckDB's parser to recognize SQLFlow directives.  
 2. **Compilation**  
    - Build an AST → dependency graph (DAG of operations).  
+   - Resolve profile configurations (engine settings, variables, connectors).  
 3. **Optimization**  
-   - Cost-based engine selection, predicate pushdown, parallelization.  
+   - Cost-based engine selection (if multiple engines configured), predicate pushdown, parallelization.  
 4. **Execution**  
-   - Task executor runs DAG, supports resumption, status tracking.  
+   - Task executor runs DAG using the engine configured in the active profile (e.g., DuckDB in memory or persistent mode).  
+   - Supports resumption, status tracking.  
 
 ### 5.2 SQLEngine Interface
 
 ```python
 class SQLEngine(ABC):
+    def configure(self, config: dict, profile_variables: dict):
+        """Configure the engine with settings from the profile."""
+        ...
     def execute_query(self, query: str): …
     def create_temp_table(self, name: str, data): …
     def register_arrow(self, table_name: str, arrow_table: pa.Table): …
@@ -228,11 +285,25 @@ FROM raw_sales;
 - Quick Start:  
   1. pip install sqlflow  
   2. sqlflow init my_project  
-  3. Write simple .sf with SOURCE/LOAD/EXPORT  
-  4. sqlflow pipeline run example  
-- Tutorials: "From Business Ask to Pipeline" guides.  
+  3. Edit `my_project/profiles/dev.yml` to set DuckDB to memory mode (default) or persistent for testing.
+  4. Create `my_project/profiles/production.yml` for persistent DuckDB and production settings.
+  5. Write simple .sf with SOURCE/LOAD/EXPORT.
+  6. `sqlflow pipeline run example --profile dev` (for quick, in-memory tests)
+  7. `sqlflow pipeline run example --profile production` (for runs that persist data)
+- Tutorials: "From Business Ask to Pipeline" guides, emphasizing profile usage for different environments.  
 - Cheat Sheets: Core directives, variable syntax, connector patterns.  
 - Deployment Recipes: Local, Airflow operator, Kubernetes+Celery, Serverless.
+
+### 9.1 Ecommerce Demo
+
+The ecommerce demonstration provides a comprehensive example of SQLFlow capabilities:
+
+- **Complete Docker Infrastructure**: Ready-to-run environment with Postgres, MockServer for API simulation, and SQLFlow container
+- **Multiple Pipeline Examples**: From simple CSV processing to complex database-to-S3 flows
+- **Shell Scripts**: Easy initialization in both Bash and Fish shells
+- **Testing Tools**: Scripts for connector testing, data generation, and debugging
+- **Sample Data**: Pre-configured with realistic ecommerce datasets
+- **Documentation**: QUICKSTART.md and comprehensive README.md
 
 ## 10. Roadmap
 
@@ -247,6 +318,11 @@ FROM raw_sales;
 ### 11.1 Example Pipeline
 
 ```sql
+-- This pipeline expects variables like DB_CONN, S3_BUCKET, and run_date
+-- to be defined in the active profile (e.g., profiles/production.yml)
+-- or passed via --vars.
+-- The DuckDB engine mode (memory/persistent) and path would also be set in the profile.
+
 SET date = '${run_date|2025-05-14}';
 
 SOURCE sales TYPE CSV PARAMS {

@@ -1,68 +1,80 @@
 """Project management for SQLFlow."""
 
+import logging
 import os
 from typing import Any, Dict, Optional
 
 import yaml
 
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.DEBUG)
+
 
 class Project:
-    """Manages SQLFlow project structure and configuration."""
+    """Manages SQLFlow project structure and configuration using profiles only."""
 
-    def __init__(self, project_dir: str):
-        """Initialize a Project instance.
+    def __init__(self, project_dir: str, profile_name: str = "dev"):
+        """Initialize a Project instance using a profile.
 
         Args:
             project_dir: Path to the project directory
+            profile_name: Name of the profile to load (default: 'dev')
         """
         self.project_dir = project_dir
-        self.config = self._load_config()
+        self.profile_name = profile_name
+        self.profile = self._load_profile(profile_name)
+        print(f"[SQLFlow] Loaded profile: {profile_name}")
+        logger.info(f"Loaded profile: {profile_name}")
 
-    def _load_config(self) -> Dict[str, Any]:
-        """Load project configuration from sqlflow.yml.
+    def _load_profile(self, profile_name: str) -> Dict[str, Any]:
+        """Load profile configuration from profiles directory.
 
+        Args:
+            profile_name: Name of the profile
         Returns:
-            Dict containing project configuration
+            Dict containing profile configuration
         """
-        config_path = os.path.join(self.project_dir, "sqlflow.yml")
-        if os.path.exists(config_path):
-            with open(config_path, "r") as f:
-                return yaml.safe_load(f) or {}
-        return {}
+        profiles_dir = os.path.join(self.project_dir, "profiles")
+        profile_path = os.path.join(profiles_dir, f"{profile_name}.yml")
+        print(f"[SQLFlow] Loading profile from: {profile_path}")
+        logger.info(f"Loading profile from: {profile_path}")
+        if not os.path.exists(profile_path):
+            print(f"[SQLFlow] Profile not found at {profile_path}")
+            logger.warning(f"Profile not found at {profile_path}")
+            return {}
+        with open(profile_path, "r") as f:
+            profile = yaml.safe_load(f)
+            print(f"[SQLFlow] Loaded profile configuration: {profile}")
+            logger.info(f"Loaded profile configuration: {profile}")
+            return profile or {}
 
     def get_pipeline_path(self, pipeline_name: str) -> str:
         """Get the full path to a pipeline file.
 
         Args:
             pipeline_name: Name of the pipeline
-
         Returns:
             Full path to the pipeline file
         """
-        pipelines_dir = self.config.get("paths", {}).get("pipelines", "pipelines")
+        pipelines_dir = self.profile.get("paths", {}).get("pipelines", "pipelines")
         return os.path.join(self.project_dir, pipelines_dir, f"{pipeline_name}.sf")
 
-    def get_profile(self, profile_name: Optional[str] = None) -> Dict[str, Any]:
-        """Get a profile configuration.
-
-        Args:
-            profile_name: Name of the profile, or None for default
-
+    def get_profile(self) -> Dict[str, Any]:
+        """Get the loaded profile configuration.
         Returns:
             Dict containing profile configuration
         """
-        if profile_name is None:
-            profile_name = self.config.get("default_profile", "default")
+        return self.profile
 
-        profiles_dir = self.config.get("paths", {}).get("profiles", "profiles")
-        profile_path = os.path.join(
-            self.project_dir, profiles_dir, f"{profile_name}.yml"
-        )
+    def get_path(self, path_type: str) -> Optional[str]:
+        """Get a path from the profile configuration.
 
-        if os.path.exists(profile_path):
-            with open(profile_path, "r") as f:
-                return yaml.safe_load(f) or {}
-        return {}
+        Args:
+            path_type: Type of path to get (e.g. 'pipelines', 'models', etc.)
+        Returns:
+            Path if found, None otherwise
+        """
+        return self.profile.get("paths", {}).get(path_type)
 
     @staticmethod
     def init(project_dir: str, project_name: str) -> "Project":
@@ -75,6 +87,9 @@ class Project:
         Returns:
             New Project instance
         """
+        print(
+            f"DEBUG: Initializing new project at {project_dir} with name {project_name}"
+        )
         os.makedirs(os.path.join(project_dir, "pipelines"), exist_ok=True)
         os.makedirs(os.path.join(project_dir, "models"), exist_ok=True)
         os.makedirs(os.path.join(project_dir, "macros"), exist_ok=True)
@@ -82,34 +97,30 @@ class Project:
         os.makedirs(os.path.join(project_dir, "profiles"), exist_ok=True)
         os.makedirs(os.path.join(project_dir, "tests"), exist_ok=True)
 
-        config = {
-            "name": project_name,
-            "version": "0.1.0",
-            "default_profile": "default",
-            "paths": {
-                "pipelines": "pipelines",
-                "models": "models",
-                "macros": "macros",
-                "connectors": "connectors",
-                "profiles": "profiles",
-            },
-        }
-
-        with open(os.path.join(project_dir, "sqlflow.yml"), "w") as f:
-            yaml.dump(config, f, default_flow_style=False)
-
+        # Only create a default profile, not sqlflow.yml
         default_profile = {
-            "target": "duckdb",
-            "outputs": {
+            "engines": {
                 "duckdb": {
-                    "type": "duckdb",
-                    "path": "target/default.db",
+                    "mode": "memory",
+                    "memory_limit": "2GB",
                 }
             },
+            # Add more default keys as needed
         }
-
-        os.makedirs(os.path.join(project_dir, "profiles"), exist_ok=True)
-        with open(os.path.join(project_dir, "profiles", "default.yml"), "w") as f:
+        profiles_dir = os.path.join(project_dir, "profiles")
+        os.makedirs(profiles_dir, exist_ok=True)
+        profile_path = os.path.join(profiles_dir, "dev.yml")
+        print(f"DEBUG: Writing initial dev profile to {profile_path}")
+        with open(profile_path, "w") as f:
             yaml.dump(default_profile, f, default_flow_style=False)
 
+        print("DEBUG: Project initialization complete.")
         return Project(project_dir)
+
+    def get_config(self) -> Dict[str, Any]:
+        """Get the project configuration.
+
+        Returns:
+            Dict containing project configuration
+        """
+        return self.profile

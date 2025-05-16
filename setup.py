@@ -9,15 +9,17 @@ setup(
     author="SQLFlow Team",
     packages=find_packages(),
     install_requires=[
-        "duckdb",
-        "pandas",
-        "pyarrow",
-        "click",
-        "networkx",
-        "typer",
-        "psycopg2-binary",  # For PostgreSQL connectors
-        "boto3",  # For S3 connector
-        "requests",  # For REST connector
+        "duckdb>=1.2.0",  # Core SQL engine
+        "pandas>=2.0.0",  # Data manipulation
+        "pyarrow>=10.0.0",  # Data format and interchange
+        "click>=8.0.0",  # CLI framework
+        "networkx>=3.0",  # Dependency graph handling
+        "typer>=0.9.0,<0.10.0",  # Modern CLI framework
+        "psycopg2-binary>=2.9.0",  # PostgreSQL connector
+        "boto3>=1.26.0",  # AWS S3 connector
+        "requests>=2.28.0",  # HTTP/REST connector
+        "pyyaml>=6.0",  # Configuration handling
+        "typing-extensions>=4.0.0",  # Type hints support
     ],
     package_data={
         "sqlflow": ["py.typed"],
@@ -31,10 +33,17 @@ setup(
             "flake8>=4.0.1",
             "autoflake>=2.2.0",
             "pre-commit>=3.0.0",
+            "mypy>=1.0.0",  # Type checking
         ],
         "test": [
             "pytest>=7.0.0",
             "pytest-cov>=4.1.0",
+            "mock>=5.0.0",  # For mocking in tests
+        ],
+        "docs": [
+            "sphinx>=4.0.0",
+            "sphinx-rtd-theme>=1.0.0",
+            "myst-parser>=1.0.0",
         ],
     },
     entry_points={
@@ -43,4 +52,16 @@ setup(
         ],
     },
     python_requires=">=3.8",
+    classifiers=[
+        "Development Status :: 3 - Alpha",
+        "Intended Audience :: Developers",
+        "License :: OSI Approved :: MIT License",
+        "Programming Language :: Python :: 3",
+        "Programming Language :: Python :: 3.8",
+        "Programming Language :: Python :: 3.9",
+        "Programming Language :: Python :: 3.10",
+        "Programming Language :: Python :: 3.11",
+        "Topic :: Database",
+        "Topic :: Software Development :: Libraries :: Python Modules",
+    ],
 )

@@ -18,6 +18,7 @@ class DependencyResolver:
         self.temp_visited: Set[str] = set()
         self.execution_order: List[str] = []
         self.last_resolved_order: Optional[List[str]] = None
+        logger.debug("DependencyResolver initialized with empty state")
 
     def add_dependency(self, pipeline: str, depends_on: str) -> None:
         """Add a dependency between pipelines.
@@ -29,6 +30,8 @@ class DependencyResolver:
         if pipeline not in self.dependencies:
             self.dependencies[pipeline] = []
         self.dependencies[pipeline].append(depends_on)
+        logger.debug("Added dependency: %s depends on %s", pipeline, depends_on)
+        logger.debug("Current dependencies: %s", self.dependencies)
 
     def extract_dependencies(self, pipeline_path: str) -> List[str]:
         """Extract dependencies from a pipeline file.
@@ -53,6 +56,9 @@ class DependencyResolver:
         Raises:
             CircularDependencyError: If a circular dependency is detected
         """
+        logger.debug("Resolving dependencies starting from %s", start_pipeline)
+        logger.debug("Current dependency graph: %s", self.dependencies)
+
         self.visited = set()
         self.temp_visited = set()
         self.execution_order = []
@@ -60,6 +66,7 @@ class DependencyResolver:
         self._visit(start_pipeline)
 
         self.last_resolved_order = self.execution_order.copy()
+        logger.debug("Resolved execution order: %s", self.last_resolved_order)
         return self.execution_order
 
     def validate(self, pipeline: str) -> None:
@@ -83,21 +90,28 @@ class DependencyResolver:
         Raises:
             CircularDependencyError: If a circular dependency is detected
         """
+        logger.debug("Visiting %s", pipeline)
+        logger.debug("temp_visited=%s, visited=%s", self.temp_visited, self.visited)
+
         if pipeline in self.temp_visited:
             cycle = self._find_cycle(pipeline)
+            logger.debug("Cycle detected: %s", cycle)
             raise CircularDependencyError(cycle)
 
         if pipeline in self.visited:
+            logger.debug("Already visited %s, skipping", pipeline)
             return
 
         self.temp_visited.add(pipeline)
 
         for dependency in self.dependencies.get(pipeline, []):
+            logger.debug("Processing dependency %s of %s", dependency, pipeline)
             self._visit(dependency)
 
         self.temp_visited.remove(pipeline)
         self.visited.add(pipeline)
         self.execution_order.append(pipeline)
+        logger.debug("Added %s to execution order: %s", pipeline, self.execution_order)
 
     def _find_cycle(self, start: str) -> List[str]:
         """Find a cycle in the dependency graph.

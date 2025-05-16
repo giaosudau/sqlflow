@@ -30,8 +30,7 @@ This creates a standard project structure with directories for pipelines, models
 
 ### Sales Data (CSV)
 Daily sales data is exported as CSV files with the following structure:
-```
-order_id,customer_id,product_id,quantity,price,order_date
+```order_id,customer_id,product_id,quantity,price,order_date
 1001,5678,PRD-123,2,49.99,2023-10-25
 1002,8765,PRD-456,1,129.99,2023-10-25
 ...
@@ -67,9 +66,12 @@ CREATE TABLE products (
 Create a new file `pipelines/daily_sales_report.sf` with the following content:
 
 ```sql
+-- Set up variables
+SET run_date = "${run_date|2023-10-25}";
+
 -- Define data sources
 SOURCE sample TYPE CSV PARAMS {
-  "path": "data/sales_2023-10-25.csv",
+  "path": "data/sales_${run_date}.csv",
   "has_header": true
 };
 
@@ -118,7 +120,7 @@ ORDER BY total_revenue DESC;
 -- Export results to S3 for BI dashboard
 EXPORT
   SELECT * FROM category_summary
-TO "s3://analytics/reports/category_summary_${date}.parquet"
+TO "s3://analytics/reports/category_summary_${run_date}.parquet"
 TYPE S3
 OPTIONS { 
   "format": "parquet",
@@ -127,7 +129,7 @@ OPTIONS {
 
 EXPORT
   SELECT * FROM region_summary
-TO "s3://analytics/reports/region_summary_${date}.parquet"
+TO "s3://analytics/reports/region_summary_${run_date}.parquet"
 TYPE S3
 OPTIONS { 
   "format": "parquet",
@@ -137,7 +139,7 @@ OPTIONS {
 -- Send notification to REST API
 EXPORT
   SELECT 
-    '${date}' AS report_date,
+    '${run_date}' AS report_date,
     (SELECT COUNT(*) FROM raw_data) AS total_orders,
     (SELECT SUM(total_amount) FROM sales_enriched) AS daily_revenue
 TO "https://api.example.com/notifications"
@@ -150,6 +152,12 @@ OPTIONS {
   }
 };
 ```
+
+Note how the pipeline uses parameterized variables:
+- `${run_date}` - Date of the data to process, with default "2023-10-25"
+- `${API_TOKEN}` - Authentication token for the REST API
+
+These variables can be passed when executing the pipeline, allowing for easy scheduling and automation.
 
 ## Step 4: Validating the Pipeline
 
@@ -187,17 +195,30 @@ The execution plan shows the DAG (Directed Acyclic Graph) of operations that wil
 
 ## Step 5: Running the Pipeline
 
-Now that we've validated the pipeline, let's run it with specific parameters:
+Now that we've validated the pipeline, let's run it with specific parameters. We'll use a production profile, which we assume is configured in `profiles/production.yml` to use a persistent DuckDB and might define production-specific connector details or variables.
 
 ```bash
-# Run the pipeline with a specific date
-sqlflow pipeline run daily_sales_report --vars '{"run_date": "2023-10-25", "DB_CONN": "postgresql://user:pass@localhost:5432/ecommerce", "API_TOKEN": "your-api-token"}'
+# Ensure your production profile (e.g., profiles/production.yml) is set up.
+# It should define engine settings (like DuckDB mode: persistent, path: ...),
+# and any necessary production variables (e.g., actual DB_CONN, API_TOKEN).
+
+# Example: profiles/production.yml might contain:
+# engines:
+#   duckdb:
+#     mode: persistent
+#     path: target/ecommerce_analytics_prod.db
+# variables:
+#   DB_CONN: "postgresql://prod_user:prod_pass@prod_host:5432/ecommerce_prod"
+#   API_TOKEN: "your-real-production-api-token"
+
+# Run the pipeline with the production profile and specific run_date
+sqlflow pipeline run daily_sales_report --profile production --vars '{"run_date": "2023-10-25"}'
 ```
 
 This command:
-1. Sets the `run_date` variable to "2023-10-25"
-2. Provides database connection string and API token
-3. Executes the pipeline end-to-end
+1. Uses the `production` profile, loading its engine configurations (e.g., for a persistent DuckDB) and any defined variables.
+2. Sets the `run_date` variable to "2023-10-25" (overriding any `run_date` in the profile if present).
+3. Executes the pipeline end-to-end. If using a persistent DuckDB as per the profile, all tables, including `sales_enriched`, `category_summary`, and `region_summary`, would be saved in the specified DuckDB file.
 
 ## Step 6: Monitoring and Troubleshooting
 
@@ -208,8 +229,8 @@ If any issues occur during pipeline execution, SQLFlow provides detailed error m
 For daily execution, you can set up a cron job or use an orchestration tool like Airflow:
 
 ```bash
-# Example cron job (runs daily at 2 AM)
-0 2 * * * cd /path/to/ecommerce_analytics && sqlflow pipeline run daily_sales_report --vars '{"run_date": "$(date -d "yesterday" +\%Y-\%m-\%d)"}'
+# Example cron job (runs daily at 2 AM using the production profile)
+0 2 * * * cd /path/to/ecommerce_analytics && sqlflow pipeline run daily_sales_report --profile production --vars '{"run_date": "$(date -d "yesterday" +\%Y-\%m-\%d)"}'
 ```
 
 ## Conclusion

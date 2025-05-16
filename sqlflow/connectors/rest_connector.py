@@ -1,20 +1,25 @@
-"""REST export connector for SQLFlow."""
+"""REST connector for SQLFlow."""
 
 import json
 import time
 from enum import Enum
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Iterator, List, Optional
 
 import requests
 from requests.auth import AuthBase, HTTPBasicAuth
 
 from sqlflow.connectors.base import (
     ConnectionTestResult,
+    Connector,
     ConnectorState,
     ExportConnector,
+    Schema,
 )
 from sqlflow.connectors.data_chunk import DataChunk
-from sqlflow.connectors.registry import register_export_connector
+from sqlflow.connectors.registry import (
+    register_connector,
+    register_export_connector,
+)
 from sqlflow.core.errors import ConnectorError
 
 
@@ -28,13 +33,14 @@ class AuthMethod(Enum):
     OAUTH = "oauth"
 
 
+@register_connector("REST")
 @register_export_connector("REST")
-class RESTExportConnector(ExportConnector):
-    """Export connector for REST APIs."""
+class RESTConnector(Connector, ExportConnector):
+    """Connector for REST APIs."""
 
     def __init__(self):
-        """Initialize a RESTExportConnector."""
-        super().__init__()
+        """Initialize a RESTConnector."""
+        Connector.__init__(self)
         self.base_url: Optional[str] = None
         self.auth_method: AuthMethod = AuthMethod.NONE
         self.auth_params: Dict[str, str] = {}
@@ -87,9 +93,7 @@ class RESTExportConnector(ExportConnector):
             self.state = ConnectorState.CONFIGURED
         except Exception as e:
             self.state = ConnectorState.ERROR
-            raise ConnectorError(
-                self.name or "REST_EXPORT", f"Configuration failed: {str(e)}"
-            )
+            raise ConnectorError(self.name or "REST", f"Configuration failed: {str(e)}")
 
     def _get_auth(self) -> Optional[AuthBase]:
         """Get authentication handler based on configured method.
@@ -159,6 +163,144 @@ class RESTExportConnector(ExportConnector):
             self.state = ConnectorState.ERROR
             return ConnectionTestResult(False, str(e))
 
+    def discover(self) -> List[str]:
+        """Discover available endpoints in the REST API.
+
+        Returns:
+            List of endpoint paths
+
+        Raises:
+            ConnectorError: If discovery fails
+        """
+        self.validate_state(ConnectorState.CONFIGURED)
+
+        try:
+            if not self.base_url:
+                raise ValueError("Base URL not configured")
+
+            # Most REST APIs don't support endpoint discovery
+            # Return an empty list by default
+            return []
+        except Exception as e:
+            self.state = ConnectorState.ERROR
+            raise ConnectorError(self.name or "REST", f"Discovery failed: {str(e)}")
+
+    def get_schema(self, object_name: str) -> Schema:
+        """Get schema for a REST endpoint.
+
+        Args:
+            object_name: Endpoint path
+
+        Returns:
+            Schema for the endpoint
+
+        Raises:
+            ConnectorError: If schema retrieval fails
+        """
+        self.validate_state(ConnectorState.CONFIGURED)
+
+        try:
+            if not self.base_url:
+                raise ValueError("Base URL not configured")
+
+            auth = self._get_auth()
+            url = f"{self.base_url.rstrip('/')}/{object_name.lstrip('/')}"
+            response = requests.get(
+                url,
+                headers=self.headers,
+                auth=auth,
+                timeout=self.timeout,
+                **self.request_params,
+            )
+            response.raise_for_status()
+
+            # Try to infer schema from response
+            data = response.json()
+            if isinstance(data, list) and len(data) > 0:
+                import pandas as pd
+                import pyarrow as pa
+
+                df = pd.DataFrame(data)
+                table = pa.Table.from_pandas(df)
+                return Schema(table.schema)
+            else:
+                # Return a basic schema for unknown data
+                import pyarrow as pa
+
+                fields = [pa.field("data", pa.string())]
+                return Schema(pa.schema(fields))
+        except Exception as e:
+            self.state = ConnectorState.ERROR
+            raise ConnectorError(
+                self.name or "REST", f"Schema retrieval failed: {str(e)}"
+            )
+
+    def read(
+        self,
+        object_name: str,
+        columns: Optional[List[str]] = None,
+        filters: Optional[Dict[str, Any]] = None,
+        batch_size: int = 10000,
+    ) -> Iterator[DataChunk]:
+        """Read data from a REST endpoint.
+
+        Args:
+            object_name: Endpoint path
+            columns: Optional list of columns to read
+            filters: Optional filters to apply
+            batch_size: Number of rows per batch
+
+        Yields:
+            DataChunk objects
+
+        Raises:
+            ConnectorError: If reading fails
+        """
+        self.validate_state(ConnectorState.CONFIGURED)
+
+        try:
+            if not self.base_url:
+                raise ValueError("Base URL not configured")
+
+            auth = self._get_auth()
+            url = f"{self.base_url.rstrip('/')}/{object_name.lstrip('/')}"
+
+            # Apply filters as query parameters if provided
+            if filters:
+                if "params" not in self.request_params:
+                    self.request_params["params"] = {}
+                self.request_params["params"].update(filters)
+
+            response = requests.get(
+                url,
+                headers=self.headers,
+                auth=auth,
+                timeout=self.timeout,
+                **self.request_params,
+            )
+            response.raise_for_status()
+
+            data = response.json()
+            if not isinstance(data, list):
+                data = [data]
+
+            import pandas as pd
+            import pyarrow as pa
+
+            df = pd.DataFrame(data)
+            if columns:
+                df = df[columns]
+
+            table = pa.Table.from_pandas(df)
+            for i in range(0, len(table), batch_size):
+                batch = table.slice(i, batch_size)
+                yield DataChunk(batch)
+
+            self.state = ConnectorState.READY
+        except Exception as e:
+            self.state = ConnectorState.ERROR
+            raise ConnectorError(self.name or "REST", f"Reading failed: {str(e)}")
+
     def _send_batch(self, url: str, data: Any) -> requests.Response:
         """Send a batch of data to the REST API with retries.
 
@@ -190,59 +332,60 @@ class RESTExportConnector(ExportConnector):
             except requests.exceptions.RequestException as e:
                 if attempt == self.max_retries - 1:
                     raise ConnectorError(
-                        self.name or "REST_EXPORT", f"Failed to send data: {str(e)}"
+                        self.name or "REST", f"Failed to send data: {str(e)}"
                     )
                 time.sleep(self.retry_delay * (2**attempt))  # Exponential backoff
 
-        raise ConnectorError(self.name or "REST_EXPORT", "Failed to send data")
+        raise ConnectorError(self.name or "REST", "Failed to send data")
 
     def write(
         self, object_name: str, data_chunk: DataChunk, mode: str = "append"
     ) -> None:
-        """Write data to the REST API.
+        """Write data to a REST endpoint.
 
         Args:
-            object_name: Endpoint path to append to base_url
+            object_name: Endpoint path
             data_chunk: Data to write
             mode: Write mode (ignored for REST)
 
         Raises:
-            ConnectorError: If write fails
+            ConnectorError: If writing fails
         """
         self.validate_state(ConnectorState.CONFIGURED)
 
         try:
             if not self.base_url:
-                raise ConnectorError(
-                    self.name or "REST_EXPORT", "Base URL not configured"
-                )
+                raise ValueError("Base URL not configured")
 
-            url = self.base_url
-            if object_name:
-                if url.endswith("/") and object_name.startswith("/"):
-                    url += object_name[1:]
-                elif not url.endswith("/") and not object_name.startswith("/"):
-                    url += "/" + object_name
-                else:
-                    url += object_name
-
+            url = f"{self.base_url.rstrip('/')}/{object_name.lstrip('/')}"
             df = data_chunk.pandas_df
-            records = df.to_dict(orient="records")
 
             if self.streaming_mode:
-                for record in records:
-                    self._send_batch(url, record)
+                # Stream records one by one
+                for _, row in df.iterrows():
+                    self._send_batch(url, row.to_dict())
             else:
-                for i in range(0, len(records), self.batch_size):
-                    batch = records[i : i + self.batch_size]
-                    self._send_batch(url, batch)
+                # Send data in batches
+                for i in range(0, len(df), self.batch_size):
+                    batch = df.iloc[i : i + self.batch_size]
+                    self._send_batch(url, batch.to_dict(orient="records"))
 
             self.state = ConnectorState.READY
         except Exception as e:
             self.state = ConnectorState.ERROR
             raise ConnectorError(
-                self.name or "REST_EXPORT", f"Write operation failed: {str(e)}"
+                self.name or "REST", f"Write operation failed: {str(e)}"
             )
 
     def close(self) -> None:
-        """Close resources used by the connector."""
+        """Close any open connections."""
+
+
+# RESTExportConnector class for specific export functionality
+class RESTExportConnector(RESTConnector):
+    """Export connector for REST APIs.
+
+    This class extends the RESTConnector with export-specific functionality.
+    This specialized class allows for potential future customization of export-only features
+    while maintaining compatibility with the existing testing suite.
+    """

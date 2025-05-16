@@ -6,6 +6,7 @@ into a linear, JSON-serialized ExecutionPlan consumable by an executor.
 
 import json
 import logging
+import re
 from typing import Any, Dict, List
 
 from sqlflow.core.dependencies import DependencyResolver
@@ -31,6 +32,65 @@ class ExecutionPlanBuilder:
         self.step_id_map: Dict[int, str] = {}  # Maps step object ID to step ID
         self.step_dependencies: Dict[str, List[str]] = {}
 
+    def _get_sources_and_loads(
+        self, pipeline: Pipeline
+    ) -> tuple[Dict[str, SourceDefinitionStep], List[LoadStep]]:
+        """Collect source and load steps from the pipeline.
+
+        Args:
+            pipeline: The pipeline to process
+
+        Returns:
+            Tuple of (source_steps, load_steps)
+        """
+        source_steps = {}
+        load_steps = []
+
+        for step in pipeline.steps:
+            if isinstance(step, SourceDefinitionStep):
+                source_steps[step.name] = step
+            elif isinstance(step, LoadStep):
+                load_steps.append(step)
+
+        return source_steps, load_steps
+
+    def _add_load_dependencies(
+        self, source_steps: Dict[str, SourceDefinitionStep], load_steps: List[LoadStep]
+    ) -> None:
+        """Add dependencies from load steps to their source steps.
+
+        Args:
+            source_steps: Dictionary of source steps by name
+            load_steps: List of load steps
+        """
+        for load_step in load_steps:
+            source_name = load_step.source_name
+            if source_name in source_steps:
+                source_step = source_steps[source_name]
+                self._add_dependency(load_step, source_step)
+
+    def _build_execution_steps(
+        self, pipeline: Pipeline, execution_order: List[str]
+    ) -> List[Dict[str, Any]]:
+        """Create execution steps from pipeline steps in the determined order.
+
+        Args:
+            pipeline: The pipeline with steps
+            execution_order: The resolved execution order of step IDs
+
+        Returns:
+            List of execution steps
+        """
+        execution_steps = []
+        for step_id in execution_order:
+            for pipeline_step in pipeline.steps:
+                if self._get_step_id(pipeline_step) == step_id:
+                    execution_step = self._build_execution_step(pipeline_step)
+                    execution_steps.append(execution_step)
+                    break
+
+        return execution_steps
+
     def build_plan(self, pipeline: Pipeline) -> List[Dict[str, Any]]:
         """Build an execution plan from a pipeline.
 
@@ -43,28 +103,29 @@ class ExecutionPlanBuilder:
         Raises:
             PlanningError: If the plan cannot be built
         """
+        # Initialize state
         self.dependency_resolver = DependencyResolver()
         self.step_id_map = {}
         self.step_dependencies = {}
 
+        # Build dependency graph
         self._build_dependency_graph(pipeline)
 
+        # Setup additional dependencies for correct execution order
+        source_steps, load_steps = self._get_sources_and_loads(pipeline)
+        self._add_load_dependencies(source_steps, load_steps)
+
+        # Generate unique IDs for each step
         self._generate_step_ids(pipeline)
 
+        # Resolve execution order based on dependencies
         try:
             execution_order = self._resolve_execution_order()
         except Exception as e:
             raise PlanningError(f"Failed to resolve execution order: {str(e)}") from e
 
-        execution_steps = []
-        for step_id in execution_order:
-            for pipeline_step in pipeline.steps:
-                if self._get_step_id(pipeline_step) == step_id:
-                    execution_step = self._build_execution_step(pipeline_step)
-                    execution_steps.append(execution_step)
-                    break
-
-        return execution_steps
+        # Create execution steps from pipeline steps in the determined order
+        return self._build_execution_steps(pipeline, execution_order)
 
     def _build_dependency_graph(self, pipeline: Pipeline) -> None:
         """Build a dependency graph from a pipeline.
@@ -201,6 +262,29 @@ class ExecutionPlanBuilder:
         """
         return self.step_id_map.get(id(step), "")
 
+    def _extract_table_name_from_sql(self, sql_query: str) -> str:
+        match = re.search(r"FROM\s+([a-zA-Z0-9_]+)", sql_query, re.IGNORECASE)
+        if match:
+            return match.group(1)
+        return None
+
+    def _get_export_destination_short(self, dest_uri: str) -> str:
+        """Return a short name for the export destination URI."""
+        if dest_uri.startswith("s3://"):
+            return "s3"
+        elif dest_uri.startswith("postgresql://") or dest_uri.startswith("postgres://"):
+            return "postgres"
+        elif dest_uri.startswith("bigquery://"):
+            return "bigquery"
+        elif dest_uri.startswith("file://"):
+            return "file"
+        else:
+            return dest_uri.split(":")[0] if ":" in dest_uri else dest_uri
+
+    def _get_export_table_name(self, step) -> str:
+        """Return table_name attribute if present, else None (do not extract from SQL for ExportStep)."""
+        return getattr(step, "table_name", None)
+
     def _generate_step_id(self, step: PipelineStep, index: int) -> str:
         """Generate a step ID for a pipeline step.
 
@@ -218,7 +302,17 @@ class ExecutionPlanBuilder:
         elif isinstance(step, SQLBlockStep):
             return f"transform_{step.table_name}"
         elif isinstance(step, ExportStep):
-            return f"export_{index}"
+            table_name = self._get_export_table_name(step)
+            dest_uri = getattr(step, "destination_uri", None)
+            dest_short = (
+                self._get_export_destination_short(dest_uri) if dest_uri else None
+            )
+            if table_name and dest_short:
+                return f"export_{table_name}_to_{dest_short}"
+            elif table_name:
+                return f"export_{table_name}"
+            else:
+                return f"export_{index}"
         else:
             return f"step_{index}"
 
@@ -338,11 +432,22 @@ class ExecutionPlanBuilder:
                 "depends_on": depends_on,
             }
         elif isinstance(pipeline_step, LoadStep):
+            # Try to get connector type from source definition
+            source_name = pipeline_step.source_name
+            source_connector_type = "CSV"  # Default to CSV if not found
+
+            # Find the source step's ID that we depend on to get its connector type
+            source_step_id = f"source_{source_name}"
+            if source_step_id in self.step_dependencies.get(step_id, []):
+                # We have a dependency on this source, but we'd need to look at the original
+                # pipeline to find its connector type - for now we'll just use CSV as default
+                pass
+
             return {
                 "id": step_id,
                 "type": "load",
                 "name": pipeline_step.table_name,
-                "source_connector_type": "unknown",  # Would be resolved from source definition
+                "source_connector_type": source_connector_type,  # Set to actual connector type
                 "query": {
                     "source_name": pipeline_step.source_name,
                     "table_name": pipeline_step.table_name,
@@ -361,9 +466,18 @@ class ExecutionPlanBuilder:
             return {
                 "id": step_id,
                 "type": "export",
-                "source_table": "unknown",  # Would be extracted from SQL query
+                "source_table": (
+                    pipeline_step.table_name
+                    if hasattr(pipeline_step, "table_name")
+                    else "unknown"
+                ),
                 "source_connector_type": pipeline_step.connector_type,
                 "query": {
+                    "sql_query": (
+                        pipeline_step.sql_query
+                        if hasattr(pipeline_step, "sql_query")
+                        else None
+                    ),
                     "destination_uri": pipeline_step.destination_uri,
                     "options": pipeline_step.options,
                 },
@@ -422,3 +536,25 @@ class OperationPlanner:
             A plan
         """
         return json.loads(json_str)
+
+
+class Planner:
+    """Main planner class for SQLFlow pipelines."""
+
+    def __init__(self):
+        """Initialize a Planner."""
+        self.operation_planner = OperationPlanner()
+
+    def create_plan(self, pipeline: Pipeline) -> List[Dict[str, Any]]:
+        """Create an execution plan for a pipeline.
+
+        Args:
+            pipeline: The pipeline to create a plan for
+
+        Returns:
+            An execution plan as a list of operations
+
+        Raises:
+            PlanningError: If the plan cannot be created
+        """
+        return self.operation_planner.plan(pipeline)

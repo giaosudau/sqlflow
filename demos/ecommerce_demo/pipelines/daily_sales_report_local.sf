@@ -1,26 +1,35 @@
--- Set up variables
-SET run_date = "${run_date|2023-10-25}";
-
 -- Define data sources
-SOURCE sample TYPE CSV PARAMS {
-  "path": "data/sales_${run_date}.csv",
-  "has_header": true
+SOURCE postgres_source TYPE POSTGRES PARAMS {
+  "host": "localhost",
+  "port": 5432,
+  "dbname": "ecommerce",
+  "user": "sqlflow",
+  "password": "sqlflow123",
+  "table": "sales"
 };
 
-SOURCE customers_src TYPE CSV PARAMS {
-  "path": "data/customers.csv",
-  "has_header": true
+SOURCE pg_customers TYPE POSTGRES PARAMS {
+  "host": "localhost",
+  "port": 5432,
+  "dbname": "ecommerce",
+  "user": "sqlflow",
+  "password": "sqlflow123",
+  "table": "customers"
 };
-LOAD customers FROM customers_src;
 
-SOURCE products_src TYPE CSV PARAMS {
-  "path": "data/products.csv",
-  "has_header": true
+SOURCE pg_products TYPE POSTGRES PARAMS {
+  "host": "localhost",
+  "port": 5432,
+  "dbname": "ecommerce",
+  "user": "sqlflow",
+  "password": "sqlflow123",
+  "table": "products"
 };
-LOAD products FROM products_src;
 
--- Load data into tables
-LOAD raw_data FROM sample;
+-- Load data from Postgres into tables
+LOAD raw_data FROM postgres_source;
+LOAD customers FROM pg_customers;
+LOAD products FROM pg_products;
 
 -- Transform data
 CREATE TABLE sales_enriched AS
@@ -61,32 +70,42 @@ FROM sales_enriched
 GROUP BY region
 ORDER BY total_revenue DESC;
 
--- Export results to S3 for BI dashboard
+-- Export results to MinIO (S3 compatible) for BI dashboard
 EXPORT
   SELECT * FROM category_summary
-TO "s3://analytics/reports/category_summary_${run_date}.parquet"
+TO "s3://analytics/reports/category_summary_${date}.parquet"
 TYPE S3
 OPTIONS { 
   "format": "parquet",
-  "compression": "snappy"
+  "compression": "snappy",
+  "endpoint_url": "http://localhost:9000",
+  "region": "us-east-1",
+  "access_key": "minioadmin",
+  "secret_key": "minioadmin",
+  "bucket": "analytics"
 };
 
 EXPORT
   SELECT * FROM region_summary
-TO "s3://analytics/reports/region_summary_${run_date}.parquet"
+TO "s3://analytics/reports/region_summary_${date}.parquet"
 TYPE S3
 OPTIONS { 
   "format": "parquet",
-  "compression": "snappy"
+  "compression": "snappy",
+  "endpoint_url": "http://localhost:9000",
+  "region": "us-east-1",
+  "access_key": "minioadmin",
+  "secret_key": "minioadmin",
+  "bucket": "analytics"
 };
 
--- Send notification to REST API
+-- Send notification to mock REST API
 EXPORT
   SELECT 
-    '${run_date}' AS report_date,
+    '${date}' AS report_date,
     (SELECT COUNT(*) FROM raw_data) AS total_orders,
     (SELECT SUM(total_amount) FROM sales_enriched) AS daily_revenue
-TO "https://api.example.com/notifications"
+TO "http://localhost:1080/notifications"
 TYPE REST
 OPTIONS {
   "method": "POST",
@@ -94,4 +113,4 @@ OPTIONS {
     "Content-Type": "application/json",
     "Authorization": "Bearer ${API_TOKEN}"
   }
-};
+}; 
