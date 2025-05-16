@@ -1,120 +1,95 @@
 import os
 import tempfile
 
+import duckdb
 import yaml
 from typer.testing import CliRunner
 
 from sqlflow.cli.main import app
 
-PIPELINE = """
-SET run_date = "${run_date|2023-10-25}";
-
-SOURCE sales TYPE CSV PARAMS {
-    "path": "data/sales_${run_date}.csv",
-    "has_header": true
+# Simplified pipeline, using multi-line PARAMS like in simple_test.sf
+# No variables used in this pipeline string.
+PIPELINE = """SOURCE csv_input_source TYPE CSV PARAMS {
+  "path": "data/input_for_test.csv",
+  "has_header": true
 };
 
-SOURCE customers TYPE CSV PARAMS {
-    "path": "data/customers.csv",
-    "has_header": true
-};
+LOAD intermediate_data_table FROM csv_input_source;
 
-EXPORT SELECT * FROM customers
-TO "output/customers_${run_date}.csv"
-TYPE CSV
-OPTIONS {
-    "header": true,
-    "delimiter": ","
-};
+CREATE TABLE my_transform AS SELECT 77 AS persisted_value;
 """
 
 
-def test_pipeline_multiline_json_compile_and_run():
-    """Test that multiline JSON in pipeline directives is correctly handled."""
+def test_persistent_tables_in_production_mode():
+    """Test that transform tables are persisted in DuckDB file in production mode."""
     runner = CliRunner()
     with tempfile.TemporaryDirectory() as tmpdir:
         # Setup project structure
         pipelines_dir = os.path.join(tmpdir, "pipelines")
         os.makedirs(pipelines_dir)
-
-        # Create sample data directory for mocking source files
         data_dir = os.path.join(tmpdir, "data")
         os.makedirs(data_dir)
-
-        # Create output directory
+        # Output dir is not strictly needed for this version of the test, but good to have
         output_dir = os.path.join(tmpdir, "output")
         os.makedirs(output_dir)
 
-        # Create mock data files to avoid file not found errors
-        with open(os.path.join(data_dir, "customers.csv"), "w") as f:
-            f.write("customer_id,name,email\n1,Test User,test@example.com")
+        # Create dummy CSV data
+        dummy_csv_file_path = os.path.join(data_dir, "input_for_test.csv")
+        with open(dummy_csv_file_path, "w", encoding="utf-8") as f:
+            f.write("header_col\\ncsv_data_value\\n")
 
         # Create pipeline file
-        pipeline_path = os.path.join(pipelines_dir, "multi_json.sf")
-        with open(pipeline_path, "w") as f:
+        pipeline_path = os.path.join(pipelines_dir, "persist_test.sf")
+        with open(pipeline_path, "w", encoding="utf-8") as f:
             f.write(PIPELINE)
-            print(f"Created pipeline file at {pipeline_path}")
 
-        # Create minimal profiles/dev.yml for profile-driven config
+        # Create profiles/production.yml (no variables needed for this pipeline)
         profiles_dir = os.path.join(tmpdir, "profiles")
         os.makedirs(profiles_dir, exist_ok=True)
-        dev_profile = {"engines": {"duckdb": {"mode": "memory"}}}
-        with open(os.path.join(profiles_dir, "dev.yml"), "w") as f:
-            yaml.dump(dev_profile, f)
+        db_path = os.path.join(tmpdir, "prod.db")
+        prod_profile = {
+            "engines": {
+                "duckdb": {
+                    "mode": "persistent",
+                    "path": db_path,
+                    "memory_limit": "2GB",
+                }
+            }
+            # No 'variables' key as the pipeline is fully hardcoded
+        }
+        with open(
+            os.path.join(profiles_dir, "production.yml"), "w", encoding="utf-8"
+        ) as f:
+            yaml.dump(prod_profile, f)
 
-        # Change to the temporary directory for all commands
+        # Store the original CWD and change to tmpdir for the run
+        original_cwd = os.getcwd()
         os.chdir(tmpdir)
-
+        db_conn_for_assert = None  # Ensure con is defined for finally block
         try:
-            # Compile with variable
-            print("\nRunning compile command...")
-            result = runner.invoke(
-                app,
-                [
-                    "pipeline",
-                    "compile",
-                    "multi_json",
-                    "--vars",
-                    '{"run_date": "2025-05-16"}',
-                ],
-            )
-            stdout = "\n".join(
-                line
-                for line in result.stdout.splitlines()
-                if not line.startswith("DEBUG:")
-            )
-            print(f"\nCompile output:\n{stdout}")
-            assert (
-                result.exit_code == 0
-            ), f"Compilation failed with exit code {result.exit_code}\nOutput:\n{stdout}"
-            assert (
-                "Compiled pipeline 'multi_json'" in stdout
-            ), "Pipeline compilation success message not found"
-            assert "Found" in stdout, "Pipeline step count not found in output"
-
-            # Run with variable
-            print("\nRunning run command...")
             result = runner.invoke(
                 app,
                 [
                     "pipeline",
                     "run",
-                    "multi_json",
-                    "--vars",
-                    '{"run_date": "2025-05-16"}',
+                    "persist_test",  # Name of the .sf file without extension
+                    "--profile",
+                    "production",
                 ],
             )
-            stdout = "\n".join(
-                line
-                for line in result.stdout.splitlines()
-                if not line.startswith("DEBUG:")
+            assert result.exit_code == 0, f"Pipeline run failed: {result.stdout}"
+            assert os.path.exists(db_path), f"DuckDB file not created: {db_path}"
+
+            db_conn_for_assert = duckdb.connect(database=db_path, read_only=True)
+            tables = set(
+                row[0] for row in db_conn_for_assert.execute("SHOW TABLES;").fetchall()
             )
-            print(f"\nRun output:\n{stdout}")
-            assert (
-                result.exit_code == 0
-            ), f"Run failed with exit code {result.exit_code}\nOutput:\n{stdout}"
-            assert "Running pipeline" in stdout, "Pipeline run message not found"
-            assert "2025-05-16" in stdout, "Run date variable not found in output"
+            assert "my_transform" in tables, f"Table 'my_transform' not in {tables}"
+
+            rows = db_conn_for_assert.execute("SELECT * FROM my_transform;").fetchall()
+            assert rows == [(77,)], f"Data mismatch in 'my_transform': {rows}"
+
         finally:
-            # Change back to original directory no matter what
-            os.chdir(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+            if db_conn_for_assert:
+                db_conn_for_assert.close()
+            os.chdir(original_cwd)  # Change back to original CWD

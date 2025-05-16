@@ -32,9 +32,9 @@ class LocalExecutor(BaseExecutor):
         project = Project(os.getcwd(), profile_name=profile_name)
         profile = project.get_profile()
         duckdb_config = profile.get("engines", {}).get("duckdb", {})
-        duckdb_mode = duckdb_config.get("mode", "memory")
+        self.duckdb_mode = duckdb_config.get("mode", "memory")
         duckdb_path = duckdb_config.get("path", None)
-        if duckdb_mode == "memory":
+        if self.duckdb_mode == "memory":
             logger.info("[SQLFlow] LocalExecutor: DuckDB running in memory mode.")
             duckdb_path = ":memory:"
         else:
@@ -337,6 +337,25 @@ class LocalExecutor(BaseExecutor):
         for tbl, chunk in self.table_data.items():
             df = chunk.pandas_df
             self.duckdb_engine.connection.register(tbl, df)
+
+        # In persistent mode, ensure all transform tables are persistent
+        if self.duckdb_mode == "persistent":
+            sql_stripped = sql.strip().lower()
+            # If the SQL is a SELECT, wrap it as CREATE TABLE ... AS (...)
+            if sql_stripped.startswith("select"):
+                sql = f"CREATE TABLE {table_name} AS {sql}"
+            # If the SQL is CREATE TEMP or CREATE TEMPORARY, replace with CREATE TABLE
+            elif sql_stripped.startswith(
+                "create temporary table"
+            ) or sql_stripped.startswith("create temp table"):
+                sql = re.sub(
+                    r"create\s+temp(orary)?\s+table",
+                    "CREATE TABLE",
+                    sql,
+                    flags=re.IGNORECASE,
+                )
+            # If the SQL is CREATE TABLE, leave as is
+            # Otherwise, leave as is (user may have written a CTE or other statement)
 
         # Execute the query and store result
         result = self.duckdb_engine.execute_query(sql).fetchdf()
