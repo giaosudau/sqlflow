@@ -1,7 +1,7 @@
 """Parser for SQLFlow DSL."""
 
 import json
-from typing import List, Optional
+from typing import Optional
 
 from sqlflow.parser.ast import (
     ExportStep,
@@ -45,10 +45,83 @@ class Parser:
         Args:
             text: The input text to parse (optional)
         """
-        self.lexer = None if text is None else Lexer(text)
-        self.tokens: List[Token] = []
+        if text is not None:
+            self.lexer = Lexer(text)
+        else:
+            self.lexer = None
+
+        self.tokens = []
         self.current = 0
         self.pipeline = Pipeline()
+        self._previous_tokens = []  # Track previous tokens for context
+
+    def _tokenize_input(self, text: Optional[str] = None) -> None:
+        """Tokenize the input text and set up the lexer if needed.
+
+        Args:
+            text: Input text to tokenize (optional)
+
+        Raises:
+            ValueError: If no text is provided
+            ParserError: If lexer encounters an error
+        """
+        # If text is provided, create a new lexer
+        if text is not None:
+            self.lexer = Lexer(text)
+        elif self.lexer is None:
+            raise ValueError("No text provided to parse")
+
+        # Tokenize input and handle lexer errors
+        try:
+            self.tokens = self.lexer.tokenize()
+        except Exception as e:
+            raise ParserError(f"Lexer error: {str(e)}", 0, 0) from e
+
+    def _parse_all_statements(self) -> list:
+        """Parse all statements in the token stream.
+
+        Returns:
+            List of parsing errors, empty if successful
+
+        Side effect:
+            Adds parsed steps to self.pipeline
+        """
+        parsing_errors = []
+
+        while not self._is_at_end():
+            try:
+                step = self._parse_statement()
+                if step:
+                    self.pipeline.add_step(step)
+            except ParserError as e:
+                # Record the error and continue parsing
+                parsing_errors.append(e)
+                self._synchronize()
+            except Exception as e:
+                # Convert unexpected errors to ParserError
+                err = ParserError(
+                    f"Unexpected error: {str(e)}",
+                    self._peek().line,
+                    self._peek().column,
+                )
+                parsing_errors.append(err)
+                self._synchronize()
+
+        return parsing_errors
+
+    def _format_error_message(self, errors: list) -> str:
+        """Format multiple parsing errors into a single error message.
+
+        Args:
+            errors: List of ParserError objects
+
+        Returns:
+            Formatted error message
+        """
+        error_messages = [
+            f"{e.message} at line {e.line}, column {e.column}" for e in errors
+        ]
+        return "\n".join(error_messages)
 
     def parse(self, text: Optional[str] = None) -> Pipeline:
         """Parse the input text into a Pipeline AST.
@@ -67,22 +140,16 @@ class Parser:
         self.current = 0
         self.pipeline = Pipeline()
 
-        # If text is provided, create a new lexer
-        if text is not None:
-            self.lexer = Lexer(text)
-        elif self.lexer is None:
-            raise ValueError("No text provided to parse")
+        # Set up and tokenize the input
+        self._tokenize_input(text)
 
-        self.tokens = self.lexer.tokenize()
+        # Parse all statements and collect any errors
+        parsing_errors = self._parse_all_statements()
 
-        while not self._is_at_end():
-            try:
-                step = self._parse_statement()
-                if step:
-                    self.pipeline.add_step(step)
-            except ParserError as e:
-                self._synchronize()
-                raise e
+        # If we encountered any errors, report them all
+        if parsing_errors:
+            error_message = self._format_error_message(parsing_errors)
+            raise ParserError(f"Multiple errors found:\n{error_message}", 0, 0)
 
         return self.pipeline
 
@@ -136,16 +203,8 @@ class Parser:
 
         self._consume(TokenType.PARAMS, "Expected 'PARAMS' after connector type")
 
-        params_token = self._consume(
-            TokenType.JSON_OBJECT, "Expected JSON object after 'PARAMS'"
-        )
-
-        try:
-            params = json.loads(params_token.value)
-        except json.JSONDecodeError:
-            raise ParserError(
-                "Invalid JSON in PARAMS", params_token.line, params_token.column
-            )
+        # Use the _parse_json_token method to handle JSON parsing with variable substitution
+        params = self._parse_json_token()
 
         self._consume(TokenType.SEMICOLON, "Expected ';' after SOURCE statement")
 
@@ -162,9 +221,11 @@ class Parser:
         Returns:
             The current token before advancing
         """
+        token = self.tokens[self.current]
         if not self._is_at_end():
             self.current += 1
-        return self._previous()
+        self._previous_tokens.append(token)  # Track the previous token
+        return token
 
     def _consume(self, type: TokenType, error_message: str) -> Token:
         """Consume a token of the expected type.
@@ -286,16 +347,8 @@ class Parser:
 
         self._consume(TokenType.OPTIONS, "Expected 'OPTIONS' after connector type")
 
-        options_token = self._consume(
-            TokenType.JSON_OBJECT, "Expected JSON object after 'OPTIONS'"
-        )
-
-        try:
-            options = json.loads(options_token.value)
-        except json.JSONDecodeError:
-            raise ParserError(
-                "Invalid JSON in OPTIONS", options_token.line, options_token.column
-            )
+        # Use the _parse_json_token method to handle JSON parsing with variable substitution
+        options = self._parse_json_token()
 
         self._consume(TokenType.SEMICOLON, "Expected ';' after EXPORT statement")
 
@@ -356,19 +409,20 @@ class Parser:
                 equals_token.column,
             )
 
-        value_token = self._advance()
-        if value_token.type not in (
-            TokenType.STRING,
-            TokenType.NUMBER,
-            TokenType.IDENTIFIER,
-        ):
-            raise ParserError(
-                "Expected value after '='", value_token.line, value_token.column
-            )
+        # Consume tokens until we find a semicolon
+        value_tokens = []
+        while not self._check(TokenType.SEMICOLON) and not self._is_at_end():
+            token = self._advance()
+            value_tokens.append(token)
 
-        variable_value = value_token.value
-        if value_token.type == TokenType.STRING:
-            variable_value = variable_value.strip('"')
+        if not value_tokens:
+            token = self._peek()
+            raise ParserError("Expected value after '='", token.line, token.column)
+
+        # Join the tokens to form the complete value
+        variable_value = " ".join(token.value for token in value_tokens)
+        # Remove outer quotes if present
+        variable_value = variable_value.strip("'\"")
 
         self._consume(TokenType.SEMICOLON, "Expected ';' after SET statement")
 
@@ -416,11 +470,15 @@ class Parser:
     def _synchronize(self) -> None:
         """Synchronize the parser after an error.
 
-        This skips tokens until the beginning of the next statement.
+        This skips tokens until the beginning of the next valid statement.
+        Errors in previous statements don't prevent parsing of later statements.
         """
-        self._advance()
+        # If we are at the end of a statement, advance past it
+        if self._peek().type == TokenType.SEMICOLON:
+            self._advance()
 
         while not self._is_at_end():
+            # We found the end of a statement, prepare for the next one
             if self._previous().type == TokenType.SEMICOLON:
                 return
 
@@ -435,3 +493,56 @@ class Parser:
                 return
 
             self._advance()
+
+    def _match(self, type: TokenType) -> Token:
+        """Match a token of the expected type and advance.
+        Similar to _consume but returns the token without raising an error.
+
+        Args:
+            type: Expected token type
+
+        Returns:
+            The matched token if it matches the expected type,
+            otherwise None
+        """
+        if self._check(type):
+            return self._advance()
+        return None
+
+    def _parse_json_token(self) -> dict:
+        """Parse a JSON token.
+
+        Returns:
+            Parsed JSON value
+        """
+        json_token = self._consume(TokenType.JSON_OBJECT, "Expected JSON object")
+        try:
+            from sqlflow.parser.lexer import replace_variables_for_validation
+
+            # Pre-process the JSON to handle variables and trailing commas
+            json_text = json_token.value
+            json_text_for_validation = replace_variables_for_validation(json_text)
+
+            # Try to parse the JSON
+            return json.loads(json_text_for_validation)
+        except json.JSONDecodeError as e:
+            # More specific error messages for common directives
+            if self._previous_tokens and len(self._previous_tokens) >= 2:
+                prev_token = self._previous_tokens[-2]
+                if prev_token.type == TokenType.PARAMS:
+                    raise ParserError(
+                        f"Invalid JSON in PARAMS: {str(e)}",
+                        json_token.line,
+                        json_token.column,
+                    )
+                elif prev_token.type == TokenType.OPTIONS:
+                    raise ParserError(
+                        f"Invalid JSON in OPTIONS: {str(e)}",
+                        json_token.line,
+                        json_token.column,
+                    )
+
+            # Generic error if we can't determine the context
+            raise ParserError(
+                f"Invalid JSON: {str(e)}", json_token.line, json_token.column
+            )

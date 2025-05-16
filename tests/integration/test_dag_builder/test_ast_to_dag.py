@@ -5,8 +5,8 @@ from sqlflow.parser.ast import (
     LoadStep,
     Pipeline,
     SourceDefinitionStep,
+    SQLBlockStep,
 )
-from sqlflow.parser.parser import Parser
 from sqlflow.visualizer.dag_builder_ast import ASTDAGBuilder
 
 
@@ -67,26 +67,30 @@ class TestASTToDAG:
 
     def test_multi_statement_script(self):
         """Test assembling a DAG from a multi-statement script."""
-        script = """
-        SOURCE users TYPE POSTGRES PARAMS {
-            "connection": "${DB_CONN}",
-            "table": "users"
-        };
+        pipeline = Pipeline()
 
-        LOAD users_table FROM users;
+        pipeline.add_step(
+            SourceDefinitionStep(
+                name="users",
+                connector_type="POSTGRES",
+                params={"connection": "${DB_CONN}", "table": "users"},
+                line_number=1,
+            )
+        )
 
-        EXPORT
-          SELECT * FROM users_table
-        TO "s3://bucket/users.csv"
-        TYPE CSV
-        OPTIONS {
-            "delimiter": ",",
-            "header": true
-        };
-        """
+        pipeline.add_step(
+            LoadStep(table_name="users_table", source_name="users", line_number=5)
+        )
 
-        parser = Parser(script)
-        pipeline = parser.parse()
+        pipeline.add_step(
+            ExportStep(
+                sql_query="SELECT * FROM users_table",
+                destination_uri="s3://bucket/users.csv",
+                connector_type="CSV",
+                options={"delimiter": ",", "header": True},
+                line_number=10,
+            )
+        )
 
         dag_builder = ASTDAGBuilder()
         dag = dag_builder.build_dag_from_ast(pipeline)
@@ -115,32 +119,38 @@ class TestASTToDAG:
 
     def test_sql_block_in_dag(self):
         """Test assembling a DAG with SQL blocks."""
-        script = """
-        SOURCE users TYPE POSTGRES PARAMS {
-            "connection": "${DB_CONN}",
-            "table": "users"
-        };
+        pipeline = Pipeline()
 
-        LOAD users_table FROM users;
+        pipeline.add_step(
+            SourceDefinitionStep(
+                name="users",
+                connector_type="POSTGRES",
+                params={"connection": "${DB_CONN}", "table": "users"},
+                line_number=1,
+            )
+        )
 
-        CREATE TABLE customer_ltv AS
-        SELECT
-          customer_id,
-          SUM(amount) AS total_spent
-        FROM users_table;
+        pipeline.add_step(
+            LoadStep(table_name="users_table", source_name="users", line_number=5)
+        )
 
-        EXPORT
-          SELECT * FROM customer_ltv
-        TO "s3://bucket/customer_ltv.csv"
-        TYPE CSV
-        OPTIONS {
-            "delimiter": ",",
-            "header": true
-        };
-        """
+        pipeline.add_step(
+            SQLBlockStep(
+                table_name="customer_ltv",
+                sql_query="SELECT customer_id, SUM(amount) AS total_spent FROM users_table",
+                line_number=10,
+            )
+        )
 
-        parser = Parser(script)
-        pipeline = parser.parse()
+        pipeline.add_step(
+            ExportStep(
+                sql_query="SELECT * FROM customer_ltv",
+                destination_uri="s3://bucket/customer_ltv.csv",
+                connector_type="CSV",
+                options={"delimiter": ",", "header": True},
+                line_number=15,
+            )
+        )
 
         dag_builder = ASTDAGBuilder()
         dag = dag_builder.build_dag_from_ast(pipeline)

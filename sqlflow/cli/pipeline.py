@@ -32,11 +32,20 @@ def compile_pipeline(
         None,
         help="Custom output file for the execution plan (default: target/compiled/)",
     ),
+    vars: Optional[str] = typer.Option(
+        None, help="Pipeline variables as JSON or key=value pairs"
+    ),
 ):
     """Parse and validate pipeline(s), output execution plan.
 
     The execution plan is automatically saved to the project's target/compiled directory.
     """
+    try:
+        variables = parse_vars(vars)
+    except ValueError as e:
+        typer.echo(f"Error parsing variables: {str(e)}")
+        raise typer.Exit(code=1)
+
     project = Project(os.getcwd())
     pipelines_dir = os.path.join(
         project.project_dir,
@@ -61,14 +70,17 @@ def compile_pipeline(
             pipeline_path = os.path.join(pipelines_dir, file_name)
             pipeline_name = file_name[:-3]
             auto_output = os.path.join(target_dir, f"{pipeline_name}.json")
-            _compile_single_pipeline(pipeline_path, output or auto_output)
+            _compile_single_pipeline(pipeline_path, output or auto_output, variables)
 
         return
 
     try:
         pipeline_path = resolve_pipeline_name(pipeline_name, pipelines_dir)
         auto_output = os.path.join(target_dir, f"{pipeline_name}.json")
-        _compile_single_pipeline(pipeline_path, output or auto_output)
+        _compile_single_pipeline(pipeline_path, output or auto_output, variables)
+
+        if variables:
+            typer.echo(f"Applied variables: {json.dumps(variables, indent=2)}")
     except FileNotFoundError as e:
         typer.echo(str(e))
         raise typer.Exit(code=1)
@@ -98,8 +110,16 @@ def _get_test_plan():
 
 def _parse_pipeline(pipeline_text: str, pipeline_path: str):
     """Parse a pipeline and return the execution plan."""
-    parser = Parser(pipeline_text)
-    pipeline = parser.parse()
+    logger.debug(f"Parsing pipeline:\n{pipeline_text}")
+
+    parser = Parser()
+    try:
+        pipeline = parser.parse(pipeline_text)
+        logger.debug(f"Parsed pipeline: {pipeline}")
+    except Exception as e:
+        logger.error(f"Error parsing pipeline: {str(e)}")
+        typer.echo(f"Error parsing pipeline {pipeline_path}: {str(e)}")
+        return None
 
     validation_errors = pipeline.validate()
     if validation_errors:
@@ -109,7 +129,14 @@ def _parse_pipeline(pipeline_text: str, pipeline_path: str):
         return None
 
     planner = Planner()
-    return planner.create_plan(pipeline)
+    try:
+        plan = planner.create_plan(pipeline)
+        logger.debug(f"Created execution plan: {plan}")
+        return plan
+    except Exception as e:
+        logger.error(f"Error creating execution plan: {str(e)}")
+        typer.echo(f"Error creating execution plan: {str(e)}")
+        return None
 
 
 def _print_plan_summary(plan, pipeline_name: str):
@@ -131,52 +158,173 @@ def _print_plan_summary(plan, pipeline_name: str):
         typer.echo(f"  - {op_type}: {count}")
 
 
-def _compile_single_pipeline(pipeline_path: str, output: Optional[str] = None):
-    """Compile a single pipeline and output the execution plan."""
+def _read_pipeline_file(pipeline_path: str) -> str:
+    """Read a pipeline file and return its contents.
+
+    Args:
+        pipeline_path: Path to the pipeline file
+
+    Returns:
+        Contents of the pipeline file
+
+    Raises:
+        typer.Exit: If the file cannot be read
+    """
+    logger.debug(f"Reading pipeline from {pipeline_path}")
     try:
         with open(pipeline_path, "r") as f:
-            pipeline_text = f.read()
+            return f.read()
+    except Exception as e:
+        typer.echo(f"Error reading pipeline file {pipeline_path}: {str(e)}")
+        raise typer.Exit(code=1)
 
-        is_test_pipeline = (
-            "test.sf" in pipeline_path
-            and "SOURCE sample" in pipeline_text
-            and "LOAD sample INTO raw_data" in pipeline_text
-        )
 
-        if is_test_pipeline:
+def _apply_variable_substitution(pipeline_text: str, variables: dict) -> str:
+    """Apply variable substitution to pipeline text.
+
+    Args:
+        pipeline_text: Original pipeline text
+        variables: Variables to substitute
+
+    Returns:
+        Pipeline text with variables substituted
+
+    Raises:
+        typer.Exit: If variable substitution fails
+    """
+    if not variables:
+        return pipeline_text
+
+    try:
+        logger.debug(f"Applying variables: {json.dumps(variables, indent=2)}")
+        updated_text = _substitute_pipeline_variables(pipeline_text, variables)
+        logger.debug(f"Pipeline after variable substitution:\n{updated_text}")
+        return updated_text
+    except Exception as e:
+        typer.echo(f"Error substituting variables: {str(e)}")
+        typer.echo("Original pipeline text:")
+        typer.echo(pipeline_text)
+        raise typer.Exit(code=1)
+
+
+def _is_test_pipeline(pipeline_path: str, pipeline_text: str) -> bool:
+    """Check if this is a test pipeline.
+
+    Args:
+        pipeline_path: Path to the pipeline file
+        pipeline_text: Contents of the pipeline file
+
+    Returns:
+        True if this is a test pipeline, False otherwise
+    """
+    return (
+        "test.sf" in pipeline_path
+        and "SOURCE sample" in pipeline_text
+        and "LOAD sample INTO raw_data" in pipeline_text
+    )
+
+
+def _generate_execution_plan(pipeline_text: str, pipeline_path: str) -> list:
+    """Generate an execution plan from pipeline text.
+
+    Args:
+        pipeline_text: Pipeline text
+        pipeline_path: Path to the pipeline file
+
+    Returns:
+        Execution plan
+
+    Raises:
+        typer.Exit: If parsing fails
+    """
+    try:
+        plan = _parse_pipeline(pipeline_text, pipeline_path)
+        if plan is None:
+            raise typer.Exit(code=1)
+        return plan
+    except Exception as e:
+        typer.echo("Error parsing pipeline:")
+        typer.echo(str(e))
+        typer.echo("\nPipeline text:")
+        typer.echo(pipeline_text)
+        raise typer.Exit(code=1)
+
+
+def _write_execution_plan(plan: list, output: str) -> None:
+    """Write an execution plan to a file.
+
+    Args:
+        plan: Execution plan
+        output: Output file path
+
+    Raises:
+        typer.Exit: If writing fails
+    """
+    plan_json = json.dumps(plan, indent=2)
+    try:
+        with open(output, "w") as f:
+            f.write(plan_json)
+        typer.echo(f"\nExecution plan written to {output}")
+    except Exception as e:
+        typer.echo(f"Error writing execution plan to {output}: {str(e)}")
+        typer.echo("\nExecution plan:")
+        typer.echo(plan_json)
+        raise typer.Exit(code=1)
+
+
+def _compile_single_pipeline(
+    pipeline_path: str, output: Optional[str] = None, variables: Optional[dict] = None
+):
+    """Compile a single pipeline and output the execution plan."""
+    try:
+        # Step 1: Read the pipeline file
+        pipeline_text = _read_pipeline_file(pipeline_path)
+
+        # Step 2: Apply variable substitution if variables are provided
+        if variables:
+            pipeline_text = _apply_variable_substitution(pipeline_text, variables)
+
+        # Step 3: Handle test pipeline or regular pipeline
+        if _is_test_pipeline(pipeline_path, pipeline_text):
             plan = _get_test_plan()
         else:
-            plan = _parse_pipeline(pipeline_text, pipeline_path)
-            if plan is None:
-                return
+            plan = _generate_execution_plan(pipeline_text, pipeline_path)
 
+        # Step 4: Convert plan to JSON
         plan_json = json.dumps(plan, indent=2)
 
+        # Step 5: Get pipeline name for display
         pipeline_name = os.path.basename(pipeline_path)
         if pipeline_name.endswith(".sf"):
             pipeline_name = pipeline_name[:-3]
 
+        # Step 6: Print summary
         _print_plan_summary(plan, pipeline_name)
 
+        # Step 7: Write output or print to console
         if output:
-            with open(output, "w") as f:
-                f.write(plan_json)
-            typer.echo(f"\nExecution plan written to {output}")
+            _write_execution_plan(plan, output)
         else:
             typer.echo("\nExecution plan:")
             typer.echo(plan_json)
 
+    except typer.Exit:
+        raise
     except Exception as e:
-        typer.echo(f"Error compiling pipeline {pipeline_path}: {str(e)}")
+        typer.echo(f"Unexpected error compiling pipeline {pipeline_path}: {str(e)}")
+        logger.exception("Unexpected compilation error")
         raise typer.Exit(code=1)
+
+
+from sqlflow.cli.variable_handler import VariableHandler
 
 
 def _substitute_pipeline_variables(pipeline_text: str, variables: dict) -> str:
     """Substitute variables in the pipeline text."""
-    for var_name, var_value in variables.items():
-        placeholder = "${date}" if var_name == "date" else "${" + var_name + "}"
-        pipeline_text = pipeline_text.replace(placeholder, str(var_value))
-    return pipeline_text
+    handler = VariableHandler(variables)
+    if not handler.validate_variable_usage(pipeline_text):
+        typer.echo("Warning: Some variables are missing and don't have defaults")
+    return handler.substitute_variables(pipeline_text)
 
 
 def _build_dependency_execution_order(plan: list) -> list:

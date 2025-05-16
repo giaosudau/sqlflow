@@ -30,8 +30,7 @@ This creates a standard project structure with directories for pipelines, models
 
 ### Sales Data (CSV)
 Daily sales data is exported as CSV files with the following structure:
-```
-order_id,customer_id,product_id,quantity,price,order_date
+```order_id,customer_id,product_id,quantity,price,order_date
 1001,5678,PRD-123,2,49.99,2023-10-25
 1002,8765,PRD-456,1,129.99,2023-10-25
 ...
@@ -67,9 +66,12 @@ CREATE TABLE products (
 Create a new file `pipelines/daily_sales_report.sf` with the following content:
 
 ```sql
+-- Set up variables
+SET run_date = "${run_date|2023-10-25}";
+
 -- Define data sources
 SOURCE sample TYPE CSV PARAMS {
-  "path": "data/sales_2023-10-25.csv",
+  "path": "data/sales_${run_date}.csv",
   "has_header": true
 };
 
@@ -118,7 +120,7 @@ ORDER BY total_revenue DESC;
 -- Export results to S3 for BI dashboard
 EXPORT
   SELECT * FROM category_summary
-TO "s3://analytics/reports/category_summary_${date}.parquet"
+TO "s3://analytics/reports/category_summary_${run_date}.parquet"
 TYPE S3
 OPTIONS { 
   "format": "parquet",
@@ -127,7 +129,7 @@ OPTIONS {
 
 EXPORT
   SELECT * FROM region_summary
-TO "s3://analytics/reports/region_summary_${date}.parquet"
+TO "s3://analytics/reports/region_summary_${run_date}.parquet"
 TYPE S3
 OPTIONS { 
   "format": "parquet",
@@ -137,7 +139,7 @@ OPTIONS {
 -- Send notification to REST API
 EXPORT
   SELECT 
-    '${date}' AS report_date,
+    '${run_date}' AS report_date,
     (SELECT COUNT(*) FROM raw_data) AS total_orders,
     (SELECT SUM(total_amount) FROM sales_enriched) AS daily_revenue
 TO "https://api.example.com/notifications"
@@ -150,6 +152,12 @@ OPTIONS {
   }
 };
 ```
+
+Note how the pipeline uses parameterized variables:
+- `${run_date}` - Date of the data to process, with default "2023-10-25"
+- `${API_TOKEN}` - Authentication token for the REST API
+
+These variables can be passed when executing the pipeline, allowing for easy scheduling and automation.
 
 ## Step 4: Validating the Pipeline
 

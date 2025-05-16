@@ -100,7 +100,7 @@ Note: All pipeline-related commands are organized under the `pipeline` subcomman
   ```
 - **LOAD**  
   ```sql
-  LOAD <source_name> INTO <table_name> [WHERE …];
+  LOAD <table_name> FROM <source_name>;
   ```
 - **INCLUDE**  
   ```sql
@@ -128,9 +128,41 @@ Note: All pipeline-related commands are organized under the `pipeline` subcomman
 ### 4.2 Advanced Flow Controls
 
 - **SET** (variables)  
+  ```sql
+  SET variable_name = "value";
+  SET date = "${run_date|2023-10-25}";  -- With default value
+  ```
 - **IF/ELSE** (conditional)  
 - **FOR EACH** (iteration)  
 - **DEPENDS_ON** (cross-pipeline dependencies)  
+
+### 4.3 Variable Substitution
+
+SQLFlow supports variable substitution in strings and JSON objects using the `${var}` syntax:
+
+- Variables can be set with the `SET` directive
+- Variables can have default values: `${var|default}`
+- Variables are passed during execution: `--vars '{"var":"value"}'`
+- Variables can be used in paths, queries, and connection parameters
+- JSON objects support variable substitution with proper validation
+
+Example:
+```sql
+SET run_date = "${date|2023-10-25}";
+
+SOURCE sales TYPE CSV PARAMS {
+  "path": "data/sales_${run_date}.csv",
+  "has_header": true
+};
+
+EXPORT SELECT * FROM data 
+TO "s3://bucket/${run_date}/data.csv"
+TYPE S3
+OPTIONS {
+  "content_type": "text/csv",
+  "acl": "private"
+};
+```
 
 ## 5. Architecture
 

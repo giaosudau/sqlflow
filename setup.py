@@ -14,7 +14,7 @@ setup(
         "pyarrow>=10.0.0",  # Data format and interchange
         "click>=8.0.0",  # CLI framework
         "networkx>=3.0",  # Dependency graph handling
-        "typer>=0.9.0",  # Modern CLI framework
+        "typer>=0.9.0,<0.10.0",  # Modern CLI framework
         "psycopg2-binary>=2.9.0",  # PostgreSQL connector
         "boto3>=1.26.0",  # AWS S3 connector
         "requests>=2.28.0",  # HTTP/REST connector

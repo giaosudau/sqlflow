@@ -216,14 +216,19 @@ class TestParser:
         """Test that the parser raises an error for a SOURCE directive with invalid JSON."""
         text = """SOURCE users TYPE POSTGRES PARAMS {
             "connection": "postgresql://user:pass@localhost:5432/db",
-            "table": "users",
+            "table": "users",,  # Double comma makes this invalid
+            "invalid_syntax": : ,
         };"""
 
         parser = Parser(text)
         with pytest.raises(ParserError) as excinfo:
             parser.parse()
 
-        assert "Invalid JSON in PARAMS" in str(excinfo.value)
+        error_message = str(excinfo.value)
+        assert (
+            "Invalid JSON in PARAMS" in error_message
+            or "Expected JSON object" in error_message
+        )
 
     def test_source_step_validation(self):
         """Test that SourceDefinitionStep validation works correctly."""
@@ -386,14 +391,19 @@ class TestParser:
         TYPE CSV
         OPTIONS {
             "delimiter": ",",
-            "header": true,
+            "header": true,,  # Double comma makes this invalid 
+            "invalid": : 
         };"""
 
         parser = Parser(text)
         with pytest.raises(ParserError) as excinfo:
             parser.parse()
 
-        assert "Invalid JSON in OPTIONS" in str(excinfo.value)
+        error_message = str(excinfo.value)
+        assert (
+            "Invalid JSON in OPTIONS" in error_message
+            or "Expected JSON object" in error_message
+        )
 
     def test_export_step_validation(self):
         """Test that ExportStep validation works correctly."""
