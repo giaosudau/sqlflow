@@ -2,6 +2,8 @@
 
 This guide will help you quickly start the SQLFlow ecommerce demo environment.
 
+> **Note:** All environment and engine configuration is now managed via **profiles** in the `profiles/` directory. Use `--profile dev` for local development (in-memory DuckDB), and `--profile production` for production (persistent DuckDB, data saved to disk). Edit the appropriate profile YAML to change connectors, engine settings, or variables.
+
 ## Prerequisites
 
 - Docker and Docker Compose installed
@@ -47,7 +49,7 @@ export DATE=$(date '+%Y-%m-%d')
 export API_TOKEN=demo-token
 
 cd /path/to/sqlflow/demos/ecommerce_demo
-sqlflow pipeline run pipelines/daily_sales_report_docker.sf --vars "{\"date\": \"$DATE\", \"API_TOKEN\": \"$API_TOKEN\"}"
+sqlflow pipeline run pipelines/daily_sales_report_docker.sf --vars "{\"date\": \"$DATE\", \"API_TOKEN\": \"$API_TOKEN\"}" --profile dev
 ```
 
 Alternative for Fish shell users:
@@ -56,7 +58,7 @@ set -x DATE (date '+%Y-%m-%d')
 set -x API_TOKEN demo-token
 
 cd /path/to/sqlflow/demos/ecommerce_demo
-sqlflow pipeline run pipelines/daily_sales_report_docker.sf --vars "{\"date\": \"$DATE\", \"API_TOKEN\": \"$API_TOKEN\"}"
+sqlflow pipeline run pipelines/daily_sales_report_docker.sf --vars "{\"date\": \"$DATE\", \"API_TOKEN\": \"$API_TOKEN\"}" --profile dev
 ```
 
 ### 5. Access the SQLFlow container for development
@@ -92,7 +94,7 @@ The sample pipeline demonstrates:
 
 ## Extending the Demo
 
-1. Add new connectors by modifying the `sqlflow.yml` file
+1. Add new connectors or change engine settings by editing the appropriate profile YAML in the `profiles/` directory (e.g., `profiles/dev.yml`, `profiles/production.yml`).
 2. Create new pipeline files in the `pipelines` directory
 3. Add new data sources by updating the PostgreSQL initialization scripts
 
@@ -111,3 +113,12 @@ The sample pipeline demonstrates:
    docker-compose down -v
    docker-compose up -d
    ```
+
+# Configuration
+
+All environment and engine configuration is now managed via **profiles** in the `profiles/` directory. For example:
+
+- `profiles/dev.yml` for local development (in-memory DuckDB, fast, ephemeral)
+- `profiles/production.yml` for production (persistent DuckDB, data saved to disk)
+
+To add new connectors or change engine settings, edit the appropriate profile YAML file.

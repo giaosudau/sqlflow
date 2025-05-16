@@ -21,20 +21,30 @@ logger = logging.getLogger(__name__)
 class LocalExecutor(BaseExecutor):
     """Executes pipelines sequentially in a single process."""
 
-    def __init__(self):
-        """Initialize a LocalExecutor."""
+    def __init__(self, profile_name: str = "dev"):
+        """Initialize a LocalExecutor with a given profile."""
         self.executed_steps: Set[str] = set()
         self.failed_step: Optional[Dict[str, Any]] = None
         self.results: Dict[str, Any] = {}
         self.dependency_resolver: Optional[DependencyResolver] = None
         self.connector_engine = ConnectorEngine()
-        # Load DuckDB path from profile config, fallback to ':memory:'
-        project = Project(os.getcwd())
+        # Load DuckDB config from profile only
+        project = Project(os.getcwd(), profile_name=profile_name)
         profile = project.get_profile()
-        duckdb_path = (
-            profile.get("engines", {}).get("duckdb", {}).get("path", ":memory:")
-        )
-        logger.debug("LocalExecutor initializing DuckDB with path: %s", duckdb_path)
+        duckdb_config = profile.get("engines", {}).get("duckdb", {})
+        duckdb_mode = duckdb_config.get("mode", "memory")
+        duckdb_path = duckdb_config.get("path", None)
+        if duckdb_mode == "memory":
+            logger.info("[SQLFlow] LocalExecutor: DuckDB running in memory mode.")
+            duckdb_path = ":memory:"
+        else:
+            logger.info(
+                f"[SQLFlow] LocalExecutor: DuckDB persistent mode, path={duckdb_path}"
+            )
+            if not duckdb_path:
+                raise ValueError(
+                    "DuckDB persistent mode requires a 'path' in profile config."
+                )
         self.duckdb_engine = DuckDBEngine(duckdb_path)
         self.table_data: Dict[str, DataChunk] = {}  # In-memory table state
         self.source_connectors: Dict[str, str] = {}  # Map source name to connector type

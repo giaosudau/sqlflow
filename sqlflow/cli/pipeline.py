@@ -35,6 +35,9 @@ def compile_pipeline(
     vars: Optional[str] = typer.Option(
         None, help="Pipeline variables as JSON or key=value pairs"
     ),
+    profile: str = typer.Option(
+        "dev", "--profile", "-p", help="Profile to use (default: dev)"
+    ),
 ):
     """Parse and validate pipeline(s), output execution plan.
 
@@ -46,10 +49,11 @@ def compile_pipeline(
         typer.echo(f"Error parsing variables: {str(e)}")
         raise typer.Exit(code=1)
 
-    project = Project(os.getcwd())
+    project = Project(os.getcwd(), profile_name=profile)
+    profile_dict = project.get_profile()
     pipelines_dir = os.path.join(
         project.project_dir,
-        project.config.get("paths", {}).get("pipelines", "pipelines"),
+        profile_dict.get("paths", {}).get("pipelines", "pipelines"),
     )
 
     target_dir = os.path.join(project.project_dir, "target", "compiled")
@@ -526,18 +530,32 @@ def run_pipeline(
     vars: Optional[str] = typer.Option(
         None, help="Pipeline variables as JSON or key=value pairs"
     ),
+    profile: str = typer.Option(
+        "dev", "--profile", "-p", help="Profile to use (default: dev)"
+    ),
 ):
-    """Execute a pipeline end-to-end."""
+    """Execute a pipeline end-to-end using the selected profile."""
     try:
         variables = parse_vars(vars)
     except ValueError as e:
         typer.echo(f"Error parsing variables: {str(e)}")
         raise typer.Exit(code=1)
 
-    project = Project(os.getcwd())
-    logger.info(f"Current working directory: {os.getcwd()}")
-    logger.info(f"Project configuration: {project.get_config()}")
-    logger.info(f"Profile configuration: {project.get_profile()}")
+    project = Project(os.getcwd(), profile_name=profile)
+    typer.echo(f"[SQLFlow] Using profile: {profile}")
+    profile_config = project.get_profile()
+    duckdb_mode = (
+        profile_config.get("engines", {}).get("duckdb", {}).get("mode", "memory")
+    )
+    duckdb_path = profile_config.get("engines", {}).get("duckdb", {}).get("path", None)
+    if duckdb_mode == "memory":
+        typer.echo(
+            "🚨 Running in DuckDB memory mode: results will NOT be saved after process exit."
+        )
+    else:
+        typer.echo(
+            f"💾 Running in DuckDB persistent mode: results saved to {duckdb_path or '[not set]'}."
+        )
 
     pipeline_path = _resolve_pipeline_path(project, pipeline_name)
     if not os.path.exists(pipeline_path):
@@ -563,7 +581,7 @@ def run_pipeline(
     dependency_resolver, execution_order = _resolve_and_build_execution_order(plan)
     typer.echo(f"Final execution order: {execution_order}")
 
-    executor = LocalExecutor()
+    executor = LocalExecutor(profile_name=profile)
     results = executor.execute(plan, dependency_resolver)
 
     if results.get("error"):
@@ -575,12 +593,17 @@ def run_pipeline(
 
 
 @pipeline_app.command("list")
-def list_pipelines():
+def list_pipelines(
+    profile: str = typer.Option(
+        "dev", "--profile", "-p", help="Profile to use (default: dev)"
+    )
+):
     """List available pipelines in the project."""
-    project = Project(os.getcwd())
+    project = Project(os.getcwd(), profile_name=profile)
+    profile_dict = project.get_profile()
     pipelines_dir = os.path.join(
         project.project_dir,
-        project.config.get("paths", {}).get("pipelines", "pipelines"),
+        profile_dict.get("paths", {}).get("pipelines", "pipelines"),
     )
 
     if not os.path.exists(pipelines_dir):

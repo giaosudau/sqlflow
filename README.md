@@ -20,15 +20,18 @@ pip install sqlflow
 ## Quick Start
 
 ```bash
-# Initialize a new project
+# Initialize a new project (creates profiles/dev.yml by default)
 sqlflow init my_project
 
 # Create a pipeline
 cd my_project
 # Edit pipelines/my_pipeline.sf
 
-# Run the pipeline
+# Run the pipeline (uses dev profile by default)
 sqlflow pipeline run my_pipeline
+
+# Run with a different profile (e.g., production)
+sqlflow pipeline run my_pipeline --profile production
 
 # Compile the pipeline
 sqlflow pipeline compile my_pipeline
@@ -36,6 +39,38 @@ sqlflow pipeline compile my_pipeline
 # List available pipelines
 sqlflow pipeline list
 ```
+
+## Profile-Driven Configuration
+
+SQLFlow uses **profiles** to manage all environment and engine settings. Profiles are YAML files in the `profiles/` directory. The default profile is `dev`, used for local development and testing.
+
+### Example: `profiles/dev.yml`
+```yaml
+engines:
+  duckdb:
+    mode: memory  # Fast, in-memory mode for local/dev (no data persisted)
+    memory_limit: 2GB
+# Add variables, paths, or connectors as needed
+```
+
+### Example: `profiles/production.yml`
+```yaml
+engines:
+  duckdb:
+    mode: persistent  # Data is saved to disk
+    path: target/prod.db
+    memory_limit: 8GB
+# Add production variables, paths, or connectors as needed
+```
+
+- To use a profile, run: `sqlflow pipeline run my_pipeline --profile production`
+- If no profile is specified, `dev` is used by default.
+
+## DuckDB Modes: Memory vs Persistent
+
+- **Memory mode**: Fast, ephemeral, no files written. Great for local dev/testing. Data is lost after the process exits.
+- **Persistent mode**: Data is saved to disk at the path you specify. Use for production or when you need to keep results.
+- Switch modes by editing your profile YAML (`mode: memory` or `mode: persistent` and set `path`).
 
 ## SQLFlow SQL Syntax Reference
 
@@ -118,7 +153,7 @@ Variables can be injected at runtime:
 sqlflow pipeline run my_pipeline --vars '{"date": "2023-10-25", "API_TOKEN": "secret-token"}'
 ```
 
-Or defined in your project's `sqlflow.yml` configuration file.
+Or defined in your profile YAML under `variables:`.
 
 ## Documentation
 
@@ -128,18 +163,13 @@ For more information, see the [documentation](https://sqlflow.readthedocs.io).
 
 MIT
 
-## Profile Configuration Example
+## FAQ
 
-To configure the DuckDB engine, set the path in your profile YAML (e.g., `profiles/default.yml`) under the `engines` key:
+**Q: Where do I configure DuckDB and other engine settings?**
+A: In your profile YAML files (e.g., `profiles/dev.yml`, `profiles/production.yml`).
 
-```yaml
-engines:
-  duckdb:
-    type: duckdb
-    path: target/default.db
-```
+**Q: How do I switch between memory and persistent DuckDB modes?**
+A: Set `mode: memory` for in-memory (dev) or `mode: persistent` and a `path` for persistent (prod) in your profile YAML.
 
-- `type`: The engine type (currently only 'duckdb' is supported).
-- `path`: Path to the DuckDB database file. Use `:memory:` for an in-memory database.
-
-The executor will use this path for all transformations and table storage. If not set, it defaults to `:memory:`.
+**Q: How do I add new environments?**
+A: Just add a new profile YAML (e.g., `profiles/staging.yml`) and run with `--profile staging`.

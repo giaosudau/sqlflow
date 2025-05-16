@@ -1,6 +1,10 @@
 """Tests for the executor safeguard."""
 
+import os
 from unittest.mock import patch
+
+import pytest
+import yaml
 
 from sqlflow.core.dependencies import DependencyResolver
 from sqlflow.core.executors.local_executor import LocalExecutor
@@ -74,3 +78,68 @@ class TestExecutorSafeguard:
         with patch("sqlflow.core.executors.local_executor.logger") as mock_logger:
             executor.execute(plan)
             mock_logger.warning.assert_not_called()
+
+
+class DummyDuckDBEngine:
+    def __init__(self, path):
+        self.path = path
+
+
+# Patch DuckDBEngine for test isolation
+def patch_duckdb(monkeypatch):
+    monkeypatch.setattr(
+        "sqlflow.core.executors.local_executor.DuckDBEngine", DummyDuckDBEngine
+    )
+
+
+def make_profile(tmp_path, name, mode, path=None):
+    profile = {"engines": {"duckdb": {"mode": mode}}}
+    if path:
+        profile["engines"]["duckdb"]["path"] = str(path)
+    profile_path = tmp_path / f"{name}.yml"
+    with open(profile_path, "w") as f:
+        yaml.dump(profile, f)
+    return profile_path
+
+
+def test_local_executor_memory_mode(tmp_path, monkeypatch):
+    patch_duckdb(monkeypatch)
+    profiles_dir = tmp_path / "profiles"
+    profiles_dir.mkdir()
+    make_profile(profiles_dir, "dev", "memory")
+    cwd = os.getcwd()
+    try:
+        os.chdir(tmp_path)
+        exec = LocalExecutor(profile_name="dev")
+        assert exec.duckdb_engine.path == ":memory:"
+    finally:
+        os.chdir(cwd)
+
+
+def test_local_executor_persistent_mode(tmp_path, monkeypatch):
+    patch_duckdb(monkeypatch)
+    profiles_dir = tmp_path / "profiles"
+    profiles_dir.mkdir()
+    db_path = tmp_path / "prod.db"
+    make_profile(profiles_dir, "production", "persistent", path=db_path)
+    cwd = os.getcwd()
+    try:
+        os.chdir(tmp_path)
+        exec = LocalExecutor(profile_name="production")
+        assert exec.duckdb_engine.path == str(db_path)
+    finally:
+        os.chdir(cwd)
+
+
+def test_local_executor_persistent_mode_missing_path(tmp_path, monkeypatch):
+    patch_duckdb(monkeypatch)
+    profiles_dir = tmp_path / "profiles"
+    profiles_dir.mkdir()
+    make_profile(profiles_dir, "broken", "persistent")
+    cwd = os.getcwd()
+    try:
+        os.chdir(tmp_path)
+        with pytest.raises(ValueError):
+            LocalExecutor(profile_name="broken")
+    finally:
+        os.chdir(cwd)

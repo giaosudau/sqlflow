@@ -93,7 +93,7 @@ echo "Running debug tests..."
 docker-compose exec sqlflow python /app/sqlflow/demos/ecommerce_demo/simple_debug.py
 
 echo "Running SQLFlow demo..."
-docker-compose exec sqlflow python -m sqlflow run /app/sqlflow/demos/ecommerce_demo/pipelines/simple_test.sf --profile /app/sqlflow/demos/ecommerce_demo/sqlflow.yml
+docker-compose exec sqlflow python -m sqlflow run /app/sqlflow/demos/ecommerce_demo/pipelines/simple_test.sf --profile production
 
 echo "Demo is running! Access services at:
 
@@ -104,7 +104,7 @@ To run commands inside the SQLFlow container:
   docker-compose exec sqlflow bash
 
 To execute a specific pipeline:
-  docker-compose exec sqlflow python -m sqlflow run /app/sqlflow/demos/ecommerce_demo/pipelines/[pipeline-file].sf --profile /app/sqlflow/demos/ecommerce_demo/sqlflow.yml
+  docker-compose exec sqlflow python -m sqlflow run /app/sqlflow/demos/ecommerce_demo/pipelines/[pipeline-file].sf --profile production
 
 To stop the demo:
   docker-compose down"

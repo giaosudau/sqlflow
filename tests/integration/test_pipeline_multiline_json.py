@@ -1,6 +1,7 @@
 import os
 import tempfile
 
+import yaml
 from typer.testing import CliRunner
 
 from sqlflow.cli.main import app
@@ -54,19 +55,12 @@ def test_pipeline_multiline_json_compile_and_run():
             f.write(PIPELINE)
             print(f"Created pipeline file at {pipeline_path}")
 
-        # Create project config file
-        config_path = os.path.join(tmpdir, "sqlflow.yml")
-        with open(config_path, "w") as f:
-            f.write(
-                """
-name: test_project
-version: 0.1.0
-default_profile: default
-paths:
-    pipelines: pipelines
-"""
-            )
-            print(f"Created config file at {config_path}")
+        # Create minimal profiles/dev.yml for profile-driven config
+        profiles_dir = os.path.join(tmpdir, "profiles")
+        os.makedirs(profiles_dir, exist_ok=True)
+        dev_profile = {"engines": {"duckdb": {"mode": "memory"}}}
+        with open(os.path.join(profiles_dir, "dev.yml"), "w") as f:
+            yaml.dump(dev_profile, f)
 
         # Change to the temporary directory for all commands
         os.chdir(tmpdir)

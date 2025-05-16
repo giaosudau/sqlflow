@@ -107,35 +107,29 @@ class TestDependencyResolver:
         assert cycle[-1] == "pipeline_a"
 
 
-def make_temp_project_with_profile(duckdb_path=None):
+def make_temp_project_with_profile(duckdb_path=None, mode="persistent"):
     temp_dir = tempfile.mkdtemp()
-    os.makedirs(os.path.join(temp_dir, "profiles"), exist_ok=True)
-    profile = {
-        "engines": {
-            "duckdb": {
-                "type": "duckdb",
-            }
-        }
-    }
+    profiles_dir = os.path.join(temp_dir, "profiles")
+    os.makedirs(profiles_dir, exist_ok=True)
+    profile = {"engines": {"duckdb": {"mode": mode}}}
     if duckdb_path is not None:
         profile["engines"]["duckdb"]["path"] = duckdb_path
-    with open(os.path.join(temp_dir, "profiles", "default.yml"), "w") as f:
+    with open(os.path.join(profiles_dir, "dev.yml"), "w") as f:
         yaml.dump(profile, f)
-    with open(os.path.join(temp_dir, "sqlflow.yml"), "w") as f:
-        yaml.dump({"default_profile": "default", "paths": {"profiles": "profiles"}}, f)
     return temp_dir
 
 
 def test_local_executor_duckdb_path_config(monkeypatch):
-    temp_dir = make_temp_project_with_profile("/tmp/test_duckdb_config.db")
+    temp_db_path = "/tmp/test_duckdb_config.db"
+    temp_dir = make_temp_project_with_profile(temp_db_path)
     monkeypatch.chdir(temp_dir)
     executor = LocalExecutor()
-    assert executor.duckdb_engine.database_path == "/tmp/test_duckdb_config.db"
+    assert executor.duckdb_engine.database_path == temp_db_path
     shutil.rmtree(temp_dir)
 
 
 def test_local_executor_duckdb_path_default(monkeypatch):
-    temp_dir = make_temp_project_with_profile(None)
+    temp_dir = make_temp_project_with_profile(mode="memory")
     monkeypatch.chdir(temp_dir)
     executor = LocalExecutor()
     assert executor.duckdb_engine.database_path == ":memory:"
