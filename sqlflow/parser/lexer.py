@@ -73,6 +73,9 @@ class TokenType(Enum):
     DOLLAR = auto()  # For variable references
     LEFT_BRACE = auto()
     RIGHT_BRACE = auto()
+    DOT = (
+        auto()
+    )  # For SQL table.column references - IMPORTANT: Prevents spaces between identifiers and dots
 
     SQL_BLOCK = auto()
 
@@ -139,6 +142,7 @@ class Lexer:
             (TokenType.LEFT_BRACE, re.compile(r"{")),
             (TokenType.RIGHT_BRACE, re.compile(r"}")),
             (TokenType.SEMICOLON, re.compile(r";")),
+            (TokenType.DOT, re.compile(r"\.")),  # SQL dot operator for table.column
             # Handle ${var} or ${var|default} style variables
             (TokenType.VARIABLE, re.compile(r"\$\{[^}]+\}")),
             (

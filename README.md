@@ -149,6 +149,58 @@ Use variables (`${VAR_NAME}`) from profiles or CLI (`--vars '{"VAR_NAME": "value
 *   **Rapid Prototyping of Data Pipelines:** Quickly build and test data transformation logic with minimal setup and easy environment switching.
 *   **Automating Reporting Feeds:** Prepare and export datasets for BI tools or downstream systems using a clear, SQL-defined process.
 
+## SQL Features & Best Practices
+
+### Proper SQL Formatting
+
+SQLFlow ensures your SQL queries are formatted correctly for execution by:
+
+1. **Table and Column References**: Maintaining proper dot notation without extra spaces
+```sql
+-- Table aliases with column references
+SELECT 
+  u.id,           -- Not "u . id" 
+  u.name, 
+  o.order_date
+FROM users u
+JOIN orders o ON u.id = o.user_id
+WHERE o.status = 'completed';
+```
+
+2. **Function Calls**: Ensuring no spaces between function names and parentheses
+```sql
+-- Aggregate functions properly formatted
+SELECT
+  region,
+  COUNT(DISTINCT user_id) as unique_users,  -- Not "COUNT ( DISTINCT user_id )"
+  SUM(amount) as total_sales,               -- Not "SUM ( amount )"
+  AVG(price) as average_price               -- Not "AVG ( price )"
+FROM sales
+GROUP BY region;
+```
+
+These formatting rules ensure your SQL queries are valid across different database engines.
+
+### Variable Substitution
+
+Use variables in your SQL with the `${variable_name}` syntax:
+
+```sql
+-- Filter data based on a profile variable
+CREATE TABLE regional_sales AS
+SELECT * FROM sales
+WHERE region = '${target_region}';
+
+-- Use variables in export paths
+EXPORT 
+  SELECT * FROM daily_sales
+TO "output/${run_date}_sales_report.csv"
+TYPE CSV
+OPTIONS { "header": true };
+```
+
+Variables can be defined in your profile configuration or passed at runtime.
+
 ## Vision & Next Steps (Beyond MVP)
 
 Our MVP focuses on delivering a solid SQL-native workflow foundation. The vision is to expand:
