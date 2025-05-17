@@ -1,3 +1,15 @@
+-- ===============================================================
+-- EXAMPLE: Daily Sales Report (Postgres -> S3/API)
+-- ===============================================================
+-- This pipeline sources data from PostgreSQL, performs transformations,
+-- and exports summaries to S3 (MinIO) and a mock REST API.
+-- It includes debug steps that can be helpful for understanding data flow.
+-- Run with: docker compose exec sqlflow sqlflow pipeline run /app/sqlflow/demos/ecommerce_demo/pipelines/example_01_daily_sales_report.sf --vars '{"date": "2023-10-25", "API_TOKEN": "demo-token"}'
+
+-- Define dynamic variables (can be overridden with --vars)
+SET date = "${date|2023-10-25}";
+SET api_token = "${API_TOKEN|demo-token}";
+
 -- Define data sources
 SOURCE postgres_source TYPE POSTGRES PARAMS {
   "host": "postgres",
@@ -145,7 +157,7 @@ OPTIONS {
   "method": "POST",
   "headers": {
     "Content-Type": "application/json",
-    "Authorization": "Bearer ${API_TOKEN}"
+    "Authorization": "Bearer ${api_token}"
   }
 };
 
@@ -153,4 +165,4 @@ OPTIONS {
 CREATE TABLE sales_summary AS SELECT
   COUNT(*) as total_orders,
   SUM(CAST(quantity AS INTEGER) * CAST(price AS DOUBLE)) as total_revenue
-FROM sales;
+FROM sales; 

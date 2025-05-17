@@ -1,9 +1,10 @@
-version: '3.8'
-
 services:
   # SQLFlow demo container
   sqlflow:
-    image: sqlflow-ecommerce-demo
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: sqlflow-ecommerce-demo:latest
     container_name: sqlflow-demo
     depends_on:
       postgres:
@@ -13,13 +14,19 @@ services:
       mockserver:
         condition: service_started
     volumes:
-      - ./:/app/sqlflow/demos/ecommerce_demo
       - ./target:/app/target
+      - ./data:/app/sqlflow/demos/ecommerce_demo/data
+      - ./pipelines:/app/sqlflow/demos/ecommerce_demo/pipelines
+      - ..:/app/sqlflow
     environment:
       - AWS_ACCESS_KEY_ID=minioadmin
       - AWS_SECRET_ACCESS_KEY=minioadmin
       - API_TOKEN=demo-token
+      - SQLFLOW_LOG_LEVEL=INFO
+    ports:
+      - "8000:8000"
     tty: true
+    stdin_open: true
 
   # PostgreSQL database service
   postgres:
