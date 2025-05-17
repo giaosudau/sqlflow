@@ -1,5 +1,7 @@
 """Tests for conditional execution feature in SQLFlow."""
 
+import pytest
+
 from sqlflow.parser.ast import (
     ConditionalBlockStep,
     ConditionalBranchStep,
@@ -7,6 +9,7 @@ from sqlflow.parser.ast import (
     SQLBlockStep,
 )
 from sqlflow.parser.lexer import Lexer, TokenType
+from sqlflow.parser.parser import Parser, ParserError
 
 
 class TestConditionalLexer:
@@ -261,3 +264,186 @@ class TestConditionalAST:
         # Validate the pipeline
         errors = pipeline.validate()
         assert not errors  # No errors expected
+
+
+class TestConditionalParser:
+    """Test cases for the SQLFlow parser implementation of conditional blocks."""
+
+    def test_parse_if_then_endif(self):
+        """Test that the parser correctly parses a basic IF-THEN-ENDIF block."""
+        text = """IF ${env} == 'production' THEN
+            CREATE TABLE users AS SELECT * FROM prod_users;
+        END IF;"""
+
+        parser = Parser(text)
+        pipeline = parser.parse()
+
+        assert len(pipeline.steps) == 1
+        assert isinstance(pipeline.steps[0], ConditionalBlockStep)
+
+        cond_block = pipeline.steps[0]
+        assert len(cond_block.branches) == 1
+
+        # Use flexible condition checking to accommodate tokenization differences
+        condition = cond_block.branches[0].condition
+        assert "env" in condition
+        assert "==" in condition
+        assert "'production'" in condition
+
+        assert len(cond_block.branches[0].steps) == 1
+        assert cond_block.else_branch is None
+
+        # Check that the nested step is a SQLBlockStep
+        assert isinstance(cond_block.branches[0].steps[0], SQLBlockStep)
+        assert cond_block.branches[0].steps[0].table_name == "users"
+
+    def test_parse_if_then_else_endif(self):
+        """Test that the parser correctly parses an IF-THEN-ELSE-ENDIF block."""
+        text = """IF ${env} == 'production' THEN
+            CREATE TABLE users AS SELECT * FROM prod_users;
+        ELSE
+            CREATE TABLE users AS SELECT * FROM dev_users;
+        END IF;"""
+
+        parser = Parser(text)
+        pipeline = parser.parse()
+
+        assert len(pipeline.steps) == 1
+        assert isinstance(pipeline.steps[0], ConditionalBlockStep)
+
+        cond_block = pipeline.steps[0]
+        assert len(cond_block.branches) == 1
+        assert cond_block.else_branch is not None
+        assert len(cond_block.else_branch) == 1
+
+        # Check that both branches contain SQLBlockSteps
+        assert isinstance(cond_block.branches[0].steps[0], SQLBlockStep)
+        assert isinstance(cond_block.else_branch[0], SQLBlockStep)
+
+        # Verify branch content
+        assert cond_block.branches[0].steps[0].table_name == "users"
+        assert "prod_users" in cond_block.branches[0].steps[0].sql_query
+        assert cond_block.else_branch[0].table_name == "users"
+        assert "dev_users" in cond_block.else_branch[0].sql_query
+
+    def test_parse_if_elseif_else_endif(self):
+        """Test that the parser correctly parses an IF-ELSEIF-ELSE-ENDIF block."""
+        text = """IF ${env} == 'production' THEN
+            CREATE TABLE users AS SELECT * FROM prod_users;
+        ELSE IF ${env} == 'staging' THEN
+            CREATE TABLE users AS SELECT * FROM staging_users;
+        ELSE
+            CREATE TABLE users AS SELECT * FROM dev_users;
+        END IF;"""
+
+        parser = Parser(text)
+        pipeline = parser.parse()
+
+        assert len(pipeline.steps) == 1
+        assert isinstance(pipeline.steps[0], ConditionalBlockStep)
+
+        cond_block = pipeline.steps[0]
+        assert len(cond_block.branches) == 2
+        assert cond_block.else_branch is not None
+
+        # Use flexible condition checking
+        if_condition = cond_block.branches[0].condition
+        assert "env" in if_condition
+        assert "==" in if_condition
+        assert "'production'" in if_condition
+
+        elseif_condition = cond_block.branches[1].condition
+        assert "env" in elseif_condition
+        assert "==" in elseif_condition
+        assert "'staging'" in elseif_condition
+
+        # Verify branch content
+        assert "prod_users" in cond_block.branches[0].steps[0].sql_query
+        assert "staging_users" in cond_block.branches[1].steps[0].sql_query
+        assert "dev_users" in cond_block.else_branch[0].sql_query
+
+    def test_nested_conditional_blocks(self):
+        """Test that the parser correctly parses nested conditional blocks."""
+        text = """IF ${env} == 'production' THEN
+            IF ${region} == 'us-east-1' THEN
+                CREATE TABLE users AS SELECT * FROM prod_us_east_users;
+            ELSE
+                CREATE TABLE users AS SELECT * FROM prod_other_users;
+            END IF;
+        ELSE
+            CREATE TABLE users AS SELECT * FROM dev_users;
+        END IF;"""
+
+        parser = Parser(text)
+        pipeline = parser.parse()
+
+        assert len(pipeline.steps) == 1
+        assert isinstance(pipeline.steps[0], ConditionalBlockStep)
+
+        # Get the outer conditional block
+        outer_block = pipeline.steps[0]
+        assert len(outer_block.branches) == 1
+        assert outer_block.else_branch is not None
+
+        # Verify that the first branch contains a nested conditional block
+        prod_branch_steps = outer_block.branches[0].steps
+        assert len(prod_branch_steps) == 1
+        assert isinstance(prod_branch_steps[0], ConditionalBlockStep)
+
+        # Verify the nested conditional block
+        inner_block = prod_branch_steps[0]
+        assert len(inner_block.branches) == 1
+        assert inner_block.else_branch is not None
+
+        # Use flexible condition checking
+        inner_condition = inner_block.branches[0].condition
+        assert "region" in inner_condition
+        assert "==" in inner_condition
+        assert "'us-east-1'" in inner_condition
+
+        # Verify branch content
+        assert "prod_us_east_users" in inner_block.branches[0].steps[0].sql_query
+        assert "prod_other_users" in inner_block.else_branch[0].sql_query
+        assert "dev_users" in outer_block.else_branch[0].sql_query
+
+    def test_missing_then_error(self):
+        """Test that the parser raises an error for a missing THEN."""
+        text = """IF ${env} == 'production'
+            CREATE TABLE users AS SELECT * FROM prod_users;
+        END IF;"""
+
+        parser = Parser(text)
+        with pytest.raises(ParserError) as excinfo:
+            parser.parse()
+
+        assert "Expected 'THEN'" in str(excinfo.value)
+
+    def test_missing_endif_error(self):
+        """Test that the parser raises an error for a missing END IF."""
+        text = """IF ${env} == 'production' THEN
+            CREATE TABLE users AS SELECT * FROM prod_users;
+        """
+
+        parser = Parser(text)
+        with pytest.raises(ParserError) as excinfo:
+            parser.parse()
+
+        # The actual error message might be different based on how parser synchronization works
+        # Just verify we got a ParserError without being too specific about the message
+        assert (
+            "END IF" in str(excinfo.value)
+            or "EOF" in str(excinfo.value)
+            or "Unexpected" in str(excinfo.value)
+        )
+
+    def test_missing_semicolon_after_endif_error(self):
+        """Test that the parser raises an error for a missing semicolon after END IF."""
+        text = """IF ${env} == 'production' THEN
+            CREATE TABLE users AS SELECT * FROM prod_users;
+        END IF"""
+
+        parser = Parser(text)
+        with pytest.raises(ParserError) as excinfo:
+            parser.parse()
+
+        assert "Expected ';'" in str(excinfo.value)

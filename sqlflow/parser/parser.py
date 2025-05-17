@@ -1,9 +1,11 @@
 """Parser for SQLFlow DSL."""
 
 import json
-from typing import Optional
+from typing import List, Optional
 
 from sqlflow.parser.ast import (
+    ConditionalBlockStep,
+    ConditionalBranchStep,
     ExportStep,
     IncludeStep,
     LoadStep,
@@ -176,6 +178,8 @@ class Parser:
             return self._parse_set_statement()
         elif token.type == TokenType.CREATE:
             return self._parse_sql_block_statement()
+        elif token.type == TokenType.IF:
+            return self._parse_conditional_block()
 
         self._advance()
         return None
@@ -546,3 +550,119 @@ class Parser:
             raise ParserError(
                 f"Invalid JSON: {str(e)}", json_token.line, json_token.column
             )
+
+    def _parse_conditional_block(self) -> ConditionalBlockStep:
+        """Parse an IF/ELSEIF/ELSE/ENDIF block.
+
+        Returns:
+            ConditionalBlockStep AST node
+
+        Raises:
+            ParserError: If the conditional block cannot be parsed
+        """
+        start_line = self._peek().line
+        branches = []
+        else_branch = None
+
+        # Parse initial IF branch
+        self._consume(TokenType.IF, "Expected 'IF'")
+        condition = self._parse_condition_expression()
+        self._consume(TokenType.THEN, "Expected 'THEN' after condition")
+        if_branch_steps = self._parse_branch_statements(
+            [TokenType.ELSE_IF, TokenType.ELSE, TokenType.END_IF]
+        )
+        branches.append(ConditionalBranchStep(condition, if_branch_steps, start_line))
+
+        # Parse ELSEIF branches
+        while self._check(TokenType.ELSE_IF):
+            self._consume(TokenType.ELSE_IF, "Expected 'ELSE IF'")
+            elseif_line = self._peek().line
+            condition = self._parse_condition_expression()
+            self._consume(TokenType.THEN, "Expected 'THEN' after condition")
+            elseif_branch_steps = self._parse_branch_statements(
+                [TokenType.ELSE_IF, TokenType.ELSE, TokenType.END_IF]
+            )
+            branches.append(
+                ConditionalBranchStep(condition, elseif_branch_steps, elseif_line)
+            )
+
+        # Parse optional ELSE branch
+        if self._check(TokenType.ELSE):
+            self._consume(TokenType.ELSE, "Expected 'ELSE'")
+            else_branch = self._parse_branch_statements([TokenType.END_IF])
+
+        # Consume END IF
+        self._consume(TokenType.END_IF, "Expected 'END IF'")
+        self._consume(TokenType.SEMICOLON, "Expected ';' after 'END IF'")
+
+        return ConditionalBlockStep(branches, else_branch, start_line)
+
+    def _parse_condition_expression(self) -> str:
+        """Parse a condition expression until THEN.
+
+        Returns:
+            String containing the condition expression
+
+        Raises:
+            ParserError: If the condition expression cannot be parsed
+        """
+        condition_tokens = []
+        while not self._check(TokenType.THEN) and not self._is_at_end():
+            token = self._advance()
+
+            # Special handling for variable expressions
+            if token.type == TokenType.VARIABLE:
+                condition_tokens.append(token.value)
+            # Handle equality operator to ensure "==" stays together
+            elif (
+                token.type == TokenType.EQUALS
+                and condition_tokens
+                and condition_tokens[-1] == "="
+            ):
+                # Replace the last "=" with "=="
+                condition_tokens[-1] = "=="
+            else:
+                condition_tokens.append(token.value)
+
+        # Join tokens and normalize spaces
+        condition = " ".join(condition_tokens).strip()
+        # Replace multiple spaces with single space
+        condition = " ".join(condition.split())
+
+        return condition
+
+    def _parse_branch_statements(
+        self, terminator_tokens: List[TokenType]
+    ) -> List[PipelineStep]:
+        """Parse statements until reaching one of the terminator tokens.
+
+        Args:
+            terminator_tokens: List of token types that terminate the branch
+
+        Returns:
+            List of parsed pipeline steps
+
+        Raises:
+            ParserError: If the branch statements cannot be parsed
+        """
+        branch_steps = []
+        while not self._check_any(terminator_tokens) and not self._is_at_end():
+            step = self._parse_statement()
+            if step:
+                branch_steps.append(step)
+            else:
+                # If we didn't recognize the statement, advance to avoid infinite loop
+                self._advance()
+
+        return branch_steps
+
+    def _check_any(self, token_types: List[TokenType]) -> bool:
+        """Check if the current token is any of the given types.
+
+        Args:
+            token_types: List of token types to check
+
+        Returns:
+            True if the current token is any of the given types, False otherwise
+        """
+        return any(self._check(token_type) for token_type in token_types)
