@@ -11,7 +11,9 @@ from typing import Any, Dict, List
 
 from sqlflow.core.dependencies import DependencyResolver
 from sqlflow.core.errors import PlanningError
+from sqlflow.core.evaluator import ConditionEvaluator, EvaluationError
 from sqlflow.parser.ast import (
+    ConditionalBlockStep,
     ExportStep,
     LoadStep,
     Pipeline,
@@ -69,6 +71,82 @@ class ExecutionPlanBuilder:
                 source_step = source_steps[source_name]
                 self._add_dependency(load_step, source_step)
 
+    def _flatten_conditional_blocks(
+        self, pipeline: Pipeline, variables: Dict[str, Any]
+    ) -> Pipeline:
+        """Replace conditional blocks with steps from active branches.
+
+        Args:
+            pipeline: Original pipeline with conditional blocks
+            variables: Dictionary of variable names to values for condition evaluation
+
+        Returns:
+            New pipeline with conditional blocks replaced by their active steps
+        """
+        flattened_pipeline = Pipeline()
+        evaluator = ConditionEvaluator(variables)
+
+        for step in pipeline.steps:
+            if isinstance(step, ConditionalBlockStep):
+                try:
+                    active_steps = self._resolve_conditional_block(step, evaluator)
+                    for active_step in active_steps:
+                        flattened_pipeline.add_step(active_step)
+                except EvaluationError as e:
+                    logger.warning(f"Error evaluating conditional block: {str(e)}")
+                    # Skip this conditional block as we can't evaluate it
+            else:
+                flattened_pipeline.add_step(step)
+
+        return flattened_pipeline
+
+    def _resolve_conditional_block(
+        self, conditional_block: ConditionalBlockStep, evaluator: ConditionEvaluator
+    ) -> List[PipelineStep]:
+        """Determine active branch based on condition evaluation.
+
+        Args:
+            conditional_block: The conditional block to resolve
+            evaluator: The condition evaluator
+
+        Returns:
+            List of pipeline steps from the active branch
+        """
+        # Process each branch until a true condition is found
+        for branch in conditional_block.branches:
+            try:
+                if evaluator.evaluate(branch.condition):
+                    # Process any nested conditionals in the active branch
+                    flat_branch_steps = []
+                    for step in branch.steps:
+                        if isinstance(step, ConditionalBlockStep):
+                            flat_branch_steps.extend(
+                                self._resolve_conditional_block(step, evaluator)
+                            )
+                        else:
+                            flat_branch_steps.append(step)
+                    return flat_branch_steps
+            except EvaluationError as e:
+                # Log the error but continue to next branch
+                logger.warning(
+                    f"Error evaluating condition: {branch.condition}. Error: {str(e)}"
+                )
+
+        # If no branch condition is true, use the else branch if available
+        if conditional_block.else_branch:
+            flat_else_steps = []
+            for step in conditional_block.else_branch:
+                if isinstance(step, ConditionalBlockStep):
+                    flat_else_steps.extend(
+                        self._resolve_conditional_block(step, evaluator)
+                    )
+                else:
+                    flat_else_steps.append(step)
+            return flat_else_steps
+
+        # No condition was true and no else branch
+        return []
+
     def _build_execution_steps(
         self, pipeline: Pipeline, execution_order: List[str]
     ) -> List[Dict[str, Any]]:
@@ -91,11 +169,14 @@ class ExecutionPlanBuilder:
 
         return execution_steps
 
-    def build_plan(self, pipeline: Pipeline) -> List[Dict[str, Any]]:
+    def build_plan(
+        self, pipeline: Pipeline, variables: Dict[str, Any] = None
+    ) -> List[Dict[str, Any]]:
         """Build an execution plan from a pipeline.
 
         Args:
             pipeline: The validated pipeline to build a plan for
+            variables: Dictionary of variable names to values for conditional evaluation (default: {})
 
         Returns:
             A list of execution steps in topological order
@@ -108,15 +189,22 @@ class ExecutionPlanBuilder:
         self.step_id_map = {}
         self.step_dependencies = {}
 
-        # Build dependency graph
-        self._build_dependency_graph(pipeline)
+        # Use empty dict if no variables provided
+        if variables is None:
+            variables = {}
+
+        # Flatten conditional blocks to just the active branch steps
+        flattened_pipeline = self._flatten_conditional_blocks(pipeline, variables)
+
+        # Build dependency graph using flattened pipeline
+        self._build_dependency_graph(flattened_pipeline)
 
         # Setup additional dependencies for correct execution order
-        source_steps, load_steps = self._get_sources_and_loads(pipeline)
+        source_steps, load_steps = self._get_sources_and_loads(flattened_pipeline)
         self._add_load_dependencies(source_steps, load_steps)
 
         # Generate unique IDs for each step
-        self._generate_step_ids(pipeline)
+        self._generate_step_ids(flattened_pipeline)
 
         # Resolve execution order based on dependencies
         try:
@@ -125,7 +213,7 @@ class ExecutionPlanBuilder:
             raise PlanningError(f"Failed to resolve execution order: {str(e)}") from e
 
         # Create execution steps from pipeline steps in the determined order
-        return self._build_execution_steps(pipeline, execution_order)
+        return self._build_execution_steps(flattened_pipeline, execution_order)
 
     def _build_dependency_graph(self, pipeline: Pipeline) -> None:
         """Build a dependency graph from a pipeline.
@@ -570,11 +658,14 @@ class OperationPlanner:
         """Initialize an OperationPlanner."""
         self.plan_builder = ExecutionPlanBuilder()
 
-    def plan(self, pipeline: Pipeline) -> List[Dict[str, Any]]:
+    def plan(
+        self, pipeline: Pipeline, variables: Dict[str, Any] = None
+    ) -> List[Dict[str, Any]]:
         """Plan operations for a pipeline.
 
         Args:
             pipeline: The validated pipeline to plan operations for
+            variables: Dictionary of variable names to values for conditional evaluation (default: {})
 
         Returns:
             A list of execution steps in topological order
@@ -583,7 +674,7 @@ class OperationPlanner:
             PlanningError: If the plan cannot be built
         """
         try:
-            return self.plan_builder.build_plan(pipeline)
+            return self.plan_builder.build_plan(pipeline, variables)
         except Exception as e:
             raise PlanningError(f"Failed to plan operations: {str(e)}") from e
 
@@ -617,11 +708,14 @@ class Planner:
         """Initialize a Planner."""
         self.operation_planner = OperationPlanner()
 
-    def create_plan(self, pipeline: Pipeline) -> List[Dict[str, Any]]:
+    def create_plan(
+        self, pipeline: Pipeline, variables: Dict[str, Any] = None
+    ) -> List[Dict[str, Any]]:
         """Create an execution plan for a pipeline.
 
         Args:
             pipeline: The pipeline to create a plan for
+            variables: Dictionary of variable names to values for conditional evaluation (default: {})
 
         Returns:
             An execution plan as a list of operations
@@ -629,4 +723,4 @@ class Planner:
         Raises:
             PlanningError: If the plan cannot be created
         """
-        return self.operation_planner.plan(pipeline)
+        return self.operation_planner.plan(pipeline, variables)
