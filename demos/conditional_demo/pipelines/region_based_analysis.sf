@@ -58,7 +58,7 @@ IF ${target_region|global} == 'us-east' THEN
   -- US East inventory analysis
   CREATE TABLE region_inventory AS
   SELECT
-    product_name,
+    name AS product_name,
     category,
     SUM(inventory) AS total_inventory,
     AVG(price) AS avg_price
@@ -90,7 +90,7 @@ ELSE IF ${target_region|global} == 'us-west' THEN
     COALESCE(s.units_sold, 0) AS units_sold,
     CASE 
       WHEN p.inventory = 0 THEN 0
-      ELSE COALESCE(s.units_sold, 0) / p.inventory::FLOAT 
+      ELSE COALESCE(s.units_sold, 0) / CAST(p.inventory AS FLOAT)
     END AS sell_through_rate
   FROM (
     SELECT product_id, name AS product_name, category, inventory
