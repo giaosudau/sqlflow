@@ -1,0 +1,16 @@
+customer_id,name,email,region,signup_date,account_type,gdpr_consent
+C001,John Smith,john.smith@example.com,us-east,2022-01-15,premium,true
+C002,Maria Garcia,maria.garcia@example.com,eu,2022-03-22,standard,true
+C003,Wei Zhang,wei.zhang@example.com,asia,2021-11-05,premium,true
+C004,Ahmed Hassan,ahmed.hassan@example.com,middle-east,2022-05-10,standard,false
+C005,Emma Wilson,emma.wilson@example.com,eu,2021-09-18,premium,true
+C006,Carlos Rodriguez,carlos.rodriguez@example.com,latam,2022-02-28,standard,true
+C007,Sarah Johnson,sarah.johnson@example.com,us-west,2022-06-12,premium,true
+C008,Hiroshi Tanaka,hiroshi.tanaka@example.com,asia,2021-12-03,standard,true
+C009,Olivia Brown,olivia.brown@example.com,us-east,2022-04-25,premium,true
+C010,Michael Lee,michael.lee@example.com,us-west,2021-10-30,standard,true
+C011,Anna Muller,anna.muller@example.com,eu,2022-07-14,premium,false
+C012,Juan Perez,juan.perez@example.com,latam,2021-08-22,standard,true
+C013,Lisa Wang,lisa.wang@example.com,asia,2022-02-05,premium,true
+C014,David Kim,david.kim@example.com,us-west,2021-11-18,standard,true
+C015,Sophie Dupont,sophie.dupont@example.com,eu,2022-05-29,premium,true 

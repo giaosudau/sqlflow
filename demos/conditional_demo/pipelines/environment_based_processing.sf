@@ -1,0 +1,258 @@
+-- Environment-based Processing Pipeline
+-- This pipeline demonstrates using conditional execution based on environment (dev, staging, production)
+
+-- Define data sources
+SOURCE products_source TYPE CSV PARAMS {
+  "path": "data/products.csv",
+  "has_header": true
+};
+
+SOURCE customers_source TYPE CSV PARAMS {
+  "path": "data/customers.csv",
+  "has_header": true
+};
+
+SOURCE sales_source TYPE CSV PARAMS {
+  "path": "data/sales.csv",
+  "has_header": true
+};
+
+-- Conditional Data Loading: Different approaches based on environment
+IF ${environment|dev} == 'production' THEN
+  -- In production, we load and process all data
+  LOAD products FROM products_source;
+  LOAD customers FROM customers_source;
+  LOAD sales FROM sales_source;
+  
+  -- Full sales enrichment for production
+  CREATE TABLE enriched_sales AS
+  SELECT 
+    s.order_id,
+    s.customer_id,
+    c.name AS customer_name,
+    c.email,
+    c.region AS customer_region,
+    c.account_type,
+    s.product_id,
+    p.name AS product_name,
+    p.category,
+    p.region AS product_region,
+    s.quantity,
+    s.price,
+    (s.quantity * s.price) AS total_amount,
+    s.order_date,
+    s.region AS sale_region,
+    s.channel
+  FROM sales s
+  JOIN customers c ON s.customer_id = c.customer_id
+  JOIN products p ON s.product_id = p.product_id;
+
+ELSE IF ${environment|dev} == 'staging' THEN
+  -- In staging, we load all data but limit to a subset for processing
+  LOAD products FROM products_source;
+  LOAD customers FROM customers_source;
+  
+  -- In staging, limit sales data to most recent orders (last 3 days)
+  CREATE TABLE filtered_sales AS
+  SELECT *
+  FROM sales_source
+  WHERE order_date >= '2023-10-05';
+  
+  -- Simplified sales enrichment for staging
+  CREATE TABLE enriched_sales AS
+  SELECT 
+    s.order_id,
+    s.customer_id,
+    c.name AS customer_name,
+    s.product_id,
+    p.name AS product_name,
+    p.category,
+    s.quantity,
+    s.price,
+    (s.quantity * s.price) AS total_amount,
+    s.order_date,
+    s.region,
+    s.channel
+  FROM filtered_sales s
+  JOIN customers c ON s.customer_id = c.customer_id
+  JOIN products p ON s.product_id = p.product_id;
+
+ELSE
+  -- In development, we use a small sample of data
+  -- Create a small subset of each dataset
+  CREATE TABLE dev_customers AS
+  SELECT *
+  FROM customers_source
+  LIMIT 5;
+  
+  CREATE TABLE dev_products AS
+  SELECT *
+  FROM products_source
+  LIMIT 5;
+  
+  CREATE TABLE dev_sales AS
+  SELECT *
+  FROM sales_source
+  LIMIT 10;
+  
+  -- Basic sales enrichment for development
+  CREATE TABLE enriched_sales AS
+  SELECT 
+    s.order_id,
+    s.customer_id,
+    c.name AS customer_name,
+    s.product_id,
+    p.name AS product_name,
+    s.quantity,
+    s.price,
+    (s.quantity * s.price) AS total_amount,
+    s.order_date
+  FROM dev_sales s
+  JOIN dev_customers c ON s.customer_id = c.customer_id
+  JOIN dev_products p ON s.product_id = p.product_id;
+END IF;
+
+-- Conditional Analytics: Different levels of analysis based on environment
+IF ${environment|dev} == 'production' THEN
+  -- Comprehensive analytics for production
+  
+  -- Sales by region and channel
+  CREATE TABLE sales_by_region_channel AS
+  SELECT 
+    sale_region,
+    channel,
+    COUNT(*) AS order_count,
+    COUNT(DISTINCT customer_id) AS unique_customers,
+    SUM(total_amount) AS total_sales,
+    AVG(total_amount) AS avg_order_value
+  FROM enriched_sales
+  GROUP BY sale_region, channel
+  ORDER BY sale_region, total_sales DESC;
+  
+  -- Premium vs Standard customer analysis
+  CREATE TABLE sales_by_customer_type AS
+  SELECT 
+    account_type,
+    COUNT(*) AS order_count,
+    COUNT(DISTINCT customer_id) AS unique_customers,
+    SUM(total_amount) AS total_sales,
+    SUM(total_amount) / COUNT(DISTINCT customer_id) AS revenue_per_customer
+  FROM enriched_sales
+  GROUP BY account_type
+  ORDER BY revenue_per_customer DESC;
+  
+  -- Product category performance
+  CREATE TABLE category_performance AS
+  SELECT 
+    category,
+    COUNT(*) AS order_count,
+    SUM(quantity) AS units_sold,
+    SUM(total_amount) AS total_revenue,
+    AVG(price) AS avg_price
+  FROM enriched_sales
+  GROUP BY category
+  ORDER BY total_revenue DESC;
+
+ELSE IF ${environment|dev} == 'staging' THEN
+  -- Simplified analytics for staging
+  
+  -- Basic sales by region
+  CREATE TABLE sales_by_region_channel AS
+  SELECT 
+    region,
+    channel,
+    COUNT(*) AS order_count,
+    SUM(total_amount) AS total_sales
+  FROM enriched_sales
+  GROUP BY region, channel
+  ORDER BY region, total_sales DESC;
+  
+  -- Basic product analysis
+  CREATE TABLE category_performance AS
+  SELECT 
+    category,
+    COUNT(*) AS order_count,
+    SUM(total_amount) AS total_revenue
+  FROM enriched_sales
+  GROUP BY category
+  ORDER BY total_revenue DESC;
+
+ELSE
+  -- Minimal analytics for development
+  
+  -- Simple sales summary
+  CREATE TABLE sales_summary AS
+  SELECT 
+    COUNT(*) AS order_count,
+    SUM(total_amount) AS total_sales,
+    AVG(total_amount) AS avg_order_value
+  FROM enriched_sales;
+END IF;
+
+-- Conditional Exports: Different outputs based on environment
+IF ${environment|dev} == 'production' THEN
+  -- Multiple detailed exports for production
+  
+  EXPORT SELECT * FROM enriched_sales
+  TO "output/production/enriched_sales.csv"
+  TYPE CSV
+  OPTIONS {
+    "header": true
+  };
+  
+  EXPORT SELECT * FROM sales_by_region_channel
+  TO "output/production/sales_by_region_channel.csv"
+  TYPE CSV
+  OPTIONS {
+    "header": true
+  };
+  
+  EXPORT SELECT * FROM sales_by_customer_type
+  TO "output/production/sales_by_customer_type.csv"
+  TYPE CSV
+  OPTIONS {
+    "header": true
+  };
+  
+  EXPORT SELECT * FROM category_performance
+  TO "output/production/category_performance.csv"
+  TYPE CSV
+  OPTIONS {
+    "header": true
+  };
+
+ELSE IF ${environment|dev} == 'staging' THEN
+  -- Basic exports for staging
+  
+  EXPORT SELECT * FROM sales_by_region_channel
+  TO "output/staging/sales_by_region_channel.csv"
+  TYPE CSV
+  OPTIONS {
+    "header": true
+  };
+  
+  EXPORT SELECT * FROM category_performance
+  TO "output/staging/category_performance.csv"
+  TYPE CSV
+  OPTIONS {
+    "header": true
+  };
+
+ELSE
+  -- Minimal export for development
+  
+  EXPORT SELECT * FROM sales_summary
+  TO "output/dev/sales_summary.csv"
+  TYPE CSV
+  OPTIONS {
+    "header": true
+  };
+  
+  -- Also export the enriched sales for development debugging
+  EXPORT SELECT * FROM enriched_sales
+  TO "output/dev/enriched_sales.csv"
+  TYPE CSV
+  OPTIONS {
+    "header": true
+  };
+END IF; 

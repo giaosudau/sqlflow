@@ -31,15 +31,17 @@
 - Updated build_plan to handle variables and conditional evaluation
 - Created comprehensive test suite in `tests/unit/core/test_conditional_planner.py`
 
-### Remaining Tasks
-
 #### Task 1.5: DAG Builder Update for Conditionals
-- Ensure DAG visualization reflects only active branches
-- No changes are likely needed if using the flattened pipeline approach
+✅ Complete - No code changes needed
+- Verified that the DAG visualization works correctly with flattened pipeline approach
+- The flattened pipeline already ensures only active branches are included in visualization
 
 #### Task 1.6: Documentation & Examples
-- Create documentation for conditional execution feature
-- Create example conditional pipelines
+✅ Complete - Documentation and examples created
+- Added detailed documentation in `docs/conditionals.md`
+- Created example conditional pipelines in `examples/conditional_pipelines/`
+- Built a comprehensive demo in `demos/conditional_demo/` with realistic data
+- Demonstrated various use cases: region-based, environment-based, and nested conditionals
 
 ## Epic 2: Python User-Defined Functions (UDFs)
 
