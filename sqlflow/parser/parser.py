@@ -1,9 +1,12 @@
 """Parser for SQLFlow DSL."""
 
 import json
-from typing import Optional
+import re
+from typing import List, Optional
 
 from sqlflow.parser.ast import (
+    ConditionalBlockStep,
+    ConditionalBranchStep,
     ExportStep,
     IncludeStep,
     LoadStep,
@@ -176,6 +179,8 @@ class Parser:
             return self._parse_set_statement()
         elif token.type == TokenType.CREATE:
             return self._parse_sql_block_statement()
+        elif token.type == TokenType.IF:
+            return self._parse_conditional_block()
 
         self._advance()
         return None
@@ -328,9 +333,11 @@ class Parser:
 
         sql_query_tokens = ["SELECT"]
         while not self._check(TokenType.TO) and not self._is_at_end():
-            sql_query_tokens.append(self._advance().value)
+            token = self._advance()
+            sql_query_tokens.append(token)
 
-        sql_query = " ".join(sql_query_tokens)
+        # Properly handle SQL query tokens (especially DOT tokens)
+        sql_query = self._format_sql_query(sql_query_tokens)
 
         self._consume(TokenType.TO, "Expected 'TO' after SQL query")
 
@@ -338,6 +345,9 @@ class Parser:
             TokenType.STRING, "Expected destination URI string after 'TO'"
         )
         destination_uri = destination_uri_token.value.strip('"')
+
+        # Fix variable references in the destination URI
+        destination_uri = self._fix_variable_references(destination_uri)
 
         self._consume(TokenType.TYPE, "Expected 'TYPE' after destination URI")
 
@@ -455,9 +465,11 @@ class Parser:
         self._consume(TokenType.SELECT, "Expected 'SELECT' after 'AS'")
 
         while not self._check(TokenType.SEMICOLON) and not self._is_at_end():
-            sql_query_tokens.append(self._advance().value)
+            token = self._advance()
+            sql_query_tokens.append(token)
 
-        sql_query = " ".join(sql_query_tokens)
+        # Properly handle SQL query tokens (especially DOT tokens)
+        sql_query = self._format_sql_query(sql_query_tokens)
 
         self._consume(TokenType.SEMICOLON, "Expected ';' after SQL query")
 
@@ -466,6 +478,93 @@ class Parser:
             sql_query=sql_query,
             line_number=create_token.line,
         )
+
+    def _format_sql_query(self, tokens) -> str:
+        """Format SQL query tokens with proper handling of operators like DOT.
+
+        This method ensures SQL table.column references are formatted correctly
+        without spaces around the dot operator. This is critical for SQL syntax
+        validity and prevents errors during execution.
+
+        It also handles SQL function calls to ensure there are no spaces between:
+        - Function name and opening parenthesis: COUNT(
+        - Opening parenthesis and first argument: COUNT(DISTINCT
+
+        Args:
+            tokens: List of tokens or token values
+
+        Returns:
+            Properly formatted SQL query string
+        """
+        formatted_parts = []
+        i = 0
+
+        while i < len(tokens):
+            current = tokens[i]
+
+            # Handle first token (typically "SELECT")
+            if i == 0 and isinstance(current, str):
+                formatted_parts.append(current)
+                i += 1
+                continue
+
+            # Get token value and type
+            token_value = current.value if hasattr(current, "value") else str(current)
+            token_type = current.type if hasattr(current, "type") else None
+
+            # Handle dot operators by joining without spaces
+            if token_type == TokenType.DOT:
+                # Append without space before
+                formatted_parts[-1] = formatted_parts[-1].rstrip()
+                formatted_parts.append(token_value)
+            elif (
+                i > 0
+                and hasattr(tokens[i - 1], "type")
+                and tokens[i - 1].type == TokenType.DOT
+            ):
+                # Append without space after
+                formatted_parts.append(token_value)
+            # Check for function calls (IDENTIFIER followed by LEFT_PAREN)
+            elif token_type == TokenType.IDENTIFIER and i + 1 < len(tokens):
+                next_token = tokens[i + 1]
+                next_value = (
+                    next_token.value
+                    if hasattr(next_token, "value")
+                    else str(next_token)
+                )
+                if next_value == "(":
+                    # This is likely a function call, don't add space after function name
+                    formatted_parts.append(token_value)
+                    # Don't add space between function name and opening parenthesis
+                    i += 1  # Skip to the parenthesis
+                    formatted_parts.append(next_value)
+                else:
+                    # Regular token with space
+                    formatted_parts.append(token_value)
+            else:
+                # Regular token with space
+                formatted_parts.append(token_value)
+
+            i += 1
+
+        # Join parts, then normalize whitespace
+        raw_sql = " ".join(formatted_parts)
+
+        # Replace any remaining spaces around dots
+        sql = raw_sql.replace(" . ", ".").replace(" .", ".").replace(". ", ".")
+
+        # Fix any remaining function call spacing issues
+        # Match common SQL functions followed by space and parenthesis
+        sql_functions = ["COUNT", "SUM", "AVG", "MIN", "MAX", "DISTINCT"]
+        for func in sql_functions:
+            sql = re.sub(rf"{func}\s+\(", f"{func}(", sql, flags=re.IGNORECASE)
+
+        # Fix spaces between opening parenthesis and content, and between content and closing parenthesis
+        sql = re.sub(r"\(\s+", "(", sql)  # Remove space after opening parenthesis
+        sql = re.sub(r"\s+\)", ")", sql)  # Remove space before closing parenthesis
+
+        # Normalize whitespace
+        return " ".join(sql.split())
 
     def _synchronize(self) -> None:
         """Synchronize the parser after an error.
@@ -546,3 +645,157 @@ class Parser:
             raise ParserError(
                 f"Invalid JSON: {str(e)}", json_token.line, json_token.column
             )
+
+    def _parse_conditional_block(self) -> ConditionalBlockStep:
+        """Parse an IF/ELSEIF/ELSE/ENDIF block.
+
+        Returns:
+            ConditionalBlockStep AST node
+
+        Raises:
+            ParserError: If the conditional block cannot be parsed
+        """
+        start_line = self._peek().line
+        branches = []
+        else_branch = None
+
+        # Parse initial IF branch
+        self._consume(TokenType.IF, "Expected 'IF'")
+        condition = self._parse_condition_expression()
+        self._consume(TokenType.THEN, "Expected 'THEN' after condition")
+        if_branch_steps = self._parse_branch_statements(
+            [TokenType.ELSE_IF, TokenType.ELSE, TokenType.END_IF]
+        )
+        branches.append(ConditionalBranchStep(condition, if_branch_steps, start_line))
+
+        # Parse ELSEIF branches
+        while self._check(TokenType.ELSE_IF):
+            self._consume(TokenType.ELSE_IF, "Expected 'ELSE IF'")
+            elseif_line = self._peek().line
+            condition = self._parse_condition_expression()
+            self._consume(TokenType.THEN, "Expected 'THEN' after condition")
+            elseif_branch_steps = self._parse_branch_statements(
+                [TokenType.ELSE_IF, TokenType.ELSE, TokenType.END_IF]
+            )
+            branches.append(
+                ConditionalBranchStep(condition, elseif_branch_steps, elseif_line)
+            )
+
+        # Parse optional ELSE branch
+        if self._check(TokenType.ELSE):
+            self._consume(TokenType.ELSE, "Expected 'ELSE'")
+            else_branch = self._parse_branch_statements([TokenType.END_IF])
+
+        # Consume END IF
+        self._consume(TokenType.END_IF, "Expected 'END IF'")
+        self._consume(TokenType.SEMICOLON, "Expected ';' after 'END IF'")
+
+        return ConditionalBlockStep(branches, else_branch, start_line)
+
+    def _parse_condition_expression(self) -> str:
+        """Parse a condition expression until THEN.
+
+        Returns:
+            String containing the condition expression
+
+        Raises:
+            ParserError: If the condition expression cannot be parsed
+        """
+        condition_tokens = []
+        while not self._check(TokenType.THEN) and not self._is_at_end():
+            token = self._advance()
+
+            # Special handling for variable expressions
+            if token.type == TokenType.VARIABLE:
+                condition_tokens.append(token.value)
+            # Handle equality operator to ensure "==" stays together
+            elif (
+                token.type == TokenType.EQUALS
+                and condition_tokens
+                and condition_tokens[-1] == "="
+            ):
+                # Replace the last "=" with "=="
+                condition_tokens[-1] = "=="
+            else:
+                condition_tokens.append(token.value)
+
+        # Join tokens and normalize spaces
+        condition = " ".join(condition_tokens).strip()
+        # Replace multiple spaces with single space
+        condition = " ".join(condition.split())
+
+        # Fix variable references
+        condition = self._fix_variable_references(condition)
+
+        return condition
+
+    def _parse_branch_statements(
+        self, terminator_tokens: List[TokenType]
+    ) -> List[PipelineStep]:
+        """Parse statements until reaching one of the terminator tokens.
+
+        Args:
+            terminator_tokens: List of token types that terminate the branch
+
+        Returns:
+            List of parsed pipeline steps
+
+        Raises:
+            ParserError: If the branch statements cannot be parsed
+        """
+        branch_steps = []
+        while not self._check_any(terminator_tokens) and not self._is_at_end():
+            step = self._parse_statement()
+            if step:
+                branch_steps.append(step)
+            else:
+                # If we didn't recognize the statement, advance to avoid infinite loop
+                self._advance()
+
+        return branch_steps
+
+    def _check_any(self, token_types: List[TokenType]) -> bool:
+        """Check if the current token is any of the given types.
+
+        Args:
+            token_types: List of token types to check
+
+        Returns:
+            True if the current token is any of the given types, False otherwise
+        """
+        return any(self._check(token_type) for token_type in token_types)
+
+    def _fix_variable_references(self, text: str) -> str:
+        """Fix variable references by removing spaces within ${} syntax.
+
+        Converts '$ { var_name | default }' to '${var_name|default}'
+        Also handles spaces around pipes:
+        - '${var | default}' to '${var|default}'
+
+        Args:
+            text: Text containing variable references
+
+        Returns:
+            Text with properly formatted variable references
+        """
+        # Step 1: Fix the outer spaces - Replace ${ var_name } with ${var_name}
+        fixed = re.sub(r"\$\s*{\s*([^}]+?)\s*}", r"${\1}", text)
+
+        # Step 2: Find all variable references
+        var_pattern = r"\$\{([^}]+)\}"
+        var_matches = re.findall(var_pattern, fixed)
+
+        # For each variable reference, fix internal formatting
+        for var_expr in var_matches:
+            old_var_expr = var_expr
+            new_var_expr = var_expr
+
+            # Fix spaces around pipes: var | default -> var|default
+            if "|" in new_var_expr:
+                new_var_expr = re.sub(r"\s*\|\s*", "|", new_var_expr)
+
+            # Replace the old variable expression with the new one
+            if old_var_expr != new_var_expr:
+                fixed = fixed.replace(f"${{{old_var_expr}}}", f"${{{new_var_expr}}}")
+
+        return fixed

@@ -1,0 +1,142 @@
+-- ========================================================================
+-- SHOWCASE BASIC: Demonstrates core SQLFlow features with CSV processing
+-- ========================================================================
+-- Run with: docker compose exec sqlflow sqlflow pipeline run /app/sqlflow/demos/ecommerce_demo/pipelines/showcase_01_basic_csv_processing.sf
+
+-- Set variables for dynamic configuration (can be overridden with --vars)
+SET date = "${date|2023-10-25}";
+SET output_dir = "target";
+
+-- ----------------------------------------
+-- STEP 1: Define data sources
+-- ----------------------------------------
+-- SQLFlow can read from various sources including CSV, PostgreSQL, S3, etc.
+SOURCE sales TYPE CSV PARAMS {
+  "path": "data/sales.csv",
+  "has_header": true
+};
+
+SOURCE customers TYPE CSV PARAMS {
+  "path": "data/customers.csv",
+  "has_header": true
+};
+
+SOURCE products TYPE CSV PARAMS {
+  "path": "data/products.csv",
+  "has_header": true
+};
+
+-- ----------------------------------------
+-- STEP 2: Load data into in-memory tables
+-- ----------------------------------------
+-- The LOAD statement creates tables in the SQLFlow engine
+LOAD sales_table FROM sales;
+LOAD customers_table FROM customers;
+LOAD products_table FROM products;
+
+-- ----------------------------------------
+-- STEP 3: Transform data with SQL
+-- ----------------------------------------
+-- SQLFlow uses standard SQL for transformations
+CREATE TABLE sales_enriched AS 
+SELECT
+  s.order_id,
+  s.customer_id,
+  c.name AS customer_name,
+  c.region,
+  s.product_id,
+  p.name AS product_name,
+  p.category,
+  CAST(s.quantity AS INTEGER) AS quantity,
+  CAST(s.price AS DOUBLE) AS price,
+  (CAST(s.quantity AS INTEGER) * CAST(s.price AS DOUBLE)) AS total_amount,
+  s.order_date
+FROM sales_table s
+JOIN customers_table c ON s.customer_id = c.customer_id
+JOIN products_table p ON s.product_id = p.product_id;
+
+-- ----------------------------------------
+-- STEP 4: Create summary analytics
+-- ----------------------------------------
+-- Calculate revenue by product category
+CREATE TABLE category_summary AS 
+SELECT
+  category,
+  COUNT(DISTINCT order_id) AS num_orders,
+  SUM(quantity) AS total_items,
+  SUM(total_amount) AS total_revenue
+FROM sales_enriched
+GROUP BY category
+ORDER BY total_revenue DESC;
+
+-- Calculate revenue by region
+CREATE TABLE region_summary AS 
+SELECT
+  region,
+  COUNT(DISTINCT order_id) AS num_orders,
+  COUNT(DISTINCT customer_id) AS num_customers,
+  SUM(total_amount) AS total_revenue
+FROM sales_enriched
+GROUP BY region
+ORDER BY total_revenue DESC;
+
+-- Create overall summary
+CREATE TABLE sales_summary AS 
+SELECT
+  COUNT(DISTINCT order_id) AS total_orders,
+  COUNT(DISTINCT customer_id) AS total_customers,
+  SUM(quantity) AS total_items_sold,
+  SUM(total_amount) AS total_revenue,
+  AVG(total_amount) AS avg_order_value
+FROM sales_enriched;
+
+-- ----------------------------------------
+-- STEP 5: Export results
+-- ----------------------------------------
+-- Export category summary to CSV
+EXPORT 
+  SELECT * FROM category_summary
+TO "${output_dir}/category_summary_${date}.csv"
+TYPE CSV
+OPTIONS { 
+  "header": true
+};
+
+-- Export region summary to CSV
+EXPORT 
+  SELECT * FROM region_summary
+TO "${output_dir}/region_summary_${date}.csv"
+TYPE CSV
+OPTIONS { 
+  "header": true
+};
+
+-- Export overall summary to CSV
+EXPORT 
+  SELECT * FROM sales_summary
+TO "${output_dir}/sales_summary_${date}.csv"
+TYPE CSV
+OPTIONS { 
+  "header": true
+};
+
+-- ----------------------------------------
+-- STEP 6: Create visualization ready data
+-- ----------------------------------------
+-- Prepare time series data for charts
+CREATE TABLE daily_sales AS
+SELECT
+  order_date,
+  COUNT(DISTINCT order_id) AS orders,
+  SUM(total_amount) AS revenue
+FROM sales_enriched
+GROUP BY order_date
+ORDER BY order_date;
+
+EXPORT 
+  SELECT * FROM daily_sales
+TO "${output_dir}/daily_sales_${date}.csv"
+TYPE CSV
+OPTIONS { 
+  "header": true
+}; 

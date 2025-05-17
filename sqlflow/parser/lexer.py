@@ -36,7 +36,7 @@ def replace_variables_for_validation(
 
 
 class TokenType(Enum):
-    """Token types for SQLFlow DSL lexer."""
+    """Token types for SQLFlow DSL."""
 
     SOURCE = auto()
     TYPE = auto()
@@ -53,6 +53,13 @@ class TokenType(Enum):
     CREATE = auto()
     TABLE = auto()
 
+    # Conditional execution tokens
+    IF = auto()
+    THEN = auto()
+    ELSE_IF = auto()  # Matches "ELSEIF" or "ELSE IF"
+    ELSE = auto()
+    END_IF = auto()  # Matches "ENDIF" or "END IF"
+
     IDENTIFIER = auto()
     STRING = auto()
     NUMBER = auto()
@@ -66,6 +73,9 @@ class TokenType(Enum):
     DOLLAR = auto()  # For variable references
     LEFT_BRACE = auto()
     RIGHT_BRACE = auto()
+    DOT = (
+        auto()
+    )  # For SQL table.column references - IMPORTANT: Prevents spaces between identifiers and dots
 
     SQL_BLOCK = auto()
 
@@ -120,12 +130,19 @@ class Lexer:
             (TokenType.SET, re.compile(r"SET\b", re.IGNORECASE)),
             (TokenType.CREATE, re.compile(r"CREATE\b", re.IGNORECASE)),
             (TokenType.TABLE, re.compile(r"TABLE\b", re.IGNORECASE)),
+            # Conditional execution patterns
+            (TokenType.IF, re.compile(r"IF\b", re.IGNORECASE)),
+            (TokenType.THEN, re.compile(r"THEN\b", re.IGNORECASE)),
+            (TokenType.ELSE_IF, re.compile(r"ELSE\s*IF\b", re.IGNORECASE)),
+            (TokenType.ELSE, re.compile(r"ELSE\b", re.IGNORECASE)),
+            (TokenType.END_IF, re.compile(r"END\s*IF\b", re.IGNORECASE)),
             (TokenType.EQUALS, re.compile(r"=")),
             (TokenType.PIPE, re.compile(r"\|")),
             (TokenType.DOLLAR, re.compile(r"\$")),
             (TokenType.LEFT_BRACE, re.compile(r"{")),
             (TokenType.RIGHT_BRACE, re.compile(r"}")),
             (TokenType.SEMICOLON, re.compile(r";")),
+            (TokenType.DOT, re.compile(r"\.")),  # SQL dot operator for table.column
             # Handle ${var} or ${var|default} style variables
             (TokenType.VARIABLE, re.compile(r"\$\{[^}]+\}")),
             (

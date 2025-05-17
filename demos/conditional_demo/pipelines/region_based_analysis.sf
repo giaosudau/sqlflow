@@ -1,0 +1,186 @@
+-- Region-based Analysis Pipeline
+-- This pipeline demonstrates using conditional execution based on region
+
+-- Define data sources
+SOURCE products_source TYPE CSV PARAMS {
+  "path": "data/products.csv",
+  "has_header": true
+};
+
+SOURCE customers_source TYPE CSV PARAMS {
+  "path": "data/customers.csv",
+  "has_header": true
+};
+
+SOURCE sales_source TYPE CSV PARAMS {
+  "path": "data/sales.csv",
+  "has_header": true
+};
+
+-- Load basic data
+LOAD products FROM products_source;
+LOAD customers FROM customers_source;
+LOAD sales FROM sales_source;
+
+-- Basic sales enrichment
+CREATE TABLE enriched_sales AS
+SELECT 
+  s.order_id,
+  s.customer_id,
+  c.name AS customer_name,
+  s.product_id,
+  p.name AS product_name,
+  p.category,
+  s.quantity,
+  s.price,
+  (s.quantity * s.price) AS total_amount,
+  s.order_date,
+  s.region,
+  s.channel
+FROM sales s
+JOIN customers c ON s.customer_id = c.customer_id
+JOIN products p ON s.product_id = p.product_id;
+
+-- Conditional Processing: Region-specific analysis based on the target_region variable
+IF ${target_region|global} == 'us-east' THEN
+  -- US East analysis - focus on online vs in-store
+  CREATE TABLE region_sales AS
+  SELECT 
+    order_date,
+    channel,
+    COUNT(*) AS order_count,
+    SUM(total_amount) AS total_sales
+  FROM enriched_sales
+  WHERE region = 'us-east'
+  GROUP BY order_date, channel
+  ORDER BY order_date, channel;
+  
+  -- US East inventory analysis
+  CREATE TABLE region_inventory AS
+  SELECT
+    name AS product_name,
+    category,
+    SUM(inventory) AS total_inventory,
+    AVG(price) AS avg_price
+  FROM products
+  WHERE region = 'us-east'
+  GROUP BY product_name, category
+  ORDER BY total_inventory DESC;
+
+ELSE IF ${target_region|global} == 'us-west' THEN
+  -- US West analysis - focus on product performance
+  CREATE TABLE region_sales AS
+  SELECT 
+    product_name,
+    category,
+    COUNT(*) AS order_count,
+    SUM(quantity) AS units_sold,
+    SUM(total_amount) AS total_sales
+  FROM enriched_sales
+  WHERE region = 'us-west'
+  GROUP BY product_name, category
+  ORDER BY total_sales DESC;
+  
+  -- US West inventory analysis with sell-through rate
+  CREATE TABLE region_inventory AS
+  SELECT
+    p.product_name,
+    p.category,
+    p.inventory AS current_inventory,
+    COALESCE(s.units_sold, 0) AS units_sold,
+    CASE 
+      WHEN p.inventory = 0 THEN 0
+      ELSE COALESCE(s.units_sold, 0) / CAST(p.inventory AS FLOAT)
+    END AS sell_through_rate
+  FROM (
+    SELECT product_id, name AS product_name, category, inventory
+    FROM products
+    WHERE region = 'us-west'
+  ) p
+  LEFT JOIN (
+    SELECT 
+      product_id, 
+      SUM(quantity) AS units_sold
+    FROM enriched_sales
+    WHERE region = 'us-west'
+    GROUP BY product_id
+  ) s ON p.product_id = s.product_id
+  ORDER BY sell_through_rate DESC;
+
+ELSE IF ${target_region|global} == 'eu' THEN
+  -- EU analysis - must comply with GDPR for customer data
+  CREATE TABLE region_sales AS
+  SELECT 
+    e.order_date,
+    e.product_name,
+    e.category,
+    -- Only include customer name if they've given GDPR consent
+    CASE WHEN c.gdpr_consent = 'true' THEN e.customer_name ELSE 'GDPR Protected' END AS customer_name,
+    e.total_amount
+  FROM enriched_sales e
+  JOIN customers c ON e.customer_id = c.customer_id
+  WHERE e.region = 'eu'
+  ORDER BY e.order_date DESC;
+  
+  -- EU inventory analysis with pricing comparison (prices in EU typically higher)
+  CREATE TABLE region_inventory AS
+  SELECT
+    eu.product_name,
+    eu.category,
+    eu.price AS eu_price,
+    us.price AS us_price,
+    (eu.price - us.price) AS price_difference,
+    ((eu.price - us.price) / us.price * 100) AS price_difference_percent,
+    eu.inventory AS eu_inventory
+  FROM (
+    SELECT product_id, name AS product_name, category, price, inventory
+    FROM products
+    WHERE region = 'eu'
+  ) eu
+  JOIN (
+    SELECT product_id, name AS product_name, price
+    FROM products
+    WHERE region = 'us-east'
+  ) us ON eu.product_name = us.product_name
+  ORDER BY price_difference_percent DESC;
+
+ELSE
+  -- Global analysis (default when no specific region is selected)
+  CREATE TABLE region_sales AS
+  SELECT 
+    region,
+    COUNT(DISTINCT customer_id) AS customer_count,
+    COUNT(*) AS order_count,
+    SUM(total_amount) AS total_sales,
+    AVG(total_amount) AS avg_order_value
+  FROM enriched_sales
+  GROUP BY region
+  ORDER BY total_sales DESC;
+  
+  -- Global inventory analysis
+  CREATE TABLE region_inventory AS
+  SELECT
+    region,
+    category,
+    COUNT(DISTINCT product_id) AS product_count,
+    SUM(inventory) AS total_inventory,
+    AVG(price) AS avg_price
+  FROM products
+  GROUP BY region, category
+  ORDER BY region, total_inventory DESC;
+END IF;
+
+-- Export the region-specific analysis to CSV files
+EXPORT SELECT * FROM region_sales
+TO "output/${target_region|global}_sales_analysis.csv"
+TYPE CSV
+OPTIONS {
+  "header": true
+};
+
+EXPORT SELECT * FROM region_inventory
+TO "output/${target_region|global}_inventory_analysis.csv"
+TYPE CSV
+OPTIONS {
+  "header": true
+}; 

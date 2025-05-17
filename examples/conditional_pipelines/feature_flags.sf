@@ -1,0 +1,155 @@
+-- Feature Flag Pipeline Example
+-- This example demonstrates using conditionals as feature flags
+-- to enable/disable certain pipeline features or behaviors
+
+-- Define data source
+SOURCE postgres_source (
+    connector_type = "POSTGRES",
+    host = "${db_host|localhost}",
+    port = "${db_port|5432}",
+    database = "${db_name|app_db}",
+    username = "${db_user|postgres}",
+    password = "${db_password}",
+    schema = "${db_schema|public}"
+);
+
+-- Load base user data
+LOAD users FROM SOURCE postgres_source
+WITH (
+    query = "SELECT * FROM users"
+);
+
+-- Base user cleaning transformation
+CREATE TABLE cleaned_users AS
+SELECT
+    id,
+    email,
+    first_name,
+    last_name,
+    COALESCE(status, 'unknown') as status,
+    created_at
+FROM users
+WHERE id IS NOT NULL;
+
+-- Enable additional data enrichment if feature flag is enabled
+IF ${enable_enrichment|false} == true THEN
+    -- Load additional user metadata
+    LOAD user_metadata FROM SOURCE postgres_source
+    WITH (
+        query = "SELECT * FROM user_metadata"
+    );
+    
+    -- Join with metadata for enriched view
+    CREATE TABLE enriched_users AS
+    SELECT
+        u.id,
+        u.email,
+        u.first_name,
+        u.last_name,
+        u.status,
+        u.created_at,
+        m.last_login_at,
+        m.login_count,
+        m.preferred_theme,
+        m.notification_settings
+    FROM cleaned_users u
+    LEFT JOIN user_metadata m ON u.id = m.user_id;
+ELSE
+    -- Without enrichment, just rename the table for consistent downstream reference
+    CREATE TABLE enriched_users AS
+    SELECT * FROM cleaned_users;
+END IF;
+
+-- Enable address verification if that feature flag is on
+IF ${enable_address_verification|false} == true THEN
+    -- Load address data
+    LOAD addresses FROM SOURCE postgres_source
+    WITH (
+        query = "SELECT * FROM addresses"
+    );
+    
+    -- Join with verified addresses
+    CREATE TABLE users_with_addresses AS
+    SELECT
+        u.*,
+        a.street,
+        a.city,
+        a.state,
+        a.postal_code,
+        a.country,
+        a.verified as address_verified
+    FROM enriched_users u
+    LEFT JOIN addresses a ON u.id = a.user_id;
+ELSE
+    -- Without address verification, just use the enriched users
+    CREATE TABLE users_with_addresses AS
+    SELECT * FROM enriched_users;
+END IF;
+
+-- Apply different segmentation strategies based on the segmentation model flag
+IF ${segmentation_model|basic} == 'advanced' THEN
+    -- Advanced segmentation with RFM (Recency, Frequency, Monetary) model
+    CREATE TABLE user_segments AS
+    SELECT
+        id,
+        email,
+        first_name,
+        last_name,
+        CASE
+            WHEN login_count > 100 AND last_login_at > CURRENT_DATE - INTERVAL '30 days' THEN 'vip'
+            WHEN login_count > 50 AND last_login_at > CURRENT_DATE - INTERVAL '90 days' THEN 'active'
+            WHEN last_login_at > CURRENT_DATE - INTERVAL '180 days' THEN 'casual'
+            ELSE 'dormant'
+        END as segment,
+        login_count,
+        last_login_at
+    FROM users_with_addresses
+    WHERE login_count IS NOT NULL;
+ELSE
+    -- Basic segmentation model just uses login recency
+    CREATE TABLE user_segments AS
+    SELECT
+        id,
+        email,
+        first_name,
+        last_name,
+        CASE
+            WHEN last_login_at > CURRENT_DATE - INTERVAL '30 days' THEN 'active'
+            ELSE 'inactive'
+        END as segment,
+        login_count,
+        last_login_at
+    FROM users_with_addresses;
+END IF;
+
+-- Export to different destinations based on the enable_export_* flags
+IF ${enable_export_csv|true} == true THEN
+    EXPORT TO file_destination
+    FROM user_segments
+    WITH (
+        path = "./output/user_segments.csv",
+        format = "csv",
+        header = "true"
+    );
+END IF;
+
+IF ${enable_export_json|false} == true THEN
+    EXPORT TO file_destination
+    FROM user_segments
+    WITH (
+        path = "./output/user_segments.json",
+        format = "json"
+    );
+END IF;
+
+IF ${enable_export_warehouse|false} == true THEN
+    EXPORT TO bigquery_destination
+    FROM user_segments
+    WITH (
+        project = "${bq_project|my-project}",
+        dataset = "${bq_dataset|analytics}",
+        table = "user_segments",
+        create_disposition = "CREATE_IF_NEEDED",
+        write_disposition = "WRITE_TRUNCATE"
+    );
+END IF; 

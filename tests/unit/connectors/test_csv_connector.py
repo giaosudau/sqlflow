@@ -132,7 +132,7 @@ def test_csv_connector_read(csv_connector, sample_csv_file):
     df = chunk.pandas_df
     assert df.shape == (3, 3)
     assert list(df.columns) == ["id", "name", "value"]
-    assert list(df["id"]) == ["1", "2", "3"]
+    assert list(df["id"]) == [1, 2, 3]
     assert list(df["name"]) == ["Alice", "Bob", "Charlie"]
 
     # Test reading specific columns

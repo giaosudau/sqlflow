@@ -1,52 +1,59 @@
-## Build Stage
-FROM python:3.10-slim AS builder
+# Builder stage for SQLFlow package
+FROM python:3.11-slim-bookworm as builder
 
-# Build and install dependencies
-WORKDIR /app
+WORKDIR /build
 
-# Install dependencies
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-    curl \
+# Install build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
-    build-essential \
-    libpq-dev \
-    && apt-get clean \
+    g++ \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy only necessary files for installation
-COPY setup.py ./
-COPY setup.cfg ./
-COPY pyproject.toml ./
-COPY README.md ./
-COPY sqlflow/__init__.py ./sqlflow/__init__.py
+# Copy SQLFlow source code for building
+COPY ../../pyproject.toml /build/
+COPY ../../README.md /build/
+COPY ../../CHANGELOG.md /build/
+COPY ../../sqlflow /build/sqlflow/
 
-# Install sqlflow in development mode
-RUN pip install --no-cache-dir -e .
+# Install build dependencies
+RUN pip install --no-cache-dir build wheel
 
-## Final Stage
-FROM python:3.10-slim
+# Build the SQLFlow package
+RUN python -m build --wheel
+
+# Final stage for the demo application
+FROM python:3.11-slim-bookworm
 
 WORKDIR /app
 
-# Install runtime dependencies (reduced from builder)
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
-    libpq5 \
-    && apt-get clean \
+    wget \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy installed packages from builder
-COPY --from=builder /usr/local/lib/python3.10/site-packages /usr/local/lib/python3.10/site-packages
-COPY --from=builder /usr/local/bin /usr/local/bin
+# Create sqlflow directory structure
+RUN mkdir -p /app/sqlflow/demos/ecommerce_demo/target \
+    && chmod 777 /app/sqlflow/demos/ecommerce_demo/target
 
-# Copy SQLFlow code
-COPY sqlflow/ /app/sqlflow/
-COPY demos/ecommerce_demo/ /app/demos/ecommerce_demo/
+# Copy data files and configuration
+COPY data/ /app/sqlflow/demos/ecommerce_demo/data/
+COPY pipelines/ /app/sqlflow/demos/ecommerce_demo/pipelines/
+COPY profiles/ /app/sqlflow/demos/ecommerce_demo/profiles/
+COPY mock-config/ /app/sqlflow/demos/ecommerce_demo/mock-config/
+COPY init-scripts/ /app/sqlflow/demos/ecommerce_demo/init-scripts/
 
-# Set working directory for the demo
-WORKDIR /app/demos/ecommerce_demo
+# Copy and install the built wheel from the builder stage
+COPY --from=builder /build/dist/*.whl /app/
+RUN pip install --no-cache-dir /app/*.whl
 
-# Use standard shell
-CMD ["bash"]
+# Set environment variables
+ENV PYTHONPATH="/app:${PYTHONPATH}"
+ENV PATH="/app/bin:${PATH}"
+
+# Create target directory for outputs
+RUN mkdir -p /app/target && chmod 777 /app/target
+
+# Default command when container starts
+CMD ["sqlflow", "pipeline", "run", "/app/sqlflow/demos/ecommerce_demo/pipelines/simple_test.sf", "--vars", "{\"date\": \"2023-10-25\"}", "--profile", "production"]

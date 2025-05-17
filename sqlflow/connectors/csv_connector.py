@@ -226,7 +226,7 @@ class CSVConnector(Connector):
                 header=0 if self.has_header else None,
                 quotechar=self.quote_char,
                 encoding=self.encoding,
-                dtype=str,  # Ensure all columns are read as strings by default
+                dtype=None,  # Allow pandas to automatically infer data types
             )
 
             if columns:

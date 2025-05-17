@@ -1,6 +1,6 @@
 # SQLFlow Ecommerce Demo - Quick Start Guide
 
-This guide will help you quickly start the SQLFlow ecommerce demo environment.
+This guide will help you quickly set up and run the SQLFlow ecommerce demo, showcasing key features through practical pipelines.
 
 > **Important: Profile-Driven Configuration**
 > All environment and engine configurations for this demo (and SQLFlow projects in general) are managed via **profiles** located in the `profiles/` directory.
@@ -11,119 +11,126 @@ This guide will help you quickly start the SQLFlow ecommerce demo environment.
 
 ## Prerequisites
 
-- Docker and Docker Compose installed
+- Docker and Docker Compose v2 installed
 - Git repository of SQLFlow cloned
 
-## Steps to Start the Demo
+## 1. Build SQLFlow (If Needed)
 
-### 1. Start the Docker services
+This step is separated out so you can update the SQLFlow package independently. The `start-demo.sh` script will check if this step has been completed and guide you through it if needed.
 
 ```bash
-# Clone the repository if you haven't already
-git clone https://github.com/your-org/sqlflow.git
-cd sqlflow/demos/ecommerce_demo
+# Navigate to the SQLFlow repository root
+cd /path/to/sqlflow
 
-# Make the script executable if needed
-chmod +x start-demo.sh
+# Set up Python environment and build the package
+python -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip wheel build
+pip install -e .
+python -m build --wheel
+```
+
+## 2. Start the Demo Environment
+
+```bash
+# Navigate to the ecommerce demo directory
+cd /path/to/sqlflow/demos/ecommerce_demo
+
+# Make the scripts executable if needed
+chmod +x start-demo.sh init-demo.sh
 
 # Build and start all services
 ./start-demo.sh
 ```
 
-### 2. Initialize and test the demo environment
+The script will:
+1. Check for a pre-built SQLFlow wheel and guide you to build one if not found
+2. Copy the wheel to the demo directory
+3. Build a Docker image for the demo (if needed)
+4. Start all required services with Docker Compose
+
+## 3. Initialize and Run Demo Pipelines
 
 ```bash
 ./init-demo.sh
 ```
 
-Alternative for Fish shell users:
-```fish
-./init-demo.fish
-```
+This will:
+1. Verify all services are running
+2. Test connections to PostgreSQL, MinIO, and MockServer
+3. Run the example pipelines, demonstrating various SQLFlow features
+4. Show you how to access and explore the results
 
-### 3. Access the services
+## 4. Available Pipelines
 
-- **PostgreSQL:** localhost:5432 (User: sqlflow, Password: sqlflow123, DB: ecommerce)
-- **MinIO Console:** http://localhost:9001 (User: minioadmin, Password: minioadmin)
-- **MockServer:** http://localhost:1080
+The demo includes several example pipelines located in the `pipelines/` directory. These are designed to showcase different features and use cases of SQLFlow.
 
-### 4. Run the SQLFlow pipeline manually
+### Showcase Pipelines:
 
-Remember to select the appropriate profile for your needs. For example, to run with development settings (in-memory DuckDB):
+These pipelines demonstrate core features and advanced capabilities.
+
+1.  **`showcase_01_basic_csv_processing.sf`**
+    *   **Description**: Demonstrates core SQLFlow features using CSV files for input and output. Covers data loading, SQL transformations, and exporting results.
+    *   **Run**: `docker compose exec sqlflow sqlflow pipeline run /app/sqlflow/demos/ecommerce_demo/pipelines/showcase_01_basic_csv_processing.sf`
+
+2.  **`showcase_02_multi_connector_integration.sf`**
+    *   **Description**: Highlights SQLFlow's ability to integrate with multiple systems. Uses PostgreSQL for input, CSV for comparison, and exports to S3, PostgreSQL, and a REST API.
+    *   **Run**: `docker compose exec sqlflow sqlflow pipeline run /app/sqlflow/demos/ecommerce_demo/pipelines/showcase_02_multi_connector_integration.sf --vars '{"date": "2023-10-25", "API_TOKEN": "your_api_token"}'`
+
+3.  **`showcase_03_conditional_execution.sf`**
+    *   **Description**: Illustrates conditional logic within SQLFlow pipelines, allowing different processing paths based on variables (e.g., environment, region).
+    *   **Run**: `docker compose exec sqlflow sqlflow pipeline run /app/sqlflow/demos/ecommerce_demo/pipelines/showcase_03_conditional_execution.sf --vars '{"environment": "production", "region": "us-east"}'`
+
+4.  **`showcase_04_advanced_analytics.sf`**
+    *   **Description**: Presents advanced SQL analytics capabilities, including time series analysis, cohort analysis, RFM segmentation, and market basket analysis.
+    *   **Run**: `docker compose exec sqlflow sqlflow pipeline run /app/sqlflow/demos/ecommerce_demo/pipelines/showcase_04_advanced_analytics.sf`
+
+### Additional Examples:
+
+1.  **`example_01_daily_sales_report.sf`**
+    *   **Description**: A practical example of a daily sales reporting pipeline. Sources data from PostgreSQL, performs enrichments and aggregations, and exports to S3 and a REST API. Includes debug steps.
+    *   **Run**: `docker compose exec sqlflow sqlflow pipeline run /app/sqlflow/demos/ecommerce_demo/pipelines/example_01_daily_sales_report.sf --vars '{"date": "2023-10-25", "API_TOKEN": "your_api_token"}'`
+
+2.  **`example_02_csv_only_processing.sf`**
+    *   **Description**: A self-contained example demonstrating a complete data pipeline using only CSV files for input and output.
+    *   **Run**: `docker compose exec sqlflow sqlflow pipeline run /app/sqlflow/demos/ecommerce_demo/pipelines/example_02_csv_only_processing.sf`
+
+## 5. Exploring Results
+
+### PostgreSQL Data
+
 ```bash
-export DATE=$(date '+%Y-%m-%d')
-export API_TOKEN=demo-token # Example token
-
-cd /path/to/sqlflow/demos/ecommerce_demo
-sqlflow pipeline run pipelines/daily_sales_report_docker.sf --vars "{\"date\": \"$DATE\", \"API_TOKEN\": \"$API_TOKEN\"}" --profile dev
+docker compose exec postgres psql -U sqlflow -d ecommerce -c "SELECT * FROM sales LIMIT 5;"
 ```
 
-To run with production settings (persistent DuckDB, data saved to `target/ecommerce_demo_prod.db`):
-```bash
-sqlflow pipeline run pipelines/daily_sales_report_docker.sf --vars "{\"date\": \"$DATE\", \"API_TOKEN\": \"$API_TOKEN\"}" --profile production
-```
+### MinIO Results
 
-Alternative for Fish shell users (development profile example):
-```fish
-set -x DATE (date '+%Y-%m-%d')
-set -x API_TOKEN demo-token # Example token
+1. Open the MinIO Console at http://localhost:9001 (login with minioadmin/minioadmin)
+2. Navigate to the `analytics` bucket to see the exported files
 
-cd /path/to/sqlflow/demos/ecommerce_demo
-sqlflow pipeline run pipelines/daily_sales_report_docker.sf --vars "{\"date\": \"$DATE\", \"API_TOKEN\": \"$API_TOKEN\"}" --profile dev
-```
-
-### 5. Access the SQLFlow container for development
+### REST API Notifications
 
 ```bash
-docker-compose exec sqlflow bash
+curl -X PUT "http://localhost:1080/mockserver/retrieve?type=REQUESTS&format=JSON" | jq
 ```
 
-## What's included in the demo?
+## 6. Development Within the Container
 
-1. **PostgreSQL database with sample data:**
-   - Customers
-   - Products
-   - Sales transactions
+```bash
+# Open a shell in the SQLFlow container
+docker compose exec sqlflow bash
 
-2. **MinIO S3-compatible storage:**
-   - Used to demonstrate S3 export connector
+# Run commands inside the container
+cd /app/sqlflow/demos/ecommerce_demo
+sqlflow pipeline list
+```
 
-3. **MockServer for HTTP endpoints:**
-   - Used to demonstrate REST export connector
+## 7. Cleaning Up
 
-4. **SQLFlow demo container:**
-   - Pre-configured to work with all services
-
-## Demo workflow
-
-The sample pipeline demonstrates:
-
-1. Reading data from PostgreSQL tables
-2. Transforming data with SQL operations
-3. Exporting results to S3 (MinIO) in Parquet format
-4. Sending notifications to a REST API endpoint (MockServer)
-
-## Extending the Demo
-
-1. Add new connectors or change engine settings by editing the appropriate profile YAML in the `profiles/` directory (e.g., `profiles/dev.yml`, `profiles/production.yml`).
-2. Create new pipeline files in the `pipelines` directory
-3. Add new data sources by updating the PostgreSQL initialization scripts
-
-## Troubleshooting
-
-1. **Services not starting:**
-   ```bash
-   docker-compose logs
-   ```
-
-2. **Pipeline execution errors:**
-   Check the SQLFlow logs during pipeline execution
-
-3. **Resetting the environment:**
-   ```bash
-   docker-compose down -v
-   docker-compose up -d
-   ```
+```bash
+# Stop and remove all containers, networks, and volumes
+docker compose down -v
+```
 
 # Configuration
 

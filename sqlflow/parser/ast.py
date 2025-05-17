@@ -203,6 +203,67 @@ class SQLBlockStep(PipelineStep):
 
 
 @dataclass
+class ConditionalBranchStep(PipelineStep):
+    """A single branch within a conditional block."""
+
+    condition: str  # Raw condition expression
+    steps: List[PipelineStep]  # Steps to execute if condition is true
+    line_number: int
+
+    def validate(self) -> List[str]:
+        """Validate the conditional branch.
+
+        Returns:
+            List of validation error messages, empty if valid
+        """
+        errors = []
+        if not self.condition:
+            errors.append("Conditional branch requires a condition expression")
+
+        # Validate nested steps
+        for i, step in enumerate(self.steps):
+            step_errors = step.validate()
+            for error in step_errors:
+                errors.append(f"Branch step {i + 1}: {error}")
+
+        return errors
+
+
+@dataclass
+class ConditionalBlockStep(PipelineStep):
+    """Block containing multiple conditional branches and optional else."""
+
+    branches: List[ConditionalBranchStep]  # IF/ELSEIF branches
+    else_branch: Optional[List[PipelineStep]]  # ELSE branch (may be None)
+    line_number: int
+
+    def validate(self) -> List[str]:
+        """Validate the conditional block.
+
+        Returns:
+            List of validation error messages, empty if valid
+        """
+        errors = []
+        if not self.branches:
+            errors.append("Conditional block requires at least one branch")
+
+        # Validate all branches
+        for i, branch in enumerate(self.branches):
+            branch_errors = branch.validate()
+            for error in branch_errors:
+                errors.append(f"Branch {i + 1}: {error}")
+
+        # Validate else branch if present
+        if self.else_branch:
+            for i, step in enumerate(self.else_branch):
+                step_errors = step.validate()
+                for error in step_errors:
+                    errors.append(f"Else branch step {i + 1}: {error}")
+
+        return errors
+
+
+@dataclass
 class Pipeline:
     """Represents a complete parsed pipeline.
 

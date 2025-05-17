@@ -148,6 +148,11 @@ SQLFlow supports variable substitution in strings and JSON objects using the `${
 - Variables can be set with the `SET` directive within a pipeline.
 - Variables can be defined in the active profile YAML under a `variables:` key.
 - Variables can have default values: `${var|default}`
+- **If the default value contains spaces, it must be quoted** (single or double quotes):
+  - ✅ `${region|"us east"}` (valid)
+  - ✅ `${region|'us east'}` (valid)
+  - ❌ `${region|us east}` (**invalid**, will cause a validation error)
+- Unquoted default values with spaces are not allowed and will cause a pipeline validation error.
 - Variables passed during execution via `--vars '{"var":"value"}'` override profile and `SET` variables.
 - Variables can be used in paths, queries, and connection parameters.
 - JSON objects support variable substitution with proper validation.
