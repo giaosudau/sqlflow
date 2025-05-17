@@ -1,217 +1,193 @@
-# SQLFlow
+# SQLFlow: Your Data Workflow Control Plane, Defined in SQL
 
-SQLFlow is a SQL-based data pipeline tool that enables users to define, execute, visualize, and manage data transformations using a SQL-based domain-specific language (DSL).
+**SQLFlow is a SQL-native engine that empowers you to define, orchestrate, and manage your entire data workflow—from loading and transformation to export—all with the simplicity and power of SQL.**
 
-## Features
+For data analysts, engineers, and scientists who speak SQL, SQLFlow streamlines data operations by replacing tool sprawl and complex setups with a unified, SQL-centric approach. It's designed for an MVP that delivers immediate value by leveraging your existing SQL skills.
 
-- Define data sources and transformations using a SQL-based syntax
-- Create modular, reusable pipeline components
-- Execute pipelines locally or in a distributed environment
-- Visualize pipelines as interactive DAGs (Directed Acyclic Graphs)
-- Manage project structure with a standardized approach
-- Connect to various data sources through an extensible connector framework
-- **Profile-driven configuration** for managing environments (dev, prod, etc.)
-- **Configurable DuckDB engine** for in-memory (fast, ephemeral) or persistent (saves to disk) operation.
+<!-- TODO: Add an engaging GIF or architectural diagram here showing SQLFlow's unified workflow -->
 
-## Installation
+## Core Vision & Innovation (MVP Focus)
 
-```bash
-pip install sqlflow
-```
+SQLFlow's vision is to make robust data pipelining accessible through SQL. Our MVP innovates by delivering:
 
-## Quick Start
+*   **Unified SQL Command Center:** Go from raw data to actionable insights using a single, SQL-based DSL for loading sources, transforming data, and exporting results. No more context-switching between different tools for different stages of your pipeline.
+*   **Environment Agility with Profiles:** Seamlessly manage `dev`, `prod`, and other environments. Isolate configurations for databases, engine behavior (like DuckDB's mode), and variables using simple YAML files. This is critical for reliable, reproducible data operations from day one.
+*   **Flexible & Fast Execution (Powered by DuckDB):**
+    *   **In-Memory Speed for Dev:** The default `dev` profile utilizes DuckDB in-memory for ultra-fast iteration and testing.
+    *   **Persistent Storage for Prod:** Easily switch to `persistent` mode, saving your transformed data to a disk-based DuckDB file at a path *you* specify. This offers a pragmatic balance of performance and durability.
+*   **Transparent Data Lineage:** Instantly visualize your entire SQL-defined pipeline as an interactive Directed Acyclic Graph (DAG), making dependencies and data flow clear.
 
-```bash
-# Initialize a new project (creates profiles/dev.yml by default)
-sqlflow init my_project
+## Key MVP Features
 
-# Create a pipeline
-cd my_project
-# Edit pipelines/my_pipeline.sf
+*   **Intuitive SQL-based DSL:** Define sources, loads, transformations (`CREATE TABLE AS SELECT`), and exports using familiar SQL syntax.
+*   **Profile-Driven Configuration:** Manage environment-specific settings for engines (DuckDB), connections, and variables.
+*   **DuckDB Integration:** Leverage DuckDB for high-performance in-memory or reliable persistent data processing.
+*   **Basic Connector Support:** Start with CSV and PostgreSQL sources, with clear paths for extension.
+*   **Local File & S3 Export:** Essential export capabilities for common use cases.
+*   **CLI for Core Operations:** `init`, `run`, `compile`, `list` commands to manage your pipelines.
+*   **Automatic DAG Visualization:** Understand your pipeline structure at a glance.
 
-# Run the pipeline (uses dev profile by default, typically in-memory DuckDB)
-sqlflow pipeline run my_pipeline
+## Quick Start: Your First Unified SQLFlow Pipeline
 
-# Run with a different profile (e.g., production with persistent DuckDB)
-sqlflow pipeline run my_pipeline --profile production
+1.  **Install SQLFlow:**
+    ```bash
+    pip install sqlflow
+    ```
 
-# Compile the pipeline
-sqlflow pipeline compile my_pipeline
+2.  **Initialize Your Project:**
+    Creates `my_data_workflow/` with a default `profiles/dev.yml` (in-memory DuckDB).
+    ```bash
+    sqlflow init my_data_workflow
+    cd my_data_workflow
+    ```
 
-# List available pipelines
-sqlflow pipeline list
-```
+3.  **Define Your Unified Pipeline (`pipelines/process_data.sf`):**
+    ```sql
+    -- pipelines/process_data.sf
 
-## Profile-Driven Configuration
+    -- 1. DEFINE SOURCE (Loading)
+    SOURCE raw_orders TYPE CSV PARAMS {
+      "path": "data/orders.csv", -- Create this sample CSV file
+      "has_header": true
+    };
 
-SQLFlow uses **profiles** to manage all environment and engine settings. Profiles are YAML files located in the `profiles/` directory of your project (e.g., `my_project/profiles/`). When you initialize a project, a `profiles/dev.yml` is created by default.
+    -- 2. LOAD DATA (Staging for Transformation)
+    LOAD orders_table FROM raw_orders;
 
-You can define different profiles for various environments such as development (`dev`), testing (`staging`), and production (`production`). Each profile can specify distinct engine configurations, variables, connector parameters, and other settings.
+    -- 3. TRANSFORM DATA (Using SQL)
+    CREATE TABLE daily_sales_summary AS
+    SELECT
+      order_date,
+      COUNT(order_id) AS num_orders,
+      SUM(CAST(amount AS DECIMAL(10,2))) AS total_sales
+    FROM orders_table
+    GROUP BY order_date;
 
-### Example: `profiles/dev.yml`
-This profile is typically used for local development and testing.
+    -- 4. EXPORT RESULTS
+    EXPORT
+      SELECT * FROM daily_sales_summary
+    TO "output/daily_summary_${run_id}.parquet" -- Example: use a run_id variable
+    TYPE LOCAL_FILE
+    OPTIONS { "format": "parquet" };
+    ```
+    *Remember to create a sample `data/orders.csv`! Add a `run_id` to `vars` in your profile or pass it via CLI for the export filename.*
+
+4.  **Run Your Pipeline (Defaults to `dev` profile):**
+    ```bash
+    sqlflow pipeline run process_data
+    ```
+
+5.  **Explore:**
+    *   **Production Run (Persistent):** Create `profiles/production.yml` (see below), then:
+        `sqlflow pipeline run process_data --profile production`
+    *   **Visualize DAG:** Check the `target/` directory for DAG visualizations after a run.
+
+## Profile-Driven Configuration: Tailor Your Environments
+
+Manage `dev`, `prod`, etc., in `profiles/`. SQLFlow uses `profiles/dev.yml` by default.
+
+### `profiles/dev.yml` (Fast Iteration)
 ```yaml
 engines:
   duckdb:
-    mode: memory  # Fast, in-memory mode for local/dev (no data persisted)
-    memory_limit: 2GB
-# Add variables, paths, or connector settings specific to development
+    mode: memory
+    memory_limit: 1GB
+variables:
+  run_id: "dev_run"
 ```
 
-### Example: `profiles/production.yml`
-This profile would be used for production runs, often with persistent storage.
+### `profiles/production.yml` (Reliable Persistence)
 ```yaml
 engines:
   duckdb:
-    mode: persistent  # Data is saved to disk
-    path: target/prod.db # Path where the DuckDB database file will be stored. SQLFlow uses this exact path.
-    memory_limit: 8GB
-# Add production variables, paths, or connector settings
+    mode: persistent
+    path: target/production_data.db # SQLFlow uses this exact path
+    memory_limit: 4GB
+variables:
+  run_id: "prod_$(date +%Y%m%d%H%M%S)" # Example: dynamic run_id for production
+  S3_BUCKET: "your-s3-data-bucket"
 ```
 
-- To use a specific profile during a pipeline run, use the `--profile` option:
-  `sqlflow pipeline run my_pipeline --profile production`
-- If no profile is specified, SQLFlow defaults to using the `dev` profile if `profiles/dev.yml` exists.
+## DuckDB: The Engine Behind SQLFlow's Flexibility
 
-## DuckDB Modes: Memory vs Persistent
+*   **Memory Mode (`mode: memory`):** Ideal for dev. Fast, ephemeral. No data saved post-run.
+*   **Persistent Mode (`mode: persistent`):** For prod. Data saved to disk at the `path` you set in your profile. All tables, including intermediate transforms, are persisted.
 
-SQLFlow's integrated DuckDB engine can operate in two distinct modes, configured within your active profile:
-
--   **Memory mode (`mode: memory`)**:
-    *   This is the default for the `dev` profile.
-    *   DuckDB runs entirely in-memory. Operations are very fast.
-    *   No data is written to disk; all tables (including transforms) are ephemeral and lost when the SQLFlow process exits.
-    *   Ideal for local development, testing, and scenarios where persistence is not required.
-    *   Example in profile:
-        ```yaml
-        engines:
-          duckdb:
-            mode: memory
-            memory_limit: 2GB
-        ```
-
--   **Persistent mode (`mode: persistent`)**:
-    *   Recommended for production environments or when data needs to be preserved.
-    *   DuckDB writes data to a specified database file on disk. SQLFlow will use the exact `path` you provide.
-    *   All tables created during the pipeline, including intermediate transform tables, are persisted in this file.
-    *   You must specify a `path` for the database file.
-    *   Example in profile:
-        ```yaml
-        engines:
-          duckdb:
-            mode: persistent
-            path: target/my_production_data.db # All tables will be saved here using this exact path.
-            memory_limit: 8GB
-        ```
-
-Switching between modes is as simple as changing the `mode` (and `path` for persistent) in your profile YAML and running your pipeline with that profile.
-
-Also, note that for each pipeline run, the specific run artifact directory `target/run/<pipeline_name>/` is cleared and recreated to ensure a clean state for execution logs and artifacts for that particular run.
-
-## SQLFlow SQL Syntax Reference
-
-SQLFlow uses a SQL-based DSL for defining data pipelines. Here's a quick reference:
-
-### Defining Data Sources
+## SQLFlow Syntax Highlights (Unified Workflow)
 
 ```sql
--- Define a CSV data source
-SOURCE sales TYPE CSV PARAMS {
-  "path": "data/sales.csv",
-  "has_header": true
+-- Define a PostgreSQL data SOURCE
+SOURCE customers_db TYPE POSTGRES PARAMS {
+  "connection_string": "${DB_CONN_VAR}",
+  "query": "SELECT id, name, signup_date FROM active_users"
 };
 
--- Define a PostgreSQL data source
-SOURCE customers TYPE POSTGRES PARAMS {
-  "connection_string": "${DB_CONN}",
-  "query": "SELECT * FROM customers"
-};
-```
+-- LOAD data into an SQLFlow table
+LOAD latest_customers FROM customers_db;
 
-### Loading Data
+-- TRANSFORM data using familiar SQL
+CREATE TABLE customer_cohorts AS
+SELECT
+  STRFTIME(signup_date, '%Y-%m') AS cohort_month,
+  COUNT(DISTINCT id) AS new_customers
+FROM latest_customers
+GROUP BY cohort_month;
 
-```sql
--- Load data from a source into a table
-LOAD target_table FROM source_name;
-```
-
-### Transformations
-
-```sql
--- Create a new table from a transformation
-CREATE TABLE enriched_data AS
-SELECT 
-  s.order_id,
-  s.customer_id,
-  c.name AS customer_name,
-  s.product_id,
-  p.name AS product_name,
-  s.quantity,
-  s.price,
-  (s.quantity * s.price) AS total_amount
-FROM sales s
-JOIN customers c ON s.customer_id = c.customer_id
-JOIN products p ON s.product_id = p.product_id;
-```
-
-### Exporting Data
-
-```sql
--- Export data to a file
+-- EXPORT results to S3
 EXPORT
-  SELECT * FROM summary_table
-TO "s3://bucket/path/file_${date}.parquet"
+  SELECT * FROM customer_cohorts
+TO "s3://${S3_BUCKET}/reports/customer_cohorts/"
 TYPE S3
-OPTIONS { 
-  "format": "parquet",
-  "compression": "snappy"
-};
-
--- Export data to a REST API
-EXPORT
-  SELECT * FROM notifications
-TO "https://api.example.com/endpoint"
-TYPE REST
-OPTIONS {
-  "method": "POST",
-  "headers": {
-    "Content-Type": "application/json",
-    "Authorization": "Bearer ${API_TOKEN}"
-  }
-};
+OPTIONS {"format": "parquet"};
 ```
 
-### Using Variables
+Use variables (`${VAR_NAME}`) from profiles or CLI (`--vars '{"VAR_NAME": "value"}'`).
 
-Variables can be injected at runtime:
+## Core Use Cases (MVP)
 
-```bash
-sqlflow pipeline run my_pipeline --vars '{"date": "2023-10-25", "API_TOKEN": "secret-token"}'
-```
+*   **SQL-Centric ETL/ELT:** For analysts and engineers who prefer SQL to manage the full data lifecycle from simple sources (CSVs, database queries) to transformed outputs.
+*   **Rapid Prototyping of Data Pipelines:** Quickly build and test data transformation logic with minimal setup and easy environment switching.
+*   **Automating Reporting Feeds:** Prepare and export datasets for BI tools or downstream systems using a clear, SQL-defined process.
 
-Or defined in your profile YAML under a `variables:` key. These profile variables can be overridden by `--vars`.
+## Vision & Next Steps (Beyond MVP)
+
+Our MVP focuses on delivering a solid SQL-native workflow foundation. The vision is to expand:
+*   **Connector Ecosystem:** Broader support for diverse data sources and destinations.
+*   **Advanced Orchestration:** Scheduling, incremental processing, and richer dependency management.
+*   **Data Quality & Testing:** Integrated mechanisms to ensure data reliability.
+
+We aim to keep SQLFlow lean, intuitive, and powerful for SQL practitioners.
+
+## Join Us & Shape SQLFlow
+
+SQLFlow is young and driven by community. As we build upon this MVP:
+
+*   ⭐ **Star us on GitHub!**
+*   💡 **Share Feedback & Ideas:** Open an issue for feature requests or improvements.
+*   🐞 **Report Bugs:** Help us stabilize and refine the MVP.
+*   (Future) **Contribute:** We'll be formalizing a `CONTRIBUTING.md` as the project matures, outlining how to contribute effectively.
 
 ## Documentation
 
-For more information, see the [documentation](https://sqlflow.readthedocs.io).
+(Coming Soon) Detailed documentation will be available as features are solidified.
 
 ## License
 
-MIT
+SQLFlow is released under the **Apache License 2.0**. See the [LICENSE](LICENSE) file for details. This license allows for broad use and contribution while providing a framework for governance and future development.
 
 ## FAQ
 
-**Q: Where do I configure DuckDB and other engine settings?**
-A: All engine settings, including DuckDB's mode (memory or persistent) and path (for persistent mode), are configured in your profile YAML files (e.g., `profiles/dev.yml`, `profiles/production.yml`) under the `engines` key. SQLFlow uses the exact `path` specified for persistent DuckDB files.
+**Q: How is SQLFlow different from dbt?**
+A: While both leverage SQL, SQLFlow aims to provide a more self-contained, lightweight engine for the *entire* load-transform-export workflow, especially for use cases where a simpler, SQL-native orchestration is preferred. dbt excels at complex in-warehouse transformations. SQLFlow integrates the "T" with "E" and "L" in a more direct, SQL-defined manner for its supported sources/sinks.
 
-**Q: How do I switch between memory and persistent DuckDB modes?**
-A: Edit the active profile's YAML file. For DuckDB:
-   - For in-memory mode (common for dev): Set `engines.duckdb.mode: memory`.
-   - For persistent mode (common for prod): Set `engines.duckdb.mode: persistent` and provide a `engines.duckdb.path: path/to/your/db_file.db`. SQLFlow will use this exact path.
-   Then, run your pipeline using that profile (e.g., `sqlflow pipeline run my_pipeline --profile your_profile_name`).
+**Q: DuckDB configuration (memory/persistent, path)?**
+A: In your profile YAML files (`profiles/*.yml`) under the `engines.duckdb` key. SQLFlow uses the exact `path` specified for persistent DuckDB files.
 
-**Q: How do I add new environments (e.g., staging)?**
-A: Create a new YAML file in your `profiles/` directory (e.g., `profiles/staging.yml`). Configure the desired engine settings, variables, and connectors within this file. Then, run your pipeline with `sqlflow pipeline run my_pipeline --profile staging`.
+**Q: Switching DuckDB modes?**
+A: Edit `mode` (and `path` for persistent) in the active profile. Run with `--profile your_profile`.
 
-**Q: Are transform tables saved when using DuckDB in persistent mode?**
-A: Yes. When DuckDB is configured in `persistent` mode in your active profile, all tables created during the pipeline execution, including intermediate transformation tables (e.g., from `CREATE TABLE ... AS SELECT ...` statements), are saved within the specified DuckDB database file.
+**Q: Adding new environments (e.g., `staging`)?**
+A: Create `profiles/staging.yml`. Configure as needed. Run with `--profile staging`.
+
+**Q: Are intermediate tables saved in persistent mode?**
+A: Yes. All tables from `CREATE TABLE ... AS SELECT ...` are saved in the DuckDB file, aiding debugging.
