@@ -834,24 +834,112 @@ class LocalExecutor(BaseExecutor):
         logger.debug("❌ %s", error_msg)
         return {"status": "failed", "error": error_msg}
 
+    def _substitute_variables(self, template: str) -> str:
+        """Substitute variables in the template string.
+
+        Args:
+            template: String with variables in ${var} or ${var|default} format
+
+        Returns:
+            String with variables substituted
+        """
+        import re
+
+        def replace_var(match):
+            var_expr = match.group(1)
+            if "|" in var_expr:
+                # Handle default value
+                var_name, default = var_expr.split("|", 1)
+                var_name = var_name.strip()
+                default = default.strip()
+
+                if hasattr(self, "profile") and hasattr(self.profile, "get"):
+                    profile_vars = self.profile.get("variables", {})
+                    if var_name in profile_vars:
+                        return str(profile_vars[var_name])
+
+                return default
+            else:
+                var_name = var_expr.strip()
+                if hasattr(self, "profile") and hasattr(self.profile, "get"):
+                    profile_vars = self.profile.get("variables", {})
+                    if var_name in profile_vars:
+                        return str(profile_vars[var_name])
+
+                return match.group(0)  # Keep the original if not found
+
+        return re.sub(r"\$\{([^}]+)\}", replace_var, template)
+
+    def _substitute_variables_in_dict(self, data: dict) -> dict:
+        """Substitute variables in a dictionary (recursively).
+
+        Args:
+            data: Dictionary potentially containing variables in values
+
+        Returns:
+            Dictionary with variables substituted in values
+        """
+        result = {}
+        for key, value in data.items():
+            if isinstance(value, dict):
+                result[key] = self._substitute_variables_in_dict(value)
+            elif isinstance(value, list):
+                result[key] = [
+                    (
+                        self._substitute_variables_in_dict(item)
+                        if isinstance(item, dict)
+                        else (
+                            self._substitute_variables(item)
+                            if isinstance(item, str)
+                            else item
+                        )
+                    )
+                    for item in value
+                ]
+            elif isinstance(value, str):
+                result[key] = self._substitute_variables(value)
+            else:
+                result[key] = value
+        return result
+
     def _invoke_export(self, step, data_chunk, source_table):
         connector_type = step["source_connector_type"]
         try:
+            original_destination = step["query"]["destination_uri"]
+            original_options = step["query"].get("options", {})
+
+            # Apply variable substitution to the destination URI
+            destination = self._substitute_variables(original_destination)
+
+            # Apply variable substitution to options if they're strings
+            options = self._substitute_variables_in_dict(original_options)
+
             logger.debug(
-                "Attempting to export to: %s", step["query"]["destination_uri"]
+                "Destination after variable substitution: %s -> %s",
+                original_destination,
+                destination,
             )
+
+            if options != original_options:
+                logger.debug(
+                    "Options after variable substitution: %s -> %s",
+                    original_options,
+                    options,
+                )
+
+            logger.debug("Attempting to export to: %s", destination)
             logger.debug("Using connector type: %s", connector_type)
-            logger.debug("With options: %s", step["query"].get("options", {}))
+            logger.debug("With options: %s", options)
             self.connector_engine.export_data(
                 data=data_chunk,
-                destination=step["query"]["destination_uri"],
+                destination=destination,
                 connector_type=connector_type,
-                options=step["query"].get("options", {}),
+                options=options,
             )
             logger.debug(
                 "✅ EXPORT SUCCESSFUL: %s to %s",
                 step["id"],
-                step["query"]["destination_uri"],
+                destination,
             )
             return {"status": "success"}
         except Exception as e:
