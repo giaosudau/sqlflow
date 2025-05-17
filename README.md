@@ -201,6 +201,14 @@ OPTIONS { "header": true };
 
 Variables can be defined in your profile configuration or passed at runtime.
 
+**Default Value Rules:**
+- You can specify a default value for a variable: `${var|default}`
+- **If the default value contains spaces, it must be quoted** (single or double quotes):
+  - ✅ `${region|"us east"}` (valid)
+  - ✅ `${region|'us east'}` (valid)
+  - ❌ `${region|us east}` (**invalid**, will cause a validation error)
+- Unquoted default values with spaces are not allowed and will cause a pipeline validation error.
+
 ## Vision & Next Steps (Beyond MVP)
 
 Our MVP focuses on delivering a solid SQL-native workflow foundation. The vision is to expand:

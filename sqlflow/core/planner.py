@@ -43,7 +43,9 @@ class ExecutionPlanBuilder:
     def _validate_variable_references(
         self, pipeline: Pipeline, variables: Dict[str, Any]
     ) -> None:
-        """Validate that all variable references in the pipeline exist in variables or have defaults."""
+        """Validate that all variable references in the pipeline exist in variables or have defaults.
+        Also checks that default values are valid (no unquoted spaces).
+        """
         referenced_vars = set()
         for step in pipeline.steps:
             if isinstance(step, ConditionalBlockStep):
@@ -58,17 +60,70 @@ class ExecutionPlanBuilder:
                 self._extract_variable_references(
                     json.dumps(step.params), referenced_vars
                 )
-        missing_vars = [
-            var
-            for var in referenced_vars
-            if var not in variables and not self._has_default_in_pipeline(var, pipeline)
-        ]
+        missing_vars = self._find_missing_vars(referenced_vars, variables, pipeline)
+        invalid_defaults = self._find_invalid_defaults(referenced_vars, pipeline)
         if missing_vars:
             error_msg = "Pipeline references undefined variables:\n" + "".join(
                 f"  - ${{{var}}} is used but not defined\n" for var in missing_vars
             )
             error_msg += "\nPlease define these variables using SET statements or provide them when running the pipeline."
             raise PlanningError(error_msg)
+        if invalid_defaults:
+            error_msg = (
+                "Invalid default values for variables (must not contain spaces unless quoted):\n"
+                + "".join(f"  - {expr}\n" for expr in invalid_defaults)
+            )
+            error_msg += (
+                '\nDefault values with spaces must be quoted, e.g. ${var|"us-east"}'
+            )
+            raise PlanningError(error_msg)
+
+    def _find_missing_vars(self, referenced_vars, variables, pipeline):
+        return [
+            var
+            for var in referenced_vars
+            if var not in variables and not self._has_default_in_pipeline(var, pipeline)
+        ]
+
+    def _find_invalid_defaults(self, referenced_vars, pipeline):
+        invalid_defaults = []
+        for var in referenced_vars:
+            if self._has_default_in_pipeline(var, pipeline):
+                var_with_default_pattern = (
+                    rf"\$\{{[ ]*{re.escape(var)}[ ]*\|([^{{}}]*)\}}"
+                )
+                for step in pipeline.steps:
+                    texts = self._get_texts_for_var_check(step)
+                    for text in texts:
+                        if not text:
+                            continue
+                        for match in re.finditer(var_with_default_pattern, text):
+                            default_val = match.group(1).strip()
+                            if self._is_invalid_default_value(default_val):
+                                invalid_defaults.append(f"${{{var}|{default_val}}}")
+        return invalid_defaults
+
+    def _get_texts_for_var_check(self, step):
+        texts = []
+        if isinstance(step, ExportStep):
+            texts.append(step.destination_uri)
+            texts.append(json.dumps(step.options))
+        elif isinstance(step, SourceDefinitionStep):
+            texts.append(json.dumps(step.params))
+        elif isinstance(step, ConditionalBlockStep):
+            for branch in step.branches:
+                texts.append(branch.condition)
+        return texts
+
+    def _is_invalid_default_value(self, default_val: str) -> bool:
+        """Return True if the default value is invalid (contains spaces and is not quoted)."""
+        if " " in default_val:
+            if (default_val.startswith('"') and default_val.endswith('"')) or (
+                default_val.startswith("'") and default_val.endswith("'")
+            ):
+                return False
+            return True
+        return False
 
     def _extract_variable_references(self, text: str, result: set) -> None:
         if not text:
