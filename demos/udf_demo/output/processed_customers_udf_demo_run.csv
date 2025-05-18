@@ -1,0 +1,6 @@
+id,formatted_name,email,email_domain,notes,note_word_count
+1,John Smith,john.smith@example.com,example.com,"Regular customer, prefers email contact",5
+2,Sarah Jones,sarah.j@company.org,company.org,"New customer, needs follow-up",4
+3,Michael Brown,mike@gmail.com,gmail.com,Premium member since 2020,4
+4,Alice Parker,alice.p@school.edu,school.edu,Student discount applied,3
+5,Robert Miller,robert@consultants.net,consultants.net,"Business account, multiple users ",4

@@ -10,13 +10,15 @@ udf_demo/
 │   ├── customers.csv        # Customer information
 │   └── sales.csv            # Sales transactions
 ├── pipelines/               # SQLFlow pipeline files
-│   ├── customer_text_processing.sf  # Pipeline using scalar UDFs
-│   └── sales_analysis.sf    # Pipeline using both scalar and table UDFs
+│   ├── customer_text_processing.sf  # Pipeline using scalar UDFs for text
+│   ├── sales_analysis.sf    # Pipeline using both scalar and table UDFs
+│   └── data_quality_check.sf # Pipeline for data quality checks
 ├── profiles/                # Environment configurations
 │   └── dev.yml              # Development environment settings
 └── python_udfs/             # Python UDF modules
     ├── text_utils.py        # Text processing UDFs
     └── data_transforms.py   # Data transformation UDFs
+└── test_udf_discovery.py    # Utility script to test UDF discovery
 ```
 
 ## UDFs Implemented
@@ -26,6 +28,7 @@ udf_demo/
 1. `capitalize_words`: Capitalizes each word in a string
 2. `extract_domain`: Extracts domain from an email address
 3. `count_words`: Counts the number of words in a text
+4. `is_valid_email`: Validates if a string is a properly formatted email address
 
 ### Scalar UDFs (Data Transforms)
 
@@ -35,39 +38,75 @@ udf_demo/
 ### Table UDFs
 
 1. `add_sales_metrics`: Adds calculated columns to a sales DataFrame (total, tax, final_price)
+2. `detect_outliers`: Identifies outliers in a numeric column using Z-score method
 
-## Running the Demo
+## CLI Commands for UDFs
+
+SQLFlow CLI provides commands to list and inspect UDFs:
 
 ```bash
-# Navigate to the SQLFlow project root
-cd sqlflow
-
-# List available UDFs
+# List all available UDFs
 sqlflow udf list
 
-# Get detailed info about a specific UDF
-sqlflow udf info text_utils.capitalize_words
-
-# Run the customer text processing pipeline
-sqlflow pipeline run customer_text_processing --profile dev
-
-# Run the sales analysis pipeline
-sqlflow pipeline run sales_analysis --profile dev
+# Get detailed information about a specific UDF
+sqlflow udf info python_udfs.text_utils.capitalize_words
 ```
 
-## Sample Output
+### Important Notes on UDF References
 
-After running the pipelines, check the output directory for generated CSV files:
+When referencing UDFs in SQL queries, you must use the fully qualified module name:
 
-- `processed_customers_udf_demo_run.csv`: Customers with processed text fields
-- `domain_summary_udf_demo_run.csv`: Summary of customer email domains
-- `sales_metrics_udf_demo_run.csv`: Sales data with calculated metrics
-- `customer_summary_udf_demo_run.csv`: Customer sales summary
+```sql
+-- Correct:
+PYTHON_FUNC("python_udfs.text_utils.capitalize_words", name)
 
-## Extending the Demo
+-- Incorrect:
+PYTHON_FUNC("text_utils.capitalize_words", name)
+```
 
-To add your own UDFs:
+## Verifying UDF Discovery
 
-1. Create a new Python file in the `python_udfs` directory
-2. Define functions and decorate them with `@python_scalar_udf` or `@python_table_udf`
-3. Use the UDFs in your SQLFlow pipelines with `PYTHON_FUNC("module.function", args...)` 
+The included test script helps verify that UDFs are properly discoverable by SQLFlow:
+
+```bash
+# Run the UDF discovery test script
+python test_udf_discovery.py
+```
+
+## Troubleshooting
+
+### Common Issues
+
+1. **UDF Not Found**: Make sure you're using the fully qualified module name in your SQL queries, including the `python_udfs` prefix.
+
+2. **Python Module Not Found**: Ensure your Python UDF file is in the `python_udfs` directory and contains properly decorated functions.
+
+3. **Pipeline Parsing Errors**: The current implementation may have specific requirements for UDF usage syntax. Check the examples in the pipeline files.
+
+4. **DuckDB Integration**: If you encounter errors with DuckDB registration, try simplifying your UDF arguments and return types.
+
+## Notes on UDF Usage
+
+### Scalar UDFs
+Scalar UDFs process one row at a time and are used in standard SQL expressions:
+
+```sql
+SELECT 
+  customer_id,
+  PYTHON_FUNC("python_udfs.text_utils.capitalize_words", name) AS formatted_name
+FROM customers;
+```
+
+### Table UDFs
+Table UDFs process an entire DataFrame and return a DataFrame. They're used in FROM clauses:
+
+```sql
+CREATE TABLE sales_with_metrics AS
+SELECT * 
+FROM PYTHON_FUNC("python_udfs.data_transforms.add_sales_metrics", sales_table);
+```
+
+### Performance Considerations
+- Scalar UDFs are called once per row, so they may be slower for large datasets
+- Table UDFs can leverage vectorized operations in pandas for better performance
+- For critical performance needs, consider pre-processing data before using UDFs 

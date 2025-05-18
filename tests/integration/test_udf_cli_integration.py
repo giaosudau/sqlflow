@@ -3,13 +3,14 @@
 import os
 import tempfile
 from pathlib import Path
+from typing import Any
 
 from typer.testing import CliRunner
 
 from sqlflow.cli.main import app
 
 
-def create_test_udf_file(udf_dir):
+def create_test_udf_file(udf_dir: str) -> Any:
     """Create a test UDF file with sample UDFs."""
     os.makedirs(udf_dir, exist_ok=True)
     udf_file = Path(udf_dir) / "test_udf.py"
@@ -38,7 +39,7 @@ def filter_rows(df: pd.DataFrame) -> pd.DataFrame:
     return udf_file
 
 
-def test_udf_list_command():
+def test_udf_list_command() -> None:
     """Test the 'sqlflow udf list' command with real UDFs."""
     runner = CliRunner()
 
@@ -70,7 +71,7 @@ def test_udf_list_command():
         )
 
 
-def test_udf_info_command():
+def test_udf_info_command() -> None:
     """Test the 'sqlflow udf info' command with real UDFs."""
     runner = CliRunner()
 
@@ -102,7 +103,7 @@ def test_udf_info_command():
         assert "Docstring: Add two numbers together" in result.stdout
 
 
-def test_udf_info_command_not_found():
+def test_udf_info_command_not_found() -> None:
     """Test the 'sqlflow udf info' command with a non-existent UDF."""
     runner = CliRunner()
 

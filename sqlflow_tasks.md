@@ -1990,4 +1990,152 @@ This document tracks the implementation status of Conditional Execution, Python 
 - Historical comparison helps identify trends
 - Export formats are compatible with monitoring tools
 - All tests passing with >90% coverage
+- Documentation explains available metrics and their usage
+
+### Task 2.16: Implement DuckDB Version Compatibility
+
+**Description:** Create a version-aware implementation for table UDF registration that works across different DuckDB versions (1.x and 2.x), providing a consistent user experience regardless of the underlying DuckDB version.
+
+**Files Impacted:**
+- `sqlflow/core/engines/duckdb_engine.py`
+
+**Subtasks:**
+1. Add DuckDB version detection at connection time
+2. Implement version-specific UDF registration logic for table functions
+3. Design fallback mechanisms for older DuckDB versions
+4. Create comprehensive error handling for version-specific API failures
+5. Add tests with different DuckDB version compatibility scenarios
+
+**Testing Requirements:**
+- Test UDF registration with multiple DuckDB versions (1.x and 2.x)
+- Test fallback mechanisms when preferred APIs are unavailable
+- Test error reporting under version compatibility issues
+- Verify consistent behavior across versions for identical UDFs
+
+**Definition of Done:**
+- SQLFlow works consistently with different DuckDB versions
+- Version detection and API selection is transparent to users
+- Error messages provide clear guidance when version incompatibilities occur
+- All tests pass with multiple DuckDB versions
+- Documentation includes version compatibility notes
+
+### Task 2.17: Optimize Type Mapping for UDFs
+
+**Description:** Enhance the type mapping between Python and DuckDB to improve UDF robustness and performance, addressing edge cases and ensuring precise type conversions.
+
+**Files Impacted:**
+- `sqlflow/core/engines/duckdb_engine.py`
+- `sqlflow/udfs/decorators.py`
+
+**Subtasks:**
+1. Create comprehensive type mapping between Python and DuckDB types
+2. Implement special handling for complex types (JSON, arrays, timestamps)
+3. Add proper handling for NULL values and NaN in numeric types
+4. Optimize DataFrame conversions for large tables
+5. Add validation for unsupported types with clear error messages
+
+**Testing Requirements:**
+- Test with various Python data types including dates, times, complex objects
+- Test edge cases like NaN, NULL, empty strings, and extreme values
+- Test performance with large datasets and type conversions
+- Verify error messages for unsupported type conversions
+
+**Definition of Done:**
+- Type conversions are reliable across all supported data types
+- Edge cases are handled gracefully with clear error messages
+- Large dataset performance is optimized for type conversions
+- All tests pass with comprehensive type coverage
+- Documentation includes type compatibility matrix
+
+### Task 2.18: Performance Profiling and Optimization
+
+**Description:** Profile UDF execution performance across various scenarios and implement optimizations to reduce overhead, particularly for table UDFs handling large datasets.
+
+**Files Impacted:**
+- `sqlflow/core/engines/duckdb_engine.py`
+- `sqlflow/udfs/decorators.py`
+- `sqlflow/core/executors/base_executor.py`
+
+**Subtasks:**
+1. Create benchmarking suite for UDF performance measurement
+2. Profile data transfer overhead between DuckDB and Python
+3. Implement chunking strategies for large DataFrame handling
+4. Add caching mechanisms for frequently called UDFs
+5. Optimize UDF registration to minimize overhead
+
+**Testing Requirements:**
+- Benchmark UDF performance with various dataset sizes
+- Compare optimized vs. unoptimized implementations
+- Test memory usage during large dataset processing
+- Verify correctness of optimized implementations
+
+**Definition of Done:**
+- Benchmarking shows measurable performance improvements
+- Large dataset handling is memory-efficient
+- Optimizations don't sacrifice UDF functionality or reliability
+- Documentation includes performance best practices
+- All tests pass with performance assertions
+
+### Task 3.1: Parser Updates for Load Modes
+
+**Description:** Extend the SQLFlow parser to support MODE parameter in LOAD and CREATE TABLE statements.
+
+**Files Impacted:**
+- `sqlflow/parser/lexer.py`
+- `sqlflow/parser/ast.py`
+- `sqlflow/parser/parser.py`
+
+**Subtasks:**
+1. Add new token types for MODE and related keywords (REPLACE, APPEND, MERGE)
+2. Extend AST node structure for LOAD directive to include mode information
+3. Update parser to recognize and parse mode syntax
+4. Add support for merge key specification for MERGE mode
+
+**Testing Requirements:**
+- Test parsing of LOAD statements with different modes
+- Test parsing of CREATE TABLE AS statements with modes
+- Test merge key specification syntax
+- Test error handling for invalid mode specifications
+- Test case insensitivity for mode keywords
+
+**Definition of Done:**
+- Parser correctly identifies and processes all mode types
+- AST representation includes mode and relevant parameters
+- Validation logic ensures required parameters (e.g., merge keys for MERGE mode)
+- All tests passing with >90% coverage
+- Code follows project style guidelines
+
+### Task 3.2: SQL Generator for Load Modes
+
+**Description:** Implement SQL generation strategies for different load modes in SQLEngine implementations.
+
+**Files Impacted:**
+- `sqlflow/core/engines/base.py`
+- `sqlflow/core/engines/duckdb_engine.py`
+- Other engine implementations
+
+**Subtasks:**
+1. Extend SQLEngine interface to support different load modes
+2. Implement REPLACE mode SQL generation (CREATE OR REPLACE TABLE)
+3. Implement APPEND mode SQL generation (INSERT INTO)
+4. Implement MERGE mode SQL generation (INSERT INTO ON CONFLICT DO UPDATE)
+5. Add transaction handling for modes that require it
+
+**Testing Requirements:**
+- Test SQL generation for each mode with various scenarios
+- Test transaction handling and atomicity
+- Test error handling for each mode
+- Test engine-specific optimizations
+- Test with edge cases (empty data, schema mismatches)
+
+**Definition of Done:**
+- Each mode generates correct SQL for its target engine
+- Operations are transactional where required
+- Generated SQL is optimized for the target engine
+- Error cases are properly handled
+- All tests passing with >90% coverage
+- Documentation updated to reflect implementation details
+
+### Task 3.3: Schema Compatibility Validation
+
 - Documentation explains available metrics and their usage 

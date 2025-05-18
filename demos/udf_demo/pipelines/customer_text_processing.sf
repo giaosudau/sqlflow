@@ -8,20 +8,20 @@ SOURCE customers TYPE CSV PARAMS {
 };
 
 -- Load customer data
-LOAD customers INTO raw_customers;
+LOAD raw_customers FROM customers;
 
 -- Use scalar UDFs to process text fields
 CREATE TABLE processed_customers AS
 SELECT
   id,
   -- Capitalize customer names
-  PYTHON_FUNC("text_utils.capitalize_words", name) AS formatted_name,
+  PYTHON_FUNC("python_udfs.text_utils.capitalize_words", name) AS formatted_name,
   email,
   -- Extract email domain
-  PYTHON_FUNC("text_utils.extract_domain", email) AS email_domain,
+  PYTHON_FUNC("python_udfs.text_utils.extract_domain", email) AS email_domain,
   notes,
   -- Count words in notes
-  PYTHON_FUNC("text_utils.count_words", notes) AS note_word_count
+  PYTHON_FUNC("python_udfs.text_utils.count_words", notes) AS note_word_count
 FROM raw_customers;
 
 -- Export results

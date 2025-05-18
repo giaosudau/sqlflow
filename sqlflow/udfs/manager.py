@@ -562,7 +562,7 @@ class PythonUDFManager:
             Set of UDF names referenced in the query
         """
         # Match PYTHON_FUNC("module.function", ...)
-        udf_pattern = r'PYTHON_FUNC\(\s*[\'"]([a-zA-Z0-9_\.]+)[\'"]'
+        udf_pattern = r"PYTHON_FUNC\s*\(\s*[\'\"]([a-zA-Z0-9_\.]+)[\'\"]"
         matches = re.findall(udf_pattern, sql)
 
         # Filter to only include discovered UDFs

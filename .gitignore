@@ -123,3 +123,6 @@ Thumbs.db
 
 # Linux
 .directory
+
+
+.cursor/

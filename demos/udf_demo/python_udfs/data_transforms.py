@@ -1,5 +1,6 @@
 """Data transformation UDFs for SQLFlow demo."""
 
+import numpy as np
 import pandas as pd
 
 from sqlflow.udfs import python_scalar_udf, python_table_udf
@@ -58,5 +59,40 @@ def add_sales_metrics(df: pd.DataFrame) -> pd.DataFrame:
 
         # Calculate final price
         result["final_price"] = result["total"] + result["tax"]
+
+    return result
+
+
+@python_table_udf
+def detect_outliers(df: pd.DataFrame, column_name: str = "price") -> pd.DataFrame:
+    """Detect outliers in a numeric column using Z-score method.
+
+    Args:
+        df: Input DataFrame
+        column_name: Name of numeric column to check for outliers, default is "price"
+
+    Returns:
+        DataFrame with outlier detection flags
+    """
+    result = df.copy()
+
+    if column_name in result.columns:
+        # Calculate Z-scores for selected column
+        mean = result[column_name].mean()
+        std = result[column_name].std()
+
+        if std > 0:  # Avoid division by zero
+            result["z_score"] = (result[column_name] - mean) / std
+
+            # Flag outliers (typically |z| > 3 indicates an outlier)
+            result["is_outlier"] = np.abs(result["z_score"]) > 3
+
+            # Add percentile information
+            result["percentile"] = result[column_name].rank(pct=True) * 100
+        else:
+            # Handle case where std=0 (all values are identical)
+            result["z_score"] = 0
+            result["is_outlier"] = False
+            result["percentile"] = 50  # All values at the same percentile
 
     return result

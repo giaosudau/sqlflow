@@ -567,115 +567,82 @@ class DuckDBEngine(SQLEngine):
             raise UDFRegistrationError(f"Failed to register table UDF {name}: {e}")
 
     def register_python_udf(self, name: str, function: Callable) -> None:
-        """Register a Python UDF with DuckDB.
-
-        Args:
-            name: Name to register the UDF as
-            function: Python function to register
-
-        Raises:
-            UDFRegistrationError: If registration fails
-        """
+        """Register a Python UDF with DuckDB using only the function name."""
         logger.info(f"Registering Python UDF: {name}")
 
-        try:
-            # Get the actual function if it's wrapped by the decorator
-            actual_function = getattr(function, "__wrapped__", function)
+        # Use only the last part of the name (function name)
+        flat_name = name.split(".")[-1]
 
-            # Determine the UDF type (scalar or table)
+        try:
+            actual_function = getattr(function, "__wrapped__", function)
             udf_type = getattr(function, "_udf_type", "scalar")
 
             if udf_type == "scalar":
-                # Get function annotations for type info
                 annotations = getattr(actual_function, "__annotations__", {})
                 return_type = annotations.get("return", None)
-
-                # Map Python types to DuckDB types
                 type_mapping = {
                     int: "INTEGER",
                     float: "DOUBLE",
                     str: "VARCHAR",
                     bool: "BOOLEAN",
                 }
-
                 if return_type and return_type in type_mapping:
-                    # If we have type annotations, use them
                     duckdb_return_type = type_mapping[return_type]
                     self.connection.create_function(
-                        name, actual_function, return_type=duckdb_return_type
+                        flat_name, actual_function, return_type=duckdb_return_type
                     )
                     logger.info(
-                        f"Registered scalar UDF: {name} with return type {duckdb_return_type}"
+                        f"Registered scalar UDF: {flat_name} with return type {duckdb_return_type}"
                     )
                 else:
-                    # Try to infer type or use generic type
                     try:
-                        # First try without specifying return type (newer DuckDB might infer)
-                        self.connection.create_function(name, actual_function)
+                        self.connection.create_function(flat_name, actual_function)
                         logger.info(
-                            f"Registered scalar UDF: {name} with inferred return type"
+                            f"Registered scalar UDF: {flat_name} with inferred return type"
                         )
                     except Exception as inner_e:
-                        # Fall back to explicit DOUBLE return type
                         logger.warning(
-                            f"Could not infer return type for {name}, using DOUBLE: {inner_e}"
+                            f"Could not infer return type for {flat_name}, using DOUBLE: {inner_e}"
                         )
                         self.connection.create_function(
-                            name, actual_function, return_type="DOUBLE"
+                            flat_name, actual_function, return_type="DOUBLE"
                         )
                         logger.info(
-                            f"Registered scalar UDF: {name} with default DOUBLE return type"
+                            f"Registered scalar UDF: {flat_name} with default DOUBLE return type"
                         )
-
-                # Store the function for later reference
-                self.registered_udfs[name] = actual_function
-
+                self.registered_udfs[flat_name] = actual_function
             elif udf_type == "table":
-                self._register_table_udf(name, actual_function)
+                self._register_table_udf(flat_name, actual_function)
             else:
                 raise UDFRegistrationError(f"Unknown UDF type: {udf_type}")
-
         except Exception as e:
             raise UDFRegistrationError(
-                f"Error registering Python UDF {name}: {str(e)}"
+                f"Error registering Python UDF {flat_name}: {str(e)}"
             ) from e
 
     def process_query_for_udfs(self, query: str, udfs: Dict[str, Callable]) -> str:
-        """Process a query to replace UDF references with DuckDB-specific syntax.
-
-        Args:
-            query: Original SQL query with UDF references
-            udfs: Dictionary of UDF names to functions
-
-        Returns:
-            Processed query with DuckDB-specific UDF references
-        """
+        """Process a query to replace UDF references with DuckDB-specific syntax using flat names."""
         logger.info("Processing query for UDF references")
-
-        # For each UDF in the query, register it with DuckDB if not already registered
+        name_map = {k: k.split(".")[-1] for k in udfs.keys()}
         for udf_name, udf_function in udfs.items():
-            if udf_name not in self.registered_udfs:
+            flat_name = udf_name.split(".")[-1]
+            if flat_name not in self.registered_udfs:
                 self.register_python_udf(udf_name, udf_function)
 
-        # Replace PYTHON_FUNC("udf_name", args) with udf_name(args)
         def replace_udf_call(match):
             udf_name = match.group(1)
             udf_args = match.group(2)
-
-            # Check if the UDF is registered
-            if udf_name in self.registered_udfs:
-                return f"{udf_name}({udf_args})"
+            flat_name = udf_name.split(".")[-1]
+            if flat_name in self.registered_udfs:
+                return f"{flat_name}({udf_args})"
             else:
-                # Keep the original if UDF not registered (will likely cause an error)
-                logger.warning(f"UDF {udf_name} referenced in query but not registered")
+                logger.warning(
+                    f"UDF {flat_name} referenced in query but not registered"
+                )
                 return match.group(0)
 
-        # Pattern to match PYTHON_FUNC("udf_name", args)
-        pattern = r'PYTHON_FUNC\(\s*[\'"]([a-zA-Z0-9_\.]+)[\'"]\s*,\s*(.*?)\)'
-
-        # Process the query
+        pattern = r"PYTHON_FUNC\s*\(\s*[\'\"]([a-zA-Z0-9_\.]+)[\'\"]\s*,\s*(.*?)\)"
         processed_query = re.sub(pattern, replace_udf_call, query)
-
         logger.info(f"Processed query: {processed_query}")
         return processed_query
 

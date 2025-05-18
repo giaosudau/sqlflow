@@ -685,7 +685,6 @@ class LocalExecutor(BaseExecutor):
 
     def _process_sql_for_udfs(self, sql: str) -> str:
         """Process SQL for UDF references."""
-        # Extract UDFs referenced in the query
         udfs = self.udf_manager.get_udfs_for_query(sql)
         if udfs:
             logger.info(f"Found {len(udfs)} UDF references in query")

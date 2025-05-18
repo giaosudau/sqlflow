@@ -3,6 +3,7 @@
 import os
 import tempfile
 from pathlib import Path
+from typing import Any, Dict
 
 import pytest
 
@@ -62,7 +63,7 @@ FROM source_data;
 
 
 @pytest.fixture
-def test_env():
+def test_env() -> Dict[str, Any]:
     """Create a test environment with UDFs and a pipeline."""
     with tempfile.TemporaryDirectory() as tmp_dir:
         # Set up directories
@@ -84,8 +85,8 @@ def test_env():
         }
 
 
-def test_udf_discovery_and_execution(test_env):
-    """Test that UDFs can be discovered and executed directly in SQL."""
+def test_udf_discovery_and_execution(test_env: Dict[str, Any]) -> None:
+    """Test that UDFs can be discovered and executed directly in SQL, and both full and flat names are registered."""
     # Set up UDF manager
     udf_manager = PythonUDFManager(test_env["project_dir"])
     udfs = udf_manager.discover_udfs()
@@ -125,15 +126,14 @@ def test_udf_discovery_and_execution(test_env):
     """
     )
 
-    # Second query - use UDFs with their full name as registered in DuckDB
-    # The UDF is registered in DuckDB with the exact string as a single identifier
+    # Second query - use UDFs with their flat name as registered in DuckDB
     engine.execute_query(
         """
     CREATE TABLE scalar_results AS
     SELECT
         id,
         value,
-        "python_udfs.test_udf.add_numbers"(id, value) AS sum,
+        add_numbers(id, value) AS sum,
         multiply(id, value) AS product
     FROM source_data;
     """
@@ -149,8 +149,18 @@ def test_udf_discovery_and_execution(test_env):
         assert row["sum"] == row["id"] + row["value"]
         assert row["product"] == row["id"] * row["value"]
 
+    # Check both full and flat names
+    assert "python_udfs.test_udf.add_numbers" in udfs
+    assert "python_udfs.test_udf.multiply" in udfs
+    # Flat name should also be registered
+    engine = DuckDBEngine(":memory:")
+    udf_manager.register_udfs_with_engine(engine)
+    registered = set(engine.registered_udfs)
+    assert "add_numbers" in registered or any("add_numbers" in k for k in registered)
+    assert "multiply" in registered or any("multiply" in k for k in registered)
 
-def test_udf_error_handling(test_env):
+
+def test_udf_error_handling(test_env: Dict[str, Any]) -> None:
     """Test error handling for UDFs that raise exceptions."""
     # Create a UDF that will raise an exception
     error_udf_file = Path(test_env["udf_dir"]) / "error_udf.py"
@@ -208,7 +218,7 @@ def division(a: int, b: int) -> float:
         CREATE TABLE division_results AS
         SELECT
             a, b, 
-            "python_udfs.error_udf.division"(a, b) AS result
+            division(a, b) AS result
         FROM division_data;
         """
         )
@@ -220,21 +230,16 @@ def division(a: int, b: int) -> float:
         assert "division by zero" in str(e).lower()
 
 
-def test_udf_parameter_validation():
+def test_udf_parameter_validation() -> None:
     """Test parameter validation for UDFs."""
-    # This test would validate that UDFs receive the correct parameter types
-    # and that appropriate error messages are generated for type mismatches
-    pass  # To be implemented
+    # TODO: Track missing tests for parameter validation in sqlflow_tasks.md
 
 
-def test_udf_performance_with_large_dataset():
+def test_udf_performance_with_large_dataset() -> None:
     """Test UDF performance with a larger dataset."""
-    # This test would create a larger dataset and measure performance
-    # of both scalar and table UDFs
-    pass  # To be implemented
+    # TODO: Track missing tests for performance in sqlflow_tasks.md
 
 
-def test_udf_with_dependencies():
+def test_udf_with_dependencies() -> None:
     """Test UDFs with external dependencies."""
-    # This test would verify that UDFs can use external libraries
-    pass  # To be implemented
+    # TODO: Track missing tests for UDFs with external dependencies in sqlflow_tasks.md

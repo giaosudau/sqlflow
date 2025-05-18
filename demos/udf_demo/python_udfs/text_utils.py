@@ -1,5 +1,7 @@
 """Text utility UDFs for SQLFlow demo."""
 
+import re
+
 from sqlflow.udfs import python_scalar_udf
 
 
@@ -46,3 +48,21 @@ def count_words(text: str) -> int:
     if text is None:
         return 0
     return len(text.split())
+
+
+@python_scalar_udf
+def is_valid_email(email: str) -> bool:
+    """Validate if a string is a properly formatted email address.
+
+    Args:
+        email: Email string to validate
+
+    Returns:
+        True if email is valid, False otherwise
+    """
+    if email is None:
+        return False
+
+    # Simple regex for email validation
+    pattern = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
+    return bool(re.match(pattern, email))

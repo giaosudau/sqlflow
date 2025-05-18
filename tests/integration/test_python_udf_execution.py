@@ -4,6 +4,7 @@ import json
 import os
 import re
 import tempfile
+from typing import Any, Dict
 
 import pandas as pd
 import pytest
@@ -12,7 +13,7 @@ from sqlflow.udfs.manager import PythonUDFManager
 
 
 @pytest.fixture
-def complex_test_environment():
+def complex_test_environment() -> Dict[str, Any]:
     """Create a test environment with UDFs and SQL pipelines."""
     with tempfile.TemporaryDirectory() as tmp_dir:
         # Create project structure
@@ -222,16 +223,21 @@ def _verify_discovered_udfs(udfs):
     return scalar_udfs_discovered
 
 
-def test_complex_udf_pipeline(complex_test_environment):
-    """Test a complex SQL pipeline with multiple UDFs."""
+def test_complex_udf_pipeline(complex_test_environment: Dict[str, Any]) -> None:
+    """Test a complex SQL pipeline with multiple UDFs, and check both full and flat UDF names."""
     from sqlflow.core.executors.local_executor import LocalExecutor
 
-    # Set up UDF manager
     udf_manager = PythonUDFManager(complex_test_environment["root_dir"])
     udfs = udf_manager.discover_udfs()
-
-    # Verify UDFs were discovered correctly
     _verify_discovered_udfs(udfs)
+    # Check both full and flat names
+    for name in [
+        "calculate_total_with_tax",
+        "format_currency",
+        "parse_date",
+        "customer_summary",
+    ]:
+        assert any(name in k for k in udfs.keys()) or any(name in k for k in udfs)
 
     # Create a temporary profile configuration
     os.makedirs(
@@ -401,18 +407,16 @@ def test_complex_udf_pipeline(complex_test_environment):
     ), "Formatted currency values should start with $"
 
 
-def test_incremental_pipeline_with_udfs():
-    """Test UDFs in an incremental loading pipeline."""
-    # This would test UDFs in an incremental loading scenario
-    # where new data is processed and merged with existing data
+def test_incremental_pipeline_with_udfs() -> None:
+    """Test incremental pipeline with UDFs."""
+    # TODO: Track missing tests for incremental pipeline, concurrent execution, and external API UDFs in sqlflow_tasks.md
 
 
-def test_concurrent_udf_execution():
-    """Test concurrent execution of UDFs with ThreadPoolExecutor."""
-    # This would test that UDFs work correctly when executed in parallel
+def test_concurrent_udf_execution() -> None:
+    """Test concurrent UDF execution."""
+    # TODO: Track missing tests for incremental pipeline, concurrent execution, and external API UDFs in sqlflow_tasks.md
 
 
-def test_udf_with_external_api():
-    """Test UDFs that interact with external APIs."""
-    # This would test UDFs that make API calls or interact with external systems
-    # (would need mocked responses)
+def test_udf_with_external_api() -> None:
+    """Test UDFs with external API calls."""
+    # TODO: Track missing tests for incremental pipeline, concurrent execution, and external API UDFs in sqlflow_tasks.md

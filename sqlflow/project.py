@@ -23,7 +23,6 @@ class Project:
         self.project_dir = project_dir
         self.profile_name = profile_name
         self.profile = self._load_profile(profile_name)
-        print(f"[SQLFlow] Loaded profile: {profile_name}")
         logger.info(f"Loaded profile: {profile_name}")
 
     def _load_profile(self, profile_name: str) -> Dict[str, Any]:
@@ -36,15 +35,12 @@ class Project:
         """
         profiles_dir = os.path.join(self.project_dir, "profiles")
         profile_path = os.path.join(profiles_dir, f"{profile_name}.yml")
-        print(f"[SQLFlow] Loading profile from: {profile_path}")
         logger.info(f"Loading profile from: {profile_path}")
         if not os.path.exists(profile_path):
-            print(f"[SQLFlow] Profile not found at {profile_path}")
             logger.warning(f"Profile not found at {profile_path}")
             return {}
         with open(profile_path, "r") as f:
             profile = yaml.safe_load(f)
-            print(f"[SQLFlow] Loaded profile configuration: {profile}")
             logger.info(f"Loaded profile configuration: {profile}")
             return profile or {}
 
@@ -87,8 +83,8 @@ class Project:
         Returns:
             New Project instance
         """
-        print(
-            f"DEBUG: Initializing new project at {project_dir} with name {project_name}"
+        logger.debug(
+            f"Initializing new project at {project_dir} with name {project_name}"
         )
         os.makedirs(os.path.join(project_dir, "pipelines"), exist_ok=True)
         os.makedirs(os.path.join(project_dir, "models"), exist_ok=True)
@@ -110,11 +106,11 @@ class Project:
         profiles_dir = os.path.join(project_dir, "profiles")
         os.makedirs(profiles_dir, exist_ok=True)
         profile_path = os.path.join(profiles_dir, "dev.yml")
-        print(f"DEBUG: Writing initial dev profile to {profile_path}")
+        logger.debug(f"Writing initial dev profile to {profile_path}")
         with open(profile_path, "w") as f:
             yaml.dump(default_profile, f, default_flow_style=False)
 
-        print("DEBUG: Project initialization complete.")
+        logger.debug("Project initialization complete.")
         return Project(project_dir)
 
     def get_config(self) -> Dict[str, Any]:

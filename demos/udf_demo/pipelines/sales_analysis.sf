@@ -14,8 +14,8 @@ SOURCE customers TYPE CSV PARAMS {
 };
 
 -- Load data
-LOAD sales INTO raw_sales;
-LOAD customers INTO raw_customers;
+LOAD raw_sales FROM sales;
+LOAD raw_customers FROM customers;
 
 -- Use scalar UDFs for price calculations
 CREATE TABLE price_variants AS
@@ -25,11 +25,11 @@ SELECT
   product,
   price AS original_price,
   -- Apply tax at default rate (10%)
-  PYTHON_FUNC("data_transforms.calculate_tax", price) AS price_with_tax,
+  PYTHON_FUNC("python_udfs.data_transforms.calculate_tax", price) AS price_with_tax,
   -- Apply tax at custom rate (8%)
-  PYTHON_FUNC("data_transforms.calculate_tax", price, 0.08) AS price_with_custom_tax,
+  PYTHON_FUNC("python_udfs.data_transforms.calculate_tax", price, 0.08) AS price_with_custom_tax,
   -- Apply a 15% discount
-  PYTHON_FUNC("data_transforms.apply_discount", price, 15) AS discounted_price,
+  PYTHON_FUNC("python_udfs.data_transforms.apply_discount", price, 15) AS discounted_price,
   quantity,
   date
 FROM raw_sales;
@@ -37,15 +37,13 @@ FROM raw_sales;
 -- Use table UDF to add calculated columns to the entire dataset
 CREATE TABLE sales_with_metrics AS
 SELECT * 
-FROM (
-  SELECT * FROM PYTHON_FUNC("data_transforms.add_sales_metrics", price_variants)
-);
+FROM PYTHON_FUNC("python_udfs.data_transforms.add_sales_metrics", price_variants);
 
 -- Join with customer data 
 CREATE TABLE customer_sales AS
 SELECT
   s.id AS sale_id,
-  PYTHON_FUNC("text_utils.capitalize_words", c.name) AS customer_name,
+  PYTHON_FUNC("python_udfs.text_utils.capitalize_words", c.name) AS customer_name,
   s.product,
   s.original_price,
   s.price_with_tax,
