@@ -41,11 +41,16 @@ repos:
         ]
         require_serial: true
 
-    -   id: python-tests
-        name: Run Python Tests
-        entry: bash -c 'pip install -e ".[test]" && python -m pytest'
+    -   id: pytest
+        name: pytest
+        entry: pytest
         language: python
         types: [python]
+        args: [
+            '-q',
+            '--maxfail=1',
+            '--disable-warnings'
+        ]
         pass_filenames: false
         always_run: true
         require_serial: true
