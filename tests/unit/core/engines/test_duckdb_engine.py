@@ -125,7 +125,7 @@ def test_register_table_udf():
             assert len(result) == 3
             assert "doubled" in result.columns
             assert list(result["doubled"]) == [2, 4, 6]
-        except Exception as e:
+        except Exception:
             # Some versions of DuckDB might not support table functions this way
             # Just check that the registration didn't fail
             pass
@@ -142,13 +142,13 @@ def test_supports_feature():
     engine = DuckDBEngine(":memory:")
 
     # Check UDF support
-    assert engine.supports_feature("python_udfs") == True
+    assert engine.supports_feature("python_udfs") is True
 
     # Check some other features
-    assert engine.supports_feature("arrow") == True
+    assert engine.supports_feature("arrow") is True
 
     # Check non-existent feature
-    assert engine.supports_feature("non_existent_feature") == False
+    assert engine.supports_feature("non_existent_feature") is False
 
     # Cleanup
     engine.close()

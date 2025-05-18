@@ -23,7 +23,6 @@ class SQLEngine(ABC):
             config: Engine configuration from the profile
             profile_variables: Variables defined in the profile
         """
-        pass
 
     @abstractmethod
     def execute_query(self, query: str) -> Any:
@@ -35,7 +34,6 @@ class SQLEngine(ABC):
         Returns:
             Query result object (engine-specific)
         """
-        pass
 
     @abstractmethod
     def create_temp_table(self, name: str, data: Any) -> None:
@@ -45,7 +43,6 @@ class SQLEngine(ABC):
             name: Name of the temporary table
             data: Data to insert into the table
         """
-        pass
 
     @abstractmethod
     def register_arrow(self, table_name: str, arrow_table: pa.Table) -> None:
@@ -55,7 +52,6 @@ class SQLEngine(ABC):
             table_name: Name to register the table as
             arrow_table: PyArrow table to register
         """
-        pass
 
     @abstractmethod
     def register_python_udf(self, name: str, function: Callable) -> None:
@@ -65,7 +61,6 @@ class SQLEngine(ABC):
             name: Name to register the UDF as
             function: Python function to register
         """
-        pass
 
     @abstractmethod
     def process_query_for_udfs(self, query: str, udfs: Dict[str, Callable]) -> str:
@@ -78,7 +73,6 @@ class SQLEngine(ABC):
         Returns:
             Processed query with engine-specific UDF references
         """
-        pass
 
     @abstractmethod
     def supports_feature(self, feature: str) -> bool:
@@ -90,7 +84,6 @@ class SQLEngine(ABC):
         Returns:
             True if the feature is supported, False otherwise
         """
-        pass
 
     @abstractmethod
     def table_exists(self, table_name: str) -> bool:
@@ -102,7 +95,6 @@ class SQLEngine(ABC):
         Returns:
             True if the table exists, False otherwise
         """
-        pass
 
     @abstractmethod
     def get_table_schema(self, table_name: str) -> Dict[str, str]:
@@ -114,9 +106,7 @@ class SQLEngine(ABC):
         Returns:
             Dict mapping column names to their types
         """
-        pass
 
     @abstractmethod
     def close(self) -> None:
         """Close the connection to the engine."""
-        pass

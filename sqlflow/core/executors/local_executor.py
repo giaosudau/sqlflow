@@ -33,7 +33,7 @@ class LocalExecutor(BaseExecutor):
         """
         # Initialize base executor
         super().__init__()
-        
+
         self.project = Project(project_dir or os.getcwd(), profile_name=profile_name)
         self.profile = self.project.get_profile()
         self.profile_name = profile_name
@@ -1183,10 +1183,14 @@ class LocalExecutor(BaseExecutor):
                 # The UDF manager will discover UDFs during execution
                 logger.info(f"Reloading UDFs after including {file_path}")
                 self.discover_udfs()
-                
+
                 # Log all discovered UDFs after including this file
-                logger.info(f"Current UDFs after include: {list(self.discovered_udfs.keys())}")
-                logger.info(f"Now have {len(self.discovered_udfs)} total UDFs available")
+                logger.info(
+                    f"Current UDFs after include: {list(self.discovered_udfs.keys())}"
+                )
+                logger.info(
+                    f"Now have {len(self.discovered_udfs)} total UDFs available"
+                )
 
                 return {"status": "success"}
 
