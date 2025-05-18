@@ -492,6 +492,8 @@ This document tracks the implementation status of Conditional Execution, Python 
 - The test passes reliably in the CI/CD environment.
 - The test serves as a robust example of end-to-end UDF functionality.
 
+**Progress Update:** Improved compatibility in test files with updated UDF registration approach. The test now includes better error handling and UDF discovery through the refactored UDF manager. This prepares the groundwork for completing the complex UDF integration test.
+
 ### Task 2.9: Enhance UDF Unit Testing (Table UDFs & Engine)
 
 **Description:** Augment unit tests for table UDF decorators and DuckDB engine registration to cover more edge cases, signature variations, and error conditions, ensuring higher reliability.
