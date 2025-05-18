@@ -137,6 +137,3 @@ def test_udf_info():
         assert "UDF: test_module.sample_double" in result.stdout
         assert "Type: scalar" in result.stdout
         assert "Signature: (x: float) -> float" in result.stdout
-
-
-
