@@ -251,3 +251,35 @@ A: Create `profiles/staging.yml`. Configure as needed. Run with `--profile stagi
 
 **Q: Are intermediate tables saved in persistent mode?**
 A: Yes. All tables from `CREATE TABLE ... AS SELECT ...` are saved in the DuckDB file, aiding debugging.
+
+## Python UDF Support in SQLFlow
+
+SQLFlow supports Python User-Defined Functions (UDFs) for both scalar and table operations, enabling advanced data transformations directly in your SQL pipelines. UDFs are discovered from the `python_udfs/` directory and can be referenced in SQL using fully qualified names.
+
+- **Scalar UDF Example:**
+  ```python
+  from sqlflow.udfs.decorators import python_scalar_udf
+
+  @python_scalar_udf
+  def add_one(x: int) -> int:
+      return x + 1
+  ```
+  ```sql
+  SELECT id, PYTHON_FUNC("python_udfs.my_module.add_one", value) AS value_plus_one FROM my_table;
+  ```
+
+- **Table UDF Example:**
+  ```python
+  from sqlflow.udfs.decorators import python_table_udf
+  import pandas as pd
+
+  @python_table_udf
+  def enrich(df: pd.DataFrame) -> pd.DataFrame:
+      df["enriched"] = df["value"] * 2
+      return df
+  ```
+  ```sql
+  CREATE TABLE enriched AS SELECT * FROM PYTHON_FUNC("python_udfs.my_module.enrich", my_table);
+  ```
+
+See [docs/python_udfs.md](docs/python_udfs.md) for full details, best practices, and troubleshooting.
