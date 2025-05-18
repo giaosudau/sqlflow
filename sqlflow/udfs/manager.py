@@ -22,6 +22,39 @@ class UDFDiscoveryError(Exception):
     """Error raised during UDF discovery process."""
 
 
+class UDFExecutionError(Exception):
+    """Error raised during UDF execution.
+
+    This exception captures the context of the UDF execution (UDF name, query context)
+    and wraps the original exception to provide better diagnostics.
+    """
+
+    def __init__(
+        self, udf_name: str, original_error: Exception, sql_context: str = None
+    ):
+        """Initialize UDFExecutionError.
+
+        Args:
+            udf_name: Name of the UDF that raised the error
+            original_error: Original exception from the UDF execution
+            sql_context: Optional SQL context where the UDF was called
+        """
+        self.udf_name = udf_name
+        self.original_error = original_error
+        self.sql_context = sql_context
+
+        # Create detailed error message
+        message = (
+            f"Error executing UDF '{udf_name}': {str(original_error)}\n"
+            f"Original traceback: {traceback.format_exc()}"
+        )
+
+        if sql_context:
+            message += f"\nSQL context: {sql_context}"
+
+        super().__init__(message)
+
+
 class PythonUDFManager:
     """Manages discovery and registration of Python UDFs for SQLFlow.
 
@@ -274,50 +307,125 @@ class PythonUDFManager:
             import_time: Timestamp for discovery time
         """
         try:
-            spec = importlib.util.spec_from_file_location(module_name, py_file)
-            if spec is None or spec.loader is None:
-                error_msg = f"Failed to load spec for {py_file}"
-                logger.warning(error_msg)
-                self.discovery_errors[py_file] = error_msg
-                return
+            # Load the module
+            module = self._load_module(module_name, py_file)
+            if module is None:
+                return  # Module loading failed, error already logged
 
-            module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
+            # Track if we found any UDFs in this module
+            udfs_found = False
 
             # Collect functions decorated with @python_scalar_udf or @python_table_udf
             for name, func in inspect.getmembers(module, inspect.isfunction):
                 if hasattr(func, "_is_sqlflow_udf"):
-                    try:
-                        # Extract metadata
-                        metadata = self._extract_udf_metadata(
-                            func, module_name, name, py_file
-                        )
+                    udfs_found = True
+                    self._process_udf(
+                        func, module_name, name, py_file, udfs, import_time
+                    )
 
-                        # Set discovery time
-                        metadata["discovery_time"] = import_time
-
-                        # Get full UDF name
-                        udf_name = metadata["full_name"]
-
-                        # Store UDF and metadata
-                        udfs[udf_name] = func
-                        self.udf_info[udf_name] = metadata
-
-                        logger.info(f"Discovered UDF: {udf_name} ({metadata['type']})")
-                    except Exception as e:
-                        logger.error(
-                            f"Error processing UDF {name} in {py_file}: {str(e)}"
-                        )
-                        self.discovery_errors[f"{py_file}:{name}"] = (
-                            f"Error processing UDF: {str(e)}"
-                        )
+            # If no UDFs were found, log a helpful message
+            if not udfs_found:
+                logger.info(
+                    f"No SQLFlow UDFs found in {py_file}. "
+                    f"Make sure functions are decorated with @python_scalar_udf or @python_table_udf."
+                )
 
         except Exception as e:
             error_msg = (
-                f"Error loading UDFs from {py_file}: {str(e)}\n{traceback.format_exc()}"
+                f"Unexpected error loading UDFs from {py_file}: {str(e)}\n"
+                f"This is likely an internal SQLFlow error and should be reported.\n"
+                f"Original traceback: {traceback.format_exc()}"
             )
             logger.error(error_msg)
             self.discovery_errors[py_file] = error_msg
+
+    def _load_module(self, module_name: str, py_file: str) -> Optional[Any]:
+        """Load a Python module from a file.
+
+        Args:
+            module_name: Name of the module
+            py_file: Path to Python file
+
+        Returns:
+            Loaded module or None if loading failed
+        """
+        try:
+            spec = importlib.util.spec_from_file_location(module_name, py_file)
+            if spec is None or spec.loader is None:
+                error_msg = f"Failed to load module spec for {py_file}. Please check if the file exists and is a valid Python module."
+                logger.warning(error_msg)
+                self.discovery_errors[py_file] = error_msg
+                return None
+
+            module = importlib.util.module_from_spec(spec)
+            try:
+                spec.loader.exec_module(module)
+                return module
+            except Exception as import_error:
+                error_msg = (
+                    f"Failed to import module {module_name} from {py_file}: {str(import_error)}\n"
+                    f"This might be due to syntax errors or missing dependencies in your UDF file.\n"
+                    f"Original error: {traceback.format_exc()}"
+                )
+                logger.error(error_msg)
+                self.discovery_errors[py_file] = error_msg
+                return None
+        except Exception as e:
+            error_msg = f"Error loading module {module_name} from {py_file}: {str(e)}"
+            logger.error(error_msg)
+            self.discovery_errors[py_file] = error_msg
+            return None
+
+    def _process_udf(
+        self,
+        func: Callable,
+        module_name: str,
+        name: str,
+        py_file: str,
+        udfs: Dict[str, Callable],
+        import_time: str,
+    ) -> None:
+        """Process a single UDF function.
+
+        Args:
+            func: UDF function
+            module_name: Name of the module
+            name: Function name
+            py_file: Path to Python file
+            udfs: Dictionary to store discovered UDFs
+            import_time: Timestamp for discovery time
+        """
+        try:
+            # Extract metadata
+            metadata = self._extract_udf_metadata(func, module_name, name, py_file)
+
+            # Set discovery time
+            metadata["discovery_time"] = import_time
+
+            # Get full UDF name
+            udf_name = metadata["full_name"]
+
+            # Store UDF and metadata
+            udfs[udf_name] = func
+            self.udf_info[udf_name] = metadata
+
+            # Validate UDF metadata and log warnings if needed
+            validation_warnings = self.validate_udf_metadata(udf_name)
+            if validation_warnings:
+                warning_msg = f"Discovered UDF {udf_name} has validation warnings: {', '.join(validation_warnings)}"
+                logger.warning(warning_msg)
+                # Store warnings but don't treat as fatal errors
+                self.discovery_errors[f"{py_file}:{name}:warnings"] = warning_msg
+
+            logger.info(f"Discovered UDF: {udf_name} ({metadata['type']})")
+        except Exception as e:
+            detailed_error = (
+                f"Error processing UDF {name} in {py_file}: {str(e)}\n"
+                f"This may be due to invalid decorator usage or signature issues.\n"
+                f"Original traceback: {traceback.format_exc()}"
+            )
+            logger.error(detailed_error)
+            self.discovery_errors[f"{py_file}:{name}"] = detailed_error
 
     def discover_udfs(  # noqa: C901
         self, python_udfs_dir: str = "python_udfs", strict: bool = False
@@ -468,24 +576,90 @@ class PythonUDFManager:
         Args:
             engine: SQLFlow engine instance
             udf_names: Optional list of UDF names to register. If None, registers all.
+
+        Returns:
+            A tuple of (successful_udfs, failed_udfs) where each is a dictionary mapping
+            UDF names to success messages or error messages respectively.
         """
+        successful_udfs = {}
+        failed_udfs = {}
+
         if not hasattr(engine, "register_python_udf"):
-            logger.warning(
+            error_msg = (
                 f"Engine {engine.__class__.__name__} does not support UDF registration"
             )
-            return
+            logger.warning(error_msg)
+            return successful_udfs, {"engine_unsupported": error_msg}
 
         names_to_register = udf_names or list(self.udfs.keys())
+
+        if not names_to_register:
+            logger.warning("No UDFs to register with engine")
+            return successful_udfs, {}
+
+        logger.info(
+            f"Registering {len(names_to_register)} UDFs with {engine.__class__.__name__}"
+        )
 
         for name in names_to_register:
             if name in self.udfs:
                 try:
+                    # Validate UDF before registration
+                    validation_warnings = self.validate_udf_metadata(name)
+                    if validation_warnings:
+                        # Log warnings but continue with registration
+                        warning_msg = f"UDF {name} has validation warnings: {', '.join(validation_warnings)}"
+                        logger.warning(warning_msg)
+
+                    # Get UDF metadata for better error reporting
+                    udf_metadata = self.udf_info.get(name, {})
+                    udf_type = udf_metadata.get("type", "unknown")
+
+                    # Attempt registration
                     engine.register_python_udf(name, self.udfs[name])
-                    logger.debug(f"Registered UDF {name} with engine")
+
+                    # Registration successful
+                    success_msg = (
+                        f"Successfully registered {udf_type} UDF {name} with engine"
+                    )
+                    logger.info(success_msg)
+                    successful_udfs[name] = success_msg
+
                 except Exception as e:
-                    logger.error(f"Failed to register UDF {name}: {str(e)}")
+                    # Registration failed
+                    error_details = traceback.format_exc()
+
+                    # Create detailed error message with troubleshooting hints
+                    error_msg = (
+                        f"Failed to register UDF {name} with engine: {str(e)}\n"
+                        f"This might be due to:\n"
+                        f"1. Invalid UDF signature or parameter types\n"
+                        f"2. Incompatible return type\n"
+                        f"3. Engine compatibility issues\n"
+                        f"Original error: {error_details}"
+                    )
+
+                    logger.error(error_msg)
+                    failed_udfs[name] = error_msg
             else:
-                logger.warning(f"UDF {name} not found, skipping registration")
+                error_msg = (
+                    f"UDF {name} not found in registry. "
+                    f"Make sure it was properly discovered during initialization."
+                )
+                logger.warning(error_msg)
+                failed_udfs[name] = error_msg
+
+        # Log summary of registration
+        if successful_udfs:
+            logger.info(
+                f"Successfully registered {len(successful_udfs)} UDFs with engine"
+            )
+
+        # Only log a summary of failures if there are any, don't make a second error log call
+        if failed_udfs:
+            logger.warning(f"Failed to register {len(failed_udfs)} UDFs with engine")
+
+        return successful_udfs, failed_udfs
 
     def get_udfs_for_query(self, sql: str) -> Dict[str, Callable]:
         """Get UDFs referenced in a query.
