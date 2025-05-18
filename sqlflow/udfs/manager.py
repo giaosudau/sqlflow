@@ -141,8 +141,9 @@ class PythonUDFManager:
         annotation = ""
         if param.annotation is not inspect.Parameter.empty:
             # Special handling for DataFrame
-            if (param.annotation is pd.DataFrame or
-                str(param.annotation).endswith("DataFrame")):
+            if param.annotation is pd.DataFrame or str(param.annotation).endswith(
+                "DataFrame"
+            ):
                 annotation = ": DataFrame"
             elif hasattr(param.annotation, "__name__"):
                 annotation = f": {param.annotation.__name__}"
@@ -161,33 +162,34 @@ class PythonUDFManager:
 
     def _format_signature(self, func: Callable) -> str:  # noqa: C901
         """Format a function signature in a user-friendly way.
-        
+
         Args:
             func: Function to format signature for
-            
+
         Returns:
             Formatted signature string
         """
         try:
             sig = inspect.signature(func)
             params = []
-            
+
             # Format each parameter using helper method
             for name, param in sig.parameters.items():
                 params.append(self._format_param(name, param))
-            
+
             # Handle return annotation
             return_annotation = ""
             if sig.return_annotation is not inspect.Parameter.empty:
                 # Special handling for DataFrame
-                if (sig.return_annotation is pd.DataFrame or
-                    str(sig.return_annotation).endswith("DataFrame")):
+                if sig.return_annotation is pd.DataFrame or str(
+                    sig.return_annotation
+                ).endswith("DataFrame"):
                     return_annotation = " -> DataFrame"
                 elif hasattr(sig.return_annotation, "__name__"):
                     return_annotation = f" -> {sig.return_annotation.__name__}"
                 else:
                     return_annotation = f" -> {str(sig.return_annotation)}"
-            
+
             return f"({', '.join(params)}){return_annotation}"
         except Exception as e:
             logger.warning(f"Error formatting signature for {func.__name__}: {str(e)}")
@@ -256,10 +258,15 @@ class PythonUDFManager:
                 "discovery_time": None,
             }
 
-    def _process_udf_module(self, module_name: str, py_file: str, udfs: Dict[str, Callable], 
-                            import_time: str) -> None:
+    def _process_udf_module(
+        self,
+        module_name: str,
+        py_file: str,
+        udfs: Dict[str, Callable],
+        import_time: str,
+    ) -> None:
         """Process a Python module to discover UDFs.
-        
+
         Args:
             module_name: Name of the module
             py_file: Path to Python file
@@ -285,26 +292,30 @@ class PythonUDFManager:
                         metadata = self._extract_udf_metadata(
                             func, module_name, name, py_file
                         )
-                        
+
                         # Set discovery time
                         metadata["discovery_time"] = import_time
-                        
+
                         # Get full UDF name
                         udf_name = metadata["full_name"]
-                        
+
                         # Store UDF and metadata
                         udfs[udf_name] = func
                         self.udf_info[udf_name] = metadata
 
-                        logger.info(
-                            f"Discovered UDF: {udf_name} ({metadata['type']})"
-                        )
+                        logger.info(f"Discovered UDF: {udf_name} ({metadata['type']})")
                     except Exception as e:
-                        logger.error(f"Error processing UDF {name} in {py_file}: {str(e)}")
-                        self.discovery_errors[f"{py_file}:{name}"] = f"Error processing UDF: {str(e)}"
+                        logger.error(
+                            f"Error processing UDF {name} in {py_file}: {str(e)}"
+                        )
+                        self.discovery_errors[f"{py_file}:{name}"] = (
+                            f"Error processing UDF: {str(e)}"
+                        )
 
         except Exception as e:
-            error_msg = f"Error loading UDFs from {py_file}: {str(e)}\n{traceback.format_exc()}"
+            error_msg = (
+                f"Error loading UDFs from {py_file}: {str(e)}\n{traceback.format_exc()}"
+            )
             logger.error(error_msg)
             self.discovery_errors[py_file] = error_msg
 
@@ -323,7 +334,7 @@ class PythonUDFManager:
 
         Returns:
             Dictionary of UDF name to function
-            
+
         Raises:
             UDFDiscoveryError: If the UDF directory doesn't exist and strict=True
         """
@@ -339,12 +350,12 @@ class PythonUDFManager:
                 raise UDFDiscoveryError(error_msg)
             return udfs
 
-        import_time = __import__('datetime').datetime.now().isoformat()
-        
+        import_time = __import__("datetime").datetime.now().isoformat()
+
         for py_file in glob.glob(f"{udf_dir}/**/*.py", recursive=True):
             # Generate a module name that correctly reflects subdirectory structure
             module_name = self._extract_module_name(py_file, python_udfs_dir)
-            
+
             # Process the module to find UDFs
             self._process_udf_module(module_name, py_file, udfs, import_time)
 
