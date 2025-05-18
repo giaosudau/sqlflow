@@ -1,0 +1,16 @@
+product_id,name,category,price,quantity
+1,Laptop,Electronics,1200.00,10
+2,Smartphone,Electronics,800.00,25
+3,Tablet,Electronics,500.00,15
+4,Headphones,Electronics,150.00,50
+5,Smart Watch,Electronics,250.00,20
+6,T-shirt,Clothing,25.00,100
+7,Jeans,Clothing,60.00,75
+8,Sneakers,Footwear,80.00,40
+9,Boots,Footwear,120.00,30
+10,Sandals,Footwear,40.00,60
+11,Coffee Maker,Home,90.00,15
+12,Blender,Home,70.00,20
+13,Toaster,Home,45.00,25
+14,Microwave,Home,150.00,10
+15,Refrigerator,Home,1000.00,5 
