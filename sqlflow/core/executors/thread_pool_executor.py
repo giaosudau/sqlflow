@@ -26,6 +26,7 @@ class ThreadPoolTaskExecutor(BaseExecutor):
         run_id: Optional[str] = None,
         max_retries: int = 3,
         retry_delay: float = 1.0,
+        project_dir: Optional[str] = None,
     ):
         """Initialize a ThreadPoolTaskExecutor.
 
@@ -37,7 +38,11 @@ class ThreadPoolTaskExecutor(BaseExecutor):
                     Defaults to a generated UUID.
             max_retries: Maximum number of retries for failed tasks.
             retry_delay: Delay in seconds between retries.
+            project_dir: Project directory for UDF discovery.
         """
+        # Initialize base executor (UDF manager)
+        super().__init__()
+
         self.max_workers = max_workers or os.cpu_count()
         self.task_statuses: Dict[str, TaskStatus] = {}
         self.results: Dict[str, Any] = {}
@@ -51,11 +56,16 @@ class ThreadPoolTaskExecutor(BaseExecutor):
         self.retry_delay = retry_delay
         self.original_plan: List[Dict[str, Any]] = []
 
+        # Discover UDFs if project_dir is provided
+        if project_dir:
+            self.discover_udfs(project_dir)
+
     def execute(
         self,
         plan: List[Dict[str, Any]],
         dependency_resolver: Optional[DependencyResolver] = None,
         resume: bool = False,
+        project_dir: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Execute a pipeline plan concurrently.
 
@@ -63,6 +73,7 @@ class ThreadPoolTaskExecutor(BaseExecutor):
             plan: List of operations to execute
             dependency_resolver: Optional DependencyResolver to cross-check execution order
             resume: Whether to resume from a previous execution
+            project_dir: Project directory for UDF discovery
 
         Returns:
             Dict containing execution results
@@ -70,6 +81,12 @@ class ThreadPoolTaskExecutor(BaseExecutor):
         self.results = {}
         self.dependency_resolver = dependency_resolver
         self.original_plan = plan.copy()
+
+        # Ensure UDFs are discovered
+        if project_dir:
+            self.discover_udfs(project_dir)
+        elif not self.discovered_udfs:
+            self.discover_udfs()
 
         self._check_execution_order(plan, dependency_resolver)
         self._initialize_execution_state(plan, resume)
@@ -320,6 +337,37 @@ class ThreadPoolTaskExecutor(BaseExecutor):
         Returns:
             Dict containing execution results
         """
+        step_id = step.get("id", "unknown")
+        step_type = step.get("type", "unknown")
+
+        logger.info(f"Executing step {step_id} of type {step_type}")
+
+        # For SQL-based steps, check if they reference UDFs
+        if step_type in ["transform", "query"] and "query" in step:
+            # Get the SQL query
+            sql_query = step["query"]
+            if isinstance(sql_query, str):
+                # Extract UDFs referenced in the query
+                udfs = self.get_udfs_for_query(sql_query)
+                if udfs:
+                    logger.info(f"Found {len(udfs)} UDF references in step {step_id}")
+
+        # In practice, this executor would implement different step types
+        # For now, we just return success to indicate that the step was "executed"
+        # In a real implementation, you would delegate to specific handlers for each step type
+
+        # Sample implementation for special INCLUDE steps that affect UDFs
+        if step_type == "INCLUDE" and step.get("file_path", "").endswith(".py"):
+            try:
+                # For Python files, trigger rediscovery of UDFs
+                logger.info(f"Including Python file for UDFs: {step['file_path']}")
+                self.discover_udfs()
+                logger.info(f"Now have {len(self.discovered_udfs)} UDFs available")
+                return {"status": "success"}
+            except Exception as e:
+                logger.error(f"Error including Python file: {e}")
+                return {"status": "failed", "error": str(e)}
+
         return {"status": "success"}
 
     def can_resume(self) -> bool:
