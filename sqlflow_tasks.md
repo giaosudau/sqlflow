@@ -27,7 +27,7 @@ This document tracks the implementation status of Conditional Execution, Python 
 | [Task 2.1](#task-21-udf-infrastructure) | UDF Infrastructure | ⬜ NOT STARTED | |
 | [Task 2.2](#task-22-engine-integration-for-udfs) | Engine Integration for UDFs | ⬜ NOT STARTED | |
 | [Task 2.3](#task-23-executor-integration-for-udf-orchestration) | Executor Integration for UDF Orchestration | ⬜ NOT STARTED | |
-| [Task 2.4](#task-24-cli-support-for-udfs) | CLI Support for UDFs | ⬜ NOT STARTED | |
+| [Task 2.4](#task-24-cli-support-for-udfs) | CLI Support for UDFs | ✅ COMPLETED | |
 | [Task 2.5](#task-25-documentation-for-python-udfs) | Documentation for Python UDFs | ⬜ NOT STARTED | |
 
 ### Epic 3: Enhanced Load Controls (MODE Parameter)
@@ -336,22 +336,22 @@ This document tracks the implementation status of Conditional Execution, Python 
 - `sqlflow/cli/main.py`
 
 **Subtasks:**
-1. Create UDF command module with list and info commands
-2. Update main.py to include UDF commands
-3. Update CLI help output
+1. Create UDF command module with list and info commands ✅
+2. Update main.py to include UDF commands ✅
+3. Update CLI help output ✅
 
 **Testing Requirements:**
-- Test `udf list` command with various project structures
-- Test `udf info` command with valid and invalid UDF names
-- Verify help text is displayed correctly
-- Test CLI handling of errors
+- Test `udf list` command with various project structures ✅
+- Test `udf info` command with valid and invalid UDF names ✅
+- Verify help text is displayed correctly ✅
+- Test CLI handling of errors ✅
 
 **Definition of Done:**
-- CLI correctly discovers and lists UDFs
-- UDF details are displayed in readable format
-- All CLI commands have proper help text
-- Commands handle errors gracefully
-- All tests passing with >90% coverage
+- CLI correctly discovers and lists UDFs ✅
+- UDF details are displayed in readable format ✅
+- All CLI commands have proper help text ✅
+- Commands handle errors gracefully ✅
+- All tests passing with >90% coverage ✅
 
 ### Task 2.5: Documentation for Python UDFs
 

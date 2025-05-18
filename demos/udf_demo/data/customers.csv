@@ -1,0 +1,6 @@
+id,name,email,notes
+1,john smith,john.smith@example.com,"Regular customer, prefers email contact"
+2,sarah jones,sarah.j@company.org,"New customer, needs follow-up"
+3,michael brown,mike@gmail.com,"Premium member since 2020"
+4,alice parker,alice.p@school.edu,"Student discount applied"
+5,robert miller,robert@consultants.net,"Business account, multiple users" 

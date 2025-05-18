@@ -1,0 +1,6 @@
+engines:
+  duckdb:
+    mode: memory
+    memory_limit: 1GB
+variables:
+  run_id: "dev_run" 

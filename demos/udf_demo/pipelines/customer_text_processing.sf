@@ -1,0 +1,48 @@
+-- Customer Text Processing Pipeline
+-- Demonstrates scalar UDFs for text processing
+
+-- Source customer data
+SOURCE customers TYPE CSV PARAMS {
+  "path": "data/customers.csv",
+  "has_header": true
+};
+
+-- Load customer data
+LOAD customers INTO raw_customers;
+
+-- Use scalar UDFs to process text fields
+CREATE TABLE processed_customers AS
+SELECT
+  id,
+  -- Capitalize customer names
+  PYTHON_FUNC("text_utils.capitalize_words", name) AS formatted_name,
+  email,
+  -- Extract email domain
+  PYTHON_FUNC("text_utils.extract_domain", email) AS email_domain,
+  notes,
+  -- Count words in notes
+  PYTHON_FUNC("text_utils.count_words", notes) AS note_word_count
+FROM raw_customers;
+
+-- Export results
+EXPORT
+  SELECT * FROM processed_customers
+TO "${output_dir}/processed_customers_${run_id}.csv"
+TYPE CSV
+OPTIONS { "header": true };
+
+-- Create domain summary
+CREATE TABLE domain_summary AS
+SELECT
+  email_domain,
+  COUNT(*) AS customer_count
+FROM processed_customers
+GROUP BY email_domain
+ORDER BY customer_count DESC;
+
+-- Export domain summary
+EXPORT
+  SELECT * FROM domain_summary
+TO "${output_dir}/domain_summary_${run_id}.csv"
+TYPE CSV
+OPTIONS { "header": true }; 
