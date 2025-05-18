@@ -4,8 +4,10 @@ import os
 import tempfile
 from unittest import mock
 
+import pytest
+
 from sqlflow.udfs.decorators import python_scalar_udf
-from sqlflow.udfs.manager import PythonUDFManager
+from sqlflow.udfs.manager import PythonUDFManager, UDFDiscoveryError
 
 
 def test_init_default_project_dir():
@@ -28,7 +30,14 @@ def test_discover_udfs_directory_not_found():
     with tempfile.TemporaryDirectory() as temp_dir:
         manager = PythonUDFManager(project_dir=temp_dir)
         # No python_udfs directory exists
-        result = manager.discover_udfs()
+        with pytest.raises(UDFDiscoveryError):
+            manager.discover_udfs(strict=True)
+
+        # Check that error was recorded
+        assert "directory_not_found" in manager.discovery_errors
+
+        # Test non-strict mode
+        result = manager.discover_udfs(strict=False)
         assert result == {}
 
 

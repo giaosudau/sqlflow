@@ -55,10 +55,19 @@ def test_udf_list_command():
         # Verify command was successful
         assert result.exit_code == 0
 
-        # Verify all UDFs are listed in the output
-        assert "python_udfs.test_udf.add_numbers (scalar)" in result.stdout
-        assert "python_udfs.test_udf.multiply (scalar)" in result.stdout
-        assert "python_udfs.test_udf.filter_rows (table)" in result.stdout
+        # Verify all UDFs are listed in the output with correct format
+        assert (
+            "python_udfs.test_udf.add_numbers (scalar): Add two numbers together"
+            in result.stdout
+        )
+        assert (
+            "python_udfs.test_udf.multiply (scalar): Multiply two numbers together"
+            in result.stdout
+        )
+        assert (
+            "python_udfs.test_udf.filter_rows (table): Filter rows where value > 5"
+            in result.stdout
+        )
 
 
 def test_udf_info_command():
@@ -86,11 +95,11 @@ def test_udf_info_command():
         # Verify command was successful
         assert result.exit_code == 0
 
-        # Verify UDF information is displayed correctly
+        # Verify UDF information is displayed correctly with correct format
         assert "UDF: python_udfs.test_udf.add_numbers" in result.stdout
         assert "Type: scalar" in result.stdout
-        assert "Add two numbers together" in result.stdout
-        assert "PYTHON_FUNC" in result.stdout
+        assert "Signature: (a: int, b: int) -> int" in result.stdout
+        assert "Docstring: Add two numbers together" in result.stdout
 
 
 def test_udf_info_command_not_found():

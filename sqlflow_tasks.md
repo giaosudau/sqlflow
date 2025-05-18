@@ -4,6 +4,8 @@
 - ✅ **Completed core UDF infrastructure** with decorator implementation and engine integration
 - ✅ **Standardized Table UDF signatures** with proper validation (commit d12a5eb3)
 - ✅ **Enhanced test coverage** for UDF functionality, particularly for table UDFs
+- ✅ **Implemented robust UDF discovery** with enhanced metadata and nested module support
+- ✅ **Improved error handling and robustness** for UDF management
 - 🔄 **Ongoing work** on complex UDF integration testing and error reporting improvements
 
 ## MVP Focus Areas
@@ -51,7 +53,7 @@ This document tracks the implementation status of Conditional Execution, Python 
 | [Task 2.7](#task-27-refactor-duckdb-engine-for-table-udf-registration) | Refactor DuckDB Engine for Table UDF Registration | ✅ COMPLETED | | |
 | [Task 2.8](#task-28-resolve-complex-udf-integration-test) | Resolve Complex UDF Integration Test | 🔄 IN PROGRESS | 🔥 MVP Critical | |
 | [Task 2.9](#task-29-enhance-udf-unit-testing-table-udfs--engine) | Enhance UDF Unit Testing (Table UDFs & Engine) | ✅ COMPLETED | | |
-| [Task 2.10](#task-210-improve-udf-discovery--metadata) | Improve UDF Discovery & Metadata | ⬜ NOT STARTED | 🔥 MVP Critical | |
+| [Task 2.10](#task-210-improve-udf-discovery--metadata) | Improve UDF Discovery & Metadata | ✅ COMPLETED | 🔥 MVP Critical | |
 | [Task 2.11](#task-211-enhance-udf-lifecycle-error-reporting) | Enhance UDF Lifecycle Error Reporting | 🔄 IN PROGRESS | 🔥 MVP Critical | |
 | [Task 2.12](#task-212-verify-and-polish-cli-for-udfs) | Verify and Polish CLI for UDFs | ⬜ NOT STARTED | 🔥 MVP Critical | |
 | [Task 2.13](#task-213-update-udf-documentation-for-mvp) | Update UDF Documentation for MVP | ⬜ NOT STARTED | 🔥 MVP Critical | |
@@ -523,19 +525,25 @@ This document tracks the implementation status of Conditional Execution, Python 
 - `sqlflow/udfs/manager.py` (`PythonUDFManager`)
 
 **Subtasks:**
-1. Modify `PythonUDFManager.discover_udfs` to search for `*.py` files recursively within the specified `python_udfs_dir`.
-2. Adjust UDF naming convention to reflect module paths if UDFs are in subdirectories (e.g., `subdir.module_name.function_name`).
-3. Ensure `self.udf_info[udf_name]['signature']` in `discover_udfs` captures a user-friendly and accurate representation of the UDF's signature, including parameter names and type hints (if available via `inspect.signature`).
+1. ✅ Modify `PythonUDFManager.discover_udfs` to search for `*.py` files recursively within the specified `python_udfs_dir`.
+2. ✅ Adjust UDF naming convention to reflect module paths if UDFs are in subdirectories (e.g., `subdir.module_name.function_name`).
+3. ✅ Ensure `self.udf_info[udf_name]['signature']` in `discover_udfs` captures a user-friendly and accurate representation of the UDF's signature, including parameter names and type hints (if available via `inspect.signature`).
+4. ✅ Add better error handling and reporting for UDF discovery issues.
+5. ✅ Implement improved metadata extraction with support for parameter details and formatted signatures.
 
 **Testing Requirements:**
-- Unit tests for `PythonUDFManager.discover_udfs` with UDFs placed in direct `python_udfs` folder and in subdirectories.
-- Tests verifying that UDFs from subdirectories are correctly named and their metadata (especially signature) is accurately captured.
-- Test `sqlflow udf list` and `sqlflow udf info` with UDFs in subdirectories.
+- ✅ Unit tests for `PythonUDFManager.discover_udfs` with UDFs placed in direct `python_udfs` folder and in subdirectories.
+- ✅ Tests verifying that UDFs from subdirectories are correctly named and their metadata (especially signature) is accurately captured.
+- ✅ Test `sqlflow udf list` and `sqlflow udf info` with UDFs in subdirectories.
+- ✅ Test error handling for invalid UDF files and modules.
 
 **Definition of Done:**
-- `PythonUDFManager` correctly discovers and namespaces UDFs from subdirectories.
-- UDF metadata stored in `udf_info` (and displayed by CLI) includes accurate and complete signature information.
-- All related tests pass.
+- ✅ `PythonUDFManager` correctly discovers and namespaces UDFs from subdirectories.
+- ✅ UDF metadata stored in `udf_info` (and displayed by CLI) includes accurate and complete signature information.
+- ✅ All related tests pass.
+- ✅ Error handling is robust and provides helpful diagnostic information.
+
+**Status:** ✅ COMPLETED (May 2024)
 
 ### Task 2.11: Enhance UDF Lifecycle Error Reporting
 

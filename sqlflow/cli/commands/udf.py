@@ -4,9 +4,12 @@ from typing import Optional
 
 import typer
 from rich.console import Console
+from rich.markdown import Markdown
+from rich.panel import Panel
 from rich.table import Table
+from rich.text import Text
 
-from sqlflow.udfs.manager import PythonUDFManager
+from sqlflow.udfs.manager import PythonUDFManager, UDFDiscoveryError
 
 app = typer.Typer(help="Manage Python UDFs")
 console = Console()
@@ -17,138 +20,73 @@ def list_udfs(
     project_dir: Optional[str] = typer.Option(
         None, "--project-dir", "-p", help="Project directory"
     ),
+    verbose: bool = typer.Option(
+        False, "--verbose", "-v", help="Show detailed information"
+    ),
     plain: bool = typer.Option(
         False, "--plain", help="Use plain text output (for testing)"
     ),
 ):
-    """List available Python UDFs in the project."""
-    project_dir = project_dir or "."
-    udf_manager = PythonUDFManager(project_dir)
-    udfs = udf_manager.discover_udfs()
-
-    if not udfs:
-        console.print("No Python UDFs found in the project.")
-        return
-
-    # For testing, use plain text output
-    if plain:
-        for udf_name, udf_func in udfs.items():
-            udf_type = getattr(udf_func, "_udf_type", "unknown")
-            doc = udf_func.__doc__ or ""
-            description = doc.strip().split("\n")[0] if doc else ""
-            console.print(f"{udf_name} ({udf_type}): {description}")
-        return
-
-    # Normal rich table output
-    table = Table(title="Python UDFs")
-    table.add_column("Name", style="cyan")
-    table.add_column("Type", style="green")
-    table.add_column("Signature", style="yellow")
-    table.add_column("Description", style="white")
-
-    udf_info_list = []
-    for udf_name, udf_func in udfs.items():
-        udf_type = getattr(udf_func, "_udf_type", "unknown")
-        signature = str(getattr(udf_func, "__annotations__", {}))
-        doc = udf_func.__doc__ or ""
-
-        # Get first line of docstring as description
-        description = doc.strip().split("\n")[0] if doc else ""
-
-        udf_info_list.append(
-            {
-                "name": udf_name,
-                "type": udf_type,
-                "signature": signature,
-                "description": description,
-            }
-        )
-
-    # Sort by name for consistent output
-    for udf_info in sorted(udf_info_list, key=lambda x: x["name"]):
-        table.add_row(
-            udf_info["name"],
-            udf_info["type"],
-            udf_info["signature"],
-            udf_info["description"],
-        )
-
-    console.print(table)
-
-
-def _print_udf_not_found(udf_name: str, udfs: dict, plain: bool):
-    """Print message when UDF is not found and suggest alternatives."""
-    console.print(f"UDF '{udf_name}' not found.")
-
-    # Suggest similar UDFs if available
-    import difflib
-
-    matches = difflib.get_close_matches(udf_name, udfs.keys(), n=3, cutoff=0.6)
-    if matches:
-        console.print("\nDid you mean one of these?")
-        for match in matches:
-            if plain:
-                console.print(f"  {match}")
-            else:
-                console.print(f"  [cyan]{match}[/cyan]")
-
-
-def _format_udf_signature(udf_func):
-    """Format the signature of a UDF for display."""
-    signature = str(getattr(udf_func, "__annotations__", {}))
-
-    # Better format the signature for display
+    """List available Python UDFs."""
     try:
-        import inspect
+        manager = PythonUDFManager(project_dir=project_dir)
+        manager.discover_udfs()
+        udfs = manager.list_udfs()
 
-        signature = str(inspect.signature(udf_func))
-    except Exception:
-        # Fallback to simpler signature if inspect fails
-        pass
+        if not udfs:
+            if plain:
+                print("No Python UDFs found in the project")
+            else:
+                console.print("[yellow]No Python UDFs found in the project[/yellow]")
+            return
 
-    return signature
+        if plain:
+            for udf in udfs:
+                print(
+                    f"{udf['full_name']} (scalar): {udf['docstring_summary']}" if udf['type'] == 'scalar' else f"{udf['full_name']} (table): {udf['docstring_summary']}"
+                )
+        else:
+            table = Table(title="Python UDFs")
 
+            # Use improved column structure with better information
+            table.add_column("Name", style="green")
+            table.add_column("Type", style="blue")
+            table.add_column("Signature", style="cyan")
+            table.add_column("Summary", style="yellow")
+            table.add_column("Module", style="magenta")
 
-def _print_udf_info_plain(udf_name: str, udf_func, signature: str, doc: str):
-    """Print UDF info in plain text format."""
-    udf_type = getattr(udf_func, "_udf_type", "unknown")
+            for udf in sorted(udfs, key=lambda u: u["full_name"]):
+                # Use formatted signature for better readability
+                signature = udf.get("formatted_signature", udf.get("signature", ""))
 
-    console.print(f"UDF: {udf_name}")
-    console.print(f"Type: {udf_type}")
-    console.print(f"Signature: {signature}")
+                # Get a clean summary
+                summary = udf.get("docstring_summary", "").strip()
 
-    if doc:
-        console.print("\nDescription:")
-        console.print(doc)
+                table.add_row(
+                    udf["name"], udf["type"], signature, summary, udf["module"]
+                )
 
-    console.print("\nUsage in SQL:")
-    if udf_type == "scalar":
-        console.print(
-            f'SELECT PYTHON_FUNC("{udf_name}", column1, column2) FROM table_name;'
-        )
-    elif udf_type == "table":
-        console.print(f'SELECT * FROM PYTHON_FUNC("{udf_name}", table_name);')
+            console.print(table)
 
+            # Show discovery errors if any
+            errors = manager.get_discovery_errors()
+            if errors:
+                console.print("\n[bold red]Discovery Errors:[/bold red]")
+                error_table = Table(show_header=True)
+                error_table.add_column("File", style="red")
+                error_table.add_column("Error", style="red")
 
-def _print_udf_info_rich(udf_name: str, udf_func, signature: str, doc: str):
-    """Print UDF info with rich formatting."""
-    udf_type = getattr(udf_func, "_udf_type", "unknown")
+                for file_path, error_msg in errors.items():
+                    short_msg = error_msg.split("\n")[0]  # First line only for brevity
+                    error_table.add_row(file_path, short_msg)
 
-    console.print(f"[bold cyan]UDF:[/bold cyan] {udf_name}")
-    console.print(f"[bold green]Type:[/bold green] {udf_type}")
-    console.print(f"[bold yellow]Signature:[/bold yellow] {signature}")
+                console.print(error_table)
 
-    if doc:
-        console.print("\n[bold]Description:[/bold]")
-        console.print(doc)
-
-    console.print("\n[bold]Usage in SQL:[/bold]")
-    if udf_type == "scalar":
-        console.print(
-            f'SELECT PYTHON_FUNC("{udf_name}", column1, column2) FROM table_name;'
-        )
-    elif udf_type == "table":
-        console.print(f'SELECT * FROM PYTHON_FUNC("{udf_name}", table_name);')
+    except UDFDiscoveryError as e:
+        if plain:
+            print(f"Error: {str(e)}")
+        else:
+            console.print(f"[bold red]Error:[/bold red] {str(e)}")
 
 
 @app.command("info")
@@ -161,24 +99,215 @@ def udf_info(
         False, "--plain", help="Use plain text output (for testing)"
     ),
 ):
-    """Show detailed information about a specific UDF."""
-    project_dir = project_dir or "."
-    udf_manager = PythonUDFManager(project_dir)
-    udfs = udf_manager.discover_udfs()
+    """Show detailed information about a Python UDF."""
+    try:
+        manager = PythonUDFManager(project_dir=project_dir)
+        manager.discover_udfs()
 
-    if not udfs:
-        console.print("No Python UDFs found in the project.")
-        return
+        # Get UDF information
+        udf_info = manager.get_udf_info(udf_name)
 
-    if udf_name not in udfs:
-        _print_udf_not_found(udf_name, udfs, plain)
-        return
+        if not udf_info:
+            if plain:
+                print(f"UDF '{udf_name}' not found")
+            else:
+                console.print(f"[bold red]UDF '{udf_name}' not found[/bold red]")
+            return
 
-    udf_func = udfs[udf_name]
-    signature = _format_udf_signature(udf_func)
-    doc = udf_func.__doc__ or ""
+        if plain:
+            print(f"UDF: {udf_info['full_name']}")
+            print(f"Type: {udf_info['type']}")
+            print(f"File: {udf_info['file_path']}")
+            print(
+                f"Signature: {udf_info.get('formatted_signature', udf_info.get('signature', ''))}"
+            )
+            print(f"Docstring: {udf_info['docstring']}")
 
-    if plain:
-        _print_udf_info_plain(udf_name, udf_func, signature, doc)
-    else:
-        _print_udf_info_rich(udf_name, udf_func, signature, doc)
+            # Print parameter details
+            if "param_details" in udf_info:
+                print("\nParameters:")
+                for name, details in udf_info["param_details"].items():
+                    param_type = details.get("type", "Any")
+                    default = (
+                        f" = {details['default']}" if details.get("has_default") else ""
+                    )
+                    print(f"  - {name}: {param_type}{default}")
+
+            # Print required columns for table UDFs
+            if udf_info["type"] == "table" and "required_columns" in udf_info:
+                req_cols = ", ".join(udf_info["required_columns"])
+                print(f"\nRequired Columns: {req_cols}")
+
+            # Print validation warnings
+            warnings = manager.validate_udf_metadata(udf_name)
+            if warnings:
+                print("\nValidation Warnings:")
+                for warning in warnings:
+                    print(f"  - {warning}")
+        else:
+            # Rich panel with detailed UDF information
+            title = f"[bold green]{udf_info['name']}[/bold green] ([blue]{udf_info['type']}[/blue])"
+
+            content = []
+            content.append(f"[bold]Full Name:[/bold] {udf_info['full_name']}")
+            content.append(f"[bold]File:[/bold] {udf_info['file_path']}")
+            content.append(
+                f"[bold]Signature:[/bold] {udf_info.get('formatted_signature', udf_info.get('signature', ''))}"
+            )
+
+            if "docstring" in udf_info and udf_info["docstring"]:
+                # Format docstring as markdown for better display
+                content.append("\n[bold]Description:[/bold]")
+                doc_md = Markdown(udf_info["docstring"])
+                content.append(doc_md)
+
+            # Parameter details section with a table
+            if "param_details" in udf_info:
+                content.append("\n[bold]Parameters:[/bold]")
+                param_table = Table(show_header=True, box=None)
+                param_table.add_column("Name", style="cyan")
+                param_table.add_column("Type", style="blue")
+                param_table.add_column("Default", style="yellow")
+                param_table.add_column("Description", style="green")
+
+                for name, details in udf_info["param_details"].items():
+                    param_type = details.get("type", "Any")
+                    default = (
+                        str(details["default"]) if details.get("has_default") else "-"
+                    )
+
+                    # Try to extract parameter description from docstring
+                    description = "-"
+                    if udf_info["docstring"]:
+                        import re
+
+                        # Look for parameter in docstring (assumes format like "name: description")
+                        param_pattern = rf"{name}:\s*(.+?)(?:\n\s+\w+:|$)"
+                        param_match = re.search(
+                            param_pattern, udf_info["docstring"], re.DOTALL
+                        )
+                        if param_match:
+                            description = param_match.group(1).strip()
+
+                    param_table.add_row(name, param_type, default, description)
+
+                content.append(param_table)
+
+            # Required columns for table UDFs
+            if udf_info["type"] == "table" and "required_columns" in udf_info:
+                content.append("\n[bold]Required Columns:[/bold]")
+                req_cols = ", ".join(
+                    f"[cyan]{col}[/cyan]" for col in udf_info["required_columns"]
+                )
+                content.append(Text.from_markup(req_cols))
+
+            # Validation warnings
+            warnings = manager.validate_udf_metadata(udf_name)
+            if warnings:
+                content.append("\n[bold red]Validation Warnings:[/bold red]")
+                for warning in warnings:
+                    content.append(f"[red]• {warning}[/red]")
+
+            # Render the panel with all content
+            panel = Panel.fit(
+                "\n".join(str(item) for item in content),
+                title=title,
+                border_style="green",
+            )
+            console.print(panel)
+
+    except UDFDiscoveryError as e:
+        if plain:
+            print(f"Error: {str(e)}")
+        else:
+            console.print(f"[bold red]Error:[/bold red] {str(e)}")
+
+
+@app.command("validate")
+def validate_udfs(
+    project_dir: Optional[str] = typer.Option(
+        None, "--project-dir", "-p", help="Project directory"
+    ),
+    plain: bool = typer.Option(
+        False, "--plain", help="Use plain text output (for testing)"
+    ),
+):
+    """Validate all UDFs in the project."""
+    try:
+        manager = PythonUDFManager(project_dir=project_dir)
+        manager.discover_udfs()
+        udfs = manager.list_udfs()
+
+        if not udfs:
+            if plain:
+                print("No UDFs found to validate")
+            else:
+                console.print("[yellow]No UDFs found to validate[/yellow]")
+            return
+
+        # Count UDFs with warnings
+        invalid_count = 0
+
+        if plain:
+            print(f"Validating {len(udfs)} UDFs...")
+            for udf in udfs:
+                warnings = manager.validate_udf_metadata(udf["full_name"])
+                if warnings:
+                    invalid_count += 1
+                    print(f"\n{udf['full_name']}:")
+                    for warning in warnings:
+                        print(f"  - {warning}")
+
+            if invalid_count == 0:
+                print("\nAll UDFs are valid!")
+            else:
+                print(f"\n{invalid_count} UDFs have validation issues.")
+        else:
+            console.print(f"Validating [bold]{len(udfs)}[/bold] UDFs...\n")
+
+            validation_table = Table(title="UDF Validation Results")
+            validation_table.add_column("UDF Name", style="cyan")
+            validation_table.add_column("Status", style="bold")
+            validation_table.add_column("Warnings", style="yellow")
+
+            for udf in sorted(udfs, key=lambda u: u["full_name"]):
+                warnings = manager.validate_udf_metadata(udf["full_name"])
+                if warnings:
+                    invalid_count += 1
+                    status = "[red]Invalid[/red]"
+                    warning_text = "\n".join(f"• {w}" for w in warnings)
+                else:
+                    status = "[green]Valid[/green]"
+                    warning_text = ""
+
+                validation_table.add_row(udf["full_name"], status, warning_text)
+
+            console.print(validation_table)
+
+            # Show summary
+            if invalid_count == 0:
+                console.print("\n[bold green]All UDFs are valid![/bold green]")
+            else:
+                console.print(
+                    f"\n[bold red]{invalid_count} UDFs have validation issues.[/bold red]"
+                )
+
+            # Show discovery errors if any
+            errors = manager.get_discovery_errors()
+            if errors:
+                console.print("\n[bold red]Discovery Errors:[/bold red]")
+                error_table = Table(show_header=True)
+                error_table.add_column("File", style="red")
+                error_table.add_column("Error", style="red")
+
+                for file_path, error_msg in errors.items():
+                    short_msg = error_msg.split("\n")[0]  # First line only for brevity
+                    error_table.add_row(file_path, short_msg)
+
+                console.print(error_table)
+
+    except UDFDiscoveryError as e:
+        if plain:
+            print(f"Error: {str(e)}")
+        else:
+            console.print(f"[bold red]Error:[/bold red] {str(e)}")
