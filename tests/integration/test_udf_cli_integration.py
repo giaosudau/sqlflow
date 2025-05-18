@@ -56,9 +56,9 @@ def test_udf_list_command():
         assert result.exit_code == 0
 
         # Verify all UDFs are listed in the output
-        assert "test_udf.add_numbers (scalar)" in result.stdout
-        assert "test_udf.multiply (scalar)" in result.stdout
-        assert "test_udf.filter_rows (table)" in result.stdout
+        assert "python_udfs.test_udf.add_numbers (scalar)" in result.stdout
+        assert "python_udfs.test_udf.multiply (scalar)" in result.stdout
+        assert "python_udfs.test_udf.filter_rows (table)" in result.stdout
 
 
 def test_udf_info_command():
@@ -76,7 +76,7 @@ def test_udf_info_command():
             [
                 "udf",
                 "info",
-                "test_udf.add_numbers",
+                "python_udfs.test_udf.add_numbers",
                 "--plain",
                 "--project-dir",
                 tmp_dir,
@@ -87,7 +87,7 @@ def test_udf_info_command():
         assert result.exit_code == 0
 
         # Verify UDF information is displayed correctly
-        assert "UDF: test_udf.add_numbers" in result.stdout
+        assert "UDF: python_udfs.test_udf.add_numbers" in result.stdout
         assert "Type: scalar" in result.stdout
         assert "Add two numbers together" in result.stdout
         assert "PYTHON_FUNC" in result.stdout

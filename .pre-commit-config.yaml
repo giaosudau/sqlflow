@@ -48,7 +48,6 @@ repos:
         types: [python]
         args: [
             '-q',
-            '--maxfail=1',
             '--disable-warnings'
         ]
         pass_filenames: false
