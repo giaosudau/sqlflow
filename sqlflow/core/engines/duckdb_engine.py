@@ -2,15 +2,20 @@
 
 import logging
 import os
-from typing import Any, Dict, Optional
+import re
+from typing import Any, Callable, Dict, Optional
 
 import duckdb
+import pandas as pd
+import pyarrow as pa
+
+from sqlflow.core.engines.base import SQLEngine
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.DEBUG)
 
 
-class DuckDBEngine:
+class DuckDBEngine(SQLEngine):
     """Primary execution engine using DuckDB."""
 
     def __init__(self, database_path: Optional[str] = None):
@@ -22,6 +27,7 @@ class DuckDBEngine:
         self.database_path = self._setup_database_path(database_path)
         self.connection = None  # Initialize connection to None for safety
         self.variables: Dict[str, Any] = {}
+        self.registered_udfs: Dict[str, Callable] = {}
 
         try:
             self._ensure_directory_exists()
@@ -401,3 +407,234 @@ class DuckDBEngine:
         except Exception as e:
             # Suppress errors in __del__ to prevent issues during garbage collection
             print(f"DEBUG: Error during DuckDBEngine cleanup: {e}")
+
+    def register_python_udf(self, name: str, function: Callable) -> None:
+        """Register a Python UDF with DuckDB.
+
+        Args:
+            name: Name to register the UDF as
+            function: Python function to register
+        """
+        logger.info(f"Registering Python UDF: {name}")
+
+        # Determine the UDF type (scalar or table)
+        udf_type = getattr(function, "_udf_type", "scalar")
+
+        try:
+            if udf_type == "scalar":
+                # Get function annotations for type info
+                annotations = getattr(function, "__annotations__", {})
+                return_type = annotations.get("return", None)
+
+                # Map Python types to DuckDB types
+                type_mapping = {
+                    int: "INTEGER",
+                    float: "DOUBLE",
+                    str: "VARCHAR",
+                    bool: "BOOLEAN",
+                }
+
+                if return_type and return_type in type_mapping:
+                    # If we have type annotations, use them
+                    duckdb_return_type = type_mapping[return_type]
+                    self.connection.create_function(
+                        name, function, return_type=duckdb_return_type
+                    )
+                    logger.info(
+                        f"Registered scalar UDF: {name} with return type {duckdb_return_type}"
+                    )
+                    print(
+                        f"DEBUG: Registered scalar UDF: {name} with return type {duckdb_return_type}"
+                    )
+                else:
+                    # Try to infer type or use generic type
+                    try:
+                        # First try without specifying return type (newer DuckDB might infer)
+                        self.connection.create_function(name, function)
+                        logger.info(
+                            f"Registered scalar UDF: {name} with inferred return type"
+                        )
+                        print(
+                            f"DEBUG: Registered scalar UDF: {name} with inferred return type"
+                        )
+                    except Exception as inner_e:
+                        # Fall back to explicit DOUBLE return type
+                        logger.warning(
+                            f"Could not infer return type for {name}, using DOUBLE: {inner_e}"
+                        )
+                        print(
+                            f"DEBUG: Could not infer return type for {name}, using DOUBLE: {inner_e}"
+                        )
+                        self.connection.create_function(
+                            name, function, return_type="DOUBLE"
+                        )
+                        logger.info(
+                            f"Registered scalar UDF: {name} with default DOUBLE return type"
+                        )
+                        print(
+                            f"DEBUG: Registered scalar UDF: {name} with default DOUBLE return type"
+                        )
+            elif udf_type == "table":
+                # Register table UDF (table-producing function)
+                # DuckDB registration mechanism depends on version
+                try:
+                    # Newer DuckDB versions
+                    self.connection.create_table_function(name, function)
+                    logger.info(f"Registered table UDF: {name}")
+                    print(f"DEBUG: Registered table UDF: {name}")
+                except AttributeError:
+                    # Older DuckDB versions - fallback
+                    self.connection.table_function(name, function)
+                    logger.info(f"Registered table UDF (fallback method): {name}")
+                    print(f"DEBUG: Registered table UDF (fallback method): {name}")
+            else:
+                raise ValueError(f"Unknown UDF type: {udf_type}")
+
+            # Store the function for later reference
+            self.registered_udfs[name] = function
+
+        except Exception as e:
+            logger.error(f"Error registering Python UDF {name}: {e}")
+            print(f"DEBUG: Error registering Python UDF {name}: {e}")
+            raise
+
+    def process_query_for_udfs(self, query: str, udfs: Dict[str, Callable]) -> str:
+        """Process a query to replace UDF references with DuckDB-specific syntax.
+
+        Args:
+            query: Original SQL query with UDF references
+            udfs: Dictionary of UDF names to functions
+
+        Returns:
+            Processed query with DuckDB-specific UDF references
+        """
+        logger.info("Processing query for UDF references")
+
+        # For each UDF in the query, register it with DuckDB if not already registered
+        for udf_name, udf_function in udfs.items():
+            if udf_name not in self.registered_udfs:
+                self.register_python_udf(udf_name, udf_function)
+
+        # Replace PYTHON_FUNC("udf_name", args) with udf_name(args)
+        def replace_udf_call(match):
+            udf_name = match.group(1)
+            udf_args = match.group(2)
+
+            # Check if the UDF is registered
+            if udf_name in self.registered_udfs:
+                return f"{udf_name}({udf_args})"
+            else:
+                # Keep the original if UDF not registered (will likely cause an error)
+                logger.warning(f"UDF {udf_name} referenced in query but not registered")
+                return match.group(0)
+
+        # Pattern to match PYTHON_FUNC("udf_name", args)
+        pattern = r'PYTHON_FUNC\(\s*[\'"]([a-zA-Z0-9_\.]+)[\'"]\s*,\s*(.*?)\)'
+
+        # Process the query
+        processed_query = re.sub(pattern, replace_udf_call, query)
+
+        logger.info(f"Processed query: {processed_query}")
+        return processed_query
+
+    def configure(
+        self, config: Dict[str, Any], profile_variables: Dict[str, Any]
+    ) -> None:
+        """Configure the engine with settings from the profile.
+
+        Args:
+            config: Engine configuration from the profile
+            profile_variables: Variables defined in the profile
+        """
+        logger.info("Configuring DuckDB engine")
+
+        # Register profile variables
+        for name, value in profile_variables.items():
+            self.register_variable(name, value)
+
+        # Apply specific DuckDB settings from config
+        if "memory_limit" in config:
+            try:
+                self.connection.execute(
+                    f"PRAGMA memory_limit='{config['memory_limit']}'"
+                )
+                logger.info(f"Set memory limit to {config['memory_limit']}")
+                print(f"DEBUG: Set memory limit to {config['memory_limit']}")
+            except Exception as e:
+                logger.warning(f"Could not set memory limit: {e}")
+                print(f"DEBUG: Could not set memory limit: {e}")
+
+    def create_temp_table(self, name: str, data: Any) -> None:
+        """Create a temporary table with the given data.
+
+        Args:
+            name: Name of the temporary table
+            data: Data to insert into the table
+        """
+        logger.info(f"Creating temporary table {name}")
+
+        # Handle different types of input data
+        if isinstance(data, pd.DataFrame):
+            self.register_table(name, data)
+        elif isinstance(data, pa.Table):
+            self.register_arrow(name, data)
+        else:
+            raise TypeError(f"Unsupported data type for temp table: {type(data)}")
+
+    def register_arrow(self, table_name: str, arrow_table: pa.Table) -> None:
+        """Register an Arrow table with the engine.
+
+        Args:
+            table_name: Name to register the table as
+            arrow_table: PyArrow table to register
+        """
+        logger.info(f"Registering Arrow table {table_name}")
+
+        try:
+            # Convert to pandas if needed
+            if not hasattr(self.connection, "register_arrow"):
+                # For older DuckDB versions without direct Arrow support
+                df = arrow_table.to_pandas()
+                self.register_table(table_name, df)
+            else:
+                # For newer DuckDB versions with direct Arrow support
+                self.connection.register_arrow(table_name, arrow_table)
+
+                # Also create a persistent table if using file-based storage
+                if self.database_path != ":memory:":
+                    try:
+                        self.connection.execute(
+                            f"CREATE TABLE IF NOT EXISTS persistent_{table_name} AS SELECT * FROM {table_name}"
+                        )
+                        logger.info(
+                            f"Created persistent copy of Arrow table {table_name}"
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            f"Could not create persistent table for Arrow data: {e}"
+                        )
+
+        except Exception as e:
+            logger.error(f"Error registering Arrow table {table_name}: {e}")
+            raise
+
+    def supports_feature(self, feature: str) -> bool:
+        """Check if the engine supports a specific feature.
+
+        Args:
+            feature: Feature to check for support
+
+        Returns:
+            True if the feature is supported, False otherwise
+        """
+        # List of supported features
+        supported_features = {
+            "python_udfs": True,
+            "arrow": True,
+            "json": True,
+            "merge": True,
+            "window_functions": True,
+            "ctes": True,
+        }
+
+        return supported_features.get(feature, False)
