@@ -570,6 +570,8 @@ This document tracks the implementation status of Conditional Execution, Python 
 - Error messages provided to the user at each stage of the UDF lifecycle (discovery, registration, execution) are informative, clear, and help in debugging.
 - SQLFlow handles these error conditions gracefully without crashing unexpectedly.
 
+**Progress Update:** Refactored the UDF module discovery code to improve error handling architecture. The `_process_udf_module` method was decomposed into smaller, more focused helper methods: `_load_module` for module loading with specific error paths and `_process_udf` for individual UDF processing. This refactoring reduces complexity and provides clearer error context at each stage of the UDF lifecycle.
+
 ### Task 2.12: Verify and Polish CLI for UDFs
 
 **Description:** Thoroughly verify that UDF CLI commands (`list`, `info`) function correctly with all recent UDF enhancements (recursive discovery, improved metadata) and ensure the output is polished and user-friendly.
