@@ -5,7 +5,7 @@ This document tracks the implementation status of Conditional Execution, Python 
 
 ## Epics
 
-### Epic 1: Conditional Execution (IF/ELSE)
+### Epic 1: Conditional Execution (IF/ELSE) ✅ COMPLETED
 
 **Goal:** Implement SQL-native conditional block execution where branches are evaluated and selected at planning time based on variable context.
 
@@ -16,7 +16,7 @@ This document tracks the implementation status of Conditional Execution, Python 
 | [Task 1.3](#task-13-condition-evaluation-logic) | Condition Evaluation Logic | ✅ COMPLETED | |
 | [Task 1.4](#task-14-planner-integration-for-conditional-resolution) | Planner Integration for Conditional Resolution | ✅ COMPLETED | |
 | [Task 1.5](#task-15-dag-builder-update-for-conditionals) | DAG Builder Update for Conditionals | ✅ COMPLETED | |
-| [Task 1.6](#task-16-documentation--examples) | Documentation & Examples | 🔄 IN PROGRESS | |
+| [Task 1.6](#task-16-documentation--examples) | Documentation & Examples | ✅ COMPLETED | |
 
 ### Epic 2: Python User-Defined Functions (UDFs)
 
@@ -28,7 +28,7 @@ This document tracks the implementation status of Conditional Execution, Python 
 | [Task 2.2](#task-22-engine-integration-for-udfs) | Engine Integration for UDFs | ⬜ NOT STARTED | |
 | [Task 2.3](#task-23-executor-integration-for-udf-orchestration) | Executor Integration for UDF Orchestration | ⬜ NOT STARTED | |
 | [Task 2.4](#task-24-cli-support-for-udfs) | CLI Support for UDFs | ✅ COMPLETED | |
-| [Task 2.5](#task-25-documentation-for-python-udfs) | Documentation for Python UDFs | ⬜ NOT STARTED | |
+| [Task 2.5](#task-25-documentation-for-python-udfs) | Documentation for Python UDFs | ✅ COMPLETED | |
 
 ### Epic 3: Enhanced Load Controls (MODE Parameter)
 
@@ -236,10 +236,10 @@ This document tracks the implementation status of Conditional Execution, Python 
 - Verify all syntax and examples are consistent with implementation
 
 **Definition of Done:**
-- Documentation clearly explains conditional execution
-- Documentation covers all supported syntax and features
-- Example pipelines are valid and functional
-- All syntax and feature descriptions match implementation
+- Documentation clearly explains conditional execution ✅
+- Documentation covers all supported syntax and features ✅
+- Example pipelines are valid and functional ✅
+- All syntax and feature descriptions match implementation ✅
 
 ### Task 2.1: UDF Infrastructure
 
@@ -374,11 +374,11 @@ This document tracks the implementation status of Conditional Execution, Python 
 - Ensure documentation covers best practices
 
 **Definition of Done:**
-- Documentation clearly explains UDF functionality
-- Documentation covers both scalar and table UDFs
-- Example code is correct and functional
-- All syntax and feature descriptions match implementation
-- Documentation follows project style guidelines
+- Documentation clearly explains UDF functionality ✅
+- Documentation covers both scalar and table UDFs ✅
+- Example code is correct and functional ✅
+- All syntax and feature descriptions match implementation ✅
+- Documentation follows project style guidelines ✅
 
 ### Task 3.1: Parser Updates for Load Modes
 
