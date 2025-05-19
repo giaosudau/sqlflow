@@ -1,416 +1,307 @@
-# SQLFlow: Your Data Workflow Control Plane, Defined in SQL
+# SQLFlow: The Complete SQL Data Pipeline Platform
 
-**SQLFlow is a SQL-native engine that empowers you to define, orchestrate, and manage your entire data workflow—from loading and transformation to export—all with the simplicity and power of SQL.**
+<div align="center">
 
-For data analysts, engineers, and scientists who speak SQL, SQLFlow streamlines data operations by replacing tool sprawl and complex setups with a unified, SQL-centric approach. It's designed for an MVP that delivers immediate value by leveraging your existing SQL skills.
+**Define, orchestrate, and manage your entire data workflow in pure SQL**
 
-<!-- TODO: Add an engaging GIF or architectural diagram here showing SQLFlow's unified workflow -->
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![DuckDB Powered](https://img.shields.io/badge/powered%20by-DuckDB-DCA344.svg)](https://duckdb.org/)
 
-## Core Vision & Innovation (MVP Focus)
+</div>
 
-SQLFlow's vision is to make robust data pipelining accessible through SQL. Our MVP innovates by delivering:
-
-*   **Unified SQL Command Center:** Go from raw data to actionable insights using a single, SQL-based DSL for loading sources, transforming data, and exporting results. No more context-switching between different tools for different stages of your pipeline.
-*   **Environment Agility with Profiles:** Seamlessly manage `dev`, `prod`, and other environments. Isolate configurations for databases, engine behavior (like DuckDB's mode), and variables using simple YAML files. This is critical for reliable, reproducible data operations from day one.
-*   **Flexible & Fast Execution (Powered by DuckDB):**
-    *   **In-Memory Speed for Dev:** The default `dev` profile utilizes DuckDB in-memory for ultra-fast iteration and testing.
-    *   **Persistent Storage for Prod:** Easily switch to `persistent` mode, saving your transformed data to a disk-based DuckDB file at a path *you* specify. This offers a pragmatic balance of performance and durability.
-*   **Transparent Data Lineage:** Instantly visualize your entire SQL-defined pipeline as an interactive Directed Acyclic Graph (DAG), making dependencies and data flow clear.
-
-## Key MVP Features
-
-*   **Intuitive SQL-based DSL:** Define sources, loads, transformations (`CREATE TABLE AS SELECT`), and exports using familiar SQL syntax.
-*   **Profile-Driven Configuration:** Manage environment-specific settings for engines (DuckDB), connections, and variables.
-*   **DuckDB Integration:** Leverage DuckDB for high-performance in-memory or reliable persistent data processing.
-*   **Basic Connector Support:** Start with CSV and PostgreSQL sources, with clear paths for extension.
-*   **Local File & S3 Export:** Essential export capabilities for common use cases.
-*   **CLI for Core Operations:** `init`, `run`, `compile`, `list` commands to manage your pipelines.
-*   **Automatic DAG Visualization:** Understand your pipeline structure at a glance.
-
-## Python UDFs: Bring Python Power to Your SQL Pipelines 🚀
-
-> **SQLFlow lets you define and use Python User-Defined Functions (UDFs) directly in your SQL pipelines—enabling advanced, custom data transformations with the full power of Python and pandas.**
-
-### Why SQLFlow UDFs?
-- **Native Python in SQL:** Write business logic, data cleaning, or feature engineering in Python, then call it from SQL.
-- **Both Scalar & Table UDFs:** Use simple row-wise functions or full DataFrame transforms.
-- **Auto-discovery & Validation:** Place UDFs in `python_udfs/`, and SQLFlow will find and validate them.
-- **Type Safety:** Enforced type hints and signatures for reliability.
-- **Production-Ready:** UDFs are first-class citizens in your pipelines, with clear best practices and CLI support.
-
-### Scalar UDF Example
-```python
-from sqlflow.udfs.decorators import python_scalar_udf
-
-@python_scalar_udf
-def calculate_discount(price: float, rate: float = 0.1) -> float:
-    """Calculate discount amount."""
-    if price is None:
-        return None
-    return price * rate
+```mermaid
+flowchart LR
+    A["🔌 SOURCE"] -->|Raw Data| B["📥 LOAD"]
+    B -->|Tables| C["⚙️ SQL Transforms"]
+    P["🐍 Python UDFs"] -.->|Enrich| C
+    C -->|Results| D["📤 EXPORT"]
+    
+    style A fill:#3B82F6,color:white,stroke:#2563EB,stroke-width:2px
+    style B fill:#10B981,color:white,stroke:#059669,stroke-width:2px
+    style C fill:#8B5CF6,color:white,stroke:#7C3AED,stroke-width:2px
+    style D fill:#F59E0B,color:white,stroke:#D97706,stroke-width:2px
+    style P fill:#EC4899,color:white,stroke:#DB2777,stroke-width:2px
 ```
 
-**Use in SQL:**
+## Why We Built SQLFlow
+
+Data teams today face a fragmented landscape: separate tools for data ingestion, transformation, and export, each with their own syntax, configurations, and learning curves. This fragmentation creates unnecessary complexity, especially for SQL-fluent teams who just want to get things done.
+
+**SQLFlow unifies your entire data workflow in a single, SQL-centric platform.**
+
+Stop stitching together complex tools. Write SQL you already know, add a few intuitive directives like `SOURCE`, `LOAD`, and `EXPORT`, and you've defined your complete data pipeline.
+
+## What Makes SQLFlow Different
+
+| Traditional Approach | SQLFlow Approach |
+|---|---|
+| Multiple tools with different languages | One tool with SQL you already know |
+| Complex orchestration setup | Automatic dependency management |
+| Environment configuration sprawl | Simple profile-based settings |
+| Context switching between tools | End-to-end pipeline in one file |
+| Separate ingestion and transformation | Unified flow from source to destination |
+
+## Quick Example
+
 ```sql
+-- Define your data source
+SOURCE orders TYPE CSV PARAMS {
+  "path": "data/orders.csv",
+  "has_header": true
+};
+
+-- Load it into your workspace
+LOAD orders_data FROM orders;
+
+-- Transform with familiar SQL
+CREATE TABLE daily_sales AS
 SELECT
-  product_id,
-  price,
-  PYTHON_FUNC("python_udfs.example_udf.calculate_discount", price, 0.2) AS discount
-FROM products;
+  order_date,
+  COUNT(*) AS order_count,
+  SUM(amount) AS total_sales
+FROM orders_data
+GROUP BY order_date;
+
+-- Apply Python transformations when needed
+CREATE TABLE enriched_sales AS
+SELECT
+  *,
+  PYTHON_FUNC("python_udfs.calculate_trend", daily_sales) AS trend_indicator
+FROM daily_sales;
+
+-- Export to your destination
+EXPORT
+  SELECT * FROM enriched_sales
+TO "s3://analytics/${date}/sales_report.parquet"
+TYPE S3
+OPTIONS { "compression": "snappy" };
 ```
 
-### Table UDF Example
+## Key Features
+
+### 🔄 Complete Data Workflow
+
+* **Source Connectors:** Ingest from CSV, PostgreSQL, and more
+* **SQL Transformations:** Standard SQL with automatic dependency tracking
+* **Python Integration:** Extend with Python UDFs when SQL isn't enough
+* **Export Destinations:** Output to files, S3, and other targets
+
+### 💪 Powerful Yet Simple
+
+* **SQL-First:** Leverage the language data teams already know
+* **Intuitive DSL:** Extended SQL with clear, purpose-built directives
+* **Automatic DAG:** Dependencies automatically tracked and visualized
+* **Clean Syntax:** No complex configuration or boilerplate
+
+### 🛠️ Developer Experience
+
+* **Easy Environment Switching:** Dev to production in seconds with profiles
+* **Fast Iteration:** Lightning-quick in-memory mode for development
+* **Robust Production:** Persistent storage mode for deployment
+* **Built-in Visualization:** Auto-generated pipeline diagrams
+
+### 🧩 Extensibility
+
+* **Python UDFs:** Both scalar and table functions
+* **Type Safety:** Enforced typing for reliable pipelines
+* **Pluggable Architecture:** Add custom connectors and extensions
+* **Open Design:** Clear interfaces for extension
+
+## ⚡ Getting Started in 2 Minutes
+
+```bash
+# Install SQLFlow
+pip install sqlflow
+
+# Initialize a new project
+sqlflow init my_project
+cd my_project
+
+# Create a simple pipeline
+cat > pipelines/first_pipeline.sf << EOF
+SOURCE users TYPE CSV PARAMS {
+  "path": "data/users.csv",
+  "has_header": true
+};
+
+LOAD users_data FROM users;
+
+CREATE TABLE user_stats AS
+SELECT
+  country,
+  COUNT(*) AS user_count,
+  AVG(age) AS avg_age
+FROM users_data
+GROUP BY country;
+
+EXPORT
+  SELECT * FROM user_stats
+TO "output/user_stats.csv"
+TYPE LOCAL_FILE
+OPTIONS { "header": true };
+EOF
+
+# Create sample data
+mkdir -p data
+echo "id,name,country,age\n1,Alice,US,28\n2,Bob,UK,34\n3,Charlie,US,22" > data/users.csv
+
+# Run your pipeline
+sqlflow pipeline run first_pipeline
+
+# View your results
+cat output/user_stats.csv
+```
+
+For a comprehensive step-by-step guide, check out our [Getting Started Guide](docs/getting_started.md).
+
+## 🔍 Why Teams Choose SQLFlow
+
+### For Data Analysts
+
+* Use SQL you already know for your entire workflow
+* No need to learn multiple tools or complex orchestration
+* Focus on data insights instead of pipeline plumbing
+
+### For Data Engineers
+
+* Simplify your data stack and reduce maintenance
+* Standardize on SQL across your organization
+* Extend with Python when needed without leaving your workflow
+
+### For Startups & SMEs
+
+* Get enterprise-grade data capabilities without enterprise complexity
+* Move faster with a unified, lightweight solution
+* Reduce training costs by leveraging existing SQL skills
+
+## 🧰 Core Concepts
+
+### 1. Profiles for Environment Management
+
+Switch between development and production with a single flag:
+
+```bash
+# Development (in-memory, fast)
+sqlflow pipeline run my_pipeline
+
+# Production (persistent storage)
+sqlflow pipeline run my_pipeline --profile production
+```
+
+Each profile can define its own variables, engine settings, and connector configurations.
+
+### 2. DuckDB-Powered Execution
+
+SQLFlow uses DuckDB as its core engine, offering:
+
+* In-memory mode for lightning-fast development
+* Persistent mode for production reliability
+* High performance SQL execution
+* Pandas-like speed with SQL simplicity
+
+### 3. Python UDFs Integration
+
+Extend your SQL pipelines with Python when needed:
+
 ```python
-from sqlflow.udfs.decorators import python_table_udf
+# python_udfs/metrics.py
+from sqlflow.udfs.decorators import python_scalar_udf, python_table_udf
 import pandas as pd
 
+@python_scalar_udf
+def calculate_score(value: float, weight: float = 1.0) -> float:
+    """Calculate weighted score."""
+    return value * weight
+
 @python_table_udf
-def add_price_metrics(df: pd.DataFrame) -> pd.DataFrame:
+def add_metrics(df: pd.DataFrame) -> pd.DataFrame:
+    """Add calculated metrics to the dataframe."""
     result = df.copy()
-    result["discount_10"] = result["price"] * 0.1
-    result["discount_20"] = result["price"] * 0.2
-    result["final_price_10"] = result["price"] - result["discount_10"]
-    result["final_price_20"] = result["price"] - result["discount_20"]
+    result["total"] = result["quantity"] * result["price"]
+    result["discount"] = result["total"] * 0.1
     return result
 ```
 
-**Use in SQL:**
+Use in your SQL:
+
 ```sql
-CREATE TABLE enriched_products AS
-SELECT * FROM PYTHON_FUNC("python_udfs.example_udf.add_price_metrics", products);
+-- Scalar UDF
+SELECT
+  product_id,
+  price,
+  PYTHON_FUNC("python_udfs.metrics.calculate_score", price, 1.5) AS weighted_price
+FROM products;
+
+-- Table UDF
+CREATE TABLE enriched_orders AS
+SELECT * FROM PYTHON_FUNC("python_udfs.metrics.add_metrics", orders);
 ```
 
-### Best Practices
-- **Type hints are required** for all UDF arguments and return values.
-- **Table UDFs** must accept and return a `pd.DataFrame`.
-- Place UDFs in the `python_udfs/` directory (or subdirectories).
-- Use fully qualified names in SQL: `PYTHON_FUNC("python_udfs.module.function", ...)`.
+## 📊 Comparison with Other Tools
 
-### CLI Support for UDFs
-- List UDFs: `sqlflow udf list`
-- Show UDF info: `sqlflow udf info python_udfs.example_udf.calculate_discount`
-- Validate UDFs: `sqlflow udf validate`
+| Feature | SQLFlow | Transformation Tools | Ingestion/Export Tools | Orchestrators |
+|---------|---------|----------------------|------------------------|---------------|
+| **SQL-based pipelines** | ✅ Complete | ✅ Transforms only | ❌ Limited | ❌ No |
+| **Source connectors** | ✅ Built-in | ❌ No | ✅ Yes | ❌ No |
+| **Export destinations** | ✅ Built-in | ❌ No | ✅ Yes | ❌ No |
+| **Python integration** | ✅ UDFs | ✅ Limited | ❌ No | ✅ Python-first |
+| **Environment mgmt** | ✅ Profiles | ✅ Limited | ✅ Limited | ✅ Complex |
+| **DAG visualization** | ✅ Automatic | ✅ Manual | ❌ No | ✅ Complex |
+| **Learning curve** | ⭐ Low (SQL+) | ⭐⭐ Medium | ⭐⭐ Medium | ⭐⭐⭐ High |
+| **Setup complexity** | ⭐ Low | ⭐⭐ Medium | ⭐⭐ Medium | ⭐⭐⭐ High |
 
-### More Advanced Usage & Troubleshooting
-See the [Advanced Python UDF Guide](docs/python_udfs.md) for:
-- Signature requirements
-- Discovery and registration
-- Performance tips
-- Troubleshooting common issues
-- More real-world examples ([examples/python_udfs/example_udf.py](examples/python_udfs/example_udf.py))
+## 📦 Installation
+
+```bash
+pip install sqlflow
+```
+
+For development installations:
+
+```bash
+git clone https://github.com/sqlflow/sqlflow.git
+cd sqlflow
+pip install -e .
+```
+
+## 📖 Documentation
+
+* [SQLFlow Syntax Reference](docs/syntax.md)
+* [Getting Started Guide](docs/getting_started.md)
+* [Examples](examples/)
+* [Contributing Guide](CONTRIBUTING.md)
+* [Logging Configuration Guide](docs/logging.md)
+
+## 🤝 Join the Community
+
+SQLFlow is an open-source project built for data practitioners by data practitioners.
+
+* ⭐ **Star us on GitHub!** Show your support
+* 🐞 [Report issues](https://github.com/sqlflow/sqlflow/issues) or suggest features
+
+## 📜 License
+
+SQLFlow is released under the [Apache License 2.0](LICENSE), allowing for broad use and contribution while providing a framework for governance and future development.
+
+## ❓ FAQ
+
+**Q: How is SQLFlow different from transformation-only tools?**  
+A: SQLFlow goes beyond transformation to include data ingestion and export in a single workflow. While transformation tools excel at in-warehouse modeling, SQLFlow offers an end-to-end pipeline solution with a similar SQL-first approach.
+
+**Q: Do I need a data warehouse to use SQLFlow?**  
+A: No! SQLFlow uses DuckDB as its engine, allowing you to build complete pipelines without any external warehouse. It works entirely local-first but can connect to warehouses when needed.
+
+**Q: How do I switch between development and production environments?**  
+A: Simply use the `--profile` flag: `sqlflow pipeline run my_pipeline --profile production`. Each profile can define different settings, connectors, and variables.
+
+**Q: Are intermediate tables saved when using persistent mode?**  
+A: Yes. All tables created during pipeline execution are persisted to disk when using the persistent mode, making debugging and data examination easier.
 
 ---
 
-## Quick Start: Your First Unified SQLFlow Pipeline
-
-1.  **Install SQLFlow:**
-    ```bash
-    pip install sqlflow
-    ```
-
-2.  **Initialize Your Project:**
-    Creates `my_data_workflow/` with a default `profiles/dev.yml` (in-memory DuckDB).
-    ```bash
-    sqlflow init my_data_workflow
-    cd my_data_workflow
-    ```
-
-3.  **Define Your Unified Pipeline (`pipelines/process_data.sf`):**
-    ```sql
-    -- pipelines/process_data.sf
-
-    -- 1. DEFINE SOURCE (Loading)
-    SOURCE raw_orders TYPE CSV PARAMS {
-      "path": "data/orders.csv", -- Create this sample CSV file
-      "has_header": true
-    };
-
-    -- 2. LOAD DATA (Staging for Transformation)
-    LOAD orders_table FROM raw_orders;
-
-    -- 3. TRANSFORM DATA (Using SQL)
-    CREATE TABLE daily_sales_summary AS
-    SELECT
-      order_date,
-      COUNT(order_id) AS num_orders,
-      SUM(CAST(amount AS DECIMAL(10,2))) AS total_sales
-    FROM orders_table
-    GROUP BY order_date;
-
-    -- 4. EXPORT RESULTS
-    EXPORT
-      SELECT * FROM daily_sales_summary
-    TO "output/daily_summary_${run_id}.parquet" -- Example: use a run_id variable
-    TYPE LOCAL_FILE
-    OPTIONS { "format": "parquet" };
-    ```
-    *Remember to create a sample `data/orders.csv`! Add a `run_id` to `vars` in your profile or pass it via CLI for the export filename.*
-
-4.  **Run Your Pipeline (Defaults to `dev` profile):**
-    ```bash
-    sqlflow pipeline run process_data
-    ```
-
-5.  **Explore:**
-    *   **Production Run (Persistent):** Create `profiles/production.yml` (see below), then:
-        `sqlflow pipeline run process_data --profile production`
-    *   **Visualize DAG:** Check the `target/` directory for DAG visualizations after a run.
-
-## Profile-Driven Configuration: Tailor Your Environments
-
-Manage `dev`, `prod`, etc., in `profiles/`. SQLFlow uses `profiles/dev.yml` by default.
-
-### `profiles/dev.yml` (Fast Iteration)
-```yaml
-engines:
-  duckdb:
-    mode: memory
-    memory_limit: 1GB
-variables:
-  run_id: "dev_run"
-```
-
-### `profiles/production.yml` (Reliable Persistence)
-```yaml
-engines:
-  duckdb:
-    mode: persistent
-    path: target/production_data.db # SQLFlow uses this exact path
-    memory_limit: 4GB
-variables:
-  run_id: "prod_$(date +%Y%m%d%H%M%S)" # Example: dynamic run_id for production
-  S3_BUCKET: "your-s3-data-bucket"
-```
-
-## DuckDB: The Engine Behind SQLFlow's Flexibility
-
-*   **Memory Mode (`mode: memory`):** Ideal for dev. Fast, ephemeral. No data saved post-run.
-*   **Persistent Mode (`mode: persistent`):** For prod. Data saved to disk at the `path` you set in your profile. All tables, including intermediate transforms, are persisted.
-
-## SQLFlow Syntax Highlights (Unified Workflow)
-
-```sql
--- Define a PostgreSQL data SOURCE
-SOURCE customers_db TYPE POSTGRES PARAMS {
-  "connection_string": "${DB_CONN_VAR}",
-  "query": "SELECT id, name, signup_date FROM active_users"
-};
-
--- LOAD data into an SQLFlow table
-LOAD latest_customers FROM customers_db;
-
--- TRANSFORM data using familiar SQL
-CREATE TABLE customer_cohorts AS
-SELECT
-  STRFTIME(signup_date, '%Y-%m') AS cohort_month,
-  COUNT(DISTINCT id) AS new_customers
-FROM latest_customers
-GROUP BY cohort_month;
-
--- EXPORT results to S3
-EXPORT
-  SELECT * FROM customer_cohorts
-TO "s3://${S3_BUCKET}/reports/customer_cohorts/"
-TYPE S3
-OPTIONS {"format": "parquet"};
-```
-
-Use variables (`${VAR_NAME}`) from profiles or CLI (`--vars '{"VAR_NAME": "value"}'`).
-
-## Core Use Cases (MVP)
-
-*   **SQL-Centric ETL/ELT:** For analysts and engineers who prefer SQL to manage the full data lifecycle from simple sources (CSVs, database queries) to transformed outputs.
-*   **Rapid Prototyping of Data Pipelines:** Quickly build and test data transformation logic with minimal setup and easy environment switching.
-*   **Automating Reporting Feeds:** Prepare and export datasets for BI tools or downstream systems using a clear, SQL-defined process.
-
-## Configuring Logging
-
-SQLFlow provides flexible logging configuration to help you debug and monitor your data pipelines:
-
-### Log Levels
-
-Control verbosity with these log levels (from most to least verbose):
-- `debug`: Detailed debugging information 
-- `info`: General operational information (default)
-- `warning`: Warning messages
-- `error`: Error messages
-- `critical`: Critical issues
-
-### Configuration Methods
-
-SQLFlow offers multiple ways to configure logging:
-
-#### 1. Environment Variable
-
-Set the `SQLFLOW_LOG_LEVEL` environment variable:
-
-```bash
-# On Linux/macOS
-export SQLFLOW_LOG_LEVEL=debug
-
-# On Windows
-set SQLFLOW_LOG_LEVEL=debug
-```
-
-#### 2. Command Line Option
-
-Use the `--log-level` option when running SQLFlow:
-
-```bash
-sqlflow pipeline run my_pipeline --log-level debug
-```
-
-#### 3. Profile Configuration
-
-Add logging settings to your profile YAML files:
-
-```yaml
-# profiles/dev.yml
-log_level: debug
-module_log_levels:
-  sqlflow.core.engines: info
-  sqlflow.connectors: debug
-  sqlflow.udfs: debug
-```
-
-This allows you to set different log levels for specific modules.
-
-#### 4. Programmatic Configuration
-
-For Python scripts that use SQLFlow as a library:
-
-```python
-from sqlflow.logging import configure_logging
-
-# Set global log level
-configure_logging(log_level="debug")
-
-# Or configure with more specific settings
-configure_logging(config={
-    "log_level": "info",
-    "module_log_levels": {
-        "sqlflow.core.engines": "debug",
-        "sqlflow.connectors": "warning"
-    }
-})
-```
-
-### Recommended Settings for Common Scenarios
-
-- **Development/Debugging**: Use `debug` log level to see detailed execution information
-- **Production**: Use `info` or `warning` to reduce log volume
-- **Troubleshooting UDFs**: Set module-specific level for `sqlflow.udfs` to `debug`
-- **Connector Issues**: Set module-specific level for `sqlflow.connectors` to `debug`
-
-### Log Output Format
-
-SQLFlow logs include timestamp, logger name, level and message:
-
-```
-2023-05-14 15:23:45,789 - sqlflow.core.engines.duckdb_engine - INFO - Table users registered successfully
-```
-
-This standardized format makes it easier to filter and analyze logs.
-
-## SQL Features & Best Practices
-
-### Proper SQL Formatting
-
-SQLFlow ensures your SQL queries are formatted correctly for execution by:
-
-1. **Table and Column References**: Maintaining proper dot notation without extra spaces
-```sql
--- Table aliases with column references
-SELECT 
-  u.id,           -- Not "u . id" 
-  u.name, 
-  o.order_date
-FROM users u
-JOIN orders o ON u.id = o.user_id
-WHERE o.status = 'completed';
-```
-
-2. **Function Calls**: Ensuring no spaces between function names and parentheses
-```sql
--- Aggregate functions properly formatted
-SELECT
-  region,
-  COUNT(DISTINCT user_id) as unique_users,  -- Not "COUNT ( DISTINCT user_id )"
-  SUM(amount) as total_sales,               -- Not "SUM ( amount )"
-  AVG(price) as average_price               -- Not "AVG ( price )"
-FROM sales
-GROUP BY region;
-```
-
-These formatting rules ensure your SQL queries are valid across different database engines.
-
-### Variable Substitution
-
-Use variables in your SQL with the `${variable_name}` syntax:
-
-```sql
--- Filter data based on a profile variable
-CREATE TABLE regional_sales AS
-SELECT * FROM sales
-WHERE region = '${target_region}';
-
--- Use variables in export paths
-EXPORT 
-  SELECT * FROM daily_sales
-TO "output/${run_date}_sales_report.csv"
-TYPE CSV
-OPTIONS { "header": true };
-```
-
-Variables can be defined in your profile configuration or passed at runtime.
-
-**Default Value Rules:**
-- You can specify a default value for a variable: `${var|default}`
-- **If the default value contains spaces, it must be quoted** (single or double quotes):
-  - ✅ `${region|"us east"}` (valid)
-  - ✅ `${region|'us east'}` (valid)
-  - ❌ `${region|us east}` (**invalid**, will cause a validation error)
-- Unquoted default values with spaces are not allowed and will cause a pipeline validation error.
-
-## Vision & Next Steps (Beyond MVP)
-
-Our MVP focuses on delivering a solid SQL-native workflow foundation. The vision is to expand:
-*   **Connector Ecosystem:** Broader support for diverse data sources and destinations.
-*   **Advanced Orchestration:** Scheduling, incremental processing, and richer dependency management.
-*   **Data Quality & Testing:** Integrated mechanisms to ensure data reliability.
-
-We aim to keep SQLFlow lean, intuitive, and powerful for SQL practitioners.
-
-## Join Us & Shape SQLFlow
-
-SQLFlow is young and driven by community. As we build upon this MVP:
-
-*   ⭐ **Star us on GitHub!**
-*   💡 **Share Feedback & Ideas:** Open an issue for feature requests or improvements.
-*   🐞 **Report Bugs:** Help us stabilize and refine the MVP.
-*   (Future) **Contribute:** We'll be formalizing a `CONTRIBUTING.md` as the project matures, outlining how to contribute effectively.
-
-## Documentation
-
-(Coming Soon) Detailed documentation will be available as features are solidified.
-
-## License
-
-SQLFlow is released under the **Apache License 2.0**. See the [LICENSE](LICENSE) file for details. This license allows for broad use and contribution while providing a framework for governance and future development.
-
-## FAQ
-
-**Q: How is SQLFlow different from dbt?**
-A: While both leverage SQL, SQLFlow aims to provide a more self-contained, lightweight engine for the *entire* load-transform-export workflow, especially for use cases where a simpler, SQL-native orchestration is preferred. dbt excels at complex in-warehouse transformations. SQLFlow integrates the "T" with "E" and "L" in a more direct, SQL-defined manner for its supported sources/sinks.
-
-**Q: DuckDB configuration (memory/persistent, path)?**
-A: In your profile YAML files (`profiles/*.yml`) under the `engines.duckdb` key. SQLFlow uses the exact `path` specified for persistent DuckDB files.
-
-**Q: Switching DuckDB modes?**
-A: Edit `mode` (and `path` for persistent) in the active profile. Run with `--profile your_profile`.
-
-**Q: Adding new environments (e.g., `staging`)?**
-A: Create `profiles/staging.yml`. Configure as needed. Run with `--profile staging`.
-
-**Q: Are intermediate tables saved in persistent mode?**
-A: Yes. All tables from `CREATE TABLE ... AS SELECT ...` are saved in the DuckDB file, aiding debugging.
+<div align="center">
+  <strong>
+    Built with ❤️ for data teams who love SQL
+  </strong>
+</div>
