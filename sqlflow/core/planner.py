@@ -508,22 +508,47 @@ class ExecutionPlanBuilder:
 
     # --- DEPENDENCY GRAPH & EXECUTION ORDER ---
     def _build_dependency_graph(self, pipeline: Pipeline) -> None:
-        """Build a dependency graph based on the table references in each step."""
-        logger.debug("Building dependency graph")
-        # Map table names to the steps that create them
-        table_to_step = self._build_table_to_step_mapping(pipeline)
-        logger.debug(f"Found {len(table_to_step)} tables in pipeline")
+        """Build a dependency graph for the pipeline.
 
-        # Analyze dependencies for each step
+        This method analyzes dependencies between steps and builds a graph
+        for determining the correct execution order.
+
+        Args:
+            pipeline: The pipeline to analyze
+        """
+        # Initialize step dependencies dict
+        self.step_dependencies = {}
+
+        # Generate step IDs for all steps
+        self._generate_step_ids(pipeline)
+
+        # Create table name to step mapping
+        table_to_step = self._build_table_to_step_mapping(pipeline)
+
+        # First add source and load dependencies
+        source_steps, load_steps = self._get_sources_and_loads(pipeline)
+        self._add_load_dependencies(source_steps, load_steps)
+
+        # Then add SQL step dependencies
         for step in pipeline.steps:
             if isinstance(step, SQLBlockStep):
                 self._analyze_sql_dependencies(step, table_to_step)
             elif isinstance(step, ExportStep):
                 self._analyze_export_dependencies(step, table_to_step)
 
+        # Debug dependency graph
         logger.debug(
-            f"Dependency graph built with {len(self.step_dependencies)} dependencies"
+            f"Dependency graph created with {len(self.step_dependencies)} entries"
         )
+        for step_id, deps in self.step_dependencies.items():
+            if deps:
+                logger.debug(f"Step {step_id} depends on: {deps}")
+
+        # Ensure all steps have a dependency entry (even if empty)
+        for step in pipeline.steps:
+            step_id = self._get_step_id(step)
+            if step_id and step_id not in self.step_dependencies:
+                self.step_dependencies[step_id] = []
 
     def _analyze_sql_dependencies(
         self, step: SQLBlockStep, table_to_step: Dict[str, PipelineStep]
@@ -534,8 +559,43 @@ class ExecutionPlanBuilder:
     def _analyze_export_dependencies(
         self, step: ExportStep, table_to_step: Dict[str, PipelineStep]
     ) -> None:
-        sql_query = step.sql_query.lower()
-        self._find_table_references(step, sql_query, table_to_step)
+        """Analyze dependencies for an export step.
+
+        Args:
+            step: Export step to analyze
+            table_to_step: Mapping of table names to steps
+        """
+        # First handle exports with SQL queries
+        if hasattr(step, "sql_query") and step.sql_query:
+            sql_query = step.sql_query.lower()
+            self._find_table_references(step, sql_query, table_to_step)
+            logger.debug(
+                f"Found SQL dependencies for export step: {self._get_step_id(step)}"
+            )
+
+        # Handle direct table references (simple exports)
+        elif hasattr(step, "table_name") and step.table_name:
+            table_name = step.table_name.lower()
+            if table_name in table_to_step:
+                dependency_step = table_to_step[table_name]
+                step_id = self._get_step_id(step)
+                dependency_id = self._get_step_id(dependency_step)
+
+                if step_id not in self.step_dependencies:
+                    self.step_dependencies[step_id] = []
+
+                if (
+                    dependency_id
+                    and dependency_id not in self.step_dependencies[step_id]
+                ):
+                    self.step_dependencies[step_id].append(dependency_id)
+                    logger.debug(f"Added dependency: {step_id} -> {dependency_id}")
+
+        # Ensure every export step has an entry in dependencies
+        step_id = self._get_step_id(step)
+        if step_id and step_id not in self.step_dependencies:
+            self.step_dependencies[step_id] = []
+            logger.debug(f"Added empty dependency entry for export step: {step_id}")
 
     def _add_dependency(
         self, dependent_step: PipelineStep, dependency_step: PipelineStep
@@ -667,13 +727,44 @@ class ExecutionPlanBuilder:
     def _build_execution_steps(
         self, pipeline: Pipeline, execution_order: List[str]
     ) -> List[Dict[str, Any]]:
+        """Build execution steps from the execution order.
+
+        Args:
+            pipeline: The pipeline to build steps for
+            execution_order: The order of steps to execute
+
+        Returns:
+            List of executable steps
+        """
         execution_steps = []
+
+        # First, make sure all pipeline steps have IDs
+        if not self.step_id_map:
+            self._generate_step_ids(pipeline)
+
+        # Create a mapping of step_id to pipeline_step for faster lookup
+        step_id_to_pipeline_step = {}
+        for pipeline_step in pipeline.steps:
+            step_id = self._get_step_id(pipeline_step)
+            if step_id:
+                step_id_to_pipeline_step[step_id] = pipeline_step
+
+        # Include all steps in the pipeline if they're in the execution order
         for step_id in execution_order:
-            for pipeline_step in pipeline.steps:
-                if self._get_step_id(pipeline_step) == step_id:
-                    execution_step = self._build_execution_step(pipeline_step)
-                    execution_steps.append(execution_step)
-                    break
+            if step_id in step_id_to_pipeline_step:
+                pipeline_step = step_id_to_pipeline_step[step_id]
+                execution_step = self._build_execution_step(pipeline_step)
+                execution_steps.append(execution_step)
+
+        # Ensure all steps are included even if not in execution_order
+        for pipeline_step in pipeline.steps:
+            step_id = self._get_step_id(pipeline_step)
+            if step_id and step_id not in [s["id"] for s in execution_steps]:
+                logger.debug(f"Adding missing step to execution plan: {step_id}")
+                execution_step = self._build_execution_step(pipeline_step)
+                execution_steps.append(execution_step)
+
+        logger.info(f"Built execution plan with {len(execution_steps)} steps")
         return execution_steps
 
     def _get_step_id(self, step: PipelineStep) -> str:
@@ -748,16 +839,27 @@ class ExecutionPlanBuilder:
                 getattr(pipeline_step, "sql_query", "")
             )
             connector_type = getattr(pipeline_step, "connector_type", "unknown")
-            export_id = f"export_{connector_type.lower()}_{table_name or 'unknown'}"
+
+            # Use the actual step_id instead of generating a new one
+            export_id = step_id
+            if not export_id:
+                export_id = f"export_{connector_type.lower()}_{table_name or 'unknown'}"
+
+            # Log destination URI to help with debugging
+            destination_uri = getattr(pipeline_step, "destination_uri", "")
+            logger.debug(f"Export step {export_id} with destination: {destination_uri}")
+
+            # Ensure all required properties are included
             return {
                 "id": export_id,
                 "type": "export",
                 "source_table": table_name,
-                "source_connector_type": pipeline_step.connector_type,
+                "source_connector_type": connector_type,
                 "query": {
-                    "sql_query": getattr(pipeline_step, "sql_query", None),
-                    "destination_uri": pipeline_step.destination_uri,
-                    "options": pipeline_step.options,
+                    "sql_query": getattr(pipeline_step, "sql_query", ""),
+                    "destination_uri": destination_uri,
+                    "options": getattr(pipeline_step, "options", {}),
+                    "type": connector_type,
                 },
                 "depends_on": depends_on,
             }

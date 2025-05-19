@@ -53,11 +53,14 @@ class BaseExecutor(ExecutorProtocol, ABC):
         }
 
     @abstractmethod
-    def execute(self, plan: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def execute(
+        self, plan: List[Dict[str, Any]], variables: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
         """Execute a pipeline plan.
 
         Args:
             plan: List of operations to execute
+            variables: Optional dictionary of variables for substitution
 
         Returns:
             Dict containing execution results

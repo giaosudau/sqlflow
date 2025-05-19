@@ -6,7 +6,7 @@ import logging
 import os
 import re
 import uuid
-from typing import Any, Dict, List, Optional, Set, Union
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import pandas as pd
 
@@ -235,27 +235,131 @@ class LocalExecutor(BaseExecutor):
             "by_type": step_types,
         }
 
+    def _setup_execution_environment(
+        self,
+        variables: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Set up the execution environment with variables and artifact manager.
+
+        Args:
+            variables: Optional dictionary of variables for substitution
+        """
+        # Store variables for SQL generation and variable substitution
+        if variables:
+            logger.info(f"Using variables for execution: {list(variables.keys())}")
+            if isinstance(self.profile, dict):
+                if "variables" not in self.profile:
+                    self.profile["variables"] = {}
+                # Update profile variables with passed variables (passed variables have precedence)
+                self.profile["variables"].update(variables)
+            else:
+                # Create profile if it doesn't exist
+                self.profile = {"variables": variables}
+
+        # Generate a unique execution ID if not already set
+        if not self.execution_id:
+            self.execution_id = str(uuid.uuid4())
+
+        # Create an artifact manager if not already set
+        if not self.artifact_manager:
+            target_dir = os.path.join(self.project.project_dir, "target")
+            self.artifact_manager = ArtifactManager(target_dir)
+
+    def _handle_external_resolver(
+        self,
+        steps: List[Dict[str, Any]],
+        external_resolver: DependencyResolver,
+    ) -> Tuple[List[Dict[str, Any]], List[str]]:
+        """Handle execution with an external dependency resolver.
+
+        Args:
+            steps: List of steps to execute
+            external_resolver: External dependency resolver to use
+
+        Returns:
+            Tuple of (resolved_steps, resolved_order)
+        """
+        # Compare plan order to resolved order from resolver
+        plan_ids = [step["id"] for step in steps]
+        expected_order = external_resolver.last_resolved_order or []
+        if plan_ids != expected_order:
+            # Warn about execution order mismatch
+            logger.warning(
+                "Execution order mismatch detected", plan_ids, expected_order
+            )
+        # Use steps as is and resolver order for execution
+        return steps, expected_order
+
     def execute(
         self,
         steps: List[Dict[str, Any]],
-        dependency_resolver: Optional[DependencyResolver] = None,
-        pipeline_name: Optional[str] = None,
+        pipeline_name: str = None,
         variables: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        """Execute a pipeline.
+        """Execute a pipeline plan.
 
         Args:
             steps: List of operations to execute
-            dependency_resolver: Optional DependencyResolver
             pipeline_name: Name of the pipeline
-            variables: Variables for variable substitution
+            variables: Optional dictionary of variables for substitution
 
         Returns:
-            Execution results
+            Dict containing execution results
         """
         logger.info(f"Executing plan with {len(steps)} steps")
 
-        # Prepare tracking for execution
+        # Initialize execution state
+        self._init_execution_state()
+
+        # Set up execution environment
+        self._setup_execution_environment(variables)
+
+        try:
+            # Detect external DependencyResolver passed in place of pipeline_name
+            external_resolver = None
+            if isinstance(pipeline_name, DependencyResolver):
+                external_resolver = pipeline_name
+                # Clear pipeline_name since it's not a name
+                pipeline_name = None
+
+            # Use external resolver if provided, else build one
+            if external_resolver is not None:
+                # Use provided DependencyResolver for execution order
+                dependency_resolver = external_resolver
+                resolved_steps, resolved_order = self._handle_external_resolver(
+                    steps, external_resolver
+                )
+            else:
+                logger.debug("Building dependency resolver")
+                dependency_resolver = self._build_dependency_resolver(steps)
+                resolved_steps, resolved_order = self._process_steps_and_create_order(
+                    steps, dependency_resolver
+                )
+
+            # Map steps by ID for quick lookup
+            steps_by_id = {step["id"]: step for step in resolved_steps}
+
+            # Execute the steps
+            logger.debug(f"Executing {len(resolved_order)} steps in dependency order")
+            self._execute_steps_in_order(resolved_order, steps_by_id)
+
+            # Add execution summary
+            self._generate_step_summary(steps)
+
+            # Log successful completion
+            logger.info(
+                f"Plan execution completed with status: {self.results.get('status', 'success')}"
+            )
+            return self.results
+
+        except Exception as e:
+            logger.error(f"Error executing plan: {str(e)}")
+            self.results["status"] = "failed"
+            self.results["error"] = str(e)
+            return self.results
+
+    def _init_execution_state(self) -> None:
+        """Initialize execution state."""
         self.execution_id = str(uuid.uuid4())
         self.table_data = {}  # Map of table name to DataChunk
         self.step_table_map = {}  # Map of step ID to table name
@@ -263,11 +367,17 @@ class LocalExecutor(BaseExecutor):
         self.step_results = {}  # Map of step ID to execution result
         self.failed_step = None
 
-        if not steps:
-            logger.warning("No steps to execute in pipeline")
-            return {"status": "success", "results": {}}
+    def _build_dependency_resolver(
+        self, steps: List[Dict[str, Any]]
+    ) -> DependencyResolver:
+        """Build dependency resolver for the given steps.
 
-        # Create dependency resolver
+        Args:
+            steps: List of steps to build dependencies for
+
+        Returns:
+            Initialized dependency resolver
+        """
         dependency_resolver = DependencyResolver()
         logger.debug("Dependency resolver: %s", dependency_resolver)
 
@@ -276,165 +386,248 @@ class LocalExecutor(BaseExecutor):
             for dependency in step.get("depends_on", []):
                 dependency_resolver.add_dependency(step_id, dependency)
 
-        # Filter steps with unique IDs to avoid duplicates
+        return dependency_resolver
+
+    def _filter_unique_steps(
+        self,
+        steps: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """Filter steps to ensure unique IDs.
+
+        Args:
+            steps: List of steps to filter
+
+        Returns:
+            List of steps with unique IDs
+        """
         step_ids = set(step["id"] for step in steps)
         filtered_plan = [step for step in steps if step["id"] in step_ids]
         logger.debug("Plan contains %d unique steps", len(filtered_plan))
+        return filtered_plan
 
-        # Create execution order from dependencies
+    def _ensure_dependency_entries(
+        self,
+        filtered_plan: List[Dict[str, Any]],
+        dependency_resolver: DependencyResolver,
+    ) -> None:
+        """Ensure all steps have an entry in the dependency graph.
+
+        Args:
+            filtered_plan: List of filtered steps
+            dependency_resolver: Dependency resolver to update
+        """
+        for step in filtered_plan:
+            if (
+                step["id"] not in dependency_resolver.dependencies
+                and "depends_on" not in step
+            ):
+                logger.debug(
+                    f"Adding missing step to dependency resolver: {step['id']}"
+                )
+                dependency_resolver.dependencies[step["id"]] = []
+
+    def _build_source_dependencies(
+        self,
+        filtered_plan: List[Dict[str, Any]],
+        dependency_resolver: DependencyResolver,
+    ) -> List[str]:
+        """Build dependencies starting from source steps.
+
+        Args:
+            filtered_plan: List of filtered steps
+            dependency_resolver: Dependency resolver to use
+
+        Returns:
+            List of resolved step IDs in execution order
+        """
+        # Get source steps
+        source_steps = [
+            step for step in filtered_plan if step["type"] == "source_definition"
+        ]
+        source_step_ids = [step["id"] for step in source_steps]
+
+        # If no source steps, use first step as entry point
+        if not source_step_ids:
+            logger.debug("No source steps found, using first step as entry point")
+            return [filtered_plan[0]["id"]] if filtered_plan else []
+
+        # Build dependencies from source steps
+        logger.debug(f"Using source steps as entry points: {source_step_ids}")
+        resolved_order = []
         try:
-            entry_points = [
-                step["id"] for step in filtered_plan if not step.get("depends_on")
-            ]
-            logger.debug("Entry points: %s", entry_points)
-
-            resolved_order = []
-            for entry_point in entry_points:
-                deps = dependency_resolver.resolve_dependencies(entry_point)
-                for dep in deps:
+            for source_id in source_step_ids:
+                source_deps = dependency_resolver.resolve_dependencies(source_id)
+                for dep in source_deps:
                     if dep not in resolved_order:
                         resolved_order.append(dep)
         except Exception as e:
             logger.error(f"Error resolving dependencies: {e}")
-            return {"status": "failed", "error": str(e)}
+            raise
 
-        logger.debug("Steps to execute: %d", len(filtered_plan))
+        return resolved_order
 
-        # Verify that all steps are in the execution order
-        logger.debug("All step IDs: %s", step_ids)
-        logger.debug("Execution order: %s", resolved_order)
+    def _process_steps_and_create_order(
+        self, steps: List[Dict[str, Any]], dependency_resolver: DependencyResolver
+    ) -> Tuple[List[Dict[str, Any]], List[str]]:
+        """Process steps and create execution order.
 
-        if len(resolved_order) != len(step_ids):
-            missing_steps = step_ids - set(resolved_order)
-            logger.warning(
-                f"Warning: {len(missing_steps)} steps are not in the execution order: {missing_steps}"
-            )
-            # Check if the order is different from the plan order
-            plan_order = [step["id"] for step in filtered_plan]
-            if plan_order != resolved_order:
-                filtered_plan_order = [id for id in plan_order if id in resolved_order]
-                logger.debug("⚠️ Execution order mismatch detected.")
-                logger.debug("Plan order: %s", filtered_plan_order)
-                logger.debug("Resolved dependency order: %s", resolved_order)
+        Args:
+            steps: List of steps to process
+            dependency_resolver: Dependency resolver to use
 
-        # Add steps that might be missing from the execution order
+        Returns:
+            Tuple of (filtered_plan, resolved_order)
+        """
+        # Filter steps with unique IDs
+        filtered_plan = self._filter_unique_steps(steps)
+
+        # Ensure all steps have dependency entries
+        self._ensure_dependency_entries(filtered_plan, dependency_resolver)
+
+        # Build dependencies from source steps
+        resolved_order = self._build_source_dependencies(
+            filtered_plan, dependency_resolver
+        )
+
+        # Ensure all steps are in the resolved order
         for step in filtered_plan:
             if step["id"] not in resolved_order:
-                logger.debug(
-                    f"Adding step {step['id']} to execution order (missing from dependencies)"
-                )
+                logger.debug(f"Adding missing step to execution order: {step['id']}")
                 resolved_order.append(step["id"])
 
-        # Prepare plan steps by ID for quick lookup
-        steps_by_id = {step["id"]: step for step in filtered_plan}
+        return filtered_plan, resolved_order
 
-        # Execute steps in order
-        success = True
+    def _execute_steps_in_order(
+        self, resolved_order: List[str], steps_by_id: Dict[str, Dict[str, Any]]
+    ) -> bool:
+        """Execute steps in the resolved dependency order.
+
+        Args:
+            resolved_order: List of step IDs in execution order
+            steps_by_id: Map of step IDs to step definitions
+
+        Returns:
+            True if all steps executed successfully, False otherwise
+        """
+        self.results["status"] = "success"
+
         for step_id in resolved_order:
-            step = steps_by_id.get(step_id)
-            if not step:
-                logger.warning(f"Step {step_id} not found in plan, skipping")
+            logger.debug(f"Executing step {step_id}")
+            if step_id not in steps_by_id:
+                logger.warning(f"Step {step_id} not found in plan")
                 continue
 
+            step = steps_by_id[step_id]
+
             # Check if dependencies are satisfied
-            dependencies_satisfied = True
-            for dep_id in step.get("depends_on", []):
-                dep_result = self.step_results.get(dep_id)
-                if not dep_result or dep_result.get("status") != "success":
-                    logger.warning(
-                        f"Dependency {dep_id} for step {step_id} failed or not executed"
-                    )
-                    dependencies_satisfied = False
-                    break
+            if not self._check_dependencies_satisfied(step):
+                self.results["status"] = "failed"
+                self.results["error"] = f"Dependencies not satisfied for step {step_id}"
+                return False
 
-            if not dependencies_satisfied:
-                logger.warning(f"Skipping step {step_id} due to failed dependencies")
-                self.step_results[step_id] = {
-                    "status": "skipped",
-                    "reason": "dependent steps failed",
-                }
-        self.results = {}
-        self.dependency_resolver = dependency_resolver
-        self.step_table_map = {}
-        self.step_output_mapping = {}
+            # Execute the step
+            success = self._execute_single_step(step_id, step)
+            if not success:
+                self.results["status"] = "failed"
+                return False
 
-        # Initialize execution tracking if pipeline_name is provided
-        if pipeline_name:
-            self.execution_id, _ = self.artifact_manager.initialize_execution(
-                pipeline_name, variables or {}, self.profile_name
-            )
-        else:
-            self.execution_id = None
+        return True
 
-        # Check if we have a valid dependency order
-        if (
-            dependency_resolver is not None
-            and dependency_resolver.last_resolved_order is not None
-            and not dependency_resolver.last_resolved_order
-        ):
-            logger.warning("No steps to execute in pipeline")
-            return {"status": "no_steps"}
+    def _check_dependencies_satisfied(self, step: Dict[str, Any]) -> bool:
+        """Check if all dependencies for a step are satisfied.
 
-        logger.debug("Dependency resolver: %s", dependency_resolver)
-        logger.debug(
-            "Dependencies: %s",
-            dependency_resolver.dependencies if dependency_resolver else "None",
-        )
-        logger.debug(
-            "Last resolved order: %s",
-            dependency_resolver.last_resolved_order if dependency_resolver else "None",
-        )
+        Args:
+            step: Step to check
 
-        # Execute operations based on dependency order
-        if not dependency_resolver or not dependency_resolver.last_resolved_order:
-            logger.debug(
-                "No valid dependency order - executing all steps in original order"
-            )
-            self._execute_steps_in_original_order(steps, pipeline_name)
-        elif dependency_resolver is not None:
-            logger.debug("Steps to execute: %d", len(steps))
-            step_ids = [step["id"] for step in steps]
-            logger.debug("All step IDs: %s", step_ids)
-            logger.debug(
-                "Dependency resolver execution order: %s",
-                dependency_resolver.last_resolved_order,
-            )
-            if dependency_resolver.last_resolved_order:
-                plan_order = [step["id"] for step in steps]
-                resolved_order = dependency_resolver.last_resolved_order
-                filtered_plan_order = [s for s in plan_order if s in resolved_order]
-                if filtered_plan_order != resolved_order:
-                    logger.warning(
-                        "Execution order mismatch detected. Plan order: %s, Resolved dependency order: %s",
-                        filtered_plan_order,
-                        resolved_order,
-                    )
-                    logger.debug("⚠️ Execution order mismatch detected.")
-                    logger.debug("Plan order: %s", filtered_plan_order)
-                    logger.debug("Resolved dependency order: %s", resolved_order)
-                self._execute_steps_in_dependency_order(
-                    steps, dependency_resolver, pipeline_name
+        Returns:
+            True if all dependencies are satisfied, False otherwise
+        """
+        # Always allow source definition and load steps to run (no dependencies)
+        step_type = step.get("type")
+        if step_type == "source_definition" or step_type == "load":
+            return True
+
+        # For steps with dependencies, check that they've all been executed successfully
+        dependencies = step.get("depends_on", [])
+        if not dependencies:
+            # No dependencies, so all are satisfied
+            return True
+
+        for dependency in dependencies:
+            # Check if dependency result exists and was successful
+            dep_result = self.results.get(dependency)
+            if not dep_result or dep_result.get("status") != "success":
+                logger.warning(
+                    f"Dependency {dependency} for step {step['id']} failed or not executed"
                 )
+                return False
+
+        return True
+
+    def _execute_single_step(self, step_id: str, step: Dict[str, Any]) -> bool:
+        """Execute a single step.
+
+        Args:
+            step_id: ID of the step to execute
+            step: Step definition
+
+        Returns:
+            True if step executed successfully, False otherwise
+        """
+        logger.info(f"Executing step {step_id} ({step['type']})")
+
+        try:
+            # Log start of execution for artifacts
+            self._handle_artifact_recording(
+                event_type="start",
+                pipeline_name=None,
+                step_id=step_id,
+                step_type=step["type"],
+            )
+
+            # Execute based on step type
+            if step["type"] == "source_definition":
+                result = self._execute_source_definition(step)
+            elif step["type"] == "load":
+                result = self.execute_step(step)
+            elif step["type"] == "transform":
+                result = self.execute_step(step)
+            elif step["type"] == "export":
+                result = self.execute_step(step)
             else:
-                logger.debug(
-                    "⚠️ No resolved order in dependency resolver. Will execute all steps in their original order."
-                )
-                self._execute_steps_in_original_order(steps, pipeline_name)
-        else:
-            logger.debug(
-                "No dependency resolver provided. Executing steps in original order."
+                # Unknown step type - log at debug level to avoid spurious warnings
+                logger.debug(f"Unknown step type: {step['type']}")
+                result = {
+                    "status": "failed",
+                    "error": f"Unknown step type: {step['type']}",
+                }
+
+            # Store the result
+            self.results[step_id] = result
+
+            # Log completion of execution for artifacts
+            self._handle_artifact_recording(
+                event_type="completion",
+                pipeline_name=None,
+                step_id=step_id,
+                step_type=step["type"],
+                result=result,
+                success_status=result.get("status") == "success",
             )
-            self._execute_steps_in_original_order(steps, pipeline_name)
 
-        # Generate execution summary
-        self._generate_step_summary(steps)
+            # Return success status
+            if result.get("status") != "success":
+                logger.error(
+                    f"Step {step_id} failed: {result.get('error', 'Unknown error')}"
+                )
+                return False
 
-        # Record execution completion if tracking
-        if pipeline_name and self.execution_id:
-            success = "error" not in self.results
-            self.artifact_manager.finalize_execution(pipeline_name, success)
+            return True
 
-        return self.results
+        except Exception as e:
+            logger.error(f"Error executing step {step_id}: {str(e)}")
+            self.results[step_id] = {"status": "failed", "error": str(e)}
+            return False
 
     def _handle_artifact_recording(
         self,
@@ -575,12 +768,52 @@ class LocalExecutor(BaseExecutor):
         return current_step_result
 
     def _execute_source_definition(self, step: Dict[str, Any]) -> Dict[str, Any]:
-        name = step["name"]
-        connector_type = step["source_connector_type"]
-        params = step["query"]
-        self.connector_engine.register_connector(name, connector_type, params)
-        self.source_connectors[name] = connector_type
-        return {"status": "success"}
+        """Execute a source definition step."""
+        step_id = step.get("id", "unknown")
+        source_name = step.get("name", None)
+
+        if not source_name:
+            error_msg = f"Source step {step_id} is missing a name property"
+            logger.error(error_msg)
+            return {"status": "failed", "error": error_msg}
+
+        try:
+            # Register the source connector type for this source
+            connector_type = step.get("source_connector_type")
+            if connector_type:
+                # Track connector type for this source
+                self.source_connectors[source_name] = connector_type
+                logger.debug(
+                    f"Registered source {source_name} with connector type {connector_type}"
+                )
+                # Register connector with connector engine for data loading
+                params = step.get("query", {})
+                try:
+                    self.connector_engine.register_connector(
+                        source_name, connector_type, params
+                    )
+                    logger.debug(
+                        f"Connector engine registered connector '{source_name}' of type '{connector_type}' with params: {params}"
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to register connector '{source_name}': {e}")
+                    return {
+                        "status": "failed",
+                        "error": f"Failed to register connector '{source_name}': {e}",
+                    }
+
+            # Save the step mapping for this source
+            self.step_table_map[step_id] = source_name
+            logger.debug(f"Mapped step {step_id} to table {source_name}")
+
+            # For source definitions, we don't actually execute anything yet
+            # The actual data loading happens in the load step
+            return {"status": "success"}
+
+        except Exception as e:
+            error_msg = f"Error executing source definition step {step_id}: {str(e)}"
+            logger.error(error_msg)
+            return {"status": "failed", "error": error_msg}
 
     def _execute_load(self, step: Dict[str, Any]) -> Dict[str, Any]:
         """Execute a load step to import data from a source connector.
@@ -1195,18 +1428,26 @@ class LocalExecutor(BaseExecutor):
                 var_name = var_name.strip()
                 default = default.strip()
 
-                if hasattr(self, "profile") and hasattr(self.profile, "get"):
-                    profile_vars = self.profile.get("variables", {})
-                    if var_name in profile_vars:
-                        return str(profile_vars[var_name])
+                # Get variables from profile
+                profile_vars = (
+                    self.profile.get("variables", {})
+                    if isinstance(self.profile, dict)
+                    else {}
+                )
+                if var_name in profile_vars:
+                    return str(profile_vars[var_name])
 
                 return default
             else:
                 var_name = var_expr.strip()
-                if hasattr(self, "profile") and hasattr(self.profile, "get"):
-                    profile_vars = self.profile.get("variables", {})
-                    if var_name in profile_vars:
-                        return str(profile_vars[var_name])
+                # Get variables from profile
+                profile_vars = (
+                    self.profile.get("variables", {})
+                    if isinstance(self.profile, dict)
+                    else {}
+                )
+                if var_name in profile_vars:
+                    return str(profile_vars[var_name])
 
                 return match.group(0)  # Keep the original if not found
 
@@ -1269,23 +1510,30 @@ class LocalExecutor(BaseExecutor):
                     options,
                 )
 
-            logger.debug("Attempting to export to: %s", destination)
-            logger.debug("Using connector type: %s", connector_type)
-            logger.debug("With options: %s", options)
+            logger.info(
+                f"Exporting to: {destination} with connector type: {connector_type}"
+            )
+
+            # Create parent directories for the destination if needed
+            if connector_type.upper() == "CSV" and not destination.startswith("s3://"):
+                # Only create directories for local file paths (not S3 URIs)
+                dirname = os.path.dirname(destination)
+                if dirname:
+                    os.makedirs(dirname, exist_ok=True)
+                    logger.debug(f"Created parent directory: {dirname}")
+
+            # Export the data
             self.connector_engine.export_data(
                 data=data_chunk,
                 destination=destination,
                 connector_type=connector_type,
                 options=options,
             )
-            logger.debug(
-                "✅ EXPORT SUCCESSFUL: %s to %s",
-                step["id"],
-                destination,
-            )
+
+            logger.info(f"Export successful: {step['id']} to {destination}")
             return {"status": "success"}
         except Exception as e:
-            logger.debug("❌ EXPORT FAILED: %s", str(e))
+            logger.error(f"Export failed: {str(e)}")
             return {"status": "failed", "error": f"Export failed: {str(e)}"}
 
     def _execute_export(self, step: Dict[str, Any]) -> Dict[str, Any]:
