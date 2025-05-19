@@ -149,6 +149,95 @@ Use variables (`${VAR_NAME}`) from profiles or CLI (`--vars '{"VAR_NAME": "value
 *   **Rapid Prototyping of Data Pipelines:** Quickly build and test data transformation logic with minimal setup and easy environment switching.
 *   **Automating Reporting Feeds:** Prepare and export datasets for BI tools or downstream systems using a clear, SQL-defined process.
 
+## Configuring Logging
+
+SQLFlow provides flexible logging configuration to help you debug and monitor your data pipelines:
+
+### Log Levels
+
+Control verbosity with these log levels (from most to least verbose):
+- `debug`: Detailed debugging information 
+- `info`: General operational information (default)
+- `warning`: Warning messages
+- `error`: Error messages
+- `critical`: Critical issues
+
+### Configuration Methods
+
+SQLFlow offers multiple ways to configure logging:
+
+#### 1. Environment Variable
+
+Set the `SQLFLOW_LOG_LEVEL` environment variable:
+
+```bash
+# On Linux/macOS
+export SQLFLOW_LOG_LEVEL=debug
+
+# On Windows
+set SQLFLOW_LOG_LEVEL=debug
+```
+
+#### 2. Command Line Option
+
+Use the `--log-level` option when running SQLFlow:
+
+```bash
+sqlflow pipeline run my_pipeline --log-level debug
+```
+
+#### 3. Profile Configuration
+
+Add logging settings to your profile YAML files:
+
+```yaml
+# profiles/dev.yml
+log_level: debug
+module_log_levels:
+  sqlflow.core.engines: info
+  sqlflow.connectors: debug
+  sqlflow.udfs: debug
+```
+
+This allows you to set different log levels for specific modules.
+
+#### 4. Programmatic Configuration
+
+For Python scripts that use SQLFlow as a library:
+
+```python
+from sqlflow.logging import configure_logging
+
+# Set global log level
+configure_logging(log_level="debug")
+
+# Or configure with more specific settings
+configure_logging(config={
+    "log_level": "info",
+    "module_log_levels": {
+        "sqlflow.core.engines": "debug",
+        "sqlflow.connectors": "warning"
+    }
+})
+```
+
+### Recommended Settings for Common Scenarios
+
+- **Development/Debugging**: Use `debug` log level to see detailed execution information
+- **Production**: Use `info` or `warning` to reduce log volume
+- **Troubleshooting UDFs**: Set module-specific level for `sqlflow.udfs` to `debug`
+- **Connector Issues**: Set module-specific level for `sqlflow.connectors` to `debug`
+
+### Log Output Format
+
+SQLFlow logs include timestamp, logger name, level and message:
+
+```
+2023-05-14 15:23:45,789 - sqlflow.core.engines.duckdb_engine - INFO - Table users registered successfully
+```
+
+This standardized format makes it easier to filter and analyze logs.
+
 ## SQL Features & Best Practices
 
 ### Proper SQL Formatting
@@ -251,3 +340,35 @@ A: Create `profiles/staging.yml`. Configure as needed. Run with `--profile stagi
 
 **Q: Are intermediate tables saved in persistent mode?**
 A: Yes. All tables from `CREATE TABLE ... AS SELECT ...` are saved in the DuckDB file, aiding debugging.
+
+## Python UDF Support in SQLFlow
+
+SQLFlow supports Python User-Defined Functions (UDFs) for both scalar and table operations, enabling advanced data transformations directly in your SQL pipelines. UDFs are discovered from the `python_udfs/` directory and can be referenced in SQL using fully qualified names.
+
+- **Scalar UDF Example:**
+  ```python
+  from sqlflow.udfs.decorators import python_scalar_udf
+
+  @python_scalar_udf
+  def add_one(x: int) -> int:
+      return x + 1
+  ```
+  ```sql
+  SELECT id, PYTHON_FUNC("python_udfs.my_module.add_one", value) AS value_plus_one FROM my_table;
+  ```
+
+- **Table UDF Example:**
+  ```python
+  from sqlflow.udfs.decorators import python_table_udf
+  import pandas as pd
+
+  @python_table_udf
+  def enrich(df: pd.DataFrame) -> pd.DataFrame:
+      df["enriched"] = df["value"] * 2
+      return df
+  ```
+  ```sql
+  CREATE TABLE enriched AS SELECT * FROM PYTHON_FUNC("python_udfs.my_module.enrich", my_table);
+  ```
+
+See [docs/python_udfs.md](docs/python_udfs.md) for full details, best practices, and troubleshooting.

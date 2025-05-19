@@ -1,7 +1,6 @@
 """Pipeline commands for the SQLFlow CLI."""
 
 import json
-import logging
 import os
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
@@ -15,11 +14,11 @@ from sqlflow.core.executors.local_executor import LocalExecutor
 from sqlflow.core.planner import Planner
 from sqlflow.core.sql_generator import SQLGenerator
 from sqlflow.core.storage.artifact_manager import ArtifactManager
+from sqlflow.logging import get_logger
 from sqlflow.parser.parser import Parser
 from sqlflow.project import Project
 
-logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.DEBUG)
+logger = get_logger(__name__)
 
 pipeline_app = typer.Typer(
     help="Pipeline management commands",

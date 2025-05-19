@@ -8,6 +8,7 @@ import typer
 
 from sqlflow import __version__
 from sqlflow.cli import connect
+from sqlflow.cli.commands.udf import app as udf_app
 from sqlflow.cli.pipeline import pipeline_app
 from sqlflow.project import Project
 
@@ -18,6 +19,7 @@ app = typer.Typer(
 
 app.add_typer(pipeline_app, name="pipeline")
 app.add_typer(connect.app, name="connect")
+app.add_typer(udf_app, name="udf")
 
 
 def version_callback(value: bool):
@@ -100,6 +102,7 @@ def cli():
         print("\nCommands:")
         print("  pipeline    Work with SQLFlow pipelines.")
         print("  connect     Manage and test connection profiles.")
+        print("  udf         Manage Python User-Defined Functions.")
         print("  init        Initialize a new SQLFlow project.")
         print("\nOptions:")
         print("  --version   Show version and exit.")
@@ -122,6 +125,10 @@ def cli():
                 print("\nConnect Commands:")
                 print("  list        List available connections.")
                 print("  test        Test a connection.")
+            elif command == "udf":
+                print("\nUDF Commands:")
+                print("  list        List available Python UDFs.")
+                print("  info        Show detailed information about a specific UDF.")
             return 0
 
         return 0

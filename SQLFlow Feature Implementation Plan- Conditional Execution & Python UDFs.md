@@ -1412,38 +1412,65 @@ OPTIONS { "header": true };
 
 ## Epic Implementation Timeline
 
-### Week 1: Conditional Execution Foundations
-- Tasks 1.1 & 1.2: Lexer, AST, Parser updates
-- Task 1.3: Condition evaluation logic
-- Initial unit tests
+### Phase 1: Core Implementation (Week 1-2)
+- **Foundation & Syntax Support**
+  - Tasks 1.1 & 1.2: Lexer, AST, Parser updates for conditionals
+  - Task 1.3: Condition evaluation logic with robust error handling
+  - Task 2.1: UDF infrastructure with clear decorator API
+  - Comprehensive unit tests for both features
 
-### Week 2: Conditional Execution Integration
-- Task 1.4: Planner integration
-- Task 1.5: DAG builder updates
-- Integration tests
-- Task 1.6: Documentation
+### Phase 2: Integration & User Experience (Week 3-4)
+- **System Integration**
+  - Task 1.4: Planner integration for conditionals with clear execution paths
+  - Task 1.5: DAG builder updates with visualizations showing active branches
+  - Task 2.2: Engine integration with DuckDB for optimal performance
+  - Task 2.3: Executor integration with proper resource management for UDFs
+- **Developer Experience**
+  - Task 1.6: Detailed documentation and examples for conditional execution
+  - Task 2.4: CLI support for UDF discovery and inspection
+  - Task 2.5: UDF documentation with clear best practices
+  - Comprehensive integration tests with real-world scenarios
 
-### Week 3: UDF Core Infrastructure
-- Task 2.1: UDF infrastructure
-- Task 2.2: Engine integration
-- Initial unit tests
+### Phase 3: Refinement & Production Readiness (Week 5-6)
+- **User-Focused Improvements**
+  - Enhanced error messages with actionable guidance
+  - Performance optimizations for UDF execution
+  - Additional examples covering common SME use cases
+- **Operational Excellence**
+  - Logging enhancements for debugging conditional execution
+  - Memory management for large-scale UDF operations
+  - Edge case handling based on early user feedback
 
-### Week 4: UDF Integration & Finalization
-- Task 2.3: Executor integration
-- Task 2.4: CLI support
-- Task 2.5: Documentation
-- Final integration tests
+## Alignment with Overall SQLFlow Architecture
+
+The implementation of conditional execution and Python UDFs will adhere to SQLFlow's key architectural principles:
+
+1. **SQL-First Philosophy**: Conditional logic and Python UDFs maintain SQL as the primary paradigm while extending functionality
+2. **Simplicity**: Clear syntax for both features with intuitive behavior for SQL-fluent users
+3. **Transparency**: Execution plan visualization will clearly show which conditional branches are active
+4. **Performance**: UDFs implementation will prioritize efficient data exchange with Arrow
+
+## Success Criteria
+
+1. **Usability**: SME data analysts can effectively use both features with minimal training
+2. **Reliability**: Robust error handling with clear guidance for resolution
+3. **Performance**: UDF execution maintains reasonable performance even with complex operations
+4. **Flexibility**: Conditionals support all common patterns needed for environment-based execution
+5. **Documentation**: Comprehensive guides with examples that demonstrate real-world applications
 
 ## Risk Mitigation
 
 1. **DuckDB UDF Implementation Complexity**:
    - Backup Plan: If native DuckDB UDF integration is too complex, implement a simpler transformation approach that preprocesses Python function calls before submitting SQL.
+   - Performance testing early in implementation to identify bottlenecks
 
 2. **Nested Conditional Complexity**:
    - Mitigation: Start with flat conditional support, add nested support incrementally.
    - Limit nesting depth in MVP.
+   - Provide clear visualization of execution paths for nested conditionals
 
 3. **Integration Test Coverage**:
    - Strategy: Create comprehensive test suites covering edge cases early.
    - Focus on validating execution paths match expected conditional branch evaluation.
+   - Include real-world pipeline examples in integration tests
 

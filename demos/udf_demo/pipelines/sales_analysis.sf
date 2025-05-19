@@ -1,0 +1,87 @@
+-- Sales Analysis Pipe  id,
+  customer_id,
+  product,
+  price AS original_price,
+  -- Apply tax at default rate (10%)
+  PYTHON_FUNC("python_udfs.tax_utils.calculate_tax_default", price) AS price_with_tax,
+  -- Apply tax at custom rate (8%)
+  PYTHON_FUNC("python_udfs.data_transforms.calculate_tax", price, 0.08) AS price_with_custom_tax,Demonstrates both scalar and table UDFs for data transformation
+
+-- Source sales data
+SOURCE sales TYPE CSV PARAMS {
+  "path": "data/sales.csv",
+  "has_header": true
+};
+
+-- Source customer data for joining
+SOURCE customers TYPE CSV PARAMS {
+  "path": "data/customers.csv",
+  "has_header": true
+};
+
+-- Load data
+LOAD raw_sales FROM sales;
+LOAD raw_customers FROM customers;
+
+-- Use scalar UDFs for price calculations
+CREATE TABLE price_variants AS
+SELECT
+  id,
+  customer_id,
+  product,
+  price AS original_price,
+  -- Apply tax at default rate (10%)
+  PYTHON_FUNC("python_udfs.data_transforms.calculate_tax_default", price) AS price_with_tax,
+  -- Apply tax at custom rate (8%)
+  PYTHON_FUNC("python_udfs.data_transforms.calculate_tax", price, 0.08) AS price_with_custom_tax,
+  -- Apply a 15% discount
+  PYTHON_FUNC("python_udfs.tax_functions.apply_discount", price, 15) AS discounted_price,
+  quantity,
+  date
+FROM raw_sales;
+
+-- Use table UDF to add calculated columns to the entire dataset
+CREATE TABLE sales_with_metrics AS
+SELECT * 
+FROM PYTHON_FUNC("python_udfs.data_transforms.add_sales_metrics", price_variants);
+
+-- Join with customer data 
+CREATE TABLE customer_sales AS
+SELECT
+  s.id AS sale_id,
+  PYTHON_FUNC("python_udfs.text_utils.capitalize_words", c.name) AS customer_name,
+  s.product,
+  s.original_price,
+  s.price_with_tax,
+  s.quantity,
+  s.total,
+  s.final_price,
+  s.date
+FROM sales_with_metrics s
+JOIN raw_customers c ON s.customer_id = c.id;
+
+-- Export detailed results
+EXPORT
+  SELECT * FROM sales_with_metrics
+TO "${output_dir}/sales_metrics_${run_id}.csv"
+TYPE CSV
+OPTIONS { "header": true };
+
+-- Create customer sales summary
+CREATE TABLE customer_summary AS
+SELECT
+  customer_name,
+  COUNT(*) AS num_purchases,
+  SUM(total) AS total_spent,
+  MIN(date) AS first_purchase,
+  MAX(date) AS last_purchase
+FROM customer_sales
+GROUP BY customer_name
+ORDER BY total_spent DESC;
+
+-- Export customer summary
+EXPORT
+  SELECT * FROM customer_summary
+TO "${output_dir}/customer_summary_${run_id}.csv"
+TYPE CSV
+OPTIONS { "header": true }; 

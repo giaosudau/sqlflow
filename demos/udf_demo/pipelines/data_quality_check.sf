@@ -1,0 +1,67 @@
+-- Data Quality Check Pipeline
+-- Demonstrates UDFs for data quality and validation
+
+-- Source data
+SOURCE customers TYPE CSV PARAMS {
+  "path": "data/customers.csv",
+  "has_header": true
+};
+
+SOURCE sales TYPE CSV PARAMS {
+  "path": "data/sales.csv",
+  "has_header": true
+};
+
+-- Load data - these must be run before transformations
+LOAD raw_customers FROM customers;
+LOAD raw_sales FROM sales;
+
+-- Email validation
+CREATE TABLE validated_customers AS
+SELECT
+  id,
+  name,
+  email,
+  -- Check if email is valid
+  PYTHON_FUNC("python_udfs.text_utils.is_valid_email", email) AS has_valid_email,
+  -- Extract domain for valid emails
+  PYTHON_FUNC("python_udfs.text_utils.extract_domain", email) AS email_domain,
+  notes
+FROM raw_customers;
+
+-- Export validation results
+EXPORT
+  SELECT * FROM validated_customers
+TO "${output_dir}/validated_customers_${run_id}.csv"
+TYPE CSV
+OPTIONS { "header": true };
+
+-- Price outlier detection using table UDF
+-- This step depends on raw_sales being loaded
+CREATE TABLE sales_outliers AS
+SELECT * FROM PYTHON_FUNC("python_udfs.data_transforms.detect_outliers", raw_sales);
+
+-- Export results
+EXPORT
+  SELECT * FROM sales_outliers
+TO "${output_dir}/sales_outliers_${run_id}.csv"
+TYPE CSV
+OPTIONS { "header": true };
+
+-- Create summary of outliers vs normal prices
+CREATE TABLE price_distribution AS
+SELECT
+  is_outlier,
+  COUNT(*) AS count,
+  MIN(price) AS min_price,
+  MAX(price) AS max_price,
+  AVG(price) AS avg_price
+FROM sales_outliers
+GROUP BY is_outlier;
+
+-- Export summary
+EXPORT
+  SELECT * FROM price_distribution
+TO "${output_dir}/price_distribution_${run_id}.csv"
+TYPE CSV
+OPTIONS { "header": true }; 

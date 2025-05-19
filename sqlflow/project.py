@@ -1,13 +1,13 @@
 """Project management for SQLFlow."""
 
-import logging
 import os
 from typing import Any, Dict, Optional
 
 import yaml
 
-logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.DEBUG)
+from sqlflow.logging import configure_logging, get_logger
+
+logger = get_logger(__name__)
 
 
 class Project:
@@ -23,7 +23,10 @@ class Project:
         self.project_dir = project_dir
         self.profile_name = profile_name
         self.profile = self._load_profile(profile_name)
-        print(f"[SQLFlow] Loaded profile: {profile_name}")
+
+        # Configure logging based on profile settings
+        self._configure_logging_from_profile()
+
         logger.info(f"Loaded profile: {profile_name}")
 
     def _load_profile(self, profile_name: str) -> Dict[str, Any]:
@@ -36,17 +39,32 @@ class Project:
         """
         profiles_dir = os.path.join(self.project_dir, "profiles")
         profile_path = os.path.join(profiles_dir, f"{profile_name}.yml")
-        print(f"[SQLFlow] Loading profile from: {profile_path}")
         logger.info(f"Loading profile from: {profile_path}")
         if not os.path.exists(profile_path):
-            print(f"[SQLFlow] Profile not found at {profile_path}")
             logger.warning(f"Profile not found at {profile_path}")
             return {}
         with open(profile_path, "r") as f:
             profile = yaml.safe_load(f)
-            print(f"[SQLFlow] Loaded profile configuration: {profile}")
             logger.info(f"Loaded profile configuration: {profile}")
             return profile or {}
+
+    def _configure_logging_from_profile(self) -> None:
+        """Configure logging based on profile settings."""
+        # Build logging configuration from profile
+        log_config = {}
+
+        # Extract log level if present
+        if "log_level" in self.profile:
+            log_config["log_level"] = self.profile["log_level"]
+
+        # Extract module-specific log levels if present
+        if "module_log_levels" in self.profile:
+            log_config["module_log_levels"] = self.profile["module_log_levels"]
+
+        # Configure logging with these settings
+        if log_config:
+            configure_logging(config=log_config)
+            logger.debug(f"Configured logging from profile with: {log_config}")
 
     def get_pipeline_path(self, pipeline_name: str) -> str:
         """Get the full path to a pipeline file.
@@ -87,8 +105,8 @@ class Project:
         Returns:
             New Project instance
         """
-        print(
-            f"DEBUG: Initializing new project at {project_dir} with name {project_name}"
+        logger.debug(
+            f"Initializing new project at {project_dir} with name {project_name}"
         )
         os.makedirs(os.path.join(project_dir, "pipelines"), exist_ok=True)
         os.makedirs(os.path.join(project_dir, "models"), exist_ok=True)
@@ -105,16 +123,22 @@ class Project:
                     "memory_limit": "2GB",
                 }
             },
+            # Add default logging configuration
+            "log_level": "info",
+            "module_log_levels": {
+                "sqlflow.core.engines": "info",
+                "sqlflow.connectors": "info",
+            },
             # Add more default keys as needed
         }
         profiles_dir = os.path.join(project_dir, "profiles")
         os.makedirs(profiles_dir, exist_ok=True)
         profile_path = os.path.join(profiles_dir, "dev.yml")
-        print(f"DEBUG: Writing initial dev profile to {profile_path}")
+        logger.debug(f"Writing initial dev profile to {profile_path}")
         with open(profile_path, "w") as f:
             yaml.dump(default_profile, f, default_flow_style=False)
 
-        print("DEBUG: Project initialization complete.")
+        logger.debug("Project initialization complete.")
         return Project(project_dir)
 
     def get_config(self) -> Dict[str, Any]:

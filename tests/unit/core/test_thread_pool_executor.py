@@ -306,13 +306,22 @@ class TestThreadPoolTaskExecutor:
 
         executor._log_state_transition("step1", TaskState.PENDING, TaskState.RUNNING)
 
-        assert len(caplog.records) == 1
-        record = caplog.records[0]
-        assert record.levelname == "INFO"
-
-        log_data = json.loads(record.message)
-        assert log_data["event"] == "task_state_transition"
-        assert log_data["task_id"] == "step1"
-        assert log_data["old_state"] == "PENDING"
-        assert log_data["new_state"] == "RUNNING"
-        assert "timestamp" in log_data
+        # Find the log record from thread_pool_executor
+        found = False
+        for record in caplog.records:
+            if (
+                record.name == "sqlflow.core.executors.thread_pool_executor"
+                and record.levelname == "INFO"
+            ):
+                log_data = json.loads(record.message)
+                if (
+                    log_data.get("event") == "task_state_transition"
+                    and log_data.get("task_id") == "step1"
+                ):
+                    found = True
+                    assert log_data["old_state"] == "PENDING"
+                    assert log_data["new_state"] == "RUNNING"
+                    assert "timestamp" in log_data
+        assert (
+            found
+        ), "No task_state_transition log record found from thread_pool_executor"

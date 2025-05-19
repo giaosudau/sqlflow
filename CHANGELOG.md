@@ -29,6 +29,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Support for conditional execution in SQLFlow pipelines
 - Enhanced variable support in SQL queries and configuration
 - Region-based analysis capabilities in demos
+- **Comprehensive logging system improvements**:
+  - Centralized logging configuration in `sqlflow/logging.py`
+  - Multiple configuration methods (environment variables, command line, profiles, programmatic API)
+  - Module-specific log level configuration
+  - Enhanced logging across critical components:
+    - SQL generation with variable substitution tracking
+    - Pipeline planning and execution with detailed debugging info
+    - UDF discovery and registration with improved error reporting
+    - Query execution with detailed step tracking
+  - Standardized log format across all modules
 
 ### Changed
 - Restructured parser code for better maintainability
