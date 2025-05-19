@@ -25,7 +25,10 @@ udf_demo/
 │   └── dev.yml              # Development environment settings
 └── python_udfs/             # Python UDF modules
     ├── text_utils.py        # Text processing UDFs
-    └── data_transforms.py   # Data transformation UDFs
+    ├── data_transforms.py   # Data transformation UDFs
+    ├── tax_utils.py         # Tax calculation UDFs
+    ├── tax_functions.py     # Advanced tax-related UDFs
+    └── enhanced_udfs.py     # Enhanced UDFs for specialized tasks
 └── test_udf_discovery.py    # Utility script to test UDF discovery
 ```
 
