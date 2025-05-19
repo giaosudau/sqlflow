@@ -1,8 +1,6 @@
 <!-- filepath: /Users/chanhle/ai-playground/sqlflow/docs/python_udfs.md -->
 # Python UDFs in SQLFlow: Advanced Guide
 
-> **Reviewed for best practices by Principal Software Advocates (Snowflake, Databricks, dbt, sqlmesh) and data engineering SMEs.**
-
 ## Overview
 
 SQLFlow supports Python User-Defined Functions (UDFs) for both scalar and table operations, enabling advanced, Python-powered data transformations directly in your SQL pipelines. This guide covers best practices, signature requirements, discovery, usage, troubleshooting, and performance tips for UDFs in SQLFlow.
