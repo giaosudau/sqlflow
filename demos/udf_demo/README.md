@@ -1,6 +1,14 @@
 # SQLFlow Python UDFs Demo
 
-This demo showcases the Python User-Defined Functions (UDFs) feature in SQLFlow. It demonstrates how to create and use both scalar and table UDFs in SQLFlow pipelines.
+This demo showcases the Python User-Defined Functions (UDFs) feature in SQLFlow, which allows you to extend SQL capabilities with custom Python functions. It demonstrates how to create and use both scalar and table UDFs in data processing pipelines.
+
+## Overview
+
+The demo includes:
+- Scalar UDFs for text processing and simple calculations
+- Table UDFs for data transformation and quality analysis
+- Complete pipelines showing real-world UDF usage patterns
+- Sample data for customers and sales analysis
 
 ## Directory Structure
 
@@ -10,9 +18,9 @@ udf_demo/
 │   ├── customers.csv        # Customer information
 │   └── sales.csv            # Sales transactions
 ├── pipelines/               # SQLFlow pipeline files
-│   ├── customer_text_processing.sf  # Pipeline using scalar UDFs for text
-│   ├── sales_analysis.sf    # Pipeline using both scalar and table UDFs
-│   └── data_quality_check.sf # Pipeline for data quality checks
+│   ├── customer_text_processing.sf  # Text processing with scalar UDFs
+│   ├── sales_analysis.sf            # Complete pipeline with various UDFs
+│   └── data_quality_check.sf        # Data validation with UDFs
 ├── profiles/                # Environment configurations
 │   └── dev.yml              # Development environment settings
 └── python_udfs/             # Python UDF modules
@@ -21,28 +29,72 @@ udf_demo/
 └── test_udf_discovery.py    # Utility script to test UDF discovery
 ```
 
-## UDFs Implemented
+## Running the Demo
 
-### Scalar UDFs (Text Utils)
+To run the demo pipelines, use the following commands:
 
-1. `capitalize_words`: Capitalizes each word in a string
-2. `extract_domain`: Extracts domain from an email address
-3. `count_words`: Counts the number of words in a text
-4. `is_valid_email`: Validates if a string is a properly formatted email address
+```bash
+# Text processing pipeline
+sqlflow pipeline run customer_text_processing --profile dev --vars '{"run_id": "demo_run", "output_dir": "output"}'
 
-### Scalar UDFs (Data Transforms)
+# Sales analysis pipeline
+sqlflow pipeline run sales_analysis --profile dev --vars '{"run_id": "demo_run", "output_dir": "output"}'
 
-1. `calculate_tax`: Calculates price with tax added
-2. `apply_discount`: Applies a percentage discount to a price
+# Data quality check pipeline
+sqlflow pipeline run data_quality_check --profile dev --vars '{"run_id": "demo_run", "output_dir": "output"}'
+```
+
+The results will be stored in the specified `output_dir` with filenames that include the `run_id`.
+
+## Available UDFs
+
+### Scalar UDFs
+
+Text utilities (`text_utils.py`):
+- `capitalize_words(text: str) -> str`: Capitalizes each word in a string
+- `extract_domain(email: str) -> str`: Extracts domain from an email address
+- `count_words(text: str) -> int`: Counts the number of words in a text
+- `is_valid_email(email: str) -> bool`: Validates if a string is a properly formatted email
+
+Data transforms (`data_transforms.py`):
+- `calculate_tax(price: float, tax_rate: float = 0.1) -> float`: Calculates price with tax
+- `apply_discount(price: float, discount_percent: float) -> float`: Applies percentage discount
 
 ### Table UDFs
 
-1. `add_sales_metrics`: Adds calculated columns to a sales DataFrame (total, tax, final_price)
-2. `detect_outliers`: Identifies outliers in a numeric column using Z-score method
+The following UDFs process entire DataFrames:
 
-## CLI Commands for UDFs
+- `add_sales_metrics(df: pd.DataFrame) -> pd.DataFrame`: Adds calculated columns to a sales DataFrame (total, tax, final_price)
+- `detect_outliers(df: pd.DataFrame, column_name: str = "price") -> pd.DataFrame`: Identifies outliers using Z-score method
 
-SQLFlow CLI provides commands to list and inspect UDFs:
+## Using UDFs in SQL
+
+### Scalar UDF Usage
+
+In SQL, scalar UDFs are called as part of expressions:
+
+```sql
+SELECT
+  id,
+  name,
+  PYTHON_FUNC("python_udfs.text_utils.capitalize_words", name) AS formatted_name,
+  PYTHON_FUNC("python_udfs.text_utils.is_valid_email", email) AS has_valid_email
+FROM customers;
+```
+
+### Table UDF Usage
+
+Table UDFs are called in the FROM clause to transform entire tables:
+
+```sql
+-- Process a table with a table UDF
+CREATE TABLE enriched_sales AS
+SELECT * FROM PYTHON_FUNC("python_udfs.data_transforms.add_sales_metrics", sales_table);
+```
+
+## Exploring UDFs with CLI
+
+SQLFlow provides CLI commands to explore available UDFs:
 
 ```bash
 # List all available UDFs
@@ -50,19 +102,45 @@ sqlflow udf list
 
 # Get detailed information about a specific UDF
 sqlflow udf info python_udfs.text_utils.capitalize_words
+
+# Validate UDFs
+sqlflow udf validate
 ```
 
-### Important Notes on UDF References
+## Troubleshooting
 
-When referencing UDFs in SQL queries, you must use the fully qualified module name:
+### Common Issues
 
-```sql
--- Correct:
-PYTHON_FUNC("python_udfs.text_utils.capitalize_words", name)
+1. **UDF Not Found**: Always use the fully qualified module name in SQL queries (`python_udfs.module.function_name`).
 
--- Incorrect:
-PYTHON_FUNC("text_utils.capitalize_words", name)
-```
+2. **Module Not Found**: Ensure your `python_udfs` directory is properly located in your project directory.
+
+3. **Import Errors**: Check if your UDF file has the correct imports (pandas, numpy, etc.) and that they're installed.
+
+4. **Table UDF Errors**: Make sure table UDFs:
+   - Accept a pandas DataFrame as the first argument
+   - Return a pandas DataFrame
+   - Have all required parameters properly typed
+
+5. **Path Issues**: When running the demo, make sure you run the commands from the project root directory.
+
+## Performance Tips
+
+- Scalar UDFs process data row-by-row and may be slower for large datasets.
+- Table UDFs process entire DataFrames at once and can use vectorized pandas operations for better performance.
+- For best performance, use the appropriate UDF type for your use case:
+  - Use scalar UDFs for simple transformations on individual values
+  - Use table UDFs for complex operations on entire datasets
+
+## Next Steps
+
+After exploring this demo, you can:
+1. Create your own UDFs in the `python_udfs` directory
+2. Build custom pipelines using your UDFs
+3. Experiment with more complex transformations
+4. Integrate with your own data sources
+
+For more information, see the [SQLFlow Python UDFs documentation](../../docs/python_udfs.md).
 
 ## Verifying UDF Discovery
 
@@ -72,18 +150,6 @@ The included test script helps verify that UDFs are properly discoverable by SQL
 # Run the UDF discovery test script
 python test_udf_discovery.py
 ```
-
-## Troubleshooting
-
-### Common Issues
-
-1. **UDF Not Found**: Make sure you're using the fully qualified module name in your SQL queries, including the `python_udfs` prefix.
-
-2. **Python Module Not Found**: Ensure your Python UDF file is in the `python_udfs` directory and contains properly decorated functions.
-
-3. **Pipeline Parsing Errors**: The current implementation may have specific requirements for UDF usage syntax. Check the examples in the pipeline files.
-
-4. **DuckDB Integration**: If you encounter errors with DuckDB registration, try simplifying your UDF arguments and return types.
 
 ## Notes on UDF Usage
 

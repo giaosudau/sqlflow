@@ -14,7 +14,7 @@ SOURCE sales TYPE CSV PARAMS {
 
 -- Load data
 LOAD raw_customers FROM customers;
-LOAD raw_sales FROM sales ;
+LOAD raw_sales FROM sales;
 
 -- Email validation
 CREATE TABLE validated_customers AS
@@ -36,10 +36,9 @@ TO "${output_dir}/validated_customers_${run_id}.csv"
 TYPE CSV
 OPTIONS { "header": true };
 
--- Price outlier detection
+-- Price outlier detection using table UDF
 CREATE TABLE sales_outliers AS
-SELECT *
-FROM PYTHON_FUNC("python_udfs.data_transforms.detect_outliers", raw_sales);
+SELECT * FROM PYTHON_FUNC("python_udfs.data_transforms.detect_outliers", raw_sales);
 
 -- Export results
 EXPORT

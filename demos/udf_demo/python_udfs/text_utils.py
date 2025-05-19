@@ -1,8 +1,12 @@
 """Text utility UDFs for SQLFlow demo."""
 
+import logging
 import re
 
 from sqlflow.udfs import python_scalar_udf
+
+# Set up logging
+logger = logging.getLogger(__name__)
 
 
 @python_scalar_udf
