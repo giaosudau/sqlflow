@@ -269,6 +269,7 @@ pip install -e .
 
 * [SQLFlow Syntax Reference](docs/syntax.md)
 * [Getting Started Guide](docs/getting_started.md)
+* [CLI Reference Guide](docs/cli_guide.md)
 * [Examples](examples/)
 * [Contributing Guide](CONTRIBUTING.md)
 * [Logging Configuration Guide](docs/logging.md)
