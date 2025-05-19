@@ -174,6 +174,8 @@ class ExecutionPlanBuilder:
     def _extract_referenced_tables(self, sql_query: str) -> List[str]:
         sql_lower = sql_query.lower()
         tables = []
+
+        # Handle standard SQL FROM clauses
         from_matches = re.finditer(
             r"from\s+([a-zA-Z0-9_]+(?:\s*,\s*[a-zA-Z0-9_]+)*)", sql_lower
         )
@@ -183,11 +185,23 @@ class ExecutionPlanBuilder:
                 table_name = table.strip()
                 if table_name and table_name not in tables:
                     tables.append(table_name)
+
+        # Handle standard SQL JOINs
         join_matches = re.finditer(r"join\s+([a-zA-Z0-9_]+)", sql_lower)
         for match in join_matches:
             table_name = match.group(1).strip()
             if table_name and table_name not in tables:
                 tables.append(table_name)
+
+        # Handle table UDF pattern: PYTHON_FUNC("module.function", table_name)
+        udf_table_matches = re.finditer(
+            r"python_func\s*\(\s*['\"][\w\.]+['\"]\s*,\s*([a-zA-Z0-9_]+)", sql_lower
+        )
+        for match in udf_table_matches:
+            table_name = match.group(1).strip()
+            if table_name and table_name not in tables:
+                tables.append(table_name)
+
         return tables
 
     def _find_table_references(

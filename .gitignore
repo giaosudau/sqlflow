@@ -126,3 +126,6 @@ Thumbs.db
 
 
 .cursor/
+
+# output
+output/

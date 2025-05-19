@@ -571,95 +571,67 @@ class PythonUDFManager:
     def register_udfs_with_engine(
         self, engine: Any, udf_names: Optional[List[str]] = None
     ):
-        """Register UDFs with the SQL engine.
+        """Register UDFs with a SQLEngine.
 
         Args:
-            engine: SQLFlow engine instance
-            udf_names: Optional list of UDF names to register. If None, registers all.
+            engine: SQLEngine instance to register UDFs with
+            udf_names: Optional list of UDF names to register (defaults to all discovered UDFs)
 
-        Returns:
-            A tuple of (successful_udfs, failed_udfs) where each is a dictionary mapping
-            UDF names to success messages or error messages respectively.
+        Raises:
+            KeyError: If a specified UDF name is not found
+            AttributeError: If the engine doesn't support register_python_udf
         """
-        successful_udfs = {}
-        failed_udfs = {}
-
         if not hasattr(engine, "register_python_udf"):
-            error_msg = (
-                f"Engine {engine.__class__.__name__} does not support UDF registration"
+            logger.warning(
+                "Engine does not support registering Python UDFs. "
+                "Make sure the engine implements register_python_udf."
             )
-            logger.warning(error_msg)
-            return successful_udfs, {"engine_unsupported": error_msg}
+            return
 
-        names_to_register = udf_names or list(self.udfs.keys())
+        # If no UDF names specified, register all
+        if udf_names is None:
+            udf_names = list(self.udfs.keys())
 
-        if not names_to_register:
-            logger.warning("No UDFs to register with engine")
-            return successful_udfs, {}
+        print(f"DEBUG: All UDFs to register: {udf_names}")
 
-        logger.info(
-            f"Registering {len(names_to_register)} UDFs with {engine.__class__.__name__}"
-        )
+        registration_errors = []
 
-        for name in names_to_register:
-            if name in self.udfs:
-                try:
-                    # Validate UDF before registration
-                    validation_warnings = self.validate_udf_metadata(name)
-                    if validation_warnings:
-                        # Log warnings but continue with registration
-                        warning_msg = f"UDF {name} has validation warnings: {', '.join(validation_warnings)}"
-                        logger.warning(warning_msg)
+        for udf_name in udf_names:
+            try:
+                if udf_name not in self.udfs:
+                    raise KeyError(f"UDF '{udf_name}' not found in discovered UDFs")
 
-                    # Get UDF metadata for better error reporting
-                    udf_metadata = self.udf_info.get(name, {})
-                    udf_type = udf_metadata.get("type", "unknown")
-
-                    # Attempt registration
-                    engine.register_python_udf(name, self.udfs[name])
-
-                    # Registration successful
-                    success_msg = (
-                        f"Successfully registered {udf_type} UDF {name} with engine"
-                    )
-                    logger.info(success_msg)
-                    successful_udfs[name] = success_msg
-
-                except Exception as e:
-                    # Registration failed
-                    error_details = traceback.format_exc()
-
-                    # Create detailed error message with troubleshooting hints
-                    error_msg = (
-                        f"Failed to register UDF {name} with engine: {str(e)}\n"
-                        f"This might be due to:\n"
-                        f"1. Invalid UDF signature or parameter types\n"
-                        f"2. Incompatible return type\n"
-                        f"3. Engine compatibility issues\n"
-                        f"Original error: {error_details}"
-                    )
-
-                    logger.error(error_msg)
-                    failed_udfs[name] = error_msg
-            else:
-                error_msg = (
-                    f"UDF {name} not found in registry. "
-                    f"Make sure it was properly discovered during initialization."
+                udf = self.udfs[udf_name]
+                # Debug output to understand UDF attributes before registration
+                print(f"DEBUG: Registering UDF {udf_name}")
+                print(f"DEBUG: UDF type: {getattr(udf, '_udf_type', 'unknown')}")
+                print(
+                    f"DEBUG: UDF has output_schema attr: {hasattr(udf, '_output_schema')}"
                 )
-                logger.warning(error_msg)
-                failed_udfs[name] = error_msg
+                if hasattr(udf, "_output_schema"):
+                    print(f"DEBUG: UDF output_schema: {udf._output_schema}")
+                print(
+                    f"DEBUG: UDF _infer_schema: {getattr(udf, '_infer_schema', False)}"
+                )
+                print(
+                    f"DEBUG: UDF attributes: {[attr for attr in dir(udf) if attr.startswith('_') and not attr.startswith('__')]}"
+                )
+
+                # Register the UDF with the engine
+                engine.register_python_udf(udf_name, udf)
+                logger.info(f"Registered UDF: {udf_name}")
+            except Exception as e:
+                error_msg = f"Error registering UDF {udf_name}: {str(e)}"
+                logger.error(error_msg)
+                registration_errors.append((udf_name, str(e)))
 
         # Log summary of registration
-        if successful_udfs:
-            logger.info(
-                f"Successfully registered {len(successful_udfs)} UDFs with engine"
+        if registration_errors:
+            logger.warning(
+                f"Failed to register {len(registration_errors)} UDFs with engine"
             )
 
-        # Only log a summary of failures if there are any, don't make a second error log call
-        if failed_udfs:
-            logger.warning(f"Failed to register {len(failed_udfs)} UDFs with engine")
-
-        return successful_udfs, failed_udfs
+        return registration_errors
 
     def get_udfs_for_query(self, sql: str) -> Dict[str, Callable]:
         """Get UDFs referenced in a query.
@@ -671,4 +643,23 @@ class PythonUDFManager:
             Dictionary of UDF names to functions for UDFs referenced in the query
         """
         udf_refs = self.extract_udf_references(sql)
-        return {name: self.udfs[name] for name in udf_refs if name in self.udfs}
+        print(f"DEBUG: UDF references extracted from query: {udf_refs}")
+
+        result = {}
+        for name in udf_refs:
+            if name in self.udfs:
+                udf = self.udfs[name]
+                print(f"DEBUG: Adding UDF {name} to query UDFs")
+                print(
+                    f"DEBUG: UDF {name} has _output_schema: {hasattr(udf, '_output_schema')}"
+                )
+                if hasattr(udf, "_output_schema"):
+                    print(
+                        f"DEBUG: UDF {name} output_schema value: {udf._output_schema}"
+                    )
+                result[name] = udf
+
+        print(
+            f"DEBUG: Returning {len(result)} UDFs for query, with names: {list(result.keys())}"
+        )
+        return result

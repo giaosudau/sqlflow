@@ -15,7 +15,7 @@ def example_udf_double(x: float) -> float:
     return x * 2
 
 
-@python_table_udf
+@python_table_udf(output_schema={"value": "DOUBLE", "doubled": "DOUBLE"})
 def example_udf_add_column(df: pd.DataFrame) -> pd.DataFrame:
     """Add a column to a DataFrame."""
     result = df.copy()

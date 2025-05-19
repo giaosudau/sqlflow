@@ -45,10 +45,12 @@ def test_python_scalar_udf_with_name():
     assert getattr(add_tax, "_udf_name") == "calculate_tax"
 
 
-def test_python_table_udf_simple_decorator():
-    """Test the python_table_udf decorator without parameters."""
+def test_python_table_udf_with_schema():
+    """Test the python_table_udf decorator with explicit output schema."""
 
-    @python_table_udf
+    @python_table_udf(
+        output_schema={"price": "FLOAT", "quantity": "INTEGER", "total": "FLOAT"}
+    )
     def add_totals(df: pd.DataFrame) -> pd.DataFrame:
         result = df.copy()
         result["total"] = result["price"] * result["quantity"]
@@ -74,21 +76,81 @@ def test_python_table_udf_simple_decorator():
     assert hasattr(add_totals, "_udf_name")
     assert getattr(add_totals, "_udf_name") == "add_totals"
 
+    # Check output schema
+    assert hasattr(add_totals, "_output_schema")
+    assert getattr(add_totals, "_output_schema") == {
+        "price": "FLOAT",
+        "quantity": "INTEGER",
+        "total": "FLOAT",
+    }
+
     # Check signature metadata
     assert hasattr(add_totals, "_signature")
     assert "pandas.core.frame.DataFrame" in getattr(add_totals, "_signature")
 
-    # Check parameter info
-    assert hasattr(add_totals, "_param_info")
-    param_info = getattr(add_totals, "_param_info")
-    assert "df" in param_info
-    assert "pandas.core.frame.DataFrame" in param_info["df"]["annotation"]
+
+def test_python_table_udf_with_infer():
+    """Test the python_table_udf decorator with infer=True."""
+
+    @python_table_udf(infer=True)
+    def add_totals(df: pd.DataFrame) -> pd.DataFrame:
+        result = df.copy()
+        result["total"] = result["price"] * result["quantity"]
+        return result
+
+    # Create a test DataFrame
+    test_df = pd.DataFrame({"price": [10.0, 20.0, 30.0], "quantity": [1, 2, 3]})
+
+    # Check that the function works and schema is inferred
+    result_df = add_totals(test_df)
+    assert "total" in result_df.columns
+    assert result_df["total"].tolist() == [10.0, 40.0, 90.0]
+
+    # Check inferred schema
+    assert hasattr(add_totals, "_output_schema")
+    schema = getattr(add_totals, "_output_schema")
+    assert "price" in schema
+    assert "quantity" in schema
+    assert "total" in schema
+    assert schema["price"] == "DOUBLE"
+    assert schema["quantity"] == "INTEGER"
+    assert schema["total"] == "DOUBLE"
+
+
+def test_python_table_udf_missing_schema():
+    """Test the python_table_udf decorator without required schema or infer flag."""
+
+    # Should raise ValueError if no output_schema and infer=False
+    with pytest.raises(ValueError) as excinfo:
+
+        @python_table_udf
+        def missing_schema(df: pd.DataFrame) -> pd.DataFrame:
+            return df
+
+    assert "must specify output_schema or set infer=True" in str(excinfo.value)
+
+
+def test_python_table_udf_schema_validation():
+    """Test validation of output against schema."""
+
+    @python_table_udf(output_schema={"price": "FLOAT", "total": "FLOAT"})
+    def calculate_total(df: pd.DataFrame) -> pd.DataFrame:
+        # Intentionally missing the 'total' column
+        return df[["price"]]
+
+    test_df = pd.DataFrame({"price": [10.0, 20.0], "quantity": [1, 2]})
+
+    # Should raise ValueError for missing column in result
+    with pytest.raises(ValueError) as excinfo:
+        calculate_total(test_df)
+
+    assert "missing expected columns: ['total']" in str(excinfo.value)
 
 
 def test_python_table_udf_with_kwargs():
     """Test the python_table_udf decorator with keyword arguments."""
 
-    @python_table_udf
+    @python_table_udf(output_schema={"price": "FLOAT", "tax": "FLOAT"})
     def add_tax(df: pd.DataFrame, tax_rate: float = 0.1) -> pd.DataFrame:
         result = df.copy()
         result["tax"] = result["price"] * tax_rate
@@ -114,7 +176,10 @@ def test_python_table_udf_with_kwargs():
 def test_python_table_udf_with_required_columns():
     """Test the python_table_udf decorator with required columns."""
 
-    @python_table_udf(required_columns=["price", "quantity"])
+    @python_table_udf(
+        required_columns=["price", "quantity"],
+        output_schema={"price": "FLOAT", "quantity": "INTEGER", "total": "FLOAT"},
+    )
     def calculate_total(df: pd.DataFrame) -> pd.DataFrame:
         result = df.copy()
         result["total"] = result["price"] * result["quantity"]
@@ -138,7 +203,7 @@ def test_python_table_udf_invalid_signatures():
     # Test with no parameters
     with pytest.raises(ValueError) as excinfo:
 
-        @python_table_udf
+        @python_table_udf(output_schema={"col1": "INTEGER"})
         def invalid_no_params() -> pd.DataFrame:
             return pd.DataFrame()
 
@@ -147,7 +212,7 @@ def test_python_table_udf_invalid_signatures():
     # Test with keyword-only first parameter
     with pytest.raises(ValueError) as excinfo:
 
-        @python_table_udf
+        @python_table_udf(output_schema={"col1": "INTEGER"})
         def invalid_kwargs_first(*, df: pd.DataFrame) -> pd.DataFrame:
             return df
 
@@ -156,7 +221,7 @@ def test_python_table_udf_invalid_signatures():
     # Test with positional-only additional parameters
     with pytest.raises(ValueError) as excinfo:
 
-        @python_table_udf
+        @python_table_udf(output_schema={"col1": "INTEGER"})
         def invalid_params(df: pd.DataFrame, rate: float, /) -> pd.DataFrame:
             return df
 
@@ -166,9 +231,9 @@ def test_python_table_udf_invalid_signatures():
 def test_python_table_udf_runtime_validation():
     """Test runtime validation in the python_table_udf decorator."""
 
-    @python_table_udf
+    @python_table_udf(output_schema={"col1": "INTEGER"})
     def valid_udf(df: pd.DataFrame) -> pd.DataFrame:
-        return df
+        return pd.DataFrame({"col1": [1, 2, 3]})
 
     # Test with missing DataFrame argument
     with pytest.raises(ValueError) as excinfo:
@@ -181,7 +246,7 @@ def test_python_table_udf_runtime_validation():
     assert "must be a DataFrame" in str(excinfo.value)
 
     # Test with invalid return type
-    @python_table_udf
+    @python_table_udf(output_schema={"col1": "INTEGER"})
     def invalid_return(df: pd.DataFrame) -> pd.DataFrame:
         return "not a dataframe"
 

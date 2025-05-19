@@ -95,7 +95,29 @@ class TestTableReferenceExtraction:
         # Test multiple FROM tables
         sql = "SELECT * FROM users, orders, products"
         tables = builder._extract_referenced_tables(sql)
-        assert set(tables) == {"users", "orders", "products"}
+        assert sorted(tables) == ["orders", "products", "users"]
+
+        # Test JOIN clause
+        sql = "SELECT u.name, o.total FROM users u JOIN orders o ON u.id = o.user_id"
+        tables = builder._extract_referenced_tables(sql)
+        assert sorted(tables) == ["orders", "users"]
+
+        # Test table UDF pattern
+        sql = 'SELECT * FROM PYTHON_FUNC("module.function", input_table)'
+        tables = builder._extract_referenced_tables(sql)
+        assert "input_table" in tables
+
+        # Test mixed SQL with UDFs
+        sql = """
+        SELECT c.name, o.amount, PYTHON_FUNC("utils.calculate", o.amount) 
+        FROM customers c
+        JOIN orders o ON c.id = o.customer_id
+        WHERE o.id IN (SELECT id FROM PYTHON_FUNC("filter.high_value", transactions))
+        """
+        tables = builder._extract_referenced_tables(sql)
+        assert sorted(
+            [t for t in tables if t in ["customers", "orders", "transactions"]]
+        ) == ["customers", "orders", "transactions"]
 
         # Test JOIN clause
         sql = "SELECT * FROM users JOIN orders ON users.id = orders.user_id"

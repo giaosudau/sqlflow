@@ -25,18 +25,18 @@ def calculate_tax(price: float, tax_rate: float = 0.1) -> float:
     """
     if price is None:
         return None
-    
+
     # Convert Decimal to float if needed
     price_float = float(price) if isinstance(price, Decimal) else price
     tax_rate_float = float(tax_rate) if isinstance(tax_rate, Decimal) else tax_rate
-    
+
     return price_float * (1 + tax_rate_float)
 
 
 @python_scalar_udf
 def calculate_tax_default(price: float) -> float:
     """Calculate the price with default tax rate (10%).
-    
+
     This is a specialized version of calculate_tax that uses
     the default tax rate of 10% without requiring the parameter.
 
@@ -48,10 +48,10 @@ def calculate_tax_default(price: float) -> float:
     """
     if price is None:
         return None
-    
+
     # Handle Decimal type directly here
     price_float = float(price) if isinstance(price, Decimal) else price
-    
+
     return price_float * 1.1
 
 
@@ -74,33 +74,35 @@ def add_sales_metrics(df: pd.DataFrame) -> pd.DataFrame:
         DataFrame with calculated metrics
     """
     result = df.copy()
-    
+
     # Ensure 'price' column exists - use original_price if price doesn't exist
     if "price" not in result.columns and "original_price" in result.columns:
         result["price"] = result["original_price"]
-    
+
     # Convert Decimal to float if needed
     if "price" in result.columns and result["price"].dtype == "object":
-        result["price"] = result["price"].apply(lambda x: float(x) if isinstance(x, Decimal) else x)
-    
+        result["price"] = result["price"].apply(
+            lambda x: float(x) if isinstance(x, Decimal) else x
+        )
+
     # Ensure all required columns exist
     if "price" not in result.columns:
         logger.warning("Column 'price' not found, adding empty column")
         result["price"] = 0.0
-        
+
     if "quantity" not in result.columns:
         logger.warning("Column 'quantity' not found, adding empty column")
         result["quantity"] = 0
-    
+
     # Calculate total
     result["total"] = result["price"] * result["quantity"]
-    
+
     # Calculate tax at 10%
     result["tax"] = result["total"] * 0.1
-    
+
     # Calculate final price
     result["final_price"] = result["total"] + result["tax"]
-    
+
     return result
 
 
@@ -150,5 +152,5 @@ def detect_outliers(df: pd.DataFrame, column_name: str = "price") -> pd.DataFram
         result["z_score"] = None
         result["is_outlier"] = None
         result["percentile"] = None
-    
+
     return result

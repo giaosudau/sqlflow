@@ -30,7 +30,7 @@ def multiply_numbers(a: int, b: int) -> int:
     \"\"\"Multiply two numbers together.\"\"\"
     return a * b
 
-@python_table_udf
+@python_table_udf(output_schema={"value": "INTEGER"})
 def filter_rows(df: pd.DataFrame) -> pd.DataFrame:
     \"\"\"Filter rows where value > 5.\"\"\"
     return df[df["value"] > 5]

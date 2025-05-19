@@ -29,11 +29,19 @@ calculate_tax(DOUBLE, DOUBLE) -> DOUBLE
 
 ## The Solution
 
-Our approach to address this issue is to create custom specialized UDFs for common default parameter patterns:
+We implemented two approaches to address this issue:
 
-### Creating Custom Specialized UDFs
+### 1. Function Specialization through Enhanced UDF Manager
 
-For functions with default parameters, we create specialized versions with fixed default parameters:
+We created a specialized version of the UDF manager (`enhanced_manager.py`) that automatically creates additional specialized versions of UDFs with default parameters. For each parameter with a default value, the enhanced manager creates a new UDF that doesn't require that parameter.
+
+For example, for the `calculate_tax` function with a default `tax_rate` parameter, the enhanced manager creates a specialized version named `calculate_tax_without_tax_rate` that can be called with just the price parameter.
+
+This approach provides a clean, declarative way to handle UDFs with default parameters without modifying existing code.
+
+### 2. Creating Custom Specialized UDFs
+
+For specific cases, developers can also manually create specialized versions of functions with fixed default parameters:
 
 ```python
 @python_scalar_udf
@@ -51,9 +59,21 @@ def calculate_tax_default(price: float) -> float:
 
 ## Usage
 
+### Using the Enhanced UDF Manager
+
+The enhanced UDF manager is automatically integrated with SQLFlow's executor system. When discovering UDFs, it automatically creates and registers specialized versions for UDFs with default parameters.
+
+To use a UDF with a default parameter omitted:
+
+```sql
+-- Original UDF has signature: calculate_tax(price, tax_rate=0.1)
+-- Use the specialized version without the tax_rate parameter
+SELECT PYTHON_FUNC("python_udfs.enhanced_udfs.calculate_tax.without_tax_rate", price) FROM sales;
+```
+
 ### Using Custom Specialized UDFs
 
-When you need to use a function with a default parameter, call the specialized version directly:
+If you've created custom specialized UDFs, you can call them directly:
 
 ```sql
 -- Use the specialized version that applies the default tax rate
@@ -64,16 +84,18 @@ SELECT PYTHON_FUNC("python_udfs.tax_functions.calculate_tax_default", price) FRO
 
 The key components of our implementation include:
 
-1. **Enhanced UDF Manager** (`sqlflow/udfs/enhanced_manager.py`): Enriches the UDF discovery process to handle UDFs with default parameters.
+1. **Enhanced UDF Manager** (`sqlflow/udfs/enhanced_manager.py`): Enriches the UDF discovery process to create specialized versions of UDFs with default parameters.
 
-2. **Executor Integration**: We modified `BaseExecutor` to properly integrate UDFs with the execution engine.
+2. **Executor Integration**: We modified `BaseExecutor` to use the enhanced UDF manager for automatic specialization of UDFs.
+
+3. **Decorator Utility** (`sqlflow/demos/udf_demo/python_udfs/enhanced_udfs.py`): Provides a `duckdb_compatible_udf` decorator for developers who want to explicitly handle default parameters in a more controlled way.
 
 ## Best Practices
 
-1. When designing UDFs with default parameters, create specialized versions for common parameter combinations.
+1. When designing UDFs with default parameters, be aware that you'll need to use the specialized versions when calling them with fewer arguments.
 
-2. Use meaningful function names for your specialized UDFs (e.g., `calculate_tax_default` instead of `calculate_tax_without_tax_rate`).
+2. Use meaningful parameter names so that the generated specialized UDF names make sense (e.g., `calculate_tax_without_tax_rate`).
 
-3. Consider documenting your UDFs to make them easier to discover and use.
+3. Consider documenting the available specialized UDFs in your project for easier reference by SQL authors.
 
-4. For complex cases with multiple default parameters, create explicit specialized UDFs with clear names and documentation.
+4. For complex cases with multiple default parameters, you may want to create explicit specialized UDFs to avoid auto-generated names that could be confusing.

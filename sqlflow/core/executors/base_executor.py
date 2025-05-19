@@ -4,6 +4,7 @@ from abc import ABC, abstractmethod
 from typing import Any, Callable, Dict, List, Optional
 
 from sqlflow.core.protocols import ExecutorProtocol
+from sqlflow.udfs.enhanced_manager import enhance_udf_manager
 from sqlflow.udfs.manager import PythonUDFManager
 
 
@@ -13,6 +14,8 @@ class BaseExecutor(ExecutorProtocol, ABC):
     def __init__(self):
         """Initialize a BaseExecutor."""
         self.udf_manager = PythonUDFManager()
+        # Enhance the UDF manager to handle default parameters properly
+        enhance_udf_manager(self.udf_manager)
         self.discovered_udfs: Dict[str, Callable] = {}
 
     def discover_udfs(self, project_dir: Optional[str] = None) -> Dict[str, Callable]:

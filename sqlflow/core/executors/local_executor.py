@@ -5,14 +5,14 @@ import json
 import logging
 import os
 import re
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Union
 
 import pandas as pd
 
 from sqlflow.connectors.connector_engine import ConnectorEngine
 from sqlflow.connectors.data_chunk import DataChunk
 from sqlflow.core.dependencies import DependencyResolver
-from sqlflow.core.engines.duckdb_engine import DuckDBEngine
+from sqlflow.core.engines.duckdb_engine import DuckDBEngine, UDFError
 from sqlflow.core.executors.base_executor import BaseExecutor
 from sqlflow.core.sql_generator import SQLGenerator
 from sqlflow.core.storage.artifact_manager import ArtifactManager
@@ -70,20 +70,20 @@ class LocalExecutor(BaseExecutor):
             logger.info("[SQLFlow] LocalExecutor: DuckDB running in memory mode.")
             duckdb_path = ":memory:"
         else:
-            logger.info(
-                f"[SQLFlow] LocalExecutor: DuckDB persistent mode, path={duckdb_path}"
-            )
             if not duckdb_path:
                 raise ValueError(
                     "DuckDB persistent mode requires a 'path' in profile config."
                 )
+            logger.info(
+                f"[SQLFlow] LocalExecutor: DuckDB persistent mode, path={duckdb_path}"
+            )
             # Ensure the directory for the DuckDB file exists
             db_dir = os.path.dirname(duckdb_path)
             if db_dir and not os.path.exists(db_dir):
                 os.makedirs(db_dir, exist_ok=True)
             # Use the exact path from the profile
             logger.info(
-                f"[SQLFlow] Using exact database path from profile: {duckdb_path}"
+                "[SQLFlow] Using exact database path from profile: " + duckdb_path
             )
 
         try:
@@ -578,76 +578,76 @@ class LocalExecutor(BaseExecutor):
         sql = step["query"]
         table_name = step["name"]
 
+        logger.debug("Transform step query: %s", sql)
+        logger.debug("Target table name: %s", table_name)
+
         # Register all tables with DuckDB
         self._register_tables_with_engine()
 
-        # Handle special case of direct table UDF
-        if self._is_direct_table_udf_call(sql):
-            return self._execute_direct_table_udf(sql, table_name, step["id"])
+        # First, check if this is a direct table UDF call
+        # Pattern: SELECT * FROM PYTHON_FUNC("module.function", table_name)
+        direct_udf_match = re.match(
+            r'^\s*SELECT\s+\*\s+FROM\s+PYTHON_FUNC\s*\(\s*[\'"]([a-zA-Z0-9_\.]+)[\'"]\s*,\s*([^)]+)\)\s*$',
+            sql,
+            re.IGNORECASE,
+        )
 
-        # Process SQL for UDF references
-        try:
-            sql = self._process_sql_for_udfs(sql)
-        except Exception as e:
-            logger.error(f"Error processing UDFs in query: {e}")
-            return {"status": "failed", "error": f"Error processing UDFs: {str(e)}"}
+        if direct_udf_match:
+            logger.debug("Detected direct table UDF call pattern")
+            return self._execute_direct_table_udf(
+                direct_udf_match, table_name, step["id"]
+            )
 
-        # Prepare SQL based on persistence mode
-        sql = self._prepare_sql_for_execution(sql, table_name)
-
-        # Execute the query and store result
-        return self._execute_and_store_result(sql, table_name, step["id"])
-
-    def _register_tables_with_engine(self) -> None:
-        """Register all tables with the DuckDB engine."""
-        for tbl, chunk in self.table_data.items():
-            df = chunk.pandas_df
-            self.duckdb_engine.connection.register(tbl, df)
-
-    def _is_direct_table_udf_call(self, sql: str) -> bool:
-        """Check if the SQL is a direct table UDF call."""
-        direct_table_udf_pattern = r'^\s*SELECT\s+\*\s+FROM\s+PYTHON_FUNC\(\s*[\'"]([a-zA-Z0-9_\.]+)[\'"]\s*,\s*(.*?)\)\s*$'
-        return bool(re.match(direct_table_udf_pattern, sql, re.IGNORECASE))
-
-    def _extract_table_udf_info(self, sql: str) -> tuple[str, str]:
-        """Extract UDF name and arguments from a direct table UDF call."""
-        direct_table_udf_pattern = r'^\s*SELECT\s+\*\s+FROM\s+PYTHON_FUNC\(\s*[\'"]([a-zA-Z0-9_\.]+)[\'"]\s*,\s*(.*?)\)\s*$'
-        match = re.match(direct_table_udf_pattern, sql, re.IGNORECASE)
-        if not match:
-            return "", ""
-        return match.group(1), match.group(2).strip()
+        # If not a direct UDF call, proceed with regular SQL execution
+        return self._execute_sql_transform(sql, table_name, step["id"])
 
     def _execute_direct_table_udf(
-        self, sql: str, table_name: str, step_id: str
+        self, match_obj, table_name: str, step_id: str
     ) -> Dict[str, Any]:
-        """Execute a direct table UDF call."""
-        try:
-            udf_name, udf_args = self._extract_table_udf_info(sql)
+        """Execute a table UDF directly without going through SQL."""
+        # Extract the UDF name and arguments
+        udf_name = match_obj.group(1)
+        udf_args = match_obj.group(2).strip()
 
-            # Look up the UDF function
+        logger.debug("Direct UDF execution - UDF: %s, args: %s", udf_name, udf_args)
+
+        try:
+            # Fetch the UDF from the manager
             udf_func = self.udf_manager.get_udf(udf_name)
             if not udf_func:
-                return {"status": "failed", "error": f"Table UDF not found: {udf_name}"}
+                error_msg = "UDF " + udf_name + " not found"
+                logger.debug(error_msg)
+                return {"status": "failed", "error": error_msg}
 
-            # Check if this is a table UDF
+            # Verify this is a table UDF
             udf_type = getattr(udf_func, "_udf_type", "unknown")
             if udf_type != "table":
-                return {
-                    "status": "failed",
-                    "error": f"Expected table UDF but got {udf_type} UDF: {udf_name}",
-                }
+                error_msg = (
+                    "Expected table UDF but got " + str(udf_type) + " UDF: " + udf_name
+                )
+                logger.debug(error_msg)
+                return {"status": "failed", "error": error_msg}
 
-            # Get input data
-            input_df = self._get_input_data_for_udf(udf_args)
-            if (
-                isinstance(input_df, dict)
-                and "status" in input_df
-                and input_df["status"] == "failed"
-            ):
-                return input_df  # Return error response
+            # Get the input data
+            input_data = self._get_input_data_for_direct_udf(udf_args)
+            if isinstance(input_data, dict) and input_data.get("status") == "failed":
+                return input_data
 
-            # Execute the table UDF
-            result_df = udf_func(input_df)
+            logger.debug(
+                "Executing UDF %s directly with input shape %s",
+                udf_name,
+                input_data.shape,
+            )
+            output_schema = getattr(udf_func, "_output_schema", None)
+            logger.debug("UDF output schema: %s", output_schema)
+
+            # Execute the UDF directly
+            result_df = udf_func(input_data)
+            logger.debug(
+                "UDF result shape: %s, columns: %s",
+                result_df.shape,
+                list(result_df.columns),
+            )
 
             # Store the result
             self.table_data[table_name] = DataChunk(result_df)
@@ -656,67 +656,171 @@ class LocalExecutor(BaseExecutor):
                 self.step_output_mapping[step_id] = []
             self.step_output_mapping[step_id].append(table_name)
 
-            logger.debug(
-                "Transform step %s executed table UDF %s and created table '%s' with %d rows",
-                step_id,
-                udf_name,
-                table_name,
-                len(result_df),
-            )
+            logger.debug("Direct UDF execution successful: %s", udf_name)
             return {"status": "success"}
 
         except Exception as e:
-            logger.error(f"Error executing table UDF: {e}")
-            return {"status": "failed", "error": f"Error executing table UDF: {str(e)}"}
+            import traceback
 
-    def _get_input_data_for_udf(self, udf_args: str) -> Any:
-        """Get input data for a UDF based on arguments."""
-        if udf_args.startswith("SELECT "):
-            # Execute the subquery to get input data
-            return self.duckdb_engine.execute_query(udf_args).fetchdf()
-        else:
-            # Assume it's a table name
-            if udf_args not in self.table_data:
-                return {
-                    "status": "failed",
-                    "error": f"Referenced table not found: {udf_args}",
-                }
-            return self.table_data[udf_args].pandas_df
-
-    def _process_sql_for_udfs(self, sql: str) -> str:
-        """Process SQL for UDF references."""
-        udfs = self.udf_manager.get_udfs_for_query(sql)
-        if udfs:
-            logger.info(f"Found {len(udfs)} UDF references in query")
-            # Register UDFs with the engine
-            for udf_name, udf_func in udfs.items():
-                self.duckdb_engine.register_python_udf(udf_name, udf_func)
-            # Process the query to replace PYTHON_FUNC calls with DuckDB UDF calls
-            sql = self.duckdb_engine.process_query_for_udfs(sql, udfs)
-        return sql
-
-    def _prepare_sql_for_execution(self, sql: str, table_name: str) -> str:
-        """Prepare SQL based on persistence mode."""
-        if self.duckdb_mode != "persistent":
-            return sql
-
-        sql_stripped = sql.strip().lower()
-        # If the SQL is a SELECT, wrap it as CREATE TABLE ... AS (...)
-        if sql_stripped.startswith("select"):
-            return f"CREATE TABLE {table_name} AS {sql}"
-        # If the SQL is CREATE TEMP or CREATE TEMPORARY, replace with CREATE TABLE
-        elif sql_stripped.startswith(
-            "create temporary table"
-        ) or sql_stripped.startswith("create temp table"):
-            return re.sub(
-                r"create\s+temp(orary)?\s+table",
-                "CREATE TABLE",
-                sql,
-                flags=re.IGNORECASE,
+            error_msg = (
+                "Error executing table UDF "
+                + udf_name
+                + " directly: "
+                + str(e)
+                + "\n"
+                + traceback.format_exc()
             )
-        # If the SQL is CREATE TABLE, leave as is
-        # Otherwise, leave as is (user may have written a CTE or other statement)
-        return sql
+            logger.debug("%s", error_msg)
+            return {"status": "failed", "error": error_msg}
+
+    def _execute_sql_transform(
+        self, sql: str, table_name: str, step_id: str
+    ) -> Dict[str, Any]:
+        """Execute a transform using SQL through the DuckDB engine."""
+        try:
+            # Check for UDF references
+            udfs = self.udf_manager.get_udfs_for_query(sql)
+            if udfs:
+                logger.debug(
+                    f"DEBUG: Found {len(udfs)} UDFs in query: {list(udfs.keys())}"
+                )
+
+                # Register UDFs with the engine if not already registered
+                for udf_name, udf_func in udfs.items():
+                    logger.debug("DEBUG: Registering UDF %s with engine", udf_name)
+                    logger.debug(
+                        "DEBUG: Registration error (expected if already registered): %s",
+                        udf_func,
+                    )
+
+            # Register UDFs with engine
+            self.udf_manager.register_udfs_with_engine(
+                self.duckdb_engine, list(udfs.keys())
+            )
+
+            # Process the query to update UDF references
+            processed_sql = self.duckdb_engine.process_query_for_udfs(sql, udfs)
+            logger.debug("DEBUG: Processed SQL: %s", processed_sql)
+            sql = processed_sql
+
+            # Execute the query
+            logger.debug("DEBUG: Executing SQL: %s", sql)
+            # --- PERSISTENT MODE PATCH ---
+            # If persistent mode, create a persistent table
+            if (
+                self.duckdb_mode == "persistent"
+                and self.duckdb_engine.database_path != ":memory:"
+            ):
+                # Use CREATE TABLE to persist result
+                create_sql = f"CREATE TABLE IF NOT EXISTS {table_name} AS {sql}"
+                self.duckdb_engine.execute_query(create_sql)
+                # Fetch the result for in-memory tracking
+                result = self.duckdb_engine.execute_query(
+                    f"SELECT * FROM {table_name}"
+                ).fetchdf()
+            else:
+                # In memory mode, just run the query and store result
+                result = self.duckdb_engine.execute_query(sql).fetchdf()
+            logger.debug(
+                "DEBUG: SQL execution successful, result shape: %s", result.shape
+            )
+
+            # Store the result
+            self.table_data[table_name] = DataChunk(result)
+            self.step_table_map[step_id] = table_name
+            if step_id not in self.step_output_mapping:
+                self.step_output_mapping[step_id] = []
+            self.step_output_mapping[step_id].append(table_name)
+
+            return {"status": "success"}
+
+        except Exception as e:
+            import traceback
+
+            error_msg = (
+                "Error executing SQL transform: "
+                + str(e)
+                + "\n"
+                + traceback.format_exc()
+            )
+            logger.debug("%s", error_msg)
+            return {"status": "failed", "error": error_msg}
+
+    def _get_input_data_for_direct_udf(
+        self, udf_args: str
+    ) -> Union[pd.DataFrame, Dict[str, Any]]:
+        """Get input data for a directly executed table UDF."""
+        logger.debug("Getting input data for direct UDF args: %s", udf_args)
+
+        # Check if arg is a SQL query
+        if udf_args.strip().upper().startswith("SELECT "):
+            logger.debug("UDF argument is a SQL query")
+            try:
+                result = self.duckdb_engine.execute_query(udf_args).fetchdf()
+                logger.debug("SQL subquery result shape: %s", result.shape)
+                return result
+            except Exception as e:
+                error_msg = "Error executing SQL subquery for UDF: " + str(e)
+                logger.debug("%s", error_msg)
+                return {"status": "failed", "error": error_msg}
+
+        # Otherwise, assume it's a table name
+        table_name = udf_args.strip().strip("'\"")  # Remove quotes if present
+        logger.debug("Looking for table: %s", table_name)
+
+        if table_name in self.table_data:
+            result = self.table_data[table_name].pandas_df
+            logger.debug("Found table %s, shape: %s", table_name, result.shape)
+            return result
+
+        # Table not found, check for partial matches
+        for name in self.table_data.keys():
+            if table_name.lower() in name.lower():
+                result = self.table_data[name].pandas_df
+                logger.debug(
+                    "Found partial match %s for %s, shape: %s",
+                    name,
+                    table_name,
+                    result.shape,
+                )
+                return result
+
+        # No table found
+        error_msg = "Table not found for UDF input: " + table_name
+        logger.debug("%s", error_msg)
+        logger.debug("Available tables: %s", list(self.table_data.keys()))
+        return {"status": "failed", "error": error_msg}
+
+    def _register_tables_with_engine(self) -> None:
+        """Register all tables with the DuckDB engine."""
+        for tbl, chunk in self.table_data.items():
+            df = chunk.pandas_df
+            self.duckdb_engine.connection.register(tbl, df)
+
+    def _is_direct_table_udf_call(self, sql: str) -> bool:
+        """Check if the SQL is a direct table UDF call.
+
+        This checks for SQL patterns like:
+        SELECT * FROM PYTHON_FUNC("module.function", table_name)
+        """
+        logger.debug(f"DEBUG: Checking if direct table UDF call: {sql}")
+        direct_table_udf_pattern = r'^\s*SELECT\s+\*\s+FROM\s+PYTHON_FUNC\(\s*[\'"]([a-zA-Z0-9_\.]+)[\'"]\s*,\s*(.*?)\)\s*$'
+        result = bool(re.match(direct_table_udf_pattern, sql, re.IGNORECASE))
+        logger.debug(f"DEBUG: Is direct table UDF call: {result}")
+        return result
+
+    def _extract_table_udf_info(self, sql: str) -> tuple[str, str]:
+        """Extract UDF name and arguments from a direct table UDF call."""
+        logger.debug(f"DEBUG: Extracting table UDF info from: {sql}")
+        direct_table_udf_pattern = r'^\s*SELECT\s+\*\s+FROM\s+PYTHON_FUNC\(\s*[\'"]([a-zA-Z0-9_\.]+)[\'"]\s*,\s*(.*?)\)\s*$'
+        match = re.match(direct_table_udf_pattern, sql, re.IGNORECASE)
+        if not match:
+            logger.debug("DEBUG: No match found for table UDF pattern")
+            return "", ""
+        udf_name = match.group(1)
+        args = match.group(2).strip()
+        logger.debug("Extracted UDF name: %s, args: %s", udf_name, args)
+        return udf_name, args
 
     def _execute_and_store_result(
         self, sql: str, table_name: str, step_id: str
@@ -1214,3 +1318,50 @@ class LocalExecutor(BaseExecutor):
             error_msg = f"Unsupported file type for INCLUDE: {ext}"
             logger.error(error_msg)
             return {"status": "failed", "error": error_msg}
+
+    def process_udfs_in_query(self, query: str) -> str:
+        """Process UDFs in a query, registering them with the engine and replacing references.
+
+        Args:
+            query: SQL query that might contain UDF references
+
+        Returns:
+            Processed query with UDF references replaced with engine-specific syntax
+
+        Raises:
+            UDFError: If processing UDFs fails
+        """
+        try:
+            # Extract UDF references from query
+            udfs_for_query = self.udf_manager.get_udfs_for_query(query)
+            logger.debug(f"DEBUG: UDFs for query: {list(udfs_for_query.keys())}")
+
+            if not udfs_for_query:
+                return query
+
+            # For each UDF referenced in the query
+            for udf_name, udf in udfs_for_query.items():
+                logger.debug(
+                    "DEBUG: Checking UDF %s before engine registration", udf_name
+                )
+                logger.debug(
+                    "UDF _output_schema: %s", getattr(udf, "_output_schema", None)
+                )
+                logger.debug(
+                    "UDF _infer_schema: %s", getattr(udf, "_infer_schema", False)
+                )
+                logger.debug("UDF _udf_type: %s", getattr(udf, "_udf_type", "unknown"))
+
+            # Register UDFs with engine
+            self.udf_manager.register_udfs_with_engine(
+                self.duckdb_engine, list(udfs_for_query.keys())
+            )
+
+            # Create SQL query with UDF references updated
+            processed_query = self.duckdb_engine.process_query_for_udfs(
+                query, udfs_for_query
+            )
+
+            return processed_query
+        except Exception as e:
+            raise UDFError(f"Error processing UDFs in query: {str(e)}") from e

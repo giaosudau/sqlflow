@@ -22,9 +22,13 @@ def apply_discount(price: float, discount_percent: float) -> float:
     """
     if price is None:
         return None
-    
+
     # Handle Decimal type
     price_float = float(price) if isinstance(price, Decimal) else price
-    discount_float = float(discount_percent) if isinstance(discount_percent, Decimal) else discount_percent
-    
+    discount_float = (
+        float(discount_percent)
+        if isinstance(discount_percent, Decimal)
+        else discount_percent
+    )
+
     return price_float * (1 - discount_float / 100)

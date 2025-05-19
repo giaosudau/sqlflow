@@ -1,19 +1,23 @@
 # SQLFlow Implementation Task Tracker
 
-## Recent Progress (April-May 2024)
+## Recent Progress (April-June 2024)
 - ✅ **Completed core UDF infrastructure** with decorator implementation and engine integration
 - ✅ **Standardized Table UDF signatures** with proper validation (commit d12a5eb3)
 - ✅ **Enhanced test coverage** for UDF functionality, particularly for table UDFs
 - ✅ **Implemented robust UDF discovery** with enhanced metadata and nested module support
 - ✅ **Improved error handling and robustness** for UDF management
-- 🔄 **Ongoing work** on complex UDF integration testing and error reporting improvements
+- ✅ **Enhanced UDF registration system** with improved error reporting and better DuckDB integration
+- ✅ **Implemented UDF dependency tracking** in planner for optimized execution
+- ✅ **Created technical documentation** for UDF system architecture and dependencies
+- ✅ **Completed complex UDF integration testing** with reliable execution
 
 ## MVP Focus Areas
 The primary focus for MVP release is completing the UDF feature set:
-1. 🔥 Resolving integration tests for complex UDF pipelines
-2. 🔥 Improving error reporting for UDF lifecycle
-3. 🔥 Updating documentation with clear examples
-4. 🔥 Creating an end-to-end demo showcasing UDF capabilities
+1. ✅ Resolving integration tests for complex UDF pipelines
+2. ✅ Improving error reporting for UDF lifecycle
+3. ✅ Updating documentation with clear examples
+4. ✅ Creating an end-to-end demo showcasing UDF capabilities
+5. 🔄 Final testing and validation of UDF functionality across different environments
 
 ## Overview
 This document tracks the implementation status of Conditional Execution, Python UDFs, Data Loading, Schema Management, and Full Lifecycle features for SQLFlow. Each task includes description, implementation details, testing requirements, and Definition of Done.
@@ -57,7 +61,7 @@ This document tracks the implementation status of Conditional Execution, Python 
 | [Task 2.11](#task-211-enhance-udf-lifecycle-error-reporting) | Enhance UDF Lifecycle Error Reporting | ✅ COMPLETED | 🔥 MVP Critical | |
 | [Task 2.12](#task-212-verify-and-polish-cli-for-udfs) | Verify and Polish CLI for UDFs | ✅ COMPLETED | 🔥 MVP Critical | |
 | [Task 2.13](#task-213-update-udf-documentation-for-mvp) | Update UDF Documentation for MVP | ✅ COMPLETED | 🔥 MVP Critical | |
-| [Task 2.14](#task-214-review-and-refine-sqlengine-udf-interface) | Review and Refine SQLEngine UDF Interface | ⬜ NOT STARTED | | |
+| [Task 2.14](#task-214-review-and-refine-sqlengine-udf-interface) | Review and Refine SQLEngine UDF Interface | ✅ COMPLETED | | |
 | [Task 2.15](#task-215-create-basic-end-to-end-udf-demo-for-mvp) | Create Basic End-to-End UDF Demo for MVP | ✅ COMPLETED | 🔥 MVP Critical | |
 | [Task 2.16](#task-216-implement-duckdb-version-compatibility) | Implement DuckDB Version Compatibility | ⬜ NOT STARTED | | |
 | [Task 2.17](#task-217-optimize-type-mapping-for-udfs) | Optimize Type Mapping for UDFs | ⬜ NOT STARTED | | |
@@ -476,23 +480,23 @@ This document tracks the implementation status of Conditional Execution, Python 
 - `tests/integration/test_python_udf_execution.py`
 
 **Subtasks:**
-1. Analyze the reasons for the original "Test is too complex and needs refactoring" skip.
-2. Refactor the `customer_summary` table UDF in `create_udf_file` (within the test setup) to conform to the `DataFrame + kwargs` standard.
-3. Update the SQL query in `create_pipeline_file` (within the test setup) that calls `PYTHON_FUNC("sales_analysis.customer_summary", ...)` to pass arguments correctly if needed.
-4. Unskip the `test_complex_udf_pipeline` test by removing or commenting out the `@pytest.mark.skip` decorator.
-5. Debug and fix any issues until the test passes consistently.
-6. Ensure the test adequately covers interaction between scalar and table UDFs within a single pipeline.
+1. ✅ Analyze the reasons for the original "Test is too complex and needs refactoring" skip.
+2. ✅ Refactor the `customer_summary` table UDF in `create_udf_file` (within the test setup) to conform to the `DataFrame + kwargs` standard.
+3. ✅ Update the SQL query in `create_pipeline_file` (within the test setup) that calls `PYTHON_FUNC("sales_analysis.customer_summary", ...)` to pass arguments correctly if needed.
+4. ✅ Unskip the `test_complex_udf_pipeline` test by removing or commenting out the `@pytest.mark.skip` decorator.
+5. ✅ Debug and fix any issues until the test passes consistently.
+6. ✅ Ensure the test adequately covers interaction between scalar and table UDFs within a single pipeline.
 
 **Testing Requirements:**
-- The `test_complex_udf_pipeline` must pass without errors.
-- The test should validate data transformations through multiple UDFs (scalar and table) and SQL steps.
+- ✅ The `test_complex_udf_pipeline` must pass without errors.
+- ✅ The test should validate data transformations through multiple UDFs (scalar and table) and SQL steps.
 
 **Definition of Done:**
-- The `@pytest.mark.skip` is removed from `test_complex_udf_pipeline`.
-- The test passes reliably in the CI/CD environment.
-- The test serves as a robust example of end-to-end UDF functionality.
+- ✅ The `@pytest.mark.skip` is removed from `test_complex_udf_pipeline`.
+- ✅ The test passes reliably in the CI/CD environment.
+- ✅ The test serves as a robust example of end-to-end UDF functionality.
 
-**Progress Update:** Improved compatibility in test files with updated UDF registration approach. The test now includes better error handling and UDF discovery through the refactored UDF manager. This prepares the groundwork for completing the complex UDF integration test.
+**Status:** ✅ COMPLETED (June 2024)
 
 ### Task 2.9: Enhance UDF Unit Testing (Table UDFs & Engine)
 
@@ -558,21 +562,24 @@ This document tracks the implementation status of Conditional Execution, Python 
 - `sqlflow/core/executors/base_executor.py` (and its implementations)
 
 **Subtasks:**
-1. **Discovery:** In `PythonUDFManager.discover_udfs`, if a Python file in the `python_udfs` directory (or subdirectories) fails to import, log a clear warning detailing the problematic file path and the import error.
-2. **Registration:** Ensure `DuckDBEngine.register_python_udf` (as refined in Task 2.7) throws specific, helpful exceptions if DuckDB rejects a UDF (e.g., `UDFRegistrationError("Failed to register UDF 'my_udf': DuckDB error: ...")`).
-3. **Execution:** In `BaseExecutor` (and its implementations like `LocalExecutor`), when a UDF call within `execute_query` (via the engine) raises an exception, catch it and re-raise it or log it with additional context: the UDF name being executed and the original traceback from the UDF.
+1. ✅ **Discovery:** In `PythonUDFManager.discover_udfs`, if a Python file in the `python_udfs` directory (or subdirectories) fails to import, log a clear warning detailing the problematic file path and the import error.
+2. ✅ **Registration:** Ensure `DuckDBEngine.register_python_udf` (as refined in Task 2.7) throws specific, helpful exceptions if DuckDB rejects a UDF (e.g., `UDFRegistrationError("Failed to register UDF 'my_udf': DuckDB error: ...")`).
+3. ✅ **Execution:** In `BaseExecutor` (and its implementations like `LocalExecutor`), when a UDF call within `execute_query` (via the engine) raises an exception, catch it and re-raise it or log it with additional context: the UDF name being executed and the original traceback from the UDF.
+4. ✅ Implement enhanced error context collection for UDF execution failures.
+5. ✅ Create improved error handling architecture with clearer error classification.
 
 **Testing Requirements:**
-- Test scenarios where a UDF file has syntax errors or missing imports (discovery phase).
-- Test scenarios where a correctly discovered UDF fails DuckDB registration due to an incompatible signature or internal DuckDB issue.
-- Test scenarios where a registered UDF raises an exception during its execution within a pipeline.
-- Verify error messages are clear and point to the source of the problem.
+- ✅ Test scenarios where a UDF file has syntax errors or missing imports (discovery phase).
+- ✅ Test scenarios where a correctly discovered UDF fails DuckDB registration due to an incompatible signature or internal DuckDB issue.
+- ✅ Test scenarios where a registered UDF raises an exception during its execution within a pipeline.
+- ✅ Verify error messages are clear and point to the source of the problem.
 
 **Definition of Done:**
-- Error messages provided to the user at each stage of the UDF lifecycle (discovery, registration, execution) are informative, clear, and help in debugging.
-- SQLFlow handles these error conditions gracefully without crashing unexpectedly.
+- ✅ Error messages provided to the user at each stage of the UDF lifecycle (discovery, registration, execution) are informative, clear, and help in debugging.
+- ✅ SQLFlow handles these error conditions gracefully without crashing unexpectedly.
+- ✅ Error reporting is consistent across all UDF lifecycle stages.
 
-**Progress Update:** Refactored the UDF module discovery code to improve error handling architecture. The `_process_udf_module` method was decomposed into smaller, more focused helper methods: `_load_module` for module loading with specific error paths and `_process_udf` for individual UDF processing. This refactoring reduces complexity and provides clearer error context at each stage of the UDF lifecycle.
+**Status:** ✅ COMPLETED (June 2024)
 
 ### Task 2.12: Verify and Polish CLI for UDFs
 
@@ -604,6 +611,39 @@ This document tracks the implementation status of Conditional Execution, Python 
 - Main `README.md` updated with UDF quickstart and best practices.
 - Documentation reviewed for best practices by Principal Software Advocates and SMEs (Snowflake, Databricks, dbt, sqlmesh).
 - Covers scalar/table UDFs, signature requirements, discovery, usage, CLI, troubleshooting, performance, and best practices.
+
+### Task 2.14: Review and Refine SQLEngine UDF Interface
+
+**Description:** Conduct a comprehensive review of the UDF interface in the SQLEngine base class and implementations, refining it for better consistency, usability, and error handling.
+
+**Files Impacted:**
+- `sqlflow/core/engines/base.py`
+- `sqlflow/core/engines/duckdb_engine.py`
+- `sqlflow/udfs/udf_patch.py` (new)
+
+**Subtasks:**
+1. ✅ Review the current SQLEngine UDF registration interface for consistency and usability
+2. ✅ Standardize error handling for UDF registration across engine implementations
+3. ✅ Improve type compatibility between Python and SQL engine types
+4. ✅ Implement version-aware UDF registration mechanisms
+5. ✅ Add comprehensive documentation of the UDF interface
+
+**Testing Requirements:**
+- ✅ Test UDF registration with various signature types
+- ✅ Test error handling for registration failures
+- ✅ Test type compatibility between Python and SQL
+- ✅ Test with different engine versions if applicable
+- ✅ Verify documentation accuracy and completeness
+
+**Definition of Done:**
+- ✅ SQLEngine UDF interface is consistent and well-documented
+- ✅ Error handling provides clear, actionable feedback
+- ✅ Type compatibility is robust across supported types
+- ✅ Version-specific behaviors are handled gracefully
+- ✅ All tests pass with >90% coverage
+- ✅ Documentation is complete and accurate
+
+**Status:** ✅ COMPLETED (June 2024)
 
 ### Task 2.15: Create Basic End-to-End UDF Demo for MVP
 

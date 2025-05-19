@@ -118,7 +118,7 @@ def advanced_scalar_udf(x: int, y: float = 1.0, z: str = "default") -> float:
     \"\"\"
     return x * y
 
-@python_table_udf(required_columns=["value"])
+@python_table_udf(required_columns=["value"], output_schema={"value": "DOUBLE", "doubled": "DOUBLE"})
 def advanced_table_udf(df: pd.DataFrame, multiplier: float = 2.0) -> pd.DataFrame:
     \"\"\"Advanced table UDF with DataFrame input/output.
     

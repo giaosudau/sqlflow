@@ -1,5 +1,11 @@
--- Sales Analysis Pipeline
--- Demonstrates both scalar and table UDFs for data transformation
+-- Sales Analysis Pipe  id,
+  customer_id,
+  product,
+  price AS original_price,
+  -- Apply tax at default rate (10%)
+  PYTHON_FUNC("python_udfs.tax_utils.calculate_tax_default", price) AS price_with_tax,
+  -- Apply tax at custom rate (8%)
+  PYTHON_FUNC("python_udfs.data_transforms.calculate_tax", price, 0.08) AS price_with_custom_tax,Demonstrates both scalar and table UDFs for data transformation
 
 -- Source sales data
 SOURCE sales TYPE CSV PARAMS {
@@ -25,11 +31,11 @@ SELECT
   product,
   price AS original_price,
   -- Apply tax at default rate (10%)
-  PYTHON_FUNC("python_udfs.data_transforms.calculate_tax", price) AS price_with_tax,
+  PYTHON_FUNC("python_udfs.data_transforms.calculate_tax_default", price) AS price_with_tax,
   -- Apply tax at custom rate (8%)
   PYTHON_FUNC("python_udfs.data_transforms.calculate_tax", price, 0.08) AS price_with_custom_tax,
   -- Apply a 15% discount
-  PYTHON_FUNC("python_udfs.data_transforms.apply_discount", price, 15) AS discounted_price,
+  PYTHON_FUNC("python_udfs.tax_functions.apply_discount", price, 15) AS discounted_price,
   quantity,
   date
 FROM raw_sales;

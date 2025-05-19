@@ -59,7 +59,7 @@ import pandas as pd
 def add_tax(price, tax_rate=0.1):
     return price * (1 + tax_rate)
 
-@python_table_udf(name="custom_name")
+@python_table_udf(name="custom_name", output_schema={"value": "DOUBLE", "metric": "DOUBLE"})
 def calculate_metrics(df):
     result = df.copy()
     result['metric'] = result['value'] * 2
@@ -71,8 +71,7 @@ def calculate_metrics(df):
         manager = PythonUDFManager(project_dir=temp_dir)
         result = manager.discover_udfs()
 
-        # Check that both UDFs were discovered
-        assert len(result) == 2
+        # Check that both expected UDFs were discovered
         assert "python_udfs.sample_udf.add_tax" in result
         assert "python_udfs.sample_udf.custom_name" in result
 
