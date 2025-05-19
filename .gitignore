@@ -1,10 +1,62 @@
-# Byte-compiled / optimized / DLL files
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
-
-# C extensions
 *.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+.env
+.venv
+env/
+venv/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.project
+.classpath
+.settings/
+
+# Testing
+.coverage
+coverage.xml
+.pytest_cache/
+htmlcov/
+.tox/
+.nox/
+
+# SQLFlow specific
+target/
+.duckdb
+*.db
+
+# Logs
+*.log
+logs/
+log/
+
+# OS specific
+.DS_Store
+Thumbs.db
 
 # Distribution / packaging
 .Python
@@ -85,15 +137,6 @@ celerybeat-schedule
 # SageMath parsed files
 *.sage.py
 
-# Environments
-.env
-.venv
-env/
-venv/
-ENV/
-env.bak/
-venv.bak/
-
 # Spyder project settings
 .spyderproject
 .spyproject
@@ -108,12 +151,6 @@ venv.bak/
 .mypy_cache/
 .dmypy.json
 dmypy.json
-
-# IDE specific files
-.idea/
-.vscode/
-*.swp
-*.swo
 
 # MacOS
 .DS_Store

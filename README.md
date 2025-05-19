@@ -27,6 +27,80 @@ SQLFlow's vision is to make robust data pipelining accessible through SQL. Our M
 *   **CLI for Core Operations:** `init`, `run`, `compile`, `list` commands to manage your pipelines.
 *   **Automatic DAG Visualization:** Understand your pipeline structure at a glance.
 
+## Python UDFs: Bring Python Power to Your SQL Pipelines 🚀
+
+> **SQLFlow lets you define and use Python User-Defined Functions (UDFs) directly in your SQL pipelines—enabling advanced, custom data transformations with the full power of Python and pandas.**
+
+### Why SQLFlow UDFs?
+- **Native Python in SQL:** Write business logic, data cleaning, or feature engineering in Python, then call it from SQL.
+- **Both Scalar & Table UDFs:** Use simple row-wise functions or full DataFrame transforms.
+- **Auto-discovery & Validation:** Place UDFs in `python_udfs/`, and SQLFlow will find and validate them.
+- **Type Safety:** Enforced type hints and signatures for reliability.
+- **Production-Ready:** UDFs are first-class citizens in your pipelines, with clear best practices and CLI support.
+
+### Scalar UDF Example
+```python
+from sqlflow.udfs.decorators import python_scalar_udf
+
+@python_scalar_udf
+def calculate_discount(price: float, rate: float = 0.1) -> float:
+    """Calculate discount amount."""
+    if price is None:
+        return None
+    return price * rate
+```
+
+**Use in SQL:**
+```sql
+SELECT
+  product_id,
+  price,
+  PYTHON_FUNC("python_udfs.example_udf.calculate_discount", price, 0.2) AS discount
+FROM products;
+```
+
+### Table UDF Example
+```python
+from sqlflow.udfs.decorators import python_table_udf
+import pandas as pd
+
+@python_table_udf
+def add_price_metrics(df: pd.DataFrame) -> pd.DataFrame:
+    result = df.copy()
+    result["discount_10"] = result["price"] * 0.1
+    result["discount_20"] = result["price"] * 0.2
+    result["final_price_10"] = result["price"] - result["discount_10"]
+    result["final_price_20"] = result["price"] - result["discount_20"]
+    return result
+```
+
+**Use in SQL:**
+```sql
+CREATE TABLE enriched_products AS
+SELECT * FROM PYTHON_FUNC("python_udfs.example_udf.add_price_metrics", products);
+```
+
+### Best Practices
+- **Type hints are required** for all UDF arguments and return values.
+- **Table UDFs** must accept and return a `pd.DataFrame`.
+- Place UDFs in the `python_udfs/` directory (or subdirectories).
+- Use fully qualified names in SQL: `PYTHON_FUNC("python_udfs.module.function", ...)`.
+
+### CLI Support for UDFs
+- List UDFs: `sqlflow udf list`
+- Show UDF info: `sqlflow udf info python_udfs.example_udf.calculate_discount`
+- Validate UDFs: `sqlflow udf validate`
+
+### More Advanced Usage & Troubleshooting
+See the [Advanced Python UDF Guide](docs/python_udfs.md) for:
+- Signature requirements
+- Discovery and registration
+- Performance tips
+- Troubleshooting common issues
+- More real-world examples ([examples/python_udfs/example_udf.py](examples/python_udfs/example_udf.py))
+
+---
+
 ## Quick Start: Your First Unified SQLFlow Pipeline
 
 1.  **Install SQLFlow:**
@@ -340,35 +414,3 @@ A: Create `profiles/staging.yml`. Configure as needed. Run with `--profile stagi
 
 **Q: Are intermediate tables saved in persistent mode?**
 A: Yes. All tables from `CREATE TABLE ... AS SELECT ...` are saved in the DuckDB file, aiding debugging.
-
-## Python UDF Support in SQLFlow
-
-SQLFlow supports Python User-Defined Functions (UDFs) for both scalar and table operations, enabling advanced data transformations directly in your SQL pipelines. UDFs are discovered from the `python_udfs/` directory and can be referenced in SQL using fully qualified names.
-
-- **Scalar UDF Example:**
-  ```python
-  from sqlflow.udfs.decorators import python_scalar_udf
-
-  @python_scalar_udf
-  def add_one(x: int) -> int:
-      return x + 1
-  ```
-  ```sql
-  SELECT id, PYTHON_FUNC("python_udfs.my_module.add_one", value) AS value_plus_one FROM my_table;
-  ```
-
-- **Table UDF Example:**
-  ```python
-  from sqlflow.udfs.decorators import python_table_udf
-  import pandas as pd
-
-  @python_table_udf
-  def enrich(df: pd.DataFrame) -> pd.DataFrame:
-      df["enriched"] = df["value"] * 2
-      return df
-  ```
-  ```sql
-  CREATE TABLE enriched AS SELECT * FROM PYTHON_FUNC("python_udfs.my_module.enrich", my_table);
-  ```
-
-See [docs/python_udfs.md](docs/python_udfs.md) for full details, best practices, and troubleshooting.

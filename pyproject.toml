@@ -1,9 +1,37 @@
 [project]
 name = "sqlflow"
 version = "0.1.0"
-description = "SQL-based data pipeline tool"
+description = "SQLFlow is a SQL-native engine for defining, orchestrating, and managing data workflows—empowering analysts and engineers to build robust, production-grade pipelines using only SQL."
+readme = "README.md"
+license = { file = "LICENSE" }
 authors = [
-    {name = "SQLFlow Team", email = "your.email@example.com"},
+    {name = "Chanh Le", email = "giaosudau@gmail.com"},
+]
+keywords = [
+    "sql",
+    "data-pipeline",
+    "etl",
+    "workflow",
+    "duckdb",
+    "analytics",
+    "data-engineering"
+]
+requires-python = ">=3.8"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Operating System :: OS Independent",
+    "Topic :: Database",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Scientific/Engineering :: Information Analysis"
 ]
 dependencies = [
     "duckdb>=1.2.0",
@@ -21,19 +49,6 @@ dependencies = [
     "google-api-python-client>=2.0.0",
     "google-auth>=2.0.0",
     "google-auth-oauthlib>=1.0.0",
-]
-requires-python = ">=3.8"
-classifiers = [
-    "Development Status :: 3 - Alpha",
-    "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
-    "Topic :: Database",
-    "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 
 [project.optional-dependencies]
@@ -58,6 +73,12 @@ docs = [
     "sphinx-rtd-theme>=1.0.0",
     "myst-parser>=1.0.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/sqlflow/sqlflow"
+Documentation = "https://github.com/sqlflow/sqlflow#readme"
+Source = "https://github.com/sqlflow/sqlflow"
+Tracker = "https://github.com/sqlflow/sqlflow/issues"
 
 [project.scripts]
 sqlflow = "sqlflow.cli.main:cli"
