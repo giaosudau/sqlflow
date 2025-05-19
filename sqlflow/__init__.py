@@ -2,6 +2,12 @@
 
 __version__ = "0.1.0"
 
+# Initialize logging with default configuration
+from sqlflow.logging import configure_logging
+
+# Set up default logging configuration
+configure_logging()
+
 # Apply UDF patches to handle default parameters
 try:
     from sqlflow.udfs.udf_patch import patch_udf_manager

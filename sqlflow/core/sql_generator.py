@@ -5,12 +5,13 @@ It handles the conversion of operations to executable SQL statements with proper
 template substitution and SQL dialect adaptations.
 """
 
-import logging
 import re
 from datetime import datetime
 from typing import Any, Dict
 
-logger = logging.getLogger(__name__)
+from sqlflow.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class SQLGenerator:
@@ -31,6 +32,7 @@ class SQLGenerator:
             dialect: SQL dialect to use.
         """
         self.dialect = dialect
+        logger.debug(f"SQL Generator initialized with dialect: {dialect}")
 
     def generate_operation_sql(
         self, operation: Dict[str, Any], context: Dict[str, Any]
@@ -48,6 +50,8 @@ class SQLGenerator:
         op_id = operation.get("id", "unknown")
         depends_on = operation.get("depends_on", [])
 
+        logger.debug(f"Generating SQL for operation {op_id} of type {op_type}")
+
         # Generate header comments
         header = [
             f"-- Operation: {op_id}",
@@ -64,15 +68,29 @@ class SQLGenerator:
         elif op_type == "export":
             sql = self._generate_export_sql(operation, context)
         else:
+            logger.warning(f"Unknown operation type: {op_type}, using raw query")
             sql = operation.get("query", "")
             if isinstance(sql, dict):
                 sql = sql.get("query", "")
 
         # Apply variable substitution
+        original_sql_length = len(sql) if sql else 0
         sql = self._substitute_variables(sql, context.get("variables", {}))
 
+        if sql and len(sql) != original_sql_length:
+            logger.debug(f"Variable substitution applied to SQL for operation {op_id}")
+
         # Complete the SQL with header
-        return "\n".join(header) + "\n\n" + sql
+        result = "\n".join(header) + "\n\n" + sql
+
+        # Log a truncated version of the SQL to avoid very long logs
+        if sql:
+            preview = sql[:100] + "..." if len(sql) > 100 else sql
+            logger.info(f"Generated SQL for {op_type} operation {op_id}: {preview}")
+        else:
+            logger.warning(f"Empty SQL generated for operation {op_id}")
+
+        return result
 
     def _generate_source_sql(
         self, operation: Dict[str, Any], context: Dict[str, Any]
@@ -88,19 +106,28 @@ class SQLGenerator:
         """
         source_type = operation.get("source_connector_type", "").upper()
         query = operation.get("query", {})
+        name = operation.get("name", "unnamed_source")
+
+        logger.debug(f"Generating source SQL for {name}, type: {source_type}")
 
         if source_type == "CSV":
+            path = query.get("path", "")
+            has_header = query.get("has_header", True)
+            logger.debug(f"CSV source: path={path}, has_header={has_header}")
             return f"""-- Source type: CSV
-CREATE OR REPLACE TABLE {operation.get('name')} AS
-SELECT * FROM read_csv_auto('{query.get('path')}', 
-                           header={str(query.get('has_header', True)).lower()});"""
+CREATE OR REPLACE TABLE {name} AS
+SELECT * FROM read_csv_auto('{path}', 
+                           header={str(has_header).lower()});"""
 
         elif source_type == "POSTGRESQL":
+            pg_query = query.get("query", "")
+            logger.debug(f"PostgreSQL source: query length={len(pg_query)}")
             return f"""-- Source type: PostgreSQL
-CREATE OR REPLACE TABLE {operation.get('name')} AS
-SELECT * FROM {query.get('query', '')};"""
+CREATE OR REPLACE TABLE {name} AS
+SELECT * FROM {pg_query};"""
 
         else:
+            logger.warning(f"Unknown source type: {source_type}, using raw query")
             return f"-- Unknown source type: {source_type}\n{query.get('query', '')}"
 
     def _generate_transform_sql(
@@ -119,6 +146,10 @@ SELECT * FROM {query.get('query', '')};"""
         name = operation.get("name", "unnamed")
         query = operation.get("query", "")
 
+        logger.debug(
+            f"Generating transform SQL for {name}, materialization: {materialized}"
+        )
+
         if materialized == "TABLE":
             return f"""-- Materialization: TABLE
 CREATE OR REPLACE TABLE {name} AS
@@ -133,6 +164,9 @@ CREATE OR REPLACE VIEW {name} AS
 {query};"""
 
         else:
+            logger.warning(
+                f"Unknown materialization type: {materialized}, using raw query"
+            )
             return f"""-- Materialization: {materialized}
 {query};"""
 
@@ -151,6 +185,8 @@ CREATE OR REPLACE VIEW {name} AS
         query = operation.get("query", {})
         source_name = query.get("source_name", "")
         table_name = query.get("table_name", "")
+
+        logger.debug(f"Generating load SQL: {source_name} -> {table_name}")
 
         return f"""-- Load operation
 CREATE OR REPLACE TABLE {table_name} AS
@@ -173,6 +209,10 @@ SELECT * FROM {source_name};"""
         destination = query.get("destination_uri", "")
         export_type = query.get("type", "CSV").upper()
 
+        logger.debug(
+            f"Generating export SQL: type={export_type}, destination={destination}"
+        )
+
         if export_type == "CSV":
             return f"""-- Export to CSV
 COPY (
@@ -180,6 +220,9 @@ COPY (
 ) TO '{destination}' (FORMAT CSV, HEADER);"""
 
         else:
+            logger.warning(
+                f"Export type not explicitly supported: {export_type}, using generic format"
+            )
             return f"""-- Export type: {export_type}
 -- Destination: {destination}
 {source_query}"""
@@ -197,17 +240,102 @@ COPY (
         if not sql:
             return ""
 
+        if not variables:
+            logger.debug("No variables to substitute in SQL")
+            return sql
+
+        logger.debug(f"Substituting {len(variables)} variables in SQL")
+
+        # Track variable replacements for logging
+        replacements_made = 0
+
         # First pass: replace variables that have values
-        for name, value in variables.items():
-            pattern = r"\$\{" + name + r"(?:\|[^}]*)?\}"
-            sql = re.sub(pattern, str(value), sql)
+        result = sql
+        for var_name, var_value in variables.items():
+            pattern = (
+                r"\${"
+                + re.escape(var_name)
+                + r"}|\${"
+                + re.escape(var_name)
+                + r"\|[^}]*}"
+            )
+            # Convert Python objects to SQL literals
+            if isinstance(var_value, str):
+                replacement = f"'{var_value}'"
+            elif isinstance(var_value, bool):
+                replacement = str(var_value).lower()
+            else:
+                replacement = str(var_value)
 
-        # Second pass: handle default values for any remaining variables
+            # Count replacements for this variable
+            count_before = len(re.findall(pattern, result))
+            result = re.sub(pattern, replacement, result)
+            count_after = len(re.findall(pattern, result))
+            var_replacements = count_before - count_after
+
+            if var_replacements > 0:
+                replacements_made += var_replacements
+                logger.debug(
+                    f"Variable '{var_name}' replaced {var_replacements} times with {replacement}"
+                )
+
+        # Second pass: handle variables with default values
         def replace_with_default(match):
-            parts = match.group(0)[2:-1].split("|")
-            if len(parts) > 1:
-                return parts[1]
-            return match.group(0)
+            # Parse variable and default value
+            var_expr = match.group(0)
+            without_delimiters = var_expr[2:-1]  # Remove ${ and }
+            if "|" in without_delimiters:
+                # Extract default value
+                var_name, default_value = without_delimiters.split("|", 1)
+                var_name = var_name.strip()
+                default_value = default_value.strip()
 
-        sql = re.sub(r"\$\{[^}]*\}", replace_with_default, sql)
-        return sql
+                # Handle quoted default values
+                if (default_value.startswith("'") and default_value.endswith("'")) or (
+                    default_value.startswith('"') and default_value.endswith('"')
+                ):
+                    # Keep as is - already quoted
+                    pass
+                elif (
+                    default_value.lower() == "true" or default_value.lower() == "false"
+                ):
+                    # Boolean value - lowercase in SQL
+                    default_value = default_value.lower()
+                elif re.match(r"^-?\d+(\.\d+)?$", default_value):
+                    # Numeric value - keep as is
+                    pass
+                else:
+                    # Quote string values
+                    default_value = f"'{default_value}'"
+
+                logger.debug(f"Using default value for '{var_name}': {default_value}")
+                return default_value
+
+            # If no default value but still not replaced, use NULL
+            var_name = without_delimiters.strip()
+            logger.warning(
+                f"No value or default found for variable: '{var_name}', using NULL"
+            )
+            return "NULL"
+
+        # Apply default values
+        pattern = r"\${[^}]*\|[^}]*}"
+        result_with_defaults = re.sub(pattern, replace_with_default, result)
+
+        # Handle any remaining ${var} without defaults or values
+        pattern = r"\${[^}]*}"
+        final_result = re.sub(
+            pattern, lambda m: replace_with_default(m), result_with_defaults
+        )
+
+        if final_result != result_with_defaults:
+            logger.warning(
+                f"Some variables had no values or defaults and were replaced with NULL"
+            )
+
+        if replacements_made > 0:
+            logger.debug(
+                f"Completed variable substitution: {replacements_made} total replacements"
+            )
+
+        return final_result

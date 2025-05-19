@@ -4,6 +4,7 @@ import json
 import re
 from typing import List, Optional
 
+from sqlflow.logging import get_logger
 from sqlflow.parser.ast import (
     ConditionalBlockStep,
     ConditionalBranchStep,
@@ -17,6 +18,8 @@ from sqlflow.parser.ast import (
     SQLBlockStep,
 )
 from sqlflow.parser.lexer import Lexer, Token, TokenType
+
+logger = get_logger(__name__)
 
 
 class ParserError(Exception):
@@ -50,8 +53,10 @@ class Parser:
         """
         if text is not None:
             self.lexer = Lexer(text)
+            logger.debug("Parser initialized with provided text")
         else:
             self.lexer = None
+            logger.debug("Parser initialized without text")
 
         self.tokens = []
         self.current = 0
@@ -71,13 +76,17 @@ class Parser:
         # If text is provided, create a new lexer
         if text is not None:
             self.lexer = Lexer(text)
+            logger.debug("Created new lexer with provided text")
         elif self.lexer is None:
+            logger.error("No text provided to parse")
             raise ValueError("No text provided to parse")
 
         # Tokenize input and handle lexer errors
         try:
             self.tokens = self.lexer.tokenize()
+            logger.debug(f"Tokenized input: {len(self.tokens)} tokens generated")
         except Exception as e:
+            logger.error(f"Lexer error: {str(e)}")
             raise ParserError(f"Lexer error: {str(e)}", 0, 0) from e
 
     def _parse_all_statements(self) -> list:
@@ -90,15 +99,22 @@ class Parser:
             Adds parsed steps to self.pipeline
         """
         parsing_errors = []
+        logger.debug("Starting to parse all statements")
 
         while not self._is_at_end():
             try:
                 step = self._parse_statement()
                 if step:
+                    logger.debug(
+                        f"Added step of type {type(step).__name__} to pipeline"
+                    )
                     self.pipeline.add_step(step)
             except ParserError as e:
                 # Record the error and continue parsing
                 parsing_errors.append(e)
+                logger.warning(
+                    f"Parser error: {e.message} at line {e.line}, column {e.column}"
+                )
                 self._synchronize()
             except Exception as e:
                 # Convert unexpected errors to ParserError
@@ -108,8 +124,14 @@ class Parser:
                     self._peek().column,
                 )
                 parsing_errors.append(err)
+                logger.error(
+                    f"Unexpected error: {str(e)} at line {self._peek().line}, column {self._peek().column}"
+                )
                 self._synchronize()
 
+        logger.debug(
+            f"Completed parsing: {len(parsing_errors)} errors, {len(self.pipeline.steps)} steps"
+        )
         return parsing_errors
 
     def _format_error_message(self, errors: list) -> str:
@@ -142,6 +164,7 @@ class Parser:
         # Reset parser state
         self.current = 0
         self.pipeline = Pipeline()
+        logger.info("Starting parsing pipeline")
 
         # Set up and tokenize the input
         self._tokenize_input(text)
@@ -152,8 +175,12 @@ class Parser:
         # If we encountered any errors, report them all
         if parsing_errors:
             error_message = self._format_error_message(parsing_errors)
+            logger.error(f"Parsing failed: {len(parsing_errors)} errors found")
             raise ParserError(f"Multiple errors found:\n{error_message}", 0, 0)
 
+        logger.info(
+            f"Successfully parsed pipeline with {len(self.pipeline.steps)} steps"
+        )
         return self.pipeline
 
     def _parse_statement(self) -> Optional[PipelineStep]:
@@ -166,6 +193,10 @@ class Parser:
             ParserError: If the statement cannot be parsed
         """
         token = self._peek()
+
+        logger.debug(
+            f"Parsing statement, next token is: {token.type.name} at line {token.line}"
+        )
 
         if token.type == TokenType.SOURCE:
             return self._parse_source_statement()
@@ -183,6 +214,7 @@ class Parser:
             return self._parse_conditional_block()
 
         self._advance()
+        logger.debug(f"Unknown statement type: {token.type.name}, skipping")
         return None
 
     def _parse_source_statement(self) -> SourceDefinitionStep:
@@ -650,11 +682,12 @@ class Parser:
         """Parse an IF/ELSEIF/ELSE/ENDIF block.
 
         Returns:
-            ConditionalBlockStep AST node
+            ConditionalBlockStep
 
         Raises:
             ParserError: If the conditional block cannot be parsed
         """
+        logger.debug("Parsing conditional block")
         start_line = self._peek().line
         branches = []
         else_branch = None
@@ -662,6 +695,7 @@ class Parser:
         # Parse initial IF branch
         self._consume(TokenType.IF, "Expected 'IF'")
         condition = self._parse_condition_expression()
+        logger.debug(f"Parsed IF condition: {condition}")
         self._consume(TokenType.THEN, "Expected 'THEN' after condition")
         if_branch_steps = self._parse_branch_statements(
             [TokenType.ELSE_IF, TokenType.ELSE, TokenType.END_IF]
@@ -670,9 +704,10 @@ class Parser:
 
         # Parse ELSEIF branches
         while self._check(TokenType.ELSE_IF):
-            self._consume(TokenType.ELSE_IF, "Expected 'ELSE IF'")
             elseif_line = self._peek().line
+            self._consume(TokenType.ELSE_IF, "Expected 'ELSEIF'")
             condition = self._parse_condition_expression()
+            logger.debug(f"Parsed ELSEIF condition: {condition}")
             self._consume(TokenType.THEN, "Expected 'THEN' after condition")
             elseif_branch_steps = self._parse_branch_statements(
                 [TokenType.ELSE_IF, TokenType.ELSE, TokenType.END_IF]
@@ -683,6 +718,7 @@ class Parser:
 
         # Parse optional ELSE branch
         if self._check(TokenType.ELSE):
+            logger.debug("Parsing ELSE branch")
             self._consume(TokenType.ELSE, "Expected 'ELSE'")
             else_branch = self._parse_branch_statements([TokenType.END_IF])
 
@@ -690,6 +726,9 @@ class Parser:
         self._consume(TokenType.END_IF, "Expected 'END IF'")
         self._consume(TokenType.SEMICOLON, "Expected ';' after 'END IF'")
 
+        logger.debug(
+            f"Completed parsing conditional block with {len(branches)} branches, else_branch: {else_branch is not None}"
+        )
         return ConditionalBlockStep(branches, else_branch, start_line)
 
     def _parse_condition_expression(self) -> str:

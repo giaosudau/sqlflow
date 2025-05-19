@@ -5,13 +5,13 @@ into a linear, JSON-serialized ExecutionPlan consumable by an executor.
 """
 
 import json
-import logging
 import re
 from typing import Any, Dict, List, Optional
 
 from sqlflow.core.dependencies import DependencyResolver
 from sqlflow.core.errors import PlanningError
 from sqlflow.core.evaluator import ConditionEvaluator, EvaluationError
+from sqlflow.logging import get_logger
 from sqlflow.parser.ast import (
     ConditionalBlockStep,
     ExportStep,
@@ -22,7 +22,7 @@ from sqlflow.parser.ast import (
     SQLBlockStep,
 )
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 # --- UTILITY FUNCTIONS ---
@@ -38,6 +38,7 @@ class ExecutionPlanBuilder:
         self.dependency_resolver = DependencyResolver()
         self.step_id_map: Dict[int, str] = {}
         self.step_dependencies: Dict[str, List[str]] = {}
+        logger.debug("ExecutionPlanBuilder initialized")
 
     # --- PIPELINE VALIDATION ---
     def _validate_variable_references(
@@ -46,6 +47,7 @@ class ExecutionPlanBuilder:
         """Validate that all variable references in the pipeline exist in variables or have defaults.
         Also checks that default values are valid (no unquoted spaces).
         """
+        logger.debug("Validating variable references in pipeline")
         referenced_vars = set()
         for step in pipeline.steps:
             if isinstance(step, ConditionalBlockStep):
@@ -60,15 +62,21 @@ class ExecutionPlanBuilder:
                 self._extract_variable_references(
                     json.dumps(step.params), referenced_vars
                 )
+
+        logger.debug(f"Found referenced variables: {referenced_vars}")
         missing_vars = self._find_missing_vars(referenced_vars, variables, pipeline)
         invalid_defaults = self._find_invalid_defaults(referenced_vars, pipeline)
+
         if missing_vars:
+            logger.warning(f"Pipeline references undefined variables: {missing_vars}")
             error_msg = "Pipeline references undefined variables:\n" + "".join(
                 f"  - ${{{var}}} is used but not defined\n" for var in missing_vars
             )
             error_msg += "\nPlease define these variables using SET statements or provide them when running the pipeline."
             raise PlanningError(error_msg)
+
         if invalid_defaults:
+            logger.warning(f"Found invalid default values: {invalid_defaults}")
             error_msg = (
                 "Invalid default values for variables (must not contain spaces unless quoted):\n"
                 + "".join(f"  - {expr}\n" for expr in invalid_defaults)
@@ -77,6 +85,8 @@ class ExecutionPlanBuilder:
                 '\nDefault values with spaces must be quoted, e.g. ${var|"us-east"}'
             )
             raise PlanningError(error_msg)
+
+        logger.info("Variable validation completed successfully")
 
     def _find_missing_vars(self, referenced_vars, variables, pipeline):
         return [
@@ -329,38 +339,91 @@ class ExecutionPlanBuilder:
     def build_plan(
         self, pipeline: Pipeline, variables: Optional[Dict[str, Any]] = None
     ) -> List[Dict[str, Any]]:
-        """Build an execution plan from a pipeline."""
+        """Build an execution plan from a pipeline.
+
+        Args:
+            pipeline: The validated pipeline to build a plan for
+            variables: Variables for variable substitution
+
+        Returns:
+            A list of execution steps in topological order
+
+        Raises:
+            PlanningError: If the plan cannot be built
+        """
+        logger.info("Building execution plan")
+        if not pipeline.steps:
+            logger.warning("Planning an empty pipeline")
+            return []
+
+        # Initialize state
         self.dependency_resolver = DependencyResolver()
         self.step_id_map = {}
         self.step_dependencies = {}
-        if variables is None:
-            variables = {}
-        if not pipeline.steps:
-            logger.warning("Planning an empty pipeline")
+
+        # Use provided variables or initialize empty dict
+        variables_to_use = variables or {}
+        logger.debug(f"Planning with {len(variables_to_use)} variables")
+
         try:
-            self._validate_variable_references(pipeline, variables)
-            flattened_pipeline = self._flatten_conditional_blocks(pipeline, variables)
+            # Validate variable references
+            self._validate_variable_references(pipeline, variables_to_use)
+
+            # Flatten conditional blocks to just the active branch steps
+            logger.debug(
+                f"Flattening conditional blocks in pipeline with {len(pipeline.steps)} steps"
+            )
+            flattened_pipeline = self._flatten_conditional_blocks(
+                pipeline, variables_to_use
+            )
+            logger.debug(
+                f"Flattened pipeline has {len(flattened_pipeline.steps)} steps"
+            )
+
+            # Build dependency graph using flattened pipeline
             self._build_dependency_graph(flattened_pipeline)
+
+            # Set up additional dependencies for correct execution order
             source_steps, load_steps = self._get_sources_and_loads(flattened_pipeline)
+            logger.debug(
+                f"Found {len(source_steps)} source steps and {len(load_steps)} load steps"
+            )
             self._add_load_dependencies(source_steps, load_steps)
+
+            # Generate unique IDs for each step
             self._generate_step_ids(flattened_pipeline)
-            execution_order = self._resolve_execution_order()
-            return self._build_execution_steps(flattened_pipeline, execution_order)
+
+            # Check for cycles in the dependency graph
+            resolver = self._create_dependency_resolver()
+            cycles = self._detect_cycles(resolver)
+            if cycles:
+                error_msg = self._format_cycle_error(cycles)
+                logger.error(f"Dependency cycle detected: {error_msg}")
+                raise PlanningError(error_msg)
+
+            # Resolve execution order based on dependencies
+            all_step_ids = list(self.step_id_map.values())
+            logger.debug(f"Resolving execution order for {len(all_step_ids)} steps")
+            entry_points = self._find_entry_points(resolver, all_step_ids)
+            logger.debug(f"Found {len(entry_points)} entry points")
+            execution_order = self._build_execution_order(resolver, entry_points)
+
+            # Create execution steps from pipeline steps in the determined order
+            logger.debug(f"Creating {len(execution_order)} execution steps")
+            execution_steps = self._build_execution_steps(
+                flattened_pipeline, execution_order
+            )
+            logger.info(
+                f"Successfully built execution plan with {len(execution_steps)} steps"
+            )
+            return execution_steps
+
         except EvaluationError as e:
-            error_msg = (
-                f"Failed to build plan due to condition evaluation error: {str(e)}"
-            )
-            error_msg += "\n\nTry checking:"
-            error_msg += (
-                "\n- All variable references are properly formatted (${var_name})"
-            )
-            error_msg += "\n- All required variables are defined before use"
-            error_msg += "\n- Variable default values are properly formatted (${var_name|default})"
-            raise PlanningError(error_msg) from e
+            logger.error(f"Condition evaluation error: {str(e)}")
+            raise PlanningError(f"Error evaluating conditions: {str(e)}") from e
         except Exception as e:
-            if isinstance(e, PlanningError):
-                raise
-            raise PlanningError(f"Failed to build plan: {str(e)}") from e
+            logger.error(f"Error building execution plan: {str(e)}")
+            raise PlanningError(f"Failed to build execution plan: {str(e)}") from e
 
     # --- CONDITIONALS & FLATTENING ---
     def _flatten_conditional_blocks(
@@ -392,9 +455,19 @@ class ExecutionPlanBuilder:
     def _resolve_conditional_block(
         self, conditional_block: ConditionalBlockStep, evaluator: ConditionEvaluator
     ) -> List[PipelineStep]:
+        """Determine active branch based on condition evaluation."""
+        logger.debug(
+            f"Resolving conditional block at line {conditional_block.line_number}"
+        )
+
+        # Process each branch until a true condition is found
         for branch in conditional_block.branches:
             try:
                 if evaluator.evaluate(branch.condition):
+                    logger.info(
+                        f"Condition '{branch.condition}' evaluated to TRUE - using this branch"
+                    )
+                    # Process any nested conditionals in the active branch
                     flat_branch_steps = []
                     for step in branch.steps:
                         if isinstance(step, ConditionalBlockStep):
@@ -404,11 +477,19 @@ class ExecutionPlanBuilder:
                         else:
                             flat_branch_steps.append(step)
                     return flat_branch_steps
-            except EvaluationError as e:
-                raise EvaluationError(
-                    f"Failed to evaluate condition '{branch.condition}' at line {branch.line_number}: {str(e)}"
-                ) from e
+                else:
+                    logger.debug(
+                        f"Condition '{branch.condition}' evaluated to FALSE - skipping branch"
+                    )
+            except Exception as e:
+                # Log the error but continue to next branch
+                logger.warning(
+                    f"Error evaluating condition: {branch.condition}. Error: {str(e)}"
+                )
+
+        # If no branch condition is true, use the else branch if available
         if conditional_block.else_branch:
+            logger.info("No conditions were true - using ELSE branch")
             flat_else_steps = []
             for step in conditional_block.else_branch:
                 if isinstance(step, ConditionalBlockStep):
@@ -418,16 +499,31 @@ class ExecutionPlanBuilder:
                 else:
                     flat_else_steps.append(step)
             return flat_else_steps
+
+        # No condition was true and no else branch
+        logger.warning(
+            "No conditions were true and no else branch exists - skipping entire block"
+        )
         return []
 
     # --- DEPENDENCY GRAPH & EXECUTION ORDER ---
     def _build_dependency_graph(self, pipeline: Pipeline) -> None:
+        """Build a dependency graph based on the table references in each step."""
+        logger.debug("Building dependency graph")
+        # Map table names to the steps that create them
         table_to_step = self._build_table_to_step_mapping(pipeline)
+        logger.debug(f"Found {len(table_to_step)} tables in pipeline")
+
+        # Analyze dependencies for each step
         for step in pipeline.steps:
             if isinstance(step, SQLBlockStep):
                 self._analyze_sql_dependencies(step, table_to_step)
             elif isinstance(step, ExportStep):
                 self._analyze_export_dependencies(step, table_to_step)
+
+        logger.debug(
+            f"Dependency graph built with {len(self.step_dependencies)} dependencies"
+        )
 
     def _analyze_sql_dependencies(
         self, step: SQLBlockStep, table_to_step: Dict[str, PipelineStep]
@@ -695,10 +791,33 @@ class OperationPlanner:
 
 # --- MAIN PLANNER ---
 class Planner:
+    """Interface to the ExecutionPlanBuilder with a simplified API."""
+
     def __init__(self):
-        self.operation_planner = OperationPlanner()
+        """Initialize the planner."""
+        self.builder = ExecutionPlanBuilder()
+        logger.debug("Planner initialized")
 
     def create_plan(
         self, pipeline: Pipeline, variables: Optional[Dict[str, Any]] = None
     ) -> List[Dict[str, Any]]:
-        return self.operation_planner.plan(pipeline, variables)
+        """Create an execution plan from a pipeline.
+
+        Args:
+            pipeline: The parsed pipeline
+            variables: Variables for variable substitution
+
+        Returns:
+            List of executable operations
+
+        Raises:
+            PlanningError: If the plan cannot be created
+        """
+        logger.info(f"Creating plan for pipeline with {len(pipeline.steps)} steps")
+        try:
+            plan = self.builder.build_plan(pipeline, variables)
+            logger.info(f"Successfully created plan with {len(plan)} operations")
+            return plan
+        except Exception as e:
+            logger.error(f"Failed to create plan: {str(e)}")
+            raise

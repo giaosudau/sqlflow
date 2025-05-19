@@ -1,7 +1,6 @@
 """DuckDB engine for SQLFlow."""
 
 import inspect
-import logging
 import os
 import re
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -11,9 +10,9 @@ import pandas as pd
 import pyarrow as pa
 
 from sqlflow.core.engines.base import SQLEngine
+from sqlflow.logging import get_logger
 
-logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.DEBUG)
+logger = get_logger(__name__)
 
 
 class UDFRegistrationError(Exception):
@@ -51,7 +50,7 @@ class UDFExecutionContext:
         self.engine = engine
         self.udf_name = udf_name
         self.start_time = None
-        self.logger = logging.getLogger(f"sqlflow.udf.{udf_name}")
+        self.logger = get_logger(f"sqlflow.udf.{udf_name}")
 
     def __enter__(self):
         """Enter the execution context."""

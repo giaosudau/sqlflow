@@ -7,15 +7,16 @@ that can be used in SQLFlow pipelines.
 import glob
 import importlib.util
 import inspect
-import logging
 import os
 import re
 import traceback
-from typing import Any, Callable, Dict, List, Optional, Set
+from typing import Any, Callable, Dict, List, Optional, Set, TypeVar
 
 import pandas as pd
 
-logger = logging.getLogger(__name__)
+from sqlflow.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class UDFDiscoveryError(Exception):
@@ -55,6 +56,10 @@ class UDFExecutionError(Exception):
         super().__init__(message)
 
 
+# Type alias for UDF functions
+UDFFunc = TypeVar("UDFFunc", bound=Callable[..., Any])
+
+
 class PythonUDFManager:
     """Manages discovery and registration of Python UDFs for SQLFlow.
 
@@ -72,6 +77,9 @@ class PythonUDFManager:
         self.udfs: Dict[str, Callable] = {}
         self.udf_info: Dict[str, Dict[str, Any]] = {}
         self.discovery_errors: Dict[str, str] = {}
+        logger.debug(
+            f"UDFManager initialized with project directory: {self.project_dir}"
+        )
 
     def _extract_module_name(self, py_file: str, python_udfs_dir: str) -> str:
         """Extract a proper module name from a Python file path.

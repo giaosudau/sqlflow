@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import re
+import uuid
 from typing import Any, Dict, List, Optional, Set, Union
 
 import pandas as pd
@@ -252,8 +253,106 @@ class LocalExecutor(BaseExecutor):
         Returns:
             Execution results
         """
-        self.executed_steps = set()
+        logger.info(f"Executing plan with {len(steps)} steps")
+
+        # Prepare tracking for execution
+        self.execution_id = str(uuid.uuid4())
+        self.table_data = {}  # Map of table name to DataChunk
+        self.step_table_map = {}  # Map of step ID to table name
+        self.step_output_mapping = {}  # Map of step ID to list of output tables
+        self.step_results = {}  # Map of step ID to execution result
         self.failed_step = None
+
+        if not steps:
+            logger.warning("No steps to execute in pipeline")
+            return {"status": "success", "results": {}}
+
+        # Create dependency resolver
+        dependency_resolver = DependencyResolver()
+        logger.debug("Dependency resolver: %s", dependency_resolver)
+
+        for step in steps:
+            step_id = step["id"]
+            for dependency in step.get("depends_on", []):
+                dependency_resolver.add_dependency(step_id, dependency)
+
+        # Filter steps with unique IDs to avoid duplicates
+        step_ids = set(step["id"] for step in steps)
+        filtered_plan = [step for step in steps if step["id"] in step_ids]
+        logger.debug("Plan contains %d unique steps", len(filtered_plan))
+
+        # Create execution order from dependencies
+        try:
+            entry_points = [
+                step["id"] for step in filtered_plan if not step.get("depends_on")
+            ]
+            logger.debug("Entry points: %s", entry_points)
+
+            resolved_order = []
+            for entry_point in entry_points:
+                deps = dependency_resolver.resolve_dependencies(entry_point)
+                for dep in deps:
+                    if dep not in resolved_order:
+                        resolved_order.append(dep)
+        except Exception as e:
+            logger.error(f"Error resolving dependencies: {e}")
+            return {"status": "failed", "error": str(e)}
+
+        logger.debug("Steps to execute: %d", len(filtered_plan))
+
+        # Verify that all steps are in the execution order
+        logger.debug("All step IDs: %s", step_ids)
+        logger.debug("Execution order: %s", resolved_order)
+
+        if len(resolved_order) != len(step_ids):
+            missing_steps = step_ids - set(resolved_order)
+            logger.warning(
+                f"Warning: {len(missing_steps)} steps are not in the execution order: {missing_steps}"
+            )
+            # Check if the order is different from the plan order
+            plan_order = [step["id"] for step in filtered_plan]
+            if plan_order != resolved_order:
+                filtered_plan_order = [id for id in plan_order if id in resolved_order]
+                logger.debug("⚠️ Execution order mismatch detected.")
+                logger.debug("Plan order: %s", filtered_plan_order)
+                logger.debug("Resolved dependency order: %s", resolved_order)
+
+        # Add steps that might be missing from the execution order
+        for step in filtered_plan:
+            if step["id"] not in resolved_order:
+                logger.debug(
+                    f"Adding step {step['id']} to execution order (missing from dependencies)"
+                )
+                resolved_order.append(step["id"])
+
+        # Prepare plan steps by ID for quick lookup
+        steps_by_id = {step["id"]: step for step in filtered_plan}
+
+        # Execute steps in order
+        success = True
+        for step_id in resolved_order:
+            step = steps_by_id.get(step_id)
+            if not step:
+                logger.warning(f"Step {step_id} not found in plan, skipping")
+                continue
+
+            # Check if dependencies are satisfied
+            dependencies_satisfied = True
+            for dep_id in step.get("depends_on", []):
+                dep_result = self.step_results.get(dep_id)
+                if not dep_result or dep_result.get("status") != "success":
+                    logger.warning(
+                        f"Dependency {dep_id} for step {step_id} failed or not executed"
+                    )
+                    dependencies_satisfied = False
+                    break
+
+            if not dependencies_satisfied:
+                logger.warning(f"Skipping step {step_id} due to failed dependencies")
+                self.step_results[step_id] = {
+                    "status": "skipped",
+                    "reason": "dependent steps failed",
+                }
         self.results = {}
         self.dependency_resolver = dependency_resolver
         self.step_table_map = {}

@@ -1,13 +1,13 @@
 """Project management for SQLFlow."""
 
-import logging
 import os
 from typing import Any, Dict, Optional
 
 import yaml
 
-logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.DEBUG)
+from sqlflow.logging import configure_logging, get_logger
+
+logger = get_logger(__name__)
 
 
 class Project:
@@ -23,6 +23,10 @@ class Project:
         self.project_dir = project_dir
         self.profile_name = profile_name
         self.profile = self._load_profile(profile_name)
+
+        # Configure logging based on profile settings
+        self._configure_logging_from_profile()
+
         logger.info(f"Loaded profile: {profile_name}")
 
     def _load_profile(self, profile_name: str) -> Dict[str, Any]:
@@ -43,6 +47,24 @@ class Project:
             profile = yaml.safe_load(f)
             logger.info(f"Loaded profile configuration: {profile}")
             return profile or {}
+
+    def _configure_logging_from_profile(self) -> None:
+        """Configure logging based on profile settings."""
+        # Build logging configuration from profile
+        log_config = {}
+
+        # Extract log level if present
+        if "log_level" in self.profile:
+            log_config["log_level"] = self.profile["log_level"]
+
+        # Extract module-specific log levels if present
+        if "module_log_levels" in self.profile:
+            log_config["module_log_levels"] = self.profile["module_log_levels"]
+
+        # Configure logging with these settings
+        if log_config:
+            configure_logging(config=log_config)
+            logger.debug(f"Configured logging from profile with: {log_config}")
 
     def get_pipeline_path(self, pipeline_name: str) -> str:
         """Get the full path to a pipeline file.
@@ -100,6 +122,12 @@ class Project:
                     "mode": "memory",
                     "memory_limit": "2GB",
                 }
+            },
+            # Add default logging configuration
+            "log_level": "info",
+            "module_log_levels": {
+                "sqlflow.core.engines": "info",
+                "sqlflow.connectors": "info",
             },
             # Add more default keys as needed
         }
