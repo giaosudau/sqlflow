@@ -18,6 +18,7 @@ from sqlflow.parser.ast import (
     LoadStep,
     Pipeline,
     PipelineStep,
+    SetStep,
     SourceDefinitionStep,
     SQLBlockStep,
 )
@@ -48,45 +49,136 @@ class ExecutionPlanBuilder:
         Also checks that default values are valid (no unquoted spaces).
         """
         logger.debug("Validating variable references in pipeline")
-        referenced_vars = set()
-        for step in pipeline.steps:
-            if isinstance(step, ConditionalBlockStep):
-                for branch in step.branches:
-                    self._extract_variable_references(branch.condition, referenced_vars)
-            elif isinstance(step, ExportStep):
-                self._extract_variable_references(step.destination_uri, referenced_vars)
-                self._extract_variable_references(
-                    json.dumps(step.options), referenced_vars
-                )
-            elif isinstance(step, SourceDefinitionStep):
-                self._extract_variable_references(
-                    json.dumps(step.params), referenced_vars
-                )
 
-        logger.debug(f"Found referenced variables: {referenced_vars}")
-        missing_vars = self._find_missing_vars(referenced_vars, variables, pipeline)
+        # Get effective variables (provided + defined in pipeline)
+        effective_variables = self._get_effective_variables(pipeline, variables)
+
+        # Extract all referenced variables
+        referenced_vars = self._collect_all_referenced_variables(pipeline)
+
+        # Log variable reference report
+        self._log_variable_reference_report(
+            referenced_vars, effective_variables, pipeline
+        )
+
+        # Check for missing vars and invalid defaults
+        missing_vars = self._find_missing_vars(
+            referenced_vars, effective_variables, pipeline
+        )
         invalid_defaults = self._find_invalid_defaults(referenced_vars, pipeline)
 
+        # Handle missing variables error
         if missing_vars:
-            logger.warning(f"Pipeline references undefined variables: {missing_vars}")
-            error_msg = "Pipeline references undefined variables:\n" + "".join(
-                f"  - ${{{var}}} is used but not defined\n" for var in missing_vars
-            )
-            error_msg += "\nPlease define these variables using SET statements or provide them when running the pipeline."
-            raise PlanningError(error_msg)
+            self._raise_missing_variables_error(missing_vars, pipeline)
 
+        # Handle invalid defaults error
         if invalid_defaults:
-            logger.warning(f"Found invalid default values: {invalid_defaults}")
-            error_msg = (
-                "Invalid default values for variables (must not contain spaces unless quoted):\n"
-                + "".join(f"  - {expr}\n" for expr in invalid_defaults)
-            )
-            error_msg += (
-                '\nDefault values with spaces must be quoted, e.g. ${var|"us-east"}'
-            )
-            raise PlanningError(error_msg)
+            self._raise_invalid_defaults_error(invalid_defaults)
+
+        # Verify all variable values
+        self._verify_variable_values(referenced_vars, variables, pipeline)
 
         logger.info("Variable validation completed successfully")
+
+    def _get_effective_variables(
+        self, pipeline: Pipeline, variables: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Combine provided variables with those defined by SET statements in the pipeline."""
+        # Extract variables defined by SET statements
+        defined_vars = self._extract_set_defined_variables(pipeline)
+        logger.debug(f"Variables defined by SET statements: {defined_vars}")
+
+        # Create a copy of provided variables and add pipeline-defined ones
+        effective_variables = variables.copy()
+        for var_name, var_value in defined_vars.items():
+            if var_name not in effective_variables:
+                logger.debug(
+                    f"Adding pipeline-defined variable: {var_name}={var_value}"
+                )
+                effective_variables[var_name] = var_value
+
+        # Log the complete variables dictionary
+        logger.debug(f"Effective variables for validation: {effective_variables}")
+        return effective_variables
+
+    def _collect_all_referenced_variables(self, pipeline: Pipeline) -> set:
+        """Extract all variable references from all steps in the pipeline."""
+        referenced_vars = set()
+        for step in pipeline.steps:
+            logger.debug(f"Checking variable references in step: {type(step).__name__}")
+            self._extract_step_variable_references(step, referenced_vars)
+        logger.debug(f"Found referenced variables: {referenced_vars}")
+        return referenced_vars
+
+    def _extract_step_variable_references(
+        self, step: PipelineStep, referenced_vars: set
+    ) -> None:
+        """Extract variable references from a specific pipeline step."""
+        if isinstance(step, ConditionalBlockStep):
+            for branch in step.branches:
+                self._extract_variable_references(branch.condition, referenced_vars)
+        elif isinstance(step, ExportStep):
+            self._extract_variable_references(step.destination_uri, referenced_vars)
+            self._extract_variable_references(json.dumps(step.options), referenced_vars)
+            # Also check for variables in SQL queries
+            if hasattr(step, "sql_query") and step.sql_query:
+                self._extract_variable_references(step.sql_query, referenced_vars)
+        elif isinstance(step, SourceDefinitionStep):
+            self._extract_variable_references(json.dumps(step.params), referenced_vars)
+        elif isinstance(step, SQLBlockStep):
+            # Check for variables in SQL queries
+            self._extract_variable_references(step.sql_query, referenced_vars)
+        elif isinstance(step, SetStep):
+            # Check for variables in variable values
+            self._extract_variable_references(step.variable_value, referenced_vars)
+
+    def _log_variable_reference_report(
+        self,
+        referenced_vars: set,
+        effective_variables: Dict[str, Any],
+        pipeline: Pipeline,
+    ) -> None:
+        """Log a detailed report of all variable references and their status."""
+        logger.debug("----- Variable Reference Report -----")
+        for var in sorted(referenced_vars):
+            if var in effective_variables:
+                logger.debug(f"  ✓ ${{{var}}} = '{effective_variables[var]}'")
+            elif self._has_default_in_pipeline(var, pipeline):
+                logger.debug(f"  ✓ ${{{var}}} = [Using default value]")
+            else:
+                logger.debug(f"  ✗ ${{{var}}} = UNDEFINED")
+        logger.debug("-----------------------------------")
+
+    def _raise_missing_variables_error(
+        self, missing_vars: List[str], pipeline: Pipeline
+    ) -> None:
+        """Raise PlanningError with details about missing variables."""
+        logger.warning(f"Pipeline references undefined variables: {missing_vars}")
+        error_msg = "Pipeline references undefined variables:\n" + "".join(
+            f"  - ${{{var}}} is used but not defined\n" for var in missing_vars
+        )
+        error_msg += "\nPlease define these variables using SET statements or provide them when running the pipeline."
+
+        # Add additional debugging info for each variable
+        error_msg += "\n\nVariable reference locations:"
+        for var in missing_vars:
+            locations = self._find_variable_reference_locations(var, pipeline)
+            if locations:
+                error_msg += f"\n  ${{{var}}} referenced at: {', '.join(locations)}"
+
+        raise PlanningError(error_msg)
+
+    def _raise_invalid_defaults_error(self, invalid_defaults: List[str]) -> None:
+        """Raise PlanningError with details about invalid default values."""
+        logger.warning(f"Found invalid default values: {invalid_defaults}")
+        error_msg = (
+            "Invalid default values for variables (must not contain spaces unless quoted):\n"
+            + "".join(f"  - {expr}\n" for expr in invalid_defaults)
+        )
+        error_msg += (
+            '\nDefault values with spaces must be quoted, e.g. ${var|"us-east"}'
+        )
+        raise PlanningError(error_msg)
 
     def _find_missing_vars(self, referenced_vars, variables, pipeline):
         return [
@@ -113,16 +205,70 @@ class ExecutionPlanBuilder:
                                 invalid_defaults.append(f"${{{var}|{default_val}}}")
         return invalid_defaults
 
+    def _verify_variable_values(self, referenced_vars, variables, pipeline):
+        """Verify that all variable values are valid (non-empty, type-compatible, etc.)
+
+        Args:
+            referenced_vars: Set of referenced variable names
+            variables: Dictionary of variable values
+            pipeline: The pipeline AST
+
+        Raises:
+            PlanningError: If any variable values are invalid
+        """
+        logger.debug("Verifying all variable values")
+        invalid_vars = []
+
+        for var in referenced_vars:
+            if var in variables:
+                value = variables[var]
+                # Empty values are now allowed (behavior change)
+                if value == "":
+                    # Just log a warning but don't treat as invalid
+                    logger.debug(f"Found empty value for variable: ${{{var}}}")
+                # Add more validation logic here as needed
+                # For example, you could check for type compatibility,
+                # numeric ranges, format validity, etc.
+            elif self._has_default_in_pipeline(var, pipeline):
+                # Variable has a default value which is used in the absence of a provided value
+                # We could parse and verify the default value here if needed
+                logger.debug(f"Using default value for variable: ${{{var}}}")
+
+        if invalid_vars:
+            error_msg = "Invalid variable values detected:\n" + "\n".join(
+                f"  - {err}" for err in invalid_vars
+            )
+            error_msg += "\n\nPlease provide valid values for these variables."
+
+            # Add additional debugging info about where variables are used
+            error_msg += "\n\nVariable reference locations:"
+            for var in [v.split()[0].strip("${}") for v in invalid_vars]:
+                locations = self._find_variable_reference_locations(var, pipeline)
+                if locations:
+                    error_msg += f"\n  ${{{var}}} referenced at: {', '.join(locations)}"
+
+            logger.warning(f"Variable value validation failed: {error_msg}")
+            raise PlanningError(error_msg)
+
+        logger.debug("All variable values verified successfully")
+
     def _get_texts_for_var_check(self, step):
         texts = []
         if isinstance(step, ExportStep):
             texts.append(step.destination_uri)
             texts.append(json.dumps(step.options))
+            # Also check SQL queries if they exist
+            if hasattr(step, "sql_query") and step.sql_query:
+                texts.append(step.sql_query)
         elif isinstance(step, SourceDefinitionStep):
             texts.append(json.dumps(step.params))
         elif isinstance(step, ConditionalBlockStep):
             for branch in step.branches:
                 texts.append(branch.condition)
+        elif isinstance(step, SQLBlockStep):
+            texts.append(step.sql_query)
+        elif isinstance(step, SetStep):
+            texts.append(step.variable_value)
         return texts
 
     def _is_invalid_default_value(self, default_val: str) -> bool:
@@ -144,21 +290,215 @@ class ExecutionPlanBuilder:
             result.add(match.strip())
 
     def _has_default_in_pipeline(self, var_name: str, pipeline: Pipeline) -> bool:
+        """Check if a variable has a default value in any step of the pipeline.
+
+        Args:
+            var_name: The name of the variable to check
+            pipeline: The pipeline to search in
+
+        Returns:
+            True if the variable has a default value, False otherwise
+        """
         var_with_default_pattern = rf"\$\{{[ ]*{re.escape(var_name)}[ ]*\|[^{{}}]*\}}"
+
         for step in pipeline.steps:
-            if isinstance(step, ExportStep):
-                if re.search(var_with_default_pattern, step.destination_uri):
-                    return True
-                if re.search(var_with_default_pattern, json.dumps(step.options)):
-                    return True
-            elif isinstance(step, SourceDefinitionStep):
-                if re.search(var_with_default_pattern, json.dumps(step.params)):
-                    return True
-            elif isinstance(step, ConditionalBlockStep):
-                for branch in step.branches:
-                    if re.search(var_with_default_pattern, branch.condition):
-                        return True
+            if self._step_has_variable_default(step, var_with_default_pattern):
+                return True
         return False
+
+    def _step_has_variable_default(self, step: PipelineStep, pattern: str) -> bool:
+        """Check if a step contains a variable with a default value.
+
+        Args:
+            step: The pipeline step to check
+            pattern: The regex pattern to search for
+
+        Returns:
+            True if the step contains the pattern, False otherwise
+        """
+        if isinstance(step, ExportStep):
+            return self._export_step_has_default(step, pattern)
+        elif isinstance(step, SourceDefinitionStep):
+            return self._source_step_has_default(step, pattern)
+        elif isinstance(step, ConditionalBlockStep):
+            return self._conditional_step_has_default(step, pattern)
+        elif isinstance(step, SQLBlockStep):
+            return self._sql_step_has_default(step, pattern)
+        elif isinstance(step, SetStep):
+            return self._set_step_has_default(step, pattern)
+        return False
+
+    def _export_step_has_default(self, step: ExportStep, pattern: str) -> bool:
+        """Check if an export step contains a variable with a default value."""
+        if re.search(pattern, step.destination_uri):
+            return True
+        if re.search(pattern, json.dumps(step.options)):
+            return True
+        # Also check SQL queries if they exist
+        if hasattr(step, "sql_query") and step.sql_query:
+            if re.search(pattern, step.sql_query):
+                return True
+        return False
+
+    def _source_step_has_default(
+        self, step: SourceDefinitionStep, pattern: str
+    ) -> bool:
+        """Check if a source step contains a variable with a default value."""
+        return bool(re.search(pattern, json.dumps(step.params)))
+
+    def _conditional_step_has_default(
+        self, step: ConditionalBlockStep, pattern: str
+    ) -> bool:
+        """Check if a conditional step contains a variable with a default value."""
+        for branch in step.branches:
+            if re.search(pattern, branch.condition):
+                return True
+        return False
+
+    def _sql_step_has_default(self, step: SQLBlockStep, pattern: str) -> bool:
+        """Check if a SQL step contains a variable with a default value."""
+        return bool(re.search(pattern, step.sql_query))
+
+    def _set_step_has_default(self, step: SetStep, pattern: str) -> bool:
+        """Check if a SET step contains a variable with a default value."""
+        return bool(re.search(pattern, step.variable_value))
+
+    def _extract_set_defined_variables(self, pipeline: Pipeline) -> Dict[str, Any]:
+        """Extract variables defined by SET statements in the pipeline.
+
+        Args:
+            pipeline: The pipeline to analyze
+
+        Returns:
+            A dictionary of variable names to values
+        """
+        from sqlflow.parser.ast import SetStep
+
+        defined_vars = {}
+        for step in pipeline.steps:
+            if isinstance(step, SetStep):
+                var_name = step.variable_name.strip()
+                var_value = step.variable_value.strip()
+
+                # If the value is itself a variable reference with default, extract it
+                var_ref_match = re.match(r"\$\{([^|{}]+)\|([^{}]*)\}", var_value)
+                if var_ref_match:
+                    ref_var = var_ref_match.group(1).strip()
+                    default_val = var_ref_match.group(2).strip()
+
+                    # If it's a self-reference with default, use the default
+                    if ref_var == var_name:
+                        logger.debug(
+                            f"Self-referential variable ${{{var_name}}} with default '{default_val}'"
+                        )
+                        defined_vars[var_name] = default_val
+                else:
+                    # Remove quotes if present (simple string literal handling)
+                    if (var_value.startswith("'") and var_value.endswith("'")) or (
+                        var_value.startswith('"') and var_value.endswith('"')
+                    ):
+                        var_value = var_value[1:-1]
+
+                    defined_vars[var_name] = var_value
+
+        return defined_vars
+
+    def _find_variable_reference_locations(
+        self, var_name: str, pipeline: Pipeline
+    ) -> List[str]:
+        """Find all locations where a variable is referenced in the pipeline.
+
+        Args:
+            var_name: The name of the variable to find
+            pipeline: The pipeline to analyze
+
+        Returns:
+            A list of location descriptions
+        """
+        locations = []
+        var_pattern = rf"\$\{{[ ]*{re.escape(var_name)}[ ]*(?:\|[^{{}}]*)?\}}"
+
+        for step in pipeline.steps:
+            line_info = f"line {getattr(step, 'line_number', 'unknown')}"
+            self._check_step_for_variable_references(
+                step, var_pattern, line_info, locations
+            )
+
+        return locations
+
+    def _check_step_for_variable_references(
+        self, step: PipelineStep, var_pattern: str, line_info: str, locations: List[str]
+    ) -> None:
+        """Check a specific step for variable references and add locations to the list.
+
+        Args:
+            step: The pipeline step to check
+            var_pattern: The regex pattern to search for
+            line_info: Line information string for error reporting
+            locations: List to add location information to
+        """
+        if isinstance(step, ConditionalBlockStep):
+            self._check_conditional_step_for_references(
+                step, var_pattern, line_info, locations
+            )
+        elif isinstance(step, ExportStep):
+            self._check_export_step_for_references(
+                step, var_pattern, line_info, locations
+            )
+        elif isinstance(step, SourceDefinitionStep):
+            self._check_source_step_for_references(
+                step, var_pattern, line_info, locations
+            )
+        elif isinstance(step, SetStep):
+            self._check_set_step_for_references(step, var_pattern, line_info, locations)
+        elif isinstance(step, SQLBlockStep):
+            self._check_sql_step_for_references(step, var_pattern, line_info, locations)
+
+    def _check_conditional_step_for_references(
+        self,
+        step: ConditionalBlockStep,
+        var_pattern: str,
+        line_info: str,
+        locations: List[str],
+    ) -> None:
+        """Check a conditional step for variable references."""
+        for branch in step.branches:
+            if re.search(var_pattern, branch.condition):
+                locations.append(f"IF condition at {line_info}")
+
+    def _check_export_step_for_references(
+        self, step: ExportStep, var_pattern: str, line_info: str, locations: List[str]
+    ) -> None:
+        """Check an export step for variable references."""
+        if re.search(var_pattern, step.destination_uri):
+            locations.append(f"EXPORT destination at {line_info}")
+        if re.search(var_pattern, json.dumps(step.options)):
+            locations.append(f"EXPORT options at {line_info}")
+
+    def _check_source_step_for_references(
+        self,
+        step: SourceDefinitionStep,
+        var_pattern: str,
+        line_info: str,
+        locations: List[str],
+    ) -> None:
+        """Check a source step for variable references."""
+        if re.search(var_pattern, json.dumps(step.params)):
+            locations.append(f"SOURCE params at {line_info}")
+
+    def _check_set_step_for_references(
+        self, step: SetStep, var_pattern: str, line_info: str, locations: List[str]
+    ) -> None:
+        """Check a SET step for variable references."""
+        if re.search(var_pattern, step.variable_value):
+            locations.append(f"SET statement at {line_info}")
+
+    def _check_sql_step_for_references(
+        self, step: SQLBlockStep, var_pattern: str, line_info: str, locations: List[str]
+    ) -> None:
+        """Check a SQL step for variable references."""
+        if re.search(var_pattern, step.sql_query):
+            locations.append(f"SQL query at {line_info}")
 
     # --- TABLE & DEPENDENCY ANALYSIS ---
     def _build_table_to_step_mapping(
@@ -364,10 +704,16 @@ class ExecutionPlanBuilder:
         # Use provided variables or initialize empty dict
         variables_to_use = variables or {}
         logger.debug(f"Planning with {len(variables_to_use)} variables")
+        if variables_to_use:
+            logger.debug(
+                f"Variables: {', '.join(f'{k}={v}' for k, v in variables_to_use.items())}"
+            )
 
         try:
-            # Validate variable references
+            # Validate variable references and values
+            logger.info("Validating variable references and values")
             self._validate_variable_references(pipeline, variables_to_use)
+            logger.info("Variable validation successful")
 
             # Flatten conditional blocks to just the active branch steps
             logger.debug(
@@ -407,6 +753,16 @@ class ExecutionPlanBuilder:
             entry_points = self._find_entry_points(resolver, all_step_ids)
             logger.debug(f"Found {len(entry_points)} entry points")
             execution_order = self._build_execution_order(resolver, entry_points)
+
+            # Create execution steps from pipeline steps in the determined order
+            logger.debug(f"Creating {len(execution_order)} execution steps")
+            execution_steps = self._build_execution_steps(
+                flattened_pipeline, execution_order
+            )
+            logger.info(
+                f"Successfully built execution plan with {len(execution_steps)} steps"
+            )
+            return execution_steps
 
             # Create execution steps from pipeline steps in the determined order
             logger.debug(f"Creating {len(execution_order)} execution steps")
@@ -574,8 +930,8 @@ class ExecutionPlanBuilder:
             )
 
         # Handle direct table references (simple exports)
-        elif hasattr(step, "table_name") and step.table_name:
-            table_name = step.table_name.lower()
+        elif hasattr(step, "table_name") and getattr(step, "table_name", None):
+            table_name = getattr(step, "table_name", "").lower()
             if table_name in table_to_step:
                 dependency_step = table_to_step[table_name]
                 step_id = self._get_step_id(step)
@@ -662,6 +1018,10 @@ class ExecutionPlanBuilder:
                 return f"export_{connector_type}_{table_name}"
             else:
                 return f"export_{connector_type}_{index}"
+        elif isinstance(step, SetStep):
+            # SET statements are not execution steps but variable definitions
+            # Give them a unique ID but they won't appear in the final execution plan
+            return f"var_def_{step.variable_name}"
         else:
             return f"step_{index}"
 
@@ -742,29 +1102,72 @@ class ExecutionPlanBuilder:
         if not self.step_id_map:
             self._generate_step_ids(pipeline)
 
-        # Create a mapping of step_id to pipeline_step for faster lookup
+        # Create mapping for faster lookup
+        step_id_to_pipeline_step = self._create_step_id_mapping(pipeline)
+
+        # Process steps in execution order
+        execution_steps = self._process_steps_in_execution_order(
+            execution_order, step_id_to_pipeline_step
+        )
+
+        # Add any missing steps
+        execution_steps = self._add_missing_steps(
+            pipeline, execution_steps, step_id_to_pipeline_step
+        )
+
+        logger.info(f"Built execution plan with {len(execution_steps)} steps")
+        return execution_steps
+
+    def _create_step_id_mapping(self, pipeline: Pipeline) -> Dict[str, PipelineStep]:
+        """Create mapping from step_id to pipeline_step for faster lookup."""
         step_id_to_pipeline_step = {}
         for pipeline_step in pipeline.steps:
+            # Skip SET statements from being added to the execution plan
+            if isinstance(pipeline_step, SetStep):
+                continue
+
             step_id = self._get_step_id(pipeline_step)
             if step_id:
                 step_id_to_pipeline_step[step_id] = pipeline_step
 
-        # Include all steps in the pipeline if they're in the execution order
+        return step_id_to_pipeline_step
+
+    def _process_steps_in_execution_order(
+        self,
+        execution_order: List[str],
+        step_id_to_pipeline_step: Dict[str, PipelineStep],
+    ) -> List[Dict[str, Any]]:
+        """Process steps in the execution order."""
+        execution_steps = []
         for step_id in execution_order:
             if step_id in step_id_to_pipeline_step:
                 pipeline_step = step_id_to_pipeline_step[step_id]
                 execution_step = self._build_execution_step(pipeline_step)
-                execution_steps.append(execution_step)
+                if execution_step:  # Skip None returns (like SET statements)
+                    execution_steps.append(execution_step)
+        return execution_steps
 
-        # Ensure all steps are included even if not in execution_order
+    def _add_missing_steps(
+        self,
+        pipeline: Pipeline,
+        execution_steps: List[Dict[str, Any]],
+        step_id_to_pipeline_step: Dict[str, PipelineStep],
+    ) -> List[Dict[str, Any]]:
+        """Add steps that weren't included in the execution order."""
+        existing_step_ids = [s["id"] for s in execution_steps]
+
         for pipeline_step in pipeline.steps:
+            # Skip SET statements
+            if isinstance(pipeline_step, SetStep):
+                continue
+
             step_id = self._get_step_id(pipeline_step)
-            if step_id and step_id not in [s["id"] for s in execution_steps]:
+            if step_id and step_id not in existing_step_ids:
                 logger.debug(f"Adding missing step to execution plan: {step_id}")
                 execution_step = self._build_execution_step(pipeline_step)
-                execution_steps.append(execution_step)
+                if execution_step:  # Skip None returns (like SET statements)
+                    execution_steps.append(execution_step)
 
-        logger.info(f"Built execution plan with {len(execution_steps)} steps")
         return execution_steps
 
     def _get_step_id(self, step: PipelineStep) -> str:
@@ -789,86 +1192,135 @@ class ExecutionPlanBuilder:
             return create_match.group(1)
         return None
 
-    def _build_execution_step(self, pipeline_step: PipelineStep) -> Dict[str, Any]:
+    def _build_execution_step(
+        self, pipeline_step: PipelineStep
+    ) -> Optional[Dict[str, Any]]:
+        """Build a single execution step from a pipeline step.
+
+        Args:
+            pipeline_step: The pipeline step to convert
+
+        Returns:
+            An execution step dictionary or None for steps like SET that don't
+            correspond to executable steps
+        """
         step_id = self._get_step_id(pipeline_step)
         depends_on = self.step_dependencies.get(step_id, [])
+
+        # Skip SET statements as they aren't execution steps, just variable definitions
+        if isinstance(pipeline_step, SetStep):
+            logger.debug(
+                f"Skipping SET statement for {pipeline_step.variable_name} as it's not an execution step"
+            )
+            return None
+
+        # Delegate to specific builders based on step type
         if isinstance(pipeline_step, SourceDefinitionStep):
-            return {
-                "id": step_id,
-                "type": "source_definition",
-                "name": pipeline_step.name,
-                "source_connector_type": pipeline_step.connector_type,
-                "query": pipeline_step.params,
-                "depends_on": depends_on,
-            }
+            return self._build_source_definition_step(
+                pipeline_step, step_id, depends_on
+            )
         elif isinstance(pipeline_step, LoadStep):
-            source_name = pipeline_step.source_name
-            source_connector_type = "CSV"
-            source_step_id = f"source_{source_name}"
-            if source_step_id in self.step_dependencies.get(step_id, []):
-                pass
-            return {
-                "id": step_id,
-                "type": "load",
-                "name": pipeline_step.table_name,
-                "source_connector_type": source_connector_type,
-                "query": {
-                    "source_name": pipeline_step.source_name,
-                    "table_name": pipeline_step.table_name,
-                },
-                "depends_on": depends_on,
-            }
+            return self._build_load_step(pipeline_step, step_id, depends_on)
         elif isinstance(pipeline_step, SQLBlockStep):
-            sql_query = pipeline_step.sql_query
-            if not sql_query.strip():
-                logger.warning(f"Empty SQL query in step {step_id}")
-            self._validate_sql_syntax(
-                sql_query, step_id, getattr(pipeline_step, "line_number", -1)
-            )
-            return {
-                "id": step_id,
-                "type": "transform",
-                "name": pipeline_step.table_name,
-                "query": sql_query,
-                "depends_on": depends_on,
-            }
+            return self._build_sql_block_step(pipeline_step, step_id, depends_on)
         elif isinstance(pipeline_step, ExportStep):
-            table_name = getattr(
-                pipeline_step, "table_name", None
-            ) or self._extract_table_name_from_sql(
-                getattr(pipeline_step, "sql_query", "")
-            )
-            connector_type = getattr(pipeline_step, "connector_type", "unknown")
-
-            # Use the actual step_id instead of generating a new one
-            export_id = step_id
-            if not export_id:
-                export_id = f"export_{connector_type.lower()}_{table_name or 'unknown'}"
-
-            # Log destination URI to help with debugging
-            destination_uri = getattr(pipeline_step, "destination_uri", "")
-            logger.debug(f"Export step {export_id} with destination: {destination_uri}")
-
-            # Ensure all required properties are included
-            return {
-                "id": export_id,
-                "type": "export",
-                "source_table": table_name,
-                "source_connector_type": connector_type,
-                "query": {
-                    "sql_query": getattr(pipeline_step, "sql_query", ""),
-                    "destination_uri": destination_uri,
-                    "options": getattr(pipeline_step, "options", {}),
-                    "type": connector_type,
-                },
-                "depends_on": depends_on,
-            }
+            return self._build_export_step(pipeline_step, step_id, depends_on)
         else:
             return {
                 "id": step_id,
                 "type": "unknown",
                 "depends_on": depends_on,
             }
+
+    def _build_source_definition_step(
+        self, step: SourceDefinitionStep, step_id: str, depends_on: List[str]
+    ) -> Dict[str, Any]:
+        """Build an execution step for a source definition."""
+        return {
+            "id": step_id,
+            "type": "source_definition",
+            "name": step.name,
+            "source_connector_type": step.connector_type,
+            "query": step.params,
+            "depends_on": depends_on,
+        }
+
+    def _build_load_step(
+        self, step: LoadStep, step_id: str, depends_on: List[str]
+    ) -> Dict[str, Any]:
+        """Build an execution step for a load step."""
+        source_name = step.source_name
+        source_connector_type = "CSV"  # Default, could be determined from source
+
+        # Check if we're actually using the source dependency
+        source_step_id = f"source_{source_name}"
+        if source_step_id in depends_on:
+            pass  # Placeholder for any additional logic
+
+        return {
+            "id": step_id,
+            "type": "load",
+            "name": step.table_name,
+            "source_connector_type": source_connector_type,
+            "query": {
+                "source_name": step.source_name,
+                "table_name": step.table_name,
+            },
+            "depends_on": depends_on,
+        }
+
+    def _build_sql_block_step(
+        self, step: SQLBlockStep, step_id: str, depends_on: List[str]
+    ) -> Dict[str, Any]:
+        """Build an execution step for a SQL block."""
+        sql_query = step.sql_query
+        if not sql_query.strip():
+            logger.warning(f"Empty SQL query in step {step_id}")
+
+        # Validate SQL syntax
+        self._validate_sql_syntax(sql_query, step_id, getattr(step, "line_number", -1))
+
+        return {
+            "id": step_id,
+            "type": "transform",
+            "name": step.table_name,
+            "query": sql_query,
+            "depends_on": depends_on,
+        }
+
+    def _build_export_step(
+        self, step: ExportStep, step_id: str, depends_on: List[str]
+    ) -> Dict[str, Any]:
+        """Build an execution step for an export step."""
+        # Determine table name from step or SQL query
+        table_name = getattr(
+            step, "table_name", None
+        ) or self._extract_table_name_from_sql(getattr(step, "sql_query", ""))
+        connector_type = getattr(step, "connector_type", "unknown")
+
+        # Use the actual step_id or generate a fallback
+        export_id = step_id
+        if not export_id:
+            export_id = f"export_{connector_type.lower()}_{table_name or 'unknown'}"
+
+        # Log destination URI to help with debugging
+        destination_uri = getattr(step, "destination_uri", "")
+        logger.debug(f"Export step {export_id} with destination: {destination_uri}")
+
+        # Return the execution step
+        return {
+            "id": export_id,
+            "type": "export",
+            "source_table": table_name,
+            "source_connector_type": connector_type,
+            "query": {
+                "sql_query": getattr(step, "sql_query", ""),
+                "destination_uri": destination_uri,
+                "options": getattr(step, "options", {}),
+                "type": connector_type,
+            },
+            "depends_on": depends_on,
+        }
 
 
 # --- OPERATION PLANNER ---

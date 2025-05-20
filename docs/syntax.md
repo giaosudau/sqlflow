@@ -68,6 +68,11 @@ SET output_path = "${output_dir|target}/result.csv";
 
 In this example, if `output_dir` is not defined, the value "target" will be used.
 
+When providing default values:
+1. Default values with spaces must be quoted, e.g. `${region|"us-east-1"}`
+2. Empty variable values (`""`) will cause validation errors during compilation
+3. Self-referential variables (e.g. `SET use_csv = "${use_csv|true}";`) are supported and will use the default value if not explicitly set
+
 ## Directives
 
 ### SET

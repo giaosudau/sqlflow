@@ -170,6 +170,11 @@ class SetStep(PipelineStep):
         if not self.variable_value:
             errors.append("SET directive requires a variable value")
         return errors
+        if not self.variable_name:
+            errors.append("SET directive requires a variable name")
+        if not self.variable_value:
+            errors.append("SET directive requires a variable value")
+        return errors
 
 
 @dataclass
