@@ -1,6 +1,6 @@
 """SQLFlow - SQL-based data pipeline tool."""
 
-__version__ = "0.1.0"
+__version__ = "0.1.4"
 __package_name__ = "sqlflow-core"
 
 # Initialize logging with default configuration
