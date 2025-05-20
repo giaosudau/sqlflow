@@ -11,6 +11,7 @@ from sqlflow.connectors.base import (
     BidirectionalConnector,
     ConnectionTestResult,
     ConnectorState,
+    ConnectorType,
     Schema,
 )
 from sqlflow.connectors.data_chunk import DataChunk
@@ -27,6 +28,9 @@ class GoogleSheetsConnector(BidirectionalConnector):
     This is a bidirectional connector that supports both reading from and writing to
     Google Sheets.
     """
+
+    # Explicitly set the connector type as a class attribute
+    connector_type = ConnectorType.BIDIRECTIONAL
 
     def __init__(self):
         """Initialize a GoogleSheetsConnector."""
