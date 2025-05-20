@@ -1,6 +1,6 @@
 [project]
 name = "sqlflow"
-version = "0.1.1"
+version = "0.1.2"
 description = "SQLFlow is a SQL-native engine for defining, orchestrating, and managing data workflows—empowering analysts and engineers to build robust, production-grade pipelines using only SQL."
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -88,7 +88,7 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["sqlflow"]
+packages = ["sqlflow", "sqlflow.cli", "sqlflow.connectors", "sqlflow.core", "sqlflow.parser", "sqlflow.udfs", "sqlflow.visualizer"]
 
 [tool.setuptools.package-data]
 sqlflow = ["py.typed"]
