@@ -68,6 +68,8 @@ Compile a pipeline to validate its syntax and generate the execution plan:
 sqlflow pipeline compile example
 ```
 
+> **Note:** Like the run command, always use just the pipeline name without path or file extension.
+
 ### Running a Pipeline
 
 Execute a pipeline with optional variables:
@@ -76,6 +78,13 @@ Execute a pipeline with optional variables:
 sqlflow pipeline run example --profile dev --vars '{"date": "2023-10-25"}'
 ```
 
+> **Important:** When specifying a pipeline to run, always use the pipeline name without the path or file extension. 
+> 
+> ✅ Correct: `sqlflow pipeline run example`  
+> ❌ Incorrect: `sqlflow pipeline run pipelines/example.sf`
+>
+> The system automatically locates the pipeline file in the appropriate directory.
+
 ### Pipeline Validation
 
 Validate a pipeline without executing it:
@@ -83,6 +92,8 @@ Validate a pipeline without executing it:
 ```bash
 sqlflow pipeline validate example
 ```
+
+> **Note:** Like the other commands, always use just the pipeline name without path or file extension.
 
 ### Command Options
 
