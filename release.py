@@ -62,7 +62,9 @@ def bump_version(version: str, bump_type: str) -> str:
     return f"{major}.{minor}.{patch}"
 
 
-def update_pyproject_version(pyproject_path: Path, new_version: str) -> None:
+def update_pyproject_version(
+    pyproject_path: Path, new_version: str, dry_run: bool = False
+) -> None:
     content = pyproject_path.read_text(encoding="utf-8")
     if re.search(r'(?m)^version\s*=\s*"([^"]+)"', content):
         new_content = re.sub(
@@ -73,13 +75,43 @@ def update_pyproject_version(pyproject_path: Path, new_version: str) -> None:
         new_content = re.sub(
             r"(?m)^\[project\]", f'[project]\nversion = "{new_version}"', content
         )
-    pyproject_path.write_text(new_content, encoding="utf-8")
-    logger.info(f"Updated version to {new_version} in {pyproject_path}")
+
+    if not dry_run:
+        pyproject_path.write_text(new_content, encoding="utf-8")
+        logger.info(f"Updated version to {new_version} in {pyproject_path}")
+    else:
+        logger.info(
+            f"[DRY RUN] Would update version to {new_version} in {pyproject_path}"
+        )
 
 
-def run_cmd(cmd: list[str], check: bool = True) -> None:
+def update_init_version(new_version: str, dry_run: bool = False) -> Path | None:
+    """Update the __version__ in the package's __init__.py file."""
+    init_path = Path("sqlflow/__init__.py")
+    if not init_path.exists():
+        logger.warning(f"Could not find {init_path}, skipping version update.")
+        return None
+
+    content = init_path.read_text(encoding="utf-8")
+    new_content = re.sub(
+        r'(__version__\s*=\s*")[^"]+(")', f"\\g<1>{new_version}\\g<2>", content
+    )
+
+    if not dry_run:
+        init_path.write_text(new_content, encoding="utf-8")
+        logger.info(f"Updated version to {new_version} in {init_path}")
+    else:
+        logger.info(f"[DRY RUN] Would update version to {new_version} in {init_path}")
+
+    return init_path
+
+
+def run_cmd(cmd: list[str], check: bool = True, dry_run: bool = False) -> None:
     logger.info(f"Running: {' '.join(cmd)}")
-    subprocess.run(cmd, check=check)
+    if not dry_run:
+        subprocess.run(cmd, check=check)
+    else:
+        logger.info(f"[DRY RUN] Would run: {' '.join(cmd)}")
 
 
 def get_latest_commit(branch: str) -> str:
@@ -114,6 +146,11 @@ def main() -> None:
         default="main",
         help="Branch to tag latest commit from (default: main)",
     )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Simulate the version bump without making any changes",
+    )
     args = parser.parse_args()
 
     pyproject_path = Path("pyproject.toml")
@@ -124,28 +161,51 @@ def main() -> None:
     # Get and bump version
     current_version = get_current_version(pyproject_path)
     new_version = bump_version(current_version, args.bump)
-    update_pyproject_version(pyproject_path, new_version)
+    update_pyproject_version(pyproject_path, new_version, args.dry_run)
+
+    # Update version in __init__.py
+    init_path = update_init_version(new_version, args.dry_run)
 
     # Git add, commit, push
-    run_cmd(["git", "add", str(pyproject_path)])
-    run_cmd(["git", "commit", "-m", f"Bump version to {new_version}"])
+    files_to_add = [str(pyproject_path)]
+    if init_path:
+        files_to_add.append(str(init_path))
+
+    for file_path in files_to_add:
+        run_cmd(["git", "add", file_path], dry_run=args.dry_run)
+    run_cmd(
+        ["git", "commit", "-m", f"Bump version to {new_version}"], dry_run=args.dry_run
+    )
 
     # Ensure we're on the correct branch before pushing
     current_branch = get_current_branch()
-    if current_branch != args.branch:
+    if current_branch != args.branch and not args.dry_run:
         logger.warning(f"Currently on branch '{current_branch}', not '{args.branch}'")
         response = input("Continue anyway? [y/N]: ")
         if response.lower() != "y":
             logger.info("Aborting release process.")
             sys.exit(1)
+    elif current_branch != args.branch and args.dry_run:
+        logger.warning(
+            f"[DRY RUN] Currently on branch '{current_branch}', not '{args.branch}'"
+        )
+        logger.info("[DRY RUN] Would ask for confirmation before continuing")
 
-    run_cmd(["git", "push", "origin", current_branch])
+    run_cmd(["git", "push", "origin", current_branch], dry_run=args.dry_run)
 
     # Tag the latest commit
     tag_name = f"v{new_version}"
-    run_cmd(["git", "tag", tag_name])
-    run_cmd(["git", "push", "origin", tag_name])
-    logger.info(f"Release {tag_name} created and pushed on branch {current_branch}.")
+    run_cmd(["git", "tag", tag_name], dry_run=args.dry_run)
+    run_cmd(["git", "push", "origin", tag_name], dry_run=args.dry_run)
+
+    if args.dry_run:
+        logger.info(
+            f"[DRY RUN] Would create release {tag_name} on branch {current_branch}."
+        )
+    else:
+        logger.info(
+            f"Release {tag_name} created and pushed on branch {current_branch}."
+        )
 
 
 if __name__ == "__main__":
