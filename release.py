@@ -66,7 +66,7 @@ def update_pyproject_version(pyproject_path: Path, new_version: str) -> None:
     content = pyproject_path.read_text(encoding="utf-8")
     if re.search(r'(?m)^version\s*=\s*"([^"]+)"', content):
         new_content = re.sub(
-            r'(?m)^(version\s*=\s*")([^"]+)(")', f"\\1{new_version}\\3", content
+            r'(?m)^(version\s*=\s*")([^"]+)(")', f"\\g<1>{new_version}\\g<3>", content
         )
     else:
         # Add version under [project] if not present
@@ -110,7 +110,9 @@ def main() -> None:
         help="Version part to bump",
     )
     parser.add_argument(
-        "--branch", help="Branch to tag latest commit from (default: dev)"
+        "--branch",
+        default="main",
+        help="Branch to tag latest commit from (default: main)",
     )
     args = parser.parse_args()
 
@@ -127,15 +129,23 @@ def main() -> None:
     # Git add, commit, push
     run_cmd(["git", "add", str(pyproject_path)])
     run_cmd(["git", "commit", "-m", f"Bump version to {new_version}"])
-    run_cmd(["git", "push"])
 
-    # Tag the latest commit on the specified or default branch (dev)
-    branch = args.branch or "dev"
-    commit_hash = get_latest_commit(branch)
+    # Ensure we're on the correct branch before pushing
+    current_branch = get_current_branch()
+    if current_branch != args.branch:
+        logger.warning(f"Currently on branch '{current_branch}', not '{args.branch}'")
+        response = input("Continue anyway? [y/N]: ")
+        if response.lower() != "y":
+            logger.info("Aborting release process.")
+            sys.exit(1)
+
+    run_cmd(["git", "push", "origin", current_branch])
+
+    # Tag the latest commit
     tag_name = f"v{new_version}"
-    run_cmd(["git", "tag", tag_name, commit_hash])
+    run_cmd(["git", "tag", tag_name])
     run_cmd(["git", "push", "origin", tag_name])
-    logger.info(f"Release {tag_name} created and pushed on branch {branch}.")
+    logger.info(f"Release {tag_name} created and pushed on branch {current_branch}.")
 
 
 if __name__ == "__main__":

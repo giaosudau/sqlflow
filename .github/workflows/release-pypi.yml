@@ -1,0 +1,45 @@
+name: Publish to PyPI
+
+on:
+  push:
+    tags:
+      - 'v*-prod'  # Only trigger on production tags
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install build tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install build twine
+
+      - name: Build package
+        run: python -m build
+
+      - name: Publish to PyPI
+        env:
+          TWINE_USERNAME: ${{ secrets.PYPI_USERNAME }}
+          TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
+        run: |
+          twine upload dist/*
+      
+      - name: Get version from tag
+        id: get_version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" | sed 's/-prod//' >> $GITHUB_OUTPUT
+      
+      - name: Create a success notification
+        if: success()
+        run: |
+          echo "🚀 SQLFlow ${{ steps.get_version.outputs.VERSION }} published to PyPI successfully!" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Install with: pip install sqlflow==${{ steps.get_version.outputs.VERSION }}" >> $GITHUB_STEP_SUMMARY
+          echo "🔍 View on PyPI: https://pypi.org/project/sqlflow/${{ steps.get_version.outputs.VERSION }}/" >> $GITHUB_STEP_SUMMARY
+          echo "📝 Don't forget to create a GitHub release: https://github.com/${{ github.repository }}/releases/new?tag=v${{ steps.get_version.outputs.VERSION }}-prod" >> $GITHUB_STEP_SUMMARY

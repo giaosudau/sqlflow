@@ -13,7 +13,11 @@ from sqlflow.parser.parser import Parser
 
 def run_pipeline(pipeline_path, profile="dev", variables=None):
     """Run a pipeline using the CLI."""
-    cmd = ["sqlflow", "pipeline", "run", pipeline_path, "--profile", profile]
+    # Extract just the pipeline name without path or extension
+    pipeline_name = os.path.basename(pipeline_path)
+    pipeline_name = os.path.splitext(pipeline_name)[0]
+
+    cmd = ["sqlflow", "pipeline", "run", pipeline_name, "--profile", profile]
     if variables:
         vars_str = " ".join([f"{k}={v}" for k, v in variables.items()])
         cmd.extend(["--vars", f"{vars_str}"])

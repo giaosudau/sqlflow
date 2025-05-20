@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - 'v*'
+      - '!v*-prod'  # Exclude production tags
 
 jobs:
   build-and-publish:
@@ -30,4 +31,16 @@ jobs:
           TWINE_USERNAME: ${{ secrets.TEST_PYPI_USERNAME }}
           TWINE_PASSWORD: ${{ secrets.TEST_PYPI_PASSWORD }}
         run: |
-          twine upload --repository-url https://test.pypi.org/legacy/ dist/* 
+          twine upload --repository-url https://test.pypi.org/legacy/ dist/*
+      
+      - name: Get version from tag
+        id: get_version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+      
+      - name: Create a success notification
+        if: success()
+        run: |
+          echo "📦 SQLFlow ${{ steps.get_version.outputs.VERSION }} published to TestPyPI successfully!" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Install with: pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ sqlflow==${{ steps.get_version.outputs.VERSION }}" >> $GITHUB_STEP_SUMMARY
+          echo "🔍 View on TestPyPI: https://test.pypi.org/project/sqlflow/${{ steps.get_version.outputs.VERSION }}/" >> $GITHUB_STEP_SUMMARY
+          echo "⏭️ After testing, promote to PyPI with: ./release_to_pypi.sh v${{ steps.get_version.outputs.VERSION }}" >> $GITHUB_STEP_SUMMARY 

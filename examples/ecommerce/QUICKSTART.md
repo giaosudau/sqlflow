@@ -71,29 +71,29 @@ These pipelines demonstrate core features and advanced capabilities.
 
 1.  **`showcase_01_basic_csv_processing.sf`**
     *   **Description**: Demonstrates core SQLFlow features using CSV files for input and output. Covers data loading, SQL transformations, and exporting results.
-    *   **Run**: `docker compose exec sqlflow sqlflow pipeline run /app/sqlflow/demos/ecommerce_demo/pipelines/showcase_01_basic_csv_processing.sf`
+    *   **Run**: `docker compose exec sqlflow sqlflow pipeline run showcase_01_basic_csv_processing`
 
 2.  **`showcase_02_multi_connector_integration.sf`**
     *   **Description**: Highlights SQLFlow's ability to integrate with multiple systems. Uses PostgreSQL for input, CSV for comparison, and exports to S3, PostgreSQL, and a REST API.
-    *   **Run**: `docker compose exec sqlflow sqlflow pipeline run /app/sqlflow/demos/ecommerce_demo/pipelines/showcase_02_multi_connector_integration.sf --vars '{"date": "2023-10-25", "API_TOKEN": "your_api_token"}'`
+    *   **Run**: `docker compose exec sqlflow sqlflow pipeline run showcase_02_multi_connector_integration --vars '{"date": "2023-10-25", "API_TOKEN": "your_api_token"}'`
 
 3.  **`showcase_03_conditional_execution.sf`**
     *   **Description**: Illustrates conditional logic within SQLFlow pipelines, allowing different processing paths based on variables (e.g., environment, region).
-    *   **Run**: `docker compose exec sqlflow sqlflow pipeline run /app/sqlflow/demos/ecommerce_demo/pipelines/showcase_03_conditional_execution.sf --vars '{"environment": "production", "region": "us-east"}'`
+    *   **Run**: `docker compose exec sqlflow sqlflow pipeline run showcase_03_conditional_execution --vars '{"environment": "production", "region": "us-east"}'`
 
 4.  **`showcase_04_advanced_analytics.sf`**
     *   **Description**: Presents advanced SQL analytics capabilities, including time series analysis, cohort analysis, RFM segmentation, and market basket analysis.
-    *   **Run**: `docker compose exec sqlflow sqlflow pipeline run /app/sqlflow/demos/ecommerce_demo/pipelines/showcase_04_advanced_analytics.sf`
+    *   **Run**: `docker compose exec sqlflow sqlflow pipeline run showcase_04_advanced_analytics`
 
 ### Additional Examples:
 
 1.  **`example_01_daily_sales_report.sf`**
     *   **Description**: A practical example of a daily sales reporting pipeline. Sources data from PostgreSQL, performs enrichments and aggregations, and exports to S3 and a REST API. Includes debug steps.
-    *   **Run**: `docker compose exec sqlflow sqlflow pipeline run /app/sqlflow/demos/ecommerce_demo/pipelines/example_01_daily_sales_report.sf --vars '{"date": "2023-10-25", "API_TOKEN": "your_api_token"}'`
+    *   **Run**: `docker compose exec sqlflow sqlflow pipeline run example_01_daily_sales_report --vars '{"date": "2023-10-25", "API_TOKEN": "your_api_token"}'`
 
 2.  **`example_02_csv_only_processing.sf`**
     *   **Description**: A self-contained example demonstrating a complete data pipeline using only CSV files for input and output.
-    *   **Run**: `docker compose exec sqlflow sqlflow pipeline run /app/sqlflow/demos/ecommerce_demo/pipelines/example_02_csv_only_processing.sf`
+    *   **Run**: `docker compose exec sqlflow sqlflow pipeline run example_02_csv_only_processing`
 
 ## 5. Exploring Results
 

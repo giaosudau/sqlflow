@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- New two-stage release process for better quality control
+  - Added TestPyPI stage for pre-release validation
+  - Streamlined promotion to PyPI with dedicated scripts
+  - Improved release documentation and guides
+- Support for conditional execution in SQLFlow pipelines
+- Enhanced variable support in SQL queries and configuration
+- Region-based analysis capabilities in demos
+
 ### Fixed
 - Critical bug: Fixed SQL query formatting to properly handle dots in table.column references
   - Added DOT token type to lexer
