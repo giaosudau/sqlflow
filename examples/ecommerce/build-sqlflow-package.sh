@@ -37,7 +37,7 @@ install_from_local() {
         pip install -e .
         
         echo "SQLFlow package installed successfully!"
-        echo "Version: $(pip show sqlflow | grep Version)"
+        echo "Version: $(pip show sqlflow-core | grep Version)"
         return 0
     fi
     
@@ -61,7 +61,7 @@ else
         pip install -e .
         
         echo "SQLFlow package installed successfully!"
-        echo "Version: $(pip show sqlflow | grep Version)"
+        echo "Version: $(pip show sqlflow-core | grep Version)"
     else
         echo "ERROR: Could not install SQLFlow package."
         echo "Please make sure the SQLFlow package is available in /app/sqlflow or mount it as a volume."

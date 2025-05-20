@@ -49,11 +49,11 @@ Before proceeding with a release, ensure you have:
 
 4. Wait for the GitHub Actions workflow to complete and verify the package on TestPyPI:
    - Check that the workflow ran successfully: https://github.com/YOUR_ORG/sqlflow/actions
-   - Verify the package on TestPyPI: https://test.pypi.org/project/sqlflow/
+   - Verify the package on TestPyPI: https://test.pypi.org/project/sqlflow-core/
 
 5. Test the TestPyPI package by installing and running it:
    ```bash
-   pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ sqlflow==X.Y.Z
+   pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ sqlflow-core==X.Y.Z
    ```
    (Replace X.Y.Z with the actual version number)
 
@@ -74,7 +74,7 @@ After verifying the package works as expected on TestPyPI:
 
 3. Wait for the GitHub Actions workflow to complete and verify the package on PyPI:
    - Check that the workflow ran successfully: https://github.com/YOUR_ORG/sqlflow/actions
-   - Verify the package on PyPI: https://pypi.org/project/sqlflow/
+   - Verify the package on PyPI: https://pypi.org/project/sqlflow-core/
 
 ## Release Checklist
 

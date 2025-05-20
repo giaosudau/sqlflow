@@ -112,7 +112,7 @@ OPTIONS { "compression": "snappy" };
 
 ```bash
 # Install SQLFlow
-pip install sqlflow
+pip install sqlflow-core
 
 # Initialize a new project
 sqlflow init my_project
@@ -254,7 +254,7 @@ SELECT * FROM PYTHON_FUNC("python_udfs.metrics.add_metrics", orders);
 ## 📦 Installation
 
 ```bash
-pip install sqlflow
+pip install sqlflow-core
 ```
 
 For development installations:

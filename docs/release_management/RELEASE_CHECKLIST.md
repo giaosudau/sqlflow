@@ -150,7 +150,7 @@ After promoting to PyPI, verify the release is available:
 pip uninstall -y sqlflow
 
 # Install from PyPI
-pip install sqlflow==X.Y.Z
+pip install sqlflow-core==X.Y.Z
 
 # Verify version
 sqlflow --version

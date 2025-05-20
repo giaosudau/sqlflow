@@ -1,6 +1,7 @@
 """SQLFlow - SQL-based data pipeline tool."""
 
 __version__ = "0.1.0"
+__package_name__ = "sqlflow-core"
 
 # Initialize logging with default configuration
 from sqlflow.logging import configure_logging

@@ -45,10 +45,10 @@
 
 ```bash
 # Install from PyPI
-pip install sqlflow=={VERSION}
+pip install sqlflow-core=={VERSION}
 
 # Update existing installation
-pip install --upgrade sqlflow
+pip install --upgrade sqlflow-core
 ```
 
 ## 🧪 Testing

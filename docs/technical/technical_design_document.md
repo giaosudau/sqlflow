@@ -289,7 +289,7 @@ FROM raw_sales;
 ## 9. UX & Onboarding
 
 - Quick Start:  
-  1. pip install sqlflow  
+  1. pip install sqlflow-core  
   2. sqlflow init my_project  
   3. Edit `my_project/profiles/dev.yml` to set DuckDB to memory mode (default) or persistent for testing. If persistent, SQLFlow will use the exact `path` specified.
   4. Create `my_project/profiles/production.yml` for persistent DuckDB (using the exact `path` you specify) and production settings.

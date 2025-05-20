@@ -40,6 +40,6 @@ jobs:
         if: success()
         run: |
           echo "🚀 SQLFlow ${{ steps.get_version.outputs.VERSION }} published to PyPI successfully!" >> $GITHUB_STEP_SUMMARY
-          echo "✅ Install with: pip install sqlflow==${{ steps.get_version.outputs.VERSION }}" >> $GITHUB_STEP_SUMMARY
-          echo "🔍 View on PyPI: https://pypi.org/project/sqlflow/${{ steps.get_version.outputs.VERSION }}/" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Install with: pip install sqlflow-core==${{ steps.get_version.outputs.VERSION }}" >> $GITHUB_STEP_SUMMARY
+          echo "🔍 View on PyPI: https://pypi.org/project/sqlflow-core/${{ steps.get_version.outputs.VERSION }}/" >> $GITHUB_STEP_SUMMARY
           echo "📝 Don't forget to create a GitHub release: https://github.com/${{ github.repository }}/releases/new?tag=v${{ steps.get_version.outputs.VERSION }}-prod" >> $GITHUB_STEP_SUMMARY

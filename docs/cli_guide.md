@@ -13,7 +13,7 @@ The SQLFlow Command Line Interface (CLI) provides a powerful set of tools for cr
 SQLFlow CLI is automatically installed when you install the SQLFlow package:
 
 ```bash
-pip install sqlflow
+pip install sqlflow-core
 ```
 
 You can verify the installation by checking the version:

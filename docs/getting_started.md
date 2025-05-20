@@ -13,7 +13,7 @@ This guide provides a comprehensive introduction to SQLFlow for new users. Follo
 Install SQLFlow using pip:
 
 ```bash
-pip install sqlflow
+pip install sqlflow-core
 ```
 
 You can verify the installation was successful by checking the version:
