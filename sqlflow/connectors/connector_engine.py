@@ -60,6 +60,81 @@ class ConnectorEngine:
         }
         logger.debug("Successfully registered connector '%s'", name)
 
+    def register_profile_connector(
+        self,
+        name: str,
+        profile_connector_name: str,
+        profile_connectors: Dict[str, Dict[str, Any]],
+        options: Dict[str, Any],
+    ) -> None:
+        """Register a connector that references a connector defined in a profile.
+
+        Args:
+            name: Name of the connector in the pipeline
+            profile_connector_name: Name of the connector in the profile
+            profile_connectors: Dictionary of connectors from the profile
+            options: Additional options to merge with the connector params
+
+        Raises:
+            ValueError: If connector already exists or profile connector is not found
+        """
+        logger.debug(
+            "Registering profile-referenced connector '%s' from profile connector '%s'",
+            name,
+            profile_connector_name,
+        )
+
+        if name in self.registered_connectors:
+            logger.debug("Connector '%s' already registered", name)
+            raise ValueError(f"Connector '{name}' already registered")
+
+        if profile_connector_name not in profile_connectors:
+            logger.debug(
+                "Profile connector '%s' not found in profile", profile_connector_name
+            )
+            raise ValueError(
+                f"Profile connector '{profile_connector_name}' not found in profile"
+            )
+
+        profile_connector = profile_connectors[profile_connector_name]
+        connector_type = profile_connector.get("type")
+
+        if not connector_type:
+            logger.debug("Profile connector '%s' missing type", profile_connector_name)
+            raise ValueError(
+                f"Profile connector '{profile_connector_name}' missing type"
+            )
+
+        if connector_type not in CONNECTOR_REGISTRY:
+            logger.debug("Unknown connector type: %s", connector_type)
+            logger.debug(
+                "Available connector types: %s", list(CONNECTOR_REGISTRY.keys())
+            )
+            raise ValueError(f"Unknown connector type: {connector_type}")
+
+        # Merge the profile connector params with the options
+        base_params = profile_connector.get("params", {})
+        merged_params = {**base_params}
+
+        # Add options as top-level keys if they don't conflict
+        for key, value in options.items():
+            if key not in merged_params:
+                merged_params[key] = value
+
+        self.registered_connectors[name] = {
+            "type": connector_type,
+            "params": merged_params,
+            "instance": None,
+            "profile_referenced": True,
+            "profile_connector_name": profile_connector_name,
+        }
+        logger.debug(
+            "Successfully registered profile-referenced connector '%s' with type '%s' and merged params: %s",
+            name,
+            connector_type,
+            merged_params,
+        )
+
     def load_data(
         self,
         connector_name: str,

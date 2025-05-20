@@ -220,6 +220,10 @@ class Parser:
     def _parse_source_statement(self) -> SourceDefinitionStep:
         """Parse a SOURCE statement.
 
+        Two supported syntaxes:
+        1. SOURCE name TYPE connector_type PARAMS {...};
+        2. SOURCE name FROM "connector_name" OPTIONS {...};
+
         Returns:
             SourceDefinitionStep
 
@@ -232,25 +236,57 @@ class Parser:
             TokenType.IDENTIFIER, "Expected source name after 'SOURCE'"
         )
 
-        self._consume(TokenType.TYPE, "Expected 'TYPE' after source name")
+        # Look ahead to see if this is a FROM or TYPE based syntax
+        next_token = self._peek()
 
-        type_token = self._consume(
-            TokenType.IDENTIFIER, "Expected connector type after 'TYPE'"
-        )
+        if next_token.type == TokenType.FROM:
+            # Handle FROM-based syntax (getting connector from profile)
+            self._advance()  # Consume FROM token
 
-        self._consume(TokenType.PARAMS, "Expected 'PARAMS' after connector type")
+            # The connector name is a string token
+            connector_name_token = self._consume(
+                TokenType.STRING, "Expected connector name string after 'FROM'"
+            )
+            # Remove quotes from the connector name
+            connector_name = connector_name_token.value.strip("\"'")
 
-        # Use the _parse_json_token method to handle JSON parsing with variable substitution
-        params = self._parse_json_token()
+            self._consume(TokenType.OPTIONS, "Expected 'OPTIONS' after connector name")
 
-        self._consume(TokenType.SEMICOLON, "Expected ';' after SOURCE statement")
+            # Parse options JSON
+            options = self._parse_json_token()
 
-        return SourceDefinitionStep(
-            name=name_token.value,
-            connector_type=type_token.value,
-            params=params,
-            line_number=source_token.line,
-        )
+            self._consume(TokenType.SEMICOLON, "Expected ';' after SOURCE statement")
+
+            return SourceDefinitionStep(
+                name=name_token.value,
+                connector_type="",  # This will be filled from the profile
+                params=options,
+                is_from_profile=True,
+                profile_connector_name=connector_name,
+                line_number=source_token.line,
+            )
+        else:
+            # Handle traditional TYPE-based syntax
+            self._consume(TokenType.TYPE, "Expected 'TYPE' after source name")
+
+            type_token = self._consume(
+                TokenType.IDENTIFIER, "Expected connector type after 'TYPE'"
+            )
+
+            self._consume(TokenType.PARAMS, "Expected 'PARAMS' after connector type")
+
+            # Use the _parse_json_token method to handle JSON parsing with variable substitution
+            params = self._parse_json_token()
+
+            self._consume(TokenType.SEMICOLON, "Expected ';' after SOURCE statement")
+
+            return SourceDefinitionStep(
+                name=name_token.value,
+                connector_type=type_token.value,
+                params=params,
+                is_from_profile=False,
+                line_number=source_token.line,
+            )
 
     def _advance(self) -> Token:
         """Advance to the next token.

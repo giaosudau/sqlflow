@@ -1216,9 +1216,7 @@ class ExecutionPlanBuilder:
 
         # Delegate to specific builders based on step type
         if isinstance(pipeline_step, SourceDefinitionStep):
-            return self._build_source_definition_step(
-                pipeline_step, step_id, depends_on
-            )
+            return self._generate_source_definition_step(pipeline_step)
         elif isinstance(pipeline_step, LoadStep):
             return self._build_load_step(pipeline_step, step_id, depends_on)
         elif isinstance(pipeline_step, SQLBlockStep):
@@ -1232,18 +1230,34 @@ class ExecutionPlanBuilder:
                 "depends_on": depends_on,
             }
 
-    def _build_source_definition_step(
-        self, step: SourceDefinitionStep, step_id: str, depends_on: List[str]
+    def _generate_source_definition_step(
+        self, step: SourceDefinitionStep
     ) -> Dict[str, Any]:
-        """Build an execution step for a source definition."""
-        return {
-            "id": step_id,
-            "type": "source_definition",
-            "name": step.name,
-            "source_connector_type": step.connector_type,
-            "query": step.params,
-            "depends_on": depends_on,
-        }
+        """Generate an execution step for a source definition."""
+        step_id = self.step_id_map.get(id(step), f"source_{step.name}")
+
+        # Check if this is a profile-based source definition (FROM syntax)
+        if step.is_from_profile:
+            # Handle FROM-based syntax
+            return {
+                "id": step_id,
+                "type": "source_definition",
+                "name": step.name,
+                "is_from_profile": True,
+                "profile_connector_name": step.profile_connector_name,
+                "query": step.params,  # These are the OPTIONS for the source
+                "depends_on": self.step_dependencies.get(step_id, []),
+            }
+        else:
+            # Handle traditional TYPE PARAMS syntax
+            return {
+                "id": step_id,
+                "type": "source_definition",
+                "name": step.name,
+                "source_connector_type": step.connector_type,
+                "query": step.params,
+                "depends_on": self.step_dependencies.get(step_id, []),
+            }
 
     def _build_load_step(
         self, step: LoadStep, step_id: str, depends_on: List[str]
@@ -1321,6 +1335,20 @@ class ExecutionPlanBuilder:
             },
             "depends_on": depends_on,
         }
+
+    def _build_source_definition_step(
+        self, step: SourceDefinitionStep, step_id: str, depends_on: List[str]
+    ) -> Dict[str, Any]:
+        """Build an execution step for a source definition.
+
+        This is a compatibility method that redirects to _generate_source_definition_step.
+        """
+        # Save step_id and dependencies for _generate_source_definition_step to use
+        self.step_id_map[id(step)] = step_id
+        self.step_dependencies[step_id] = depends_on
+
+        # Delegate to the new method
+        return self._generate_source_definition_step(step)
 
 
 # --- OPERATION PLANNER ---

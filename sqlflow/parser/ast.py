@@ -22,16 +22,21 @@ class PipelineStep(ABC):
 class SourceDefinitionStep(PipelineStep):
     """Represents a SOURCE directive in the pipeline.
 
-    Example:
+    Example 1:
         SOURCE users TYPE POSTGRES PARAMS {
             "connection": "${DB_CONN}",
             "table": "users"
         };
+
+    Example 2:
+        SOURCE users FROM "postgres" OPTIONS { "table": "users" };
     """
 
     name: str
     connector_type: str
     params: Dict[str, Any]
+    is_from_profile: bool = False
+    profile_connector_name: str = None
     line_number: Optional[int] = None
 
     def validate(self) -> List[str]:
@@ -43,10 +48,15 @@ class SourceDefinitionStep(PipelineStep):
         errors = []
         if not self.name:
             errors.append("SOURCE directive requires a name")
-        if not self.connector_type:
-            errors.append("SOURCE directive requires a TYPE")
-        if not self.params:
-            errors.append("SOURCE directive requires PARAMS")
+
+        if self.is_from_profile:
+            if not self.profile_connector_name:
+                errors.append("SOURCE directive with FROM requires a connector name")
+        else:
+            if not self.connector_type:
+                errors.append("SOURCE directive requires a TYPE")
+            if not self.params:
+                errors.append("SOURCE directive requires PARAMS")
         return errors
 
 

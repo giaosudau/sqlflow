@@ -778,42 +778,114 @@ class LocalExecutor(BaseExecutor):
             return {"status": "failed", "error": error_msg}
 
         try:
-            # Register the source connector type for this source
-            connector_type = step.get("source_connector_type")
-            if connector_type:
-                # Track connector type for this source
-                self.source_connectors[source_name] = connector_type
-                logger.debug(
-                    f"Registered source {source_name} with connector type {connector_type}"
-                )
-                # Register connector with connector engine for data loading
-                params = step.get("query", {})
-                try:
-                    self.connector_engine.register_connector(
-                        source_name, connector_type, params
-                    )
-                    logger.debug(
-                        f"Connector engine registered connector '{source_name}' of type '{connector_type}' with params: {params}"
-                    )
-                except Exception as e:
-                    logger.error(f"Failed to register connector '{source_name}': {e}")
-                    return {
-                        "status": "failed",
-                        "error": f"Failed to register connector '{source_name}': {e}",
-                    }
-
-            # Save the step mapping for this source
-            self.step_table_map[step_id] = source_name
-            logger.debug(f"Mapped step {step_id} to table {source_name}")
-
-            # For source definitions, we don't actually execute anything yet
-            # The actual data loading happens in the load step
-            return {"status": "success"}
+            # Check if this is a profile-based source definition (FROM syntax)
+            if step.get("is_from_profile", False):
+                return self._handle_profile_based_source(step, step_id, source_name)
+            else:
+                return self._handle_traditional_source(step, step_id, source_name)
 
         except Exception as e:
             error_msg = f"Error executing source definition step {step_id}: {str(e)}"
             logger.error(error_msg)
             return {"status": "failed", "error": error_msg}
+
+    def _handle_profile_based_source(
+        self, step: Dict[str, Any], step_id: str, source_name: str
+    ) -> Dict[str, Any]:
+        """Handle a profile-based source definition using FROM syntax."""
+        profile_connector_name = step.get("profile_connector_name", None)
+        if not profile_connector_name:
+            error_msg = (
+                f"Source step {step_id} is missing a profile_connector_name property"
+            )
+            logger.error(error_msg)
+            return {"status": "failed", "error": error_msg}
+
+        logger.debug(
+            f"Processing profile-based source definition: {source_name} FROM {profile_connector_name}"
+        )
+
+        # Get connectors section from the profile
+        profile_dict = self.project.get_profile()
+        profile_connectors = profile_dict.get("connectors", {})
+
+        if not profile_connectors:
+            error_msg = f"No connectors defined in profile '{self.profile_name}'"
+            logger.error(error_msg)
+            return {"status": "failed", "error": error_msg}
+
+        # Options are the parameters for this specific source
+        options = step.get("query", {})
+
+        try:
+            # Register the connector using the profile definition plus options
+            self.connector_engine.register_profile_connector(
+                source_name, profile_connector_name, profile_connectors, options
+            )
+            logger.debug(
+                f"Registered profile-based connector '{source_name}' referencing profile connector '{profile_connector_name}'"
+            )
+
+            # Get the connector type from the profile for tracking
+            profile_connector = profile_connectors.get(profile_connector_name, {})
+            connector_type = profile_connector.get("type", "UNKNOWN")
+            self.source_connectors[source_name] = connector_type
+
+        except Exception as e:
+            logger.error(
+                f"Failed to register profile-based connector '{source_name}': {e}"
+            )
+            return {
+                "status": "failed",
+                "error": f"Failed to register profile-based connector '{source_name}': {e}",
+            }
+
+        # Save the step mapping for this source
+        self.step_table_map[step_id] = source_name
+        logger.debug(f"Mapped step {step_id} to table {source_name}")
+
+        return {"status": "success"}
+
+    def _handle_traditional_source(
+        self, step: Dict[str, Any], step_id: str, source_name: str
+    ) -> Dict[str, Any]:
+        """Handle a traditional source definition with TYPE PARAMS syntax."""
+        # Get the connector type
+        connector_type = step.get("source_connector_type")
+        if not connector_type:
+            error_msg = (
+                f"Source step {step_id} is missing a source_connector_type property"
+            )
+            logger.error(error_msg)
+            return {"status": "failed", "error": error_msg}
+
+        # Track connector type for this source
+        self.source_connectors[source_name] = connector_type
+        logger.debug(
+            f"Registered source {source_name} with connector type {connector_type}"
+        )
+
+        # Register connector with connector engine for data loading
+        params = step.get("query", {})
+        try:
+            self.connector_engine.register_connector(
+                source_name, connector_type, params
+            )
+            logger.debug(
+                f"Connector engine registered connector '{source_name}' of type '{connector_type}' with params: {params}"
+            )
+        except Exception as e:
+            logger.error(f"Failed to register connector '{source_name}': {e}")
+            return {
+                "status": "failed",
+                "error": f"Failed to register connector '{source_name}': {e}",
+            }
+
+        # Save the step mapping for this source
+        self.step_table_map[step_id] = source_name
+        logger.debug(f"Mapped step {step_id} to table {source_name}")
+
+        return {"status": "success"}
 
     def _execute_load(self, step: Dict[str, Any]) -> Dict[str, Any]:
         """Execute a load step to import data from a source connector.
