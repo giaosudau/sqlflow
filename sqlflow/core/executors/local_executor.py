@@ -1,5 +1,6 @@
 """Local executor for SQLFlow pipelines."""
 
+import datetime
 import importlib.util
 import json
 import logging
@@ -237,34 +238,25 @@ class LocalExecutor(BaseExecutor):
         }
 
     def _setup_execution_environment(
-        self,
-        variables: Optional[Dict[str, Any]] = None,
+        self, variables: Optional[Dict[str, Any]] = None
     ) -> None:
-        """Set up the execution environment with variables and artifact manager.
+        """Set up the execution environment.
 
         Args:
             variables: Optional dictionary of variables for substitution
         """
-        # Store variables for SQL generation and variable substitution
-        if variables:
-            logger.info(f"Using variables for execution: {list(variables.keys())}")
-            if isinstance(self.profile, dict):
-                if "variables" not in self.profile:
-                    self.profile["variables"] = {}
-                # Update profile variables with passed variables (passed variables have precedence)
-                self.profile["variables"].update(variables)
-            else:
-                # Create profile if it doesn't exist
-                self.profile = {"variables": variables}
+        # Initialize variables if not provided
+        self.variables = variables or {}
 
-        # Generate a unique execution ID if not already set
-        if not self.execution_id:
-            self.execution_id = str(uuid.uuid4())
+        # Register variables with the SQL generator
+        self.sql_generator.variables = self.variables.copy()
 
-        # Create an artifact manager if not already set
-        if not self.artifact_manager:
-            target_dir = os.path.join(self.project.project_dir, "target")
-            self.artifact_manager = ArtifactManager(target_dir)
+        # Register variables with the DuckDB engine
+        if self.duckdb_engine is not None:
+            for name, value in self.variables.items():
+                self.duckdb_engine.register_variable(name, value)
+
+        logger.debug(f"Execution environment set up with variables: {self.variables}")
 
     def _handle_external_resolver(
         self,
@@ -1003,6 +995,11 @@ class LocalExecutor(BaseExecutor):
             table_name,
         )
 
+        # Add debug output
+        print(
+            f"DEBUG: Executing LOAD step for source '{source_name}' into table '{table_name}'"
+        )
+
         # Before attempting to load data, ensure the source connector is registered
         if source_name not in self.connector_engine.registered_connectors:
             # If source definition step executed but connector not registered, try to find it
@@ -1036,6 +1033,9 @@ class LocalExecutor(BaseExecutor):
                 connector_type,
                 source_name,
             )
+            print(
+                f"DEBUG: Using connector of type '{connector_type}' for source '{source_name}'"
+            )
 
             # Get data from the connector
             data_iter = self.connector_engine.load_data(source_name, table_name)
@@ -1046,6 +1046,19 @@ class LocalExecutor(BaseExecutor):
 
                 # Concatenate all arrow batches
                 table = pa.concat_tables(all_batches)
+
+                # Get the connector to check if it's a CSV with headers
+                connector = self.connector_engine.registered_connectors.get(source_name)
+                has_headers = False
+                if connector_type.upper() == "CSV":
+                    # For CSV connectors, check has_header property
+                    if hasattr(connector, "has_header"):
+                        has_headers = connector.has_header
+                    print(f"DEBUG: CSV connector has_header: {has_headers}")
+
+                # Print debugging info about the Arrow table
+                print(f"DEBUG: Arrow table column names: {table.column_names}")
+                print(f"DEBUG: Arrow table schema: {table.schema}")
 
                 # Store data in memory as Arrow table
                 self.table_data[table_name] = DataChunk(table)
@@ -1061,30 +1074,73 @@ class LocalExecutor(BaseExecutor):
                     and self.duckdb_engine.database_path != ":memory:"
                 ):
                     try:
+                        print(
+                            f"DEBUG: Creating persistent table '{table_name}' in DuckDB"
+                        )
+
                         # Begin transaction for this operation
                         self.duckdb_engine.connection.begin()
+                        transaction_started = True
 
-                        # Register the Arrow table directly with DuckDB - don't let it manage transactions
-                        self.duckdb_engine.register_arrow(
-                            table_name, table, manage_transaction=False
-                        )
+                        # First, explicitly drop the existing table if it exists
+                        try:
+                            drop_sql = f"DROP TABLE IF EXISTS {table_name}"
+                            print(f"DEBUG: Executing: {drop_sql}")
+                            self.duckdb_engine.connection.execute(drop_sql)
+                        except Exception as drop_error:
+                            print(f"DEBUG: Error dropping table: {drop_error}")
+                            # Continue anyway as we're using IF EXISTS
 
-                        # Create a persistent table from the registered data
-                        self.duckdb_engine.execute_query(
-                            f"CREATE TABLE IF NOT EXISTS {table_name} AS SELECT * FROM {table_name}"
-                        )
+                        # Get the original column names if available
+                        original_column_names = None
+                        data_chunk = self.table_data.get(table_name)
+                        if data_chunk and hasattr(data_chunk, "original_column_names"):
+                            original_column_names = data_chunk.original_column_names
+
+                        # Convert arrow table to pandas DataFrame
+                        df = table.to_pandas()
+                        print(f"DEBUG: DataFrame columns: {df.columns.tolist()}")
+                        print(f"DEBUG: Original column names: {original_column_names}")
+
+                        # Register the pandas DataFrame with DuckDB
+                        self.duckdb_engine.connection.register(table_name, df)
+
+                        # Create the table with explicit column names
+                        if original_column_names:
+                            # Use original column names from the CSV header
+                            columns_sql = ", ".join(
+                                [
+                                    f'"{df.columns[i]}" AS "{original_column_names[i]}"'
+                                    for i in range(len(df.columns))
+                                    if i < len(original_column_names)
+                                ]
+                            )
+                        else:
+                            # Use the existing column names
+                            columns_sql = ", ".join(
+                                [f'"{col}" AS "{col}"' for col in df.columns]
+                            )
+
+                        create_sql = f"CREATE TABLE {table_name} AS SELECT {columns_sql} FROM {table_name}"
+                        print(f"DEBUG: Creating table with SQL: {create_sql}")
+                        self.duckdb_engine.connection.execute(create_sql)
 
                         # Commit the transaction
                         self.duckdb_engine.connection.commit()
+                        print(f"DEBUG: Transaction committed for table '{table_name}'")
 
-                        # IMPORTANT NOTE FOR DEVELOPERS:
-                        # DuckDB CHECKPOINT must be executed AFTER transaction commit.
-                        # This is crucial for data persistence to work correctly:
-                        # 1. Transaction ensures logical consistency (atomicity)
-                        # 2. CHECKPOINT ensures physical durability (data written to disk)
-                        #
-                        # These two steps can't be combined, and CHECKPOINT should never
-                        # be executed within a transaction.
+                        # Check table structure after creation
+                        try:
+                            desc_result = self.duckdb_engine.connection.execute(
+                                f"DESCRIBE {table_name}"
+                            ).fetchdf()
+                            print(
+                                f"DEBUG: Table '{table_name}' after creation: {desc_result}"
+                            )
+                        except Exception as e:
+                            print(f"DEBUG: Error describing table after creation: {e}")
+
+                        # Execute CHECKPOINT after transaction
                         try:
                             self.duckdb_engine.execute_query("CHECKPOINT")
                             logger.debug(
@@ -1092,23 +1148,26 @@ class LocalExecutor(BaseExecutor):
                             )
                         except Exception as e:
                             logger.debug(f"Error performing checkpoint: {e}")
-                            # Don't raise an error here - checkpoint may not be supported
+                        # Don't raise an error here - checkpoint may not be supported
 
-                        logger.debug(
-                            "Created persistent table %s with %d rows",
-                            table_name,
-                            table.num_rows,
-                        )
                     except Exception as e:
                         # Rollback on error
                         try:
-                            self.duckdb_engine.connection.rollback()
+                            if transaction_started:
+                                self.duckdb_engine.connection.rollback()
                         except Exception as rollback_error:
                             logger.debug(f"Error during rollback: {rollback_error}")
 
                         logger.error(
                             f"Error creating persistent table {table_name}: {e}"
                         )
+                        print(
+                            f"DEBUG: Error creating persistent table {table_name}: {e}"
+                        )
+                        return {
+                            "status": "failed",
+                            "error": f"Error creating persistent table: {str(e)}",
+                        }
 
                 logger.debug(
                     "Load step %s loaded table '%s' with %d rows",
@@ -1139,23 +1198,26 @@ class LocalExecutor(BaseExecutor):
                     try:
                         # Begin transaction for this operation
                         self.duckdb_engine.connection.begin()
+                        transaction_started = True
+
+                        # First, drop the table if it exists
+                        try:
+                            drop_sql = f"DROP TABLE IF EXISTS {table_name}"
+                            print(f"DEBUG: Executing: {drop_sql}")
+                            self.duckdb_engine.connection.execute(drop_sql)
+                        except Exception as drop_error:
+                            print(f"DEBUG: Error dropping table: {drop_error}")
+                            # Continue anyway as we're using IF EXISTS
 
                         # Create a persistent table with single column for empty data
                         self.duckdb_engine.execute_query(
-                            f"CREATE TABLE IF NOT EXISTS {table_name} (dummy INTEGER)"
+                            f"CREATE TABLE {table_name} (dummy INTEGER)"
                         )
 
                         # Commit the transaction
                         self.duckdb_engine.connection.commit()
 
-                        # IMPORTANT NOTE FOR DEVELOPERS:
-                        # Execute CHECKPOINT only AFTER transaction commit.
-                        # This two-phase approach follows DuckDB's requirements:
-                        # 1. Transaction operations (must be committed first)
-                        # 2. CHECKPOINT operation (only works outside of a transaction)
-                        #
-                        # If you try to run CHECKPOINT inside a transaction, it will fail with:
-                        # "Cannot CHECKPOINT: the current transaction has transaction local changes"
+                        # Execute CHECKPOINT after transaction
                         try:
                             self.duckdb_engine.execute_query("CHECKPOINT")
                             logger.debug(
@@ -1163,19 +1225,23 @@ class LocalExecutor(BaseExecutor):
                             )
                         except Exception as e:
                             logger.debug(f"Error performing checkpoint: {e}")
-                            # Don't raise an error here - checkpoint may not be supported
 
                         logger.debug("Created empty persistent table %s", table_name)
                     except Exception as e:
                         # Rollback on error
                         try:
-                            self.duckdb_engine.connection.rollback()
+                            if transaction_started:
+                                self.duckdb_engine.connection.rollback()
                         except Exception as rollback_error:
                             logger.debug(f"Error during rollback: {rollback_error}")
 
                         logger.error(
                             f"Error creating empty persistent table {table_name}: {e}"
                         )
+                        return {
+                            "status": "failed",
+                            "error": f"Error creating empty table: {str(e)}",
+                        }
 
                 logger.debug(
                     "Load step %s created empty table '%s'", step["id"], table_name
@@ -1942,28 +2008,12 @@ class LocalExecutor(BaseExecutor):
     def _invoke_export(self, step, data_chunk, source_table):
         connector_type = step["source_connector_type"]
         try:
-            original_destination = step["query"]["destination_uri"]
-            original_options = step["query"].get("options", {})
+            # Get the destination URI and options from the step
+            # These should already have variables substituted by _execute_export
+            destination = step["query"]["destination_uri"]
+            options = step["query"].get("options", {})
 
-            # Apply variable substitution to the destination URI
-            destination = self._substitute_variables(original_destination)
-
-            # Apply variable substitution to options if they're strings
-            options = self._substitute_variables_in_dict(original_options)
-
-            logger.debug(
-                "Destination after variable substitution: %s -> %s",
-                original_destination,
-                destination,
-            )
-
-            if options != original_options:
-                logger.debug(
-                    "Options after variable substitution: %s -> %s",
-                    original_options,
-                    options,
-                )
-
+            # Log what we're exporting
             logger.info(
                 f"Exporting to: {destination} with connector type: {connector_type}"
             )
@@ -1974,7 +2024,6 @@ class LocalExecutor(BaseExecutor):
                 dirname = os.path.dirname(destination)
                 if dirname:
                     os.makedirs(dirname, exist_ok=True)
-                    logger.debug(f"Created parent directory: {dirname}")
 
             # Export the data
             self.connector_engine.export_data(
@@ -1995,18 +2044,34 @@ class LocalExecutor(BaseExecutor):
         logger.debug("Starting export step %s", step["id"])
         logger.debug("EXPORT STEP DETAILS: %s", json.dumps(step, indent=2))
         try:
+            # First substitute variables in destination_uri
+            if "query" in step and "destination_uri" in step["query"]:
+                original_destination = step["query"]["destination_uri"]
+                substituted_destination = self._substitute_variables(
+                    original_destination
+                )
+                step["query"]["destination_uri"] = substituted_destination
+
+            # Also substitute variables in options
+            if "query" in step and "options" in step["query"]:
+                original_options = step["query"]["options"]
+                substituted_options = self._substitute_variables_in_dict(
+                    original_options
+                )
+                step["query"]["options"] = substituted_options
+
             source_table, data_chunk = self._resolve_export_source(step)
             if data_chunk is None:
                 error_msg = f"No data found for export step: {step['id']}"
                 return self._report_export_error(step, error_msg)
             logger.debug(
-                "✅ Exporting %d rows of data from table '%s'",
+                "Exporting %d rows of data from table '%s'",
                 len(data_chunk.pandas_df),
                 source_table,
             )
             return self._invoke_export(step, data_chunk, source_table)
         except Exception as e:
-            logger.debug("❌ Export step %s error: %s", step["id"], str(e))
+            logger.debug("Export step %s error: %s", step["id"], str(e))
             return {"status": "failed", "error": str(e)}
 
     def can_resume(self) -> bool:
@@ -2215,3 +2280,51 @@ class LocalExecutor(BaseExecutor):
             Result of the execution
         """
         return self._execute_export(step)
+
+    def _interpolate_variables(self, text: str, variables: Dict[str, Any]) -> str:
+        """Replace variable placeholders in SQL with their values.
+
+        Args:
+            text: SQL query with variable placeholders
+            variables: Dictionary of variable names and values
+
+        Returns:
+            SQL query with variables replaced
+        """
+        if not variables:
+            return text
+
+        # Debug output of variables
+        print(f"DEBUG: Variables for interpolation: {variables}")
+
+        result = text
+        for var_name, var_value in variables.items():
+            # Convert Python values to SQL-compatible values
+            if var_value is None:
+                sql_value = "NULL"
+            elif isinstance(var_value, bool):
+                sql_value = str(var_value).lower()
+            elif isinstance(var_value, (int, float)):
+                sql_value = str(var_value)
+            elif isinstance(var_value, datetime.datetime):
+                sql_value = f"'{var_value.strftime('%Y-%m-%d %H:%M:%S')}'"
+            elif isinstance(var_value, datetime.date):
+                sql_value = f"'{var_value.strftime('%Y-%m-%d')}'"
+            else:
+                # Strings and other types - quote them
+                sql_value = f"'{str(var_value)}'"
+
+            # Replace ${var_name} with the value
+            pattern = rf"\$\{{{var_name}\}}"
+            replacement = sql_value
+            old_result = result
+            result = re.sub(pattern, replacement, result)
+
+            # Check if replacement was made
+            if old_result != result:
+                print(f"DEBUG: Replaced ${{{var_name}}} with {sql_value}")
+
+        # Debug output of final SQL
+        print(f"DEBUG: Final interpolated text: {result}")
+
+        return result

@@ -863,9 +863,23 @@ def _execute_pipeline_operations_and_report(
 
     sql_generator = SQLGenerator(dialect="duckdb")  # TODO: Make dialect configurable
     executor = LocalExecutor(profile_name=profile_name)
+
     # Set execution_id and artifact_manager on the executor instance for its internal use
     executor.execution_id = execution_id
     executor.artifact_manager = artifact_manager
+
+    # Ensure the executor has the variables in the profile as well
+    if variables:
+        # Initialize profile to an empty dict if None
+        if executor.profile is None:
+            executor.profile = {}
+        # Create a variables dict in profile if it doesn't exist
+        if "variables" not in executor.profile:
+            executor.profile["variables"] = {}
+        # Update the variables in the profile
+        executor.profile["variables"].update(variables)
+        logger.debug(f"Updated executor profile with variables: {variables}")
+
     # executor.sql_generator is already initialized by its __init__
 
     success = True

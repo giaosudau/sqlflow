@@ -639,9 +639,10 @@ class Parser:
         without spaces around the dot operator. This is critical for SQL syntax
         validity and prevents errors during execution.
 
-        It also handles SQL function calls to ensure there are no spaces between:
-        - Function name and opening parenthesis: COUNT(
-        - Opening parenthesis and first argument: COUNT(DISTINCT
+        It also handles:
+        - SQL function calls: no spaces between function name and opening parenthesis
+        - Compound operators: >= <= != etc.
+        - Variable references in different contexts
 
         Args:
             tokens: List of tokens or token values
@@ -665,8 +666,18 @@ class Parser:
             token_value = current.value if hasattr(current, "value") else str(current)
             token_type = current.type if hasattr(current, "type") else None
 
+            # Handle compound operators
+            if token_type in (
+                TokenType.GREATER_EQUAL,
+                TokenType.LESS_EQUAL,
+                TokenType.NOT_EQUAL,
+            ):
+                # Remove any trailing space from previous token
+                if formatted_parts:
+                    formatted_parts[-1] = formatted_parts[-1].rstrip()
+                formatted_parts.append(token_value)
             # Handle dot operators by joining without spaces
-            if token_type == TokenType.DOT:
+            elif token_type == TokenType.DOT:
                 # Append without space before
                 formatted_parts[-1] = formatted_parts[-1].rstrip()
                 formatted_parts.append(token_value)
@@ -716,8 +727,109 @@ class Parser:
         sql = re.sub(r"\(\s+", "(", sql)  # Remove space after opening parenthesis
         sql = re.sub(r"\s+\)", ")", sql)  # Remove space before closing parenthesis
 
+        # Fix variable references in SQL context
+        sql = self._fix_sql_variable_references(sql)
+
         # Normalize whitespace
         return " ".join(sql.split())
+
+    def _fix_sql_variable_references(self, sql: str) -> str:
+        """Fix variable references in SQL context.
+
+        This method handles variable references differently based on their context:
+        - String comparisons: Variables should be quoted ('${var}')
+        - Numeric comparisons: Variables should not be quoted (${var})
+
+        Args:
+            sql: SQL query containing variable references
+
+        Returns:
+            SQL query with properly formatted variable references
+        """
+        # First fix any spacing issues in variable references
+        sql = self._fix_variable_references(sql)
+
+        # Find all variable references
+        var_pattern = r"\$\{[^}]+\}"
+        var_matches = list(re.finditer(var_pattern, sql))
+
+        # Track positions to avoid modifying the same region twice
+        modifications = []
+
+        # Track BETWEEN clauses to handle both parts
+        between_clauses = []
+
+        # First pass - identify BETWEEN clauses
+        for i, match in enumerate(var_matches):
+            var_ref = match.group(0)
+            start_pos = match.start()
+            end_pos = match.end()
+
+            # Look before and after the variable reference
+            before_context = sql[:start_pos].rstrip()
+            after_context = sql[end_pos:].lstrip()
+
+            # Check for BETWEEN operator
+            if "BETWEEN" in before_context[-20:]:  # First part of BETWEEN
+                # Look for the AND part
+                for j in range(i + 1, len(var_matches)):
+                    next_match = var_matches[j]
+                    between_text = sql[end_pos : next_match.start()]
+                    if "AND" in between_text:
+                        between_clauses.append((match, next_match))
+                        break
+
+        # Second pass - handle all variables
+        for i, match in enumerate(var_matches):
+            var_ref = match.group(0)
+            start_pos = match.start()
+            end_pos = match.end()
+
+            # Skip if this is part of a BETWEEN clause
+            is_between_var = any(
+                match in (between_pair[0], between_pair[1])
+                for between_pair in between_clauses
+            )
+            if is_between_var:
+                continue
+
+            # Look before and after the variable reference
+            before_context = sql[:start_pos].rstrip()
+            after_context = sql[end_pos:].lstrip()
+
+            # Check if this is a numeric comparison
+            numeric_operators = [">=", "<=", ">", "<", "BETWEEN", "IN"]
+            is_numeric = any(
+                before_context.endswith(f" {op} ")
+                or before_context.endswith(f" {op}")
+                or after_context.startswith(f" {op} ")
+                or after_context.startswith(f" {op}")
+                for op in numeric_operators
+            )
+
+            # Also check if it's part of a numeric function or calculation
+            numeric_functions = ["SUM", "AVG", "COUNT", "MIN", "MAX"]
+            is_numeric = is_numeric or any(
+                f"{func}(" in before_context for func in numeric_functions
+            )
+
+            # Check for arithmetic operators
+            arithmetic_operators = ["+", "-", "*", "/", "%"]
+            is_numeric = is_numeric or any(
+                op in before_context[-2:] or op in after_context[:2]
+                for op in arithmetic_operators
+            )
+
+            if not is_numeric:
+                # For string comparisons, add quotes if not already quoted
+                if not (before_context.endswith("'") and after_context.startswith("'")):
+                    modifications.append((start_pos, end_pos, f"'{var_ref}'"))
+
+        # Apply modifications in reverse order to maintain correct positions
+        for start_pos, end_pos, replacement in sorted(modifications, reverse=True):
+            sql = sql[:start_pos] + replacement + sql[end_pos:]
+
+        return sql
 
     def _synchronize(self) -> None:
         """Synchronize the parser after an error.

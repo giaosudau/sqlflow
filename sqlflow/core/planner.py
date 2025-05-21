@@ -395,28 +395,79 @@ class ExecutionPlanBuilder:
                 var_name = step.variable_name.strip()
                 var_value = step.variable_value.strip()
 
-                # If the value is itself a variable reference with default, extract it
-                var_ref_match = re.match(r"\$\{([^|{}]+)\|([^{}]*)\}", var_value)
-                if var_ref_match:
-                    ref_var = var_ref_match.group(1).strip()
-                    default_val = var_ref_match.group(2).strip()
+                # Process the variable value
+                processed_value = self._process_variable_value(var_name, var_value)
+                defined_vars[var_name] = processed_value
 
-                    # If it's a self-reference with default, use the default
-                    if ref_var == var_name:
-                        logger.debug(
-                            f"Self-referential variable ${{{var_name}}} with default '{default_val}'"
-                        )
-                        defined_vars[var_name] = default_val
-                else:
-                    # Remove quotes if present (simple string literal handling)
-                    if (var_value.startswith("'") and var_value.endswith("'")) or (
-                        var_value.startswith('"') and var_value.endswith('"')
-                    ):
-                        var_value = var_value[1:-1]
-
-                    defined_vars[var_name] = var_value
-
+        logger.debug(f"Extracted SET-defined variables: {defined_vars}")
         return defined_vars
+
+    def _process_variable_value(self, var_name: str, var_value: str) -> Any:
+        """Process a variable value from a SET statement.
+
+        Handles references with defaults and type conversion.
+
+        Args:
+            var_name: The name of the variable
+            var_value: The raw value of the variable
+
+        Returns:
+            The processed value
+        """
+        # If the value is itself a variable reference with default, extract it
+        var_ref_match = re.match(r"\$\{([^|{}]+)\|([^{}]*)\}", var_value)
+        if var_ref_match:
+            ref_var = var_ref_match.group(1).strip()
+            default_val = var_ref_match.group(2).strip()
+
+            # If it's a self-reference with default, use the default
+            if ref_var == var_name:
+                logger.debug(
+                    f"Self-referential variable ${{{var_name}}} with default '{default_val}'"
+                )
+                return self._convert_value_to_appropriate_type(default_val)
+
+        # Not a variable reference with default, return the value with quotes removed if present
+        return self._remove_quotes_if_present(var_value)
+
+    def _convert_value_to_appropriate_type(self, value: str) -> Any:
+        """Convert a string value to an appropriate type.
+
+        Args:
+            value: The string value to convert
+
+        Returns:
+            The converted value
+        """
+        # Handle boolean values
+        if value.lower() == "true":
+            return True
+        elif value.lower() == "false":
+            return False
+
+        # Handle numeric values
+        if re.match(r"^[0-9]+$", value):
+            return int(value)
+        elif re.match(r"^[0-9]*\.[0-9]+$", value):
+            return float(value)
+
+        # Otherwise keep as string, with quotes removed if present
+        return self._remove_quotes_if_present(value)
+
+    def _remove_quotes_if_present(self, value: str) -> str:
+        """Remove quotes from a string if they're present.
+
+        Args:
+            value: The string to process
+
+        Returns:
+            The string with outer quotes removed if present
+        """
+        if (value.startswith("'") and value.endswith("'")) or (
+            value.startswith('"') and value.endswith('"')
+        ):
+            return value[1:-1]
+        return value
 
     def _find_variable_reference_locations(
         self, var_name: str, pipeline: Pipeline
@@ -792,8 +843,31 @@ class ExecutionPlanBuilder:
     def _flatten_conditional_blocks(
         self, pipeline: Pipeline, variables: Dict[str, Any]
     ) -> Pipeline:
+        """Process conditional blocks based on variable evaluation.
+
+        Args:
+            pipeline: Pipeline with conditional blocks
+            variables: Variables for condition evaluation
+
+        Returns:
+            Flattened pipeline with only steps from true conditions
+        """
+        # Get pipeline-defined variables including those with defaults
+        defined_vars = self._extract_set_defined_variables(pipeline)
+
+        # Create a complete variable dictionary by combining provided and defined variables
+        all_variables = variables.copy()
+        for var_name, var_value in defined_vars.items():
+            if var_name not in all_variables:
+                all_variables[var_name] = var_value
+                logger.debug(
+                    f"Added pipeline-defined variable for conditional evaluation: {var_name}={var_value}"
+                )
+
+        # Create evaluator with complete variable set
+        evaluator = ConditionEvaluator(all_variables)
+
         flattened_pipeline = Pipeline()
-        evaluator = ConditionEvaluator(variables)
         for step in pipeline.steps:
             if isinstance(step, ConditionalBlockStep):
                 try:
@@ -1342,9 +1416,12 @@ class ExecutionPlanBuilder:
         if not export_id:
             export_id = f"export_{connector_type.lower()}_{table_name or 'unknown'}"
 
-        # Log destination URI to help with debugging
+        # Get destination URI and substitute variables if any are provided
         destination_uri = getattr(step, "destination_uri", "")
         logger.debug(f"Export step {export_id} with destination: {destination_uri}")
+
+        # Get options and substitute variables if any
+        options = getattr(step, "options", {})
 
         # Return the execution step
         return {
@@ -1355,7 +1432,7 @@ class ExecutionPlanBuilder:
             "query": {
                 "sql_query": getattr(step, "sql_query", ""),
                 "destination_uri": destination_uri,
-                "options": getattr(step, "options", {}),
+                "options": options,
                 "type": connector_type,
             },
             "depends_on": depends_on,
@@ -1405,6 +1482,147 @@ class Planner:
         self.builder = ExecutionPlanBuilder()
         logger.debug("Planner initialized")
 
+    def _substitute_variables_in_plan(
+        self, execution_plan: List[Dict[str, Any]], variables: Dict[str, Any]
+    ) -> List[Dict[str, Any]]:
+        """Substitute variables in the execution plan.
+
+        Args:
+            execution_plan: The execution plan to process
+            variables: Variables to substitute
+
+        Returns:
+            Updated execution plan with variables substituted
+        """
+        if not variables:
+            return execution_plan
+
+        # Process each step in the execution plan
+        updated_plan = []
+        for step in execution_plan:
+            updated_step = self._substitute_variables_in_dict(step, variables)
+            updated_plan.append(updated_step)
+
+            # Log substitutions in exports for debugging
+            self._log_export_substitutions(step, updated_step)
+
+        return updated_plan
+
+    def _substitute_variables_in_dict(
+        self, data: Dict[str, Any], variables: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Recursively substitute variables in a dictionary.
+
+        Args:
+            data: The dictionary to process
+            variables: Variables to substitute
+
+        Returns:
+            Updated dictionary with variables substituted
+        """
+        if not isinstance(data, dict):
+            return data
+
+        result = {}
+        for key, value in data.items():
+            if isinstance(value, dict):
+                result[key] = self._substitute_variables_in_dict(value, variables)
+            elif isinstance(value, list):
+                result[key] = self._substitute_variables_in_list(value, variables)
+            elif isinstance(value, str):
+                result[key] = self._substitute_variables_in_string(value, variables)
+            else:
+                result[key] = value
+        return result
+
+    def _substitute_variables_in_list(
+        self, data_list: List[Any], variables: Dict[str, Any]
+    ) -> List[Any]:
+        """Substitute variables in a list.
+
+        Args:
+            data_list: The list to process
+            variables: Variables to substitute
+
+        Returns:
+            Updated list with variables substituted
+        """
+        return [
+            (
+                self._substitute_variables_in_dict(item, variables)
+                if isinstance(item, dict)
+                else (
+                    self._substitute_variables_in_string(item, variables)
+                    if isinstance(item, str)
+                    else item
+                )
+            )
+            for item in data_list
+        ]
+
+    def _substitute_variables_in_string(
+        self, text: str, variables: Dict[str, Any]
+    ) -> str:
+        """Substitute variables in a string.
+
+        Args:
+            text: The string to process
+            variables: Variables to substitute
+
+        Returns:
+            Updated string with variables substituted
+        """
+        if not isinstance(text, str):
+            return text
+
+        return re.sub(
+            r"\$\{([^}]+)\}", lambda m: self._replace_variable(m, variables), text
+        )
+
+    def _replace_variable(self, match: re.Match, variables: Dict[str, Any]) -> str:
+        """Replace a variable match with its value.
+
+        Args:
+            match: The regular expression match
+            variables: Variables dictionary
+
+        Returns:
+            The replacement value
+        """
+        var_expr = match.group(1)
+        if "|" in var_expr:
+            # Handle default value
+            var_name, default = var_expr.split("|", 1)
+            var_name = var_name.strip()
+            default = default.strip()
+
+            # Check if var exists in variables dict
+            if var_name in variables:
+                return str(variables[var_name])
+            return default
+        else:
+            var_name = var_expr.strip()
+            if var_name in variables:
+                return str(variables[var_name])
+            return match.group(0)  # Keep the original if not found
+
+    def _log_export_substitutions(
+        self, original_step: Dict[str, Any], updated_step: Dict[str, Any]
+    ) -> None:
+        """Log substitutions in export steps for debugging.
+
+        Args:
+            original_step: The original step
+            updated_step: The updated step with variables substituted
+        """
+        if original_step.get("type") == "export" and "query" in original_step:
+            orig_dest = original_step.get("query", {}).get("destination_uri", "")
+            new_dest = updated_step.get("query", {}).get("destination_uri", "")
+            if orig_dest != new_dest:
+                logger.debug(
+                    f"Substituted export destination: {orig_dest} -> {new_dest}"
+                )
+
     def create_plan(
         self, pipeline: Pipeline, variables: Optional[Dict[str, Any]] = None
     ) -> List[Dict[str, Any]]:
@@ -1423,6 +1641,14 @@ class Planner:
         logger.info(f"Creating plan for pipeline with {len(pipeline.steps)} steps")
         try:
             plan = self.builder.build_plan(pipeline, variables)
+
+            # Substitute variables in the execution plan
+            if variables:
+                logger.debug(
+                    f"Substituting variables in execution plan: {list(variables.keys())}"
+                )
+                plan = self._substitute_variables_in_plan(plan, variables)
+
             logger.info(f"Successfully created plan with {len(plan)} operations")
             return plan
         except (PlanningError, EvaluationError):

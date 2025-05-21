@@ -302,18 +302,16 @@ class DuckDBEngine(SQLEngine):
         start_time = __import__("time").time()
 
         try:
-            result = self.connection.execute(query)
+            # Substitute variables in the query
+            processed_query = self.substitute_variables(query)
+            logger.debug("Query after variable substitution: %s", processed_query)
+
+            # Execute the processed query
+            result = self.connection.execute(processed_query)
             logger.debug("Query executed successfully")
 
             end_time = __import__("time").time()
             self.stats.record_query(end_time - start_time)
-
-            # IMPORTANT NOTE FOR DEVELOPERS:
-            # DuckDB does not allow CHECKPOINT within an active transaction.
-            # We previously had a CHECKPOINT here but it was moved to be called after
-            # transaction commit to avoid errors like:
-            # "Cannot CHECKPOINT: the current transaction has transaction local changes"
-            # Always place CHECKPOINT commands OUTSIDE of transactions.
 
             return result
         except Exception as e:
@@ -350,11 +348,33 @@ class DuckDBEngine(SQLEngine):
             # If using file-based storage, create a persistent table directly
             if self.database_path != ":memory:":
                 try:
-                    # Create a persistent table directly (no prefix)
-                    self.connection.execute(
-                        f"CREATE TABLE IF NOT EXISTS {name} AS SELECT * FROM {name}"
-                    )
-                    logger.debug("Created persistent table %s", name)
+                    # Extract column names from DataFrame to preserve them
+                    if hasattr(data, "columns"):
+                        column_names = list(data.columns)
+                        if column_names:
+                            # Create a select statement that explicitly names each column
+                            columns_sql = ", ".join(
+                                [f'"{col}" AS "{col}"' for col in column_names]
+                            )
+                            self.connection.execute(
+                                f"CREATE TABLE IF NOT EXISTS {name} AS SELECT {columns_sql} FROM {name}"
+                            )
+                        else:
+                            # Fallback to old behavior for tables without column names
+                            self.connection.execute(
+                                f"CREATE TABLE IF NOT EXISTS {name} AS SELECT * FROM {name}"
+                            )
+                        logger.debug(
+                            f"Created persistent table {name} with column names: {column_names}"
+                        )
+                    else:
+                        # No column information available, use original approach
+                        self.connection.execute(
+                            f"CREATE TABLE IF NOT EXISTS {name} AS SELECT * FROM {name}"
+                        )
+                        logger.debug(
+                            f"Created persistent table {name} without explicit column names"
+                        )
 
                     # IMPORTANT NOTE FOR DEVELOPERS:
                     # DuckDB requires CHECKPOINT to be executed outside of a transaction.
@@ -523,12 +543,54 @@ class DuckDBEngine(SQLEngine):
             Template with variables substituted
         """
         logger.debug("Substituting variables in template: %s", template)
-        result = template
 
-        for name, value in self.variables.items():
-            placeholder = f"${{{name}}}"
-            if placeholder in result:
-                result = result.replace(placeholder, str(value))
+        def format_value(value: Any) -> str:
+            """Format a value for SQL based on its type."""
+            if value is None:
+                return "NULL"
+            elif isinstance(value, bool):
+                return str(value).lower()
+            elif isinstance(value, (int, float)):
+                return str(value)
+            elif isinstance(value, str):
+                # Check if the value is already quoted
+                if value.startswith("'") and value.endswith("'"):
+                    return value
+                # Escape single quotes and wrap in quotes
+                escaped_value = value.replace("'", "''")
+                return "'" + escaped_value + "'"
+            else:
+                # For any other type, convert to string and quote
+                return "'" + str(value) + "'"
+
+        def replace_var(match: re.Match) -> str:
+            """Replace a variable match with its formatted value."""
+            var_expr = match.group(1)
+            if "|" in var_expr:
+                # Handle default value
+                var_name, default = var_expr.split("|", 1)
+                var_name = var_name.strip()
+                default = default.strip()
+
+                if var_name in self.variables:
+                    return format_value(self.variables[var_name])
+
+                # Handle quoted default values
+                if (default.startswith("'") and default.endswith("'")) or (
+                    default.startswith('"') and default.endswith('"')
+                ):
+                    return default.strip("\"'")
+                return format_value(default)
+            else:
+                var_name = var_expr.strip()
+                if var_name in self.variables:
+                    return format_value(self.variables[var_name])
+
+                logger.warning(f"Variable {var_name} not found and no default provided")
+                return "NULL"
+
+        # Replace variables
+        result = re.sub(r"\$\{([^}]+)\}", replace_var, template)
         logger.debug("Substitution result: %s", result)
         return result
 
@@ -1005,33 +1067,36 @@ class DuckDBEngine(SQLEngine):
             logger.debug("No UDF replacements made in query")
             return query
 
+        # Keep track of UDFs we encounter in this query for logging
+        discovered_udfs = []
+
         # Track UDFs that need to be registered
         udfs_to_register = {}
 
         # Map full UDF names to their flat names
         for udf_name, udf_function in udfs.items():
             flat_name = udf_name.split(".")[-1]
-            print(f"DEBUG: Processing UDF {udf_name} with flat_name {flat_name}")
+            logger.debug(f"Processing UDF {udf_name} with flat_name {flat_name}")
 
             # Check UDF type
             udf_type = getattr(udf_function, "_udf_type", "scalar")
-            print(f"DEBUG: UDF {flat_name} type: {udf_type}")
+            logger.debug(f"UDF {flat_name} type: {udf_type}")
 
             # Check for output schema
             output_schema = getattr(udf_function, "_output_schema", None)
             infer_schema = getattr(udf_function, "_infer_schema", False)
-            print(f"DEBUG: UDF {flat_name} output_schema: {output_schema}")
-            print(f"DEBUG: UDF {flat_name} infer_schema: {infer_schema}")
+            logger.debug(f"UDF {flat_name} output_schema: {output_schema}")
+            logger.debug(f"UDF {flat_name} infer_schema: {infer_schema}")
 
             # Only add to registration list if not already registered
             if flat_name not in self.registered_udfs:
-                print(
-                    f"DEBUG: UDF {flat_name} not previously registered, adding to registration list"
+                logger.debug(
+                    f"UDF {flat_name} not previously registered, adding to registration list"
                 )
                 udfs_to_register[udf_name] = udf_function
             else:
-                print(
-                    f"DEBUG: UDF {flat_name} already registered, skipping registration"
+                logger.debug(
+                    f"UDF {flat_name} already registered, skipping registration"
                 )
 
                 # Check if the existing UDF has the right attributes
@@ -1042,8 +1107,8 @@ class DuckDBEngine(SQLEngine):
                 if (output_schema and not existing_output_schema) or (
                     infer_schema and not existing_infer
                 ):
-                    print(
-                        f"DEBUG: UDF {flat_name} has better metadata in newer version, updating registration"
+                    logger.debug(
+                        f"UDF {flat_name} has better metadata in newer version, updating registration"
                     )
                     udfs_to_register[udf_name] = udf_function
 
@@ -1051,28 +1116,34 @@ class DuckDBEngine(SQLEngine):
         for udf_name, udf_function in udfs_to_register.items():
             flat_name = udf_name.split(".")[-1]
             try:
-                print(f"DEBUG: Registering UDF {udf_name} with flat_name {flat_name}")
+                logger.debug(f"Registering UDF {udf_name} with flat_name {flat_name}")
                 self.register_python_udf(udf_name, udf_function)
                 self.registered_udfs[flat_name] = udf_function
-                print(f"DEBUG: Successfully registered UDF {flat_name}")
+                logger.debug(f"Successfully registered UDF {flat_name}")
             except Exception as e:
                 if "already created" in str(e):
-                    print(
-                        f"DEBUG: UDF {flat_name} already registered, updating reference"
+                    logger.debug(
+                        f"UDF {flat_name} already registered, updating reference"
                     )
                     self.registered_udfs[flat_name] = udf_function
                 else:
-                    print(f"DEBUG: Error registering UDF {flat_name}: {e}")
                     logger.error(f"Error registering UDF {flat_name}: {e}")
 
         # Process different UDF patterns based on UDF type
         def replace_udf_call(match):
-            udf_name = match.group(1)
-            udf_args = match.group(2)
-            flat_name = udf_name.split(".")[-1]
+            udf_name = match.group(1)  # Full UDF name like python_udfs.module.function
+            udf_args = match.group(2)  # Arguments passed to UDF
 
-            print(
-                f"DEBUG: replace_udf_call - udf_name: {udf_name}, flat_name: {flat_name}, args: {udf_args}"
+            # Extract module components and flat name
+            udf_parts = udf_name.split(".")
+            flat_name = udf_parts[-1]
+
+            # Record this UDF as discovered in the query
+            if udf_name not in discovered_udfs:
+                discovered_udfs.append(udf_name)
+
+            logger.debug(
+                f"replace_udf_call - udf_name: {udf_name}, flat_name: {flat_name}, args: {udf_args}"
             )
 
             if flat_name in self.registered_udfs:
@@ -1111,10 +1182,13 @@ class DuckDBEngine(SQLEngine):
         standard_pattern = (
             r"PYTHON_FUNC\s*\(\s*[\'\"]([a-zA-Z0-9_\.]+)[\'\"]\s*,\s*(.*?)\)"
         )
-        processed_query = re.sub(standard_pattern, replace_udf_call, query)
+        processed_query = re.sub(
+            standard_pattern, replace_udf_call, query, flags=re.IGNORECASE
+        )
 
         # Log the transformation
         if processed_query != query:
+            logger.debug("UDFs discovered in query: %s", discovered_udfs)
             logger.debug("Original query: %s", query)
             logger.debug("Processed query: %s", processed_query)
             logger.info("Processed query with UDF replacements")
@@ -1180,6 +1254,14 @@ class DuckDBEngine(SQLEngine):
         """
         logger.info(f"Registering Arrow table {table_name}")
 
+        # Add detailed debug logging
+        print(f"DEBUG: Arrow table {table_name} schema: {arrow_table.schema}")
+        print(
+            f"DEBUG: Arrow table {table_name} column names: {arrow_table.column_names}"
+        )
+        for i, col in enumerate(arrow_table.column_names):
+            print(f"DEBUG: Column {i}: {col} - Type: {arrow_table.schema.types[i]}")
+
         transaction_started = False
 
         try:
@@ -1187,6 +1269,9 @@ class DuckDBEngine(SQLEngine):
             if not hasattr(self.connection, "register_arrow"):
                 # For older DuckDB versions without direct Arrow support
                 df = arrow_table.to_pandas()
+                print(
+                    f"DEBUG: Converting to pandas DataFrame. DataFrame columns: {df.columns.tolist()}"
+                )
                 self.register_table(table_name, df, manage_transaction)
                 return  # register_table will handle transaction
 
@@ -1198,21 +1283,56 @@ class DuckDBEngine(SQLEngine):
             # For newer DuckDB versions with direct Arrow support
             self.connection.register_arrow(table_name, arrow_table)
 
-            # Create a persistent table if using file-based storage
+            # If using file-based storage, create a persistent table
             if self.database_path != ":memory:":
                 try:
-                    self.connection.execute(
-                        f"CREATE TABLE IF NOT EXISTS {table_name} AS SELECT * FROM {table_name}"
-                    )
-                    logger.info(f"Created persistent table {table_name}")
+                    # Get column names from the Arrow table
+                    column_names = arrow_table.column_names
 
-                    # IMPORTANT NOTE FOR DEVELOPERS:
-                    # Checkpoint was moved out of the transaction to execute
-                    # only after commit. DuckDB does not allow CHECKPOINT inside
-                    # active transactions. This avoids the error:
-                    # "Cannot CHECKPOINT: the current transaction has transaction local changes"
+                    if column_names:
+                        # Drop the table if it exists to avoid "already exists" errors
+                        drop_sql = f"DROP TABLE IF EXISTS {table_name}"
+                        print(f"DEBUG: Dropping existing table: {drop_sql}")
+                        self.connection.execute(drop_sql)
+
+                        # Create a SELECT statement that explicitly names each column
+                        column_clause = ", ".join(
+                            [f'"{col}" AS "{col}"' for col in column_names]
+                        )
+
+                        # Create a persistent table that preserves column names
+                        create_sql = f"CREATE TABLE {table_name} AS SELECT {column_clause} FROM {table_name}"
+                        print(f"DEBUG: Creating table with SQL: {create_sql}")
+                        self.connection.execute(create_sql)
+
+                        # Verify the created table structure
+                        try:
+                            desc_result = self.connection.execute(
+                                f"DESCRIBE {table_name}"
+                            ).fetchdf()
+                            print(
+                                f"DEBUG: Table {table_name} after create: {desc_result}"
+                            )
+                        except Exception as e:
+                            print(f"DEBUG: Error describing table: {e}")
+                    else:
+                        # Drop the table if it exists to avoid "already exists" errors
+                        self.connection.execute(f"DROP TABLE IF EXISTS {table_name}")
+
+                        # Fallback for tables without column names
+                        self.connection.execute(
+                            f"CREATE TABLE {table_name} AS SELECT * FROM {table_name}"
+                        )
+                        print(
+                            f"DEBUG: Created table with default column names (no explicit names available)"
+                        )
+
+                    logger.info(
+                        f"Created persistent table {table_name} with column names: {column_names}"
+                    )
                 except Exception as e:
                     logger.warning(f"Could not create persistent table: {e}")
+                    print(f"DEBUG: Error creating persistent table: {e}")
                     if transaction_started:
                         self.connection.rollback()
                     raise
@@ -1222,18 +1342,12 @@ class DuckDBEngine(SQLEngine):
                 self.connection.commit()
 
                 # Only after successful commit, execute CHECKPOINT
-                # This is the correct sequence for DuckDB:
-                # 1. Begin transaction
-                # 2. Perform data operations
-                # 3. Commit transaction
-                # 4. CHECKPOINT (outside transaction)
                 if self.database_path != ":memory:":
                     try:
                         self.connection.execute("CHECKPOINT")
                         logger.debug("Checkpoint executed to persist data")
                     except Exception as e:
                         logger.debug("Error performing checkpoint: %s", e)
-                        # Don't raise an error here - checkpoint may not be supported
 
             logger.info(
                 f"Arrow table {table_name} registered and persisted successfully"

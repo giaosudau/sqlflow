@@ -73,9 +73,18 @@ class TokenType(Enum):
     DOLLAR = auto()  # For variable references
     LEFT_BRACE = auto()
     RIGHT_BRACE = auto()
-    DOT = (
-        auto()
-    )  # For SQL table.column references - IMPORTANT: Prevents spaces between identifiers and dots
+    DOT = auto()  # For SQL table.column references
+
+    # SQL comparison operators
+    GREATER_THAN = auto()
+    LESS_THAN = auto()
+    GREATER_EQUAL = auto()
+    LESS_EQUAL = auto()
+    NOT_EQUAL = auto()
+    BETWEEN = auto()
+    IN = auto()
+    AND = auto()
+    OR = auto()
 
     SQL_BLOCK = auto()
 
@@ -113,9 +122,11 @@ class Lexer:
         self.column = 1
         self.tokens: List[Token] = []
 
+        # Define patterns in order of precedence
         self.patterns: List[Tuple[TokenType, Pattern]] = [
             (TokenType.WHITESPACE, re.compile(r"\s+")),
             (TokenType.COMMENT, re.compile(r"--.*?(?:\n|$)")),
+            # SQL keywords
             (TokenType.SOURCE, re.compile(r"SOURCE\b", re.IGNORECASE)),
             (TokenType.TYPE, re.compile(r"TYPE\b", re.IGNORECASE)),
             (TokenType.PARAMS, re.compile(r"PARAMS\b", re.IGNORECASE)),
@@ -130,25 +141,36 @@ class Lexer:
             (TokenType.SET, re.compile(r"SET\b", re.IGNORECASE)),
             (TokenType.CREATE, re.compile(r"CREATE\b", re.IGNORECASE)),
             (TokenType.TABLE, re.compile(r"TABLE\b", re.IGNORECASE)),
+            (TokenType.BETWEEN, re.compile(r"BETWEEN\b", re.IGNORECASE)),
+            (TokenType.IN, re.compile(r"IN\b", re.IGNORECASE)),
+            (TokenType.AND, re.compile(r"AND\b", re.IGNORECASE)),
+            (TokenType.OR, re.compile(r"OR\b", re.IGNORECASE)),
             # Conditional execution patterns
             (TokenType.IF, re.compile(r"IF\b", re.IGNORECASE)),
             (TokenType.THEN, re.compile(r"THEN\b", re.IGNORECASE)),
             (TokenType.ELSE_IF, re.compile(r"ELSE\s*IF\b", re.IGNORECASE)),
             (TokenType.ELSE, re.compile(r"ELSE\b", re.IGNORECASE)),
             (TokenType.END_IF, re.compile(r"END\s*IF\b", re.IGNORECASE)),
+            # Compound operators (must come before single char operators)
+            (TokenType.GREATER_EQUAL, re.compile(r">=")),
+            (TokenType.LESS_EQUAL, re.compile(r"<=")),
+            (TokenType.NOT_EQUAL, re.compile(r"!=")),
+            # Single char operators
+            (TokenType.GREATER_THAN, re.compile(r">")),
+            (TokenType.LESS_THAN, re.compile(r"<")),
             (TokenType.EQUALS, re.compile(r"=")),
             (TokenType.PIPE, re.compile(r"\|")),
             (TokenType.DOLLAR, re.compile(r"\$")),
             (TokenType.LEFT_BRACE, re.compile(r"{")),
             (TokenType.RIGHT_BRACE, re.compile(r"}")),
             (TokenType.SEMICOLON, re.compile(r";")),
-            (TokenType.DOT, re.compile(r"\.")),  # SQL dot operator for table.column
+            (TokenType.DOT, re.compile(r"\.")),
             # Handle ${var} or ${var|default} style variables
             (TokenType.VARIABLE, re.compile(r"\$\{[^}]+\}")),
             (
                 TokenType.STRING,
                 re.compile(r'"(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)*\''),
-            ),  # Handle both " and ' quotes
+            ),
             (TokenType.NUMBER, re.compile(r"\d+(?:\.\d+)?")),
             (TokenType.IDENTIFIER, re.compile(r"[a-zA-Z_][a-zA-Z0-9_]*")),
         ]

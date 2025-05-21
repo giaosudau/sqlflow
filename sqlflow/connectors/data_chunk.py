@@ -18,6 +18,7 @@ class DataChunk:
         self,
         data: Union[pa.Table, pa.RecordBatch, pd.DataFrame, List[Dict[str, Any]]],
         schema: Optional[pa.Schema] = None,
+        original_column_names: Optional[List[str]] = None,
     ):
         """Initialize a DataChunk.
 
@@ -26,9 +27,12 @@ class DataChunk:
                 pandas DataFrame, or list of dictionaries.
             schema: Optional schema for the data. If not provided and
                 data is not a PyArrow Table, schema will be inferred.
+            original_column_names: Optional list of original column names, used to preserve
+                column names from source data (e.g., CSV headers).
         """
         self._arrow_table: Optional[pa.Table] = None
         self._pandas_df: Optional[pd.DataFrame] = None
+        self._original_column_names: Optional[List[str]] = original_column_names
 
         if isinstance(data, pa.Table):
             self._arrow_table = data
@@ -77,6 +81,15 @@ class DataChunk:
         if self._schema is not None:
             return self._schema
         return self.arrow_table.schema
+
+    @property
+    def original_column_names(self) -> Optional[List[str]]:
+        """Get the original column names if available.
+
+        Returns:
+            List of original column names or None if not available.
+        """
+        return self._original_column_names
 
     def __len__(self) -> int:
         """Get the number of rows in this chunk.

@@ -74,9 +74,10 @@ class ConditionEvaluator:
                 "Example: IF ${var} == 'value' THEN ..."
             )
 
-        # Handle lowercase true/false by replacing them with True/False
-        substituted_condition = re.sub(r"\btrue\b", "True", substituted_condition)
-        substituted_condition = re.sub(r"\bfalse\b", "False", substituted_condition)
+        # Handle case-insensitive true/false by replacing them with True/False
+        # This allows for consistent handling of boolean literals regardless of case
+        substituted_condition = re.sub(r"(?i)\btrue\b", "True", substituted_condition)
+        substituted_condition = re.sub(r"(?i)\bfalse\b", "False", substituted_condition)
 
         try:
             # Safe evaluation using Python's ast module
@@ -109,10 +110,27 @@ class ConditionEvaluator:
                     value = self.variables[var_name]
                 else:
                     # Use the default value, properly typed
+                    logger.debug(
+                        f"Using default value '{default}' for variable '{var_name}'"
+                    )
                     return self._format_value_with_type_inference(default)
             else:
                 var_name = var_expr.strip()
                 if var_name not in self.variables:
+                    # Check if this is a self-reference to a variable that was defined with a default
+                    # For example: SET use_csv = "${use_csv|true}";
+                    # The variable would be defined in the SET but the evaluator might not see it
+                    # We should still log a warning but use the default that was set
+                    match_with_default = re.search(
+                        r"\$\{" + re.escape(var_name) + r"\|([^}]+)\}", condition
+                    )
+                    if match_with_default:
+                        default = match_with_default.group(1).strip()
+                        logger.debug(
+                            f"Found self-referential variable ${{{var_name}}} with default '{default}'"
+                        )
+                        return self._format_value_with_type_inference(default)
+
                     logger.warning(f"Variable {var_name} not found in context")
                     return "None"  # Missing variable becomes None
 
@@ -307,10 +325,70 @@ class ConditionEvaluator:
                     f"Unsupported comparison operator: {op_type.__name__}"
                 )
             right = self._eval_node(comparator)
+
+            # Use helper method for string-boolean comparisons
+            if self._is_string_boolean_comparison(op_type, left, right):
+                return self._evaluate_string_boolean_comparison(op_type, left, right)
+
             return self.operators[op_type](left, right)
 
         # This should never happen as there's always at least one operator
         raise EvaluationError("Invalid comparison expression")
+
+    def _is_string_boolean_comparison(
+        self, op_type: type, left: Any, right: Any
+    ) -> bool:
+        """Check if this is a comparison between a string and a boolean.
+
+        Args:
+            op_type: The operator type
+            left: Left operand
+            right: Right operand
+
+        Returns:
+            True if this is a string-boolean comparison that needs special handling
+        """
+        is_eq_op = op_type in (ast.Eq, ast.NotEq)
+        is_bool_string_pair = (isinstance(left, bool) and isinstance(right, str)) or (
+            isinstance(right, bool) and isinstance(left, str)
+        )
+        return is_eq_op and is_bool_string_pair
+
+    def _evaluate_string_boolean_comparison(
+        self, op_type: type, left: Any, right: Any
+    ) -> bool:
+        """Handle special case for string-boolean comparisons.
+
+        Args:
+            op_type: The operator type
+            left: Left operand
+            right: Right operand
+
+        Returns:
+            Result of the comparison
+        """
+        # Ensure bool_val is the boolean and str_val is the string
+        if isinstance(left, bool) and isinstance(right, str):
+            bool_val, str_val = left, right
+        else:
+            bool_val, str_val = right, left
+
+        # Normalize the string for comparison
+        normalized_str = str_val.lower()
+
+        # Handle equality and inequality differently
+        if op_type == ast.Eq:
+            return (bool_val and normalized_str == "true") or (
+                not bool_val and normalized_str == "false"
+            )
+        elif op_type == ast.NotEq:
+            return not (
+                (bool_val and normalized_str == "true")
+                or (not bool_val and normalized_str == "false")
+            )
+
+        # Should not happen due to check in _is_string_boolean_comparison
+        return False
 
     def _eval_name(self, node: ast.Name) -> Any:
         """Evaluate a name node.

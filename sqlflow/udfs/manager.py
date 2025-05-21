@@ -10,6 +10,7 @@ import inspect
 import os
 import re
 import traceback
+from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Set, TypeVar
 
 import pandas as pd
@@ -438,45 +439,97 @@ class PythonUDFManager:
     def discover_udfs(  # noqa: C901
         self, python_udfs_dir: str = "python_udfs", strict: bool = False
     ) -> Dict[str, Callable]:
-        """Discover UDFs in the project structure.
-
-        Scans Python files in the UDFs directory to find functions decorated with
-        @python_scalar_udf or @python_table_udf.
+        """Discover Python UDFs in the project.
 
         Args:
-            python_udfs_dir: Path to UDFs directory relative to project_dir
-            strict: If True, raises an exception when the UDF directory doesn't exist.
-                   If False, logs a warning and returns an empty dict (default: False)
+            python_udfs_dir: Directory name where UDFs are located (default: 'python_udfs')
+            strict: If True, raise an error for missing directories or import errors
 
         Returns:
-            Dictionary of UDF name to function
+            Dict mapping UDF qualified names to function objects
 
         Raises:
-            UDFDiscoveryError: If the UDF directory doesn't exist and strict=True
+            UDFDiscoveryError: If there are discovery errors and strict=True
         """
+        # Create a dictionary to hold discovered UDFs
         udfs = {}
         self.discovery_errors = {}
-        udf_dir = os.path.join(self.project_dir, python_udfs_dir)
+        logger.info(f"UDF discovery in project dir: {self.project_dir}")
 
-        if not os.path.exists(udf_dir):
-            error_msg = f"UDF directory not found: {udf_dir}"
-            logger.warning(error_msg)
+        # First check the root level python_udfs directory (default location)
+        root_udfs_dir = os.path.join(self.project_dir, python_udfs_dir)
+        has_found_udfs = False
+
+        if os.path.exists(root_udfs_dir):
+            has_found_udfs = True
+            logger.debug(f"Looking for UDFs in: {root_udfs_dir}")
+            self._discover_udfs_in_dir(root_udfs_dir, python_udfs_dir, udfs)
+        else:
+            error_msg = f"UDF directory not found: {root_udfs_dir}"
+            logger.error(error_msg)
             self.discovery_errors["directory_not_found"] = error_msg
-            if strict:
-                raise UDFDiscoveryError(error_msg)
-            return udfs
 
-        import_time = __import__("datetime").datetime.now().isoformat()
+        # Also look in subdirectories for python_udfs folders
+        # For example, examples/ecommerce/python_udfs
+        for root, dirs, _ in os.walk(self.project_dir):
+            if os.path.basename(root) != python_udfs_dir and python_udfs_dir in dirs:
+                subdir_python_udfs = os.path.join(root, python_udfs_dir)
+                # Skip if it's the same as the root one we already processed
+                if os.path.normpath(subdir_python_udfs) == os.path.normpath(
+                    root_udfs_dir
+                ):
+                    continue
 
-        for py_file in glob.glob(f"{udf_dir}/**/*.py", recursive=True):
-            # Generate a module name that correctly reflects subdirectory structure
-            module_name = self._extract_module_name(py_file, python_udfs_dir)
+                has_found_udfs = True
+                logger.info(f"Found additional UDFs directory: {subdir_python_udfs}")
+                # Keep the module name prefix as "python_udfs" for compatibility
+                self._discover_udfs_in_dir(subdir_python_udfs, python_udfs_dir, udfs)
 
-            # Process the module to find UDFs
-            self._process_udf_module(module_name, py_file, udfs, import_time)
+        # If strict mode and no UDFs found, raise an error
+        if strict and not has_found_udfs:
+            error_msg = f"No UDF directories found in {self.project_dir}"
+            logger.error(error_msg)
+            self.discovery_errors["directory_not_found"] = error_msg
+            raise UDFDiscoveryError(error_msg)
 
+        # Store UDFs in instance
         self.udfs = udfs
+        logger.debug(f"Discovered {len(udfs)} UDFs")
         return udfs
+
+    def _discover_udfs_in_dir(
+        self, dir_path: str, module_prefix: str, udfs: Dict[str, Callable]
+    ) -> None:
+        """Discover UDFs in a specific directory.
+
+        Args:
+            dir_path: Full path to the directory to scan
+            module_prefix: Module name prefix to use (e.g., 'python_udfs')
+            udfs: Dictionary to populate with discovered UDFs
+        """
+        import_time = datetime.now().isoformat()
+        # Find all Python files in the directory and subdirectories
+        py_files = glob.glob(os.path.join(dir_path, "**", "*.py"), recursive=True)
+
+        for py_file in py_files:
+            if os.path.basename(py_file) == "__init__.py":
+                continue
+
+            # Extract module name using the provided prefix
+            module_name = self._extract_module_name(py_file, dir_path)
+            # Make sure it starts with the module_prefix
+            if not module_name.startswith(module_prefix):
+                module_name = f"{module_prefix}.{os.path.basename(module_name)}"
+
+            logger.debug(f"Processing UDF module: {module_name} from {py_file}")
+
+            try:
+                # Process the module to extract UDFs
+                self._process_udf_module(module_name, py_file, udfs, import_time)
+            except Exception as e:
+                error_msg = f"Error processing UDF module {module_name}: {str(e)}"
+                logger.error(error_msg)
+                self.discovery_errors[module_name] = error_msg
 
     def validate_udf_metadata(self, udf_name: str) -> List[str]:
         """Validate the completeness and integrity of UDF metadata.

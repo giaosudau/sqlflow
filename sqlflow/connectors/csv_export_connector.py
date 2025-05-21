@@ -1,6 +1,7 @@
 """CSV export connector for SQLFlow."""
 
 import csv
+import logging
 import os
 from typing import Any, Dict
 
@@ -12,6 +13,8 @@ from sqlflow.connectors.base import (
 from sqlflow.connectors.data_chunk import DataChunk
 from sqlflow.connectors.registry import register_export_connector
 from sqlflow.core.errors import ConnectorError
+
+logger = logging.getLogger(__name__)
 
 
 @register_export_connector("CSV")
@@ -68,6 +71,12 @@ class CSVExportConnector(ExportConnector):
         """
         self.validate_state(ConnectorState.CONFIGURED)
 
+        # Check if the destination path still contains variable references
+        if "${" in destination and "}" in destination:
+            logger.warning(
+                f"Destination path contains unsubstituted variables: {destination}"
+            )
+
         try:
             directory = os.path.dirname(os.path.abspath(destination))
             if directory:
@@ -76,18 +85,18 @@ class CSVExportConnector(ExportConnector):
             # Get DataFrame from DataChunk
             df = data.pandas_df
 
+            # Write DataFrame to CSV
             df.to_csv(
-                destination,
-                mode="w",
-                header=self.header,
+                path_or_buf=destination,
                 index=False,
+                header=self.header,
                 sep=self.delimiter,
                 quoting=csv.QUOTE_MINIMAL,
                 quotechar=self.quote_char,
                 encoding=self.encoding,
             )
 
-            self.state = ConnectorState.READY
         except Exception as e:
-            self.state = ConnectorState.ERROR
-            raise ConnectorError(self.name or "CSV_EXPORT", f"Writing failed: {str(e)}")
+            error_msg = f"Error writing CSV to {destination}: {str(e)}"
+            logger.error(error_msg)
+            raise ConnectorError(error_msg) from e

@@ -45,7 +45,11 @@ class CSVConnector(Connector):
                 raise ValueError("Path is required")
 
             self.delimiter = params.get("delimiter", ",")
-            self.has_header = params.get("has_header", True)
+
+            # Handle variations of header parameter naming
+            self.has_header = params.get("has_header", params.get("header", True))
+            print(f"DEBUG: CSV Connector configured with has_header: {self.has_header}")
+
             self.quote_char = params.get("quote_char", '"')
             self.encoding = params.get("encoding", "utf-8")
 
@@ -220,23 +224,67 @@ class CSVConnector(Connector):
 
             import pandas as pd
 
+            # Add debug output
+            print(f"DEBUG: CSV Connector reading file: {self.path}")
+            print(f"DEBUG: Has header: {self.has_header}")
+
+            # Read the first few lines to debug the content
+            with open(self.path, "r", encoding=self.encoding) as f:
+                first_lines = [
+                    f.readline().strip()
+                    for _ in range(min(5, sum(1 for _ in open(self.path))))
+                ]
+                print(f"DEBUG: First lines of CSV: {first_lines}")
+
+            # Initialize original_column_names
+            original_column_names = None
+
+            # Read CSV file with pandas - explicitly set header=0 when has_header is True
+            # This ensures pandas uses the first row as column names
+            header_row = 0 if self.has_header else None
+            print(f"DEBUG: Using header_row={header_row} for pandas.read_csv")
+
             df = pd.read_csv(
                 self.path,
                 sep=self.delimiter,
-                header=0 if self.has_header else None,
+                header=header_row,  # Use 0 for first row as header, None for no header
                 quotechar=self.quote_char,
                 encoding=self.encoding,
                 dtype=None,  # Allow pandas to automatically infer data types
             )
 
+            # Store original column names if headers are available
+            if self.has_header:
+                original_column_names = df.columns.tolist()
+                print(f"DEBUG: Storing original column names: {original_column_names}")
+
+            # Print DataFrame info for debugging
+            print(f"DEBUG: CSV loaded with columns: {df.columns.tolist()}")
+            print(f"DEBUG: DataFrame shape: {df.shape}")
+            print(
+                f"DEBUG: DataFrame first row: {df.iloc[0].tolist() if len(df) > 0 else 'empty'}"
+            )
+
             if columns:
                 df = df[columns]
+                # Update original_column_names to match filtered columns
+                if original_column_names:
+                    original_column_names = [
+                        col for col in original_column_names if col in columns
+                    ]
 
             import pyarrow as pa
 
-            table = pa.Table.from_pandas(df)
+            # Create a PyArrow table preserving the column names from pandas
+            table = pa.Table.from_pandas(df, preserve_index=False)
 
-            yield DataChunk(table)
+            # Print PyArrow table info for debugging
+            print(f"DEBUG: PyArrow table schema: {table.schema}")
+            print(f"DEBUG: PyArrow column names: {table.column_names}")
+            print(f"DEBUG: Original column names being passed: {original_column_names}")
+
+            # Create and yield the DataChunk with the table and original column names
+            yield DataChunk(table, original_column_names=original_column_names)
 
             self.state = ConnectorState.READY
         except Exception as e:
