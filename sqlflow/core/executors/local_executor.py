@@ -9,6 +9,7 @@ import uuid
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import pandas as pd
+import typer
 
 from sqlflow.connectors.connector_engine import ConnectorEngine
 from sqlflow.connectors.data_chunk import DataChunk
@@ -311,6 +312,9 @@ class LocalExecutor(BaseExecutor):
         # Initialize execution state
         self._init_execution_state()
 
+        # Reset the SQL generator's warning tracking to prevent warnings from previous runs
+        self.sql_generator.reset_warning_tracking()
+
         # Set up execution environment
         self._setup_execution_environment(variables)
 
@@ -345,6 +349,27 @@ class LocalExecutor(BaseExecutor):
 
             # Add execution summary
             self._generate_step_summary(steps)
+
+            # Log warning summary from SQL generator
+            warning_counts = self.sql_generator.get_warning_summary()
+            if warning_counts:
+                total_warnings = sum(warning_counts.values())
+                suppressed_warnings = total_warnings - len(warning_counts)
+                # Add warning summary to results
+                self.results["warnings"] = {
+                    "total": total_warnings,
+                    "unique": len(warning_counts),
+                    "suppressed": suppressed_warnings,
+                    "by_type": warning_counts,
+                }
+
+                if suppressed_warnings > 0:
+                    logger.info(
+                        f"Execution completed with {total_warnings} warnings "
+                        f"({len(warning_counts)} unique, {suppressed_warnings} suppressed)"
+                    )
+                else:
+                    logger.info(f"Execution completed with {total_warnings} warnings")
 
             # Log successful completion
             logger.info(
@@ -591,9 +616,9 @@ class LocalExecutor(BaseExecutor):
             elif step["type"] == "load":
                 result = self._execute_load(step)
             elif step["type"] == "transform":
-                result = self.execute_step(step)
+                result = self._execute_transform(step)
             elif step["type"] == "export":
-                result = self.execute_step(step)
+                result = self._execute_export(step)
             else:
                 # Unknown step type - log at debug level to avoid spurious warnings
                 logger.debug(f"Unknown step type: {step['type']}")
@@ -692,80 +717,80 @@ class LocalExecutor(BaseExecutor):
     def execute_step(
         self, step: Dict[str, Any], pipeline_name: Optional[str] = None
     ) -> Dict[str, Any]:
-        """Execute a single step."""
+        """Execute a single step of a pipeline.
+
+        Args:
+            step: The step to execute
+            pipeline_name: Optional name of the pipeline (for artifact recording)
+
+        Returns:
+            Result of the execution
+        """
+        # Log what we're about to execute to make it clear to the user
         step_id = step.get("id", "unknown")
         step_type = step.get("type", "unknown")
-        current_step_result: Dict[str, Any] = {}
-        sql_for_artifact: Optional[str] = None
+        self.current_step_id = step_id
 
+        # More focused, user-friendly output format
+        typer.echo(f"  ▶️ Executing {step_id} ({step_type})")
+
+        result = None
         try:
-            # Generate SQL for artifact recording if needed, outside the main execution try-catch
-            if pipeline_name and self.execution_id and self.artifact_manager:
-                variables = (
-                    {}
-                )  # Should be passed from execute() context or class member
-                context = {"variables": variables, "execution_id": self.execution_id}
-                sql_for_artifact = self.sql_generator.generate_operation_sql(
-                    step, context
+            # Start tracking this operation if pipeline_name is provided
+            if pipeline_name:
+                self.artifact_manager.record_operation_start(
+                    pipeline_name, step_id, step_type, ""
                 )
 
-            self._handle_artifact_recording(
-                "start", pipeline_name, step_id, step_type, sql=sql_for_artifact
-            )
-
-            # Execute the step based on its type
+            # Route execution based on step type
             if step_type == "source_definition":
-                current_step_result = self._execute_source_definition(step)
+                result = self._handle_source_step(step)
             elif step_type == "load":
-                current_step_result = self._execute_load(step)
+                result = self._handle_load_step(step)
             elif step_type == "transform":
-                current_step_result = self._execute_transform(step)
+                result = self._handle_transform_step(step)
             elif step_type == "export":
-                current_step_result = self._execute_export(step)
-            elif step_type == "INCLUDE":
-                current_step_result = self._execute_include(step)
+                result = self._handle_export_step(step)
             else:
-                logger.warning(f"Unknown step type: {step_type} for step {step_id}")
-                current_step_result = {
+                logger.error(f"Unknown step type: {step_type}")
+                result = {
                     "status": "failed",
                     "error": f"Unknown step type: {step_type}",
                 }
 
-            # Determine success status for artifact recording
-            success_status = current_step_result.get("status") == "success"
-            self._handle_artifact_recording(
-                "completion",
-                pipeline_name,
-                step_id,
-                step_type,
-                result=current_step_result,
-                success_status=success_status,
-            )
+            # Record the result in our data structure
+            self.results[step_id] = result
+
+            # Record completion for the operation
+            if pipeline_name:
+                self.artifact_manager.record_operation_completion(
+                    pipeline_name, step_id, step_type, result.get("status", "unknown")
+                )
+
+            # Update UI with success/failure
+            if result.get("status") == "success":
+                typer.echo(f"    ✅ {step_type.capitalize()} completed successfully")
+            else:
+                error_msg = result.get("error", "Unknown error")
+                typer.echo(f"    ❌ Failed: {error_msg}")
+
+            return result
 
         except Exception as e:
-            logger.exception(f"Unhandled error executing step {step_id}: {str(e)}")
-            current_step_result = {
-                "status": "failed",
-                "error": f"Unhandled error: {str(e)}",
-            }
-            # Record operation failure if an overarching exception occurred
-            # Ensure we pass a valid result structure for artifact recording
-            self._handle_artifact_recording(
-                "completion",
-                pipeline_name,
-                step_id,
-                step_type,
-                result=current_step_result,
-                success_status=False,
-            )
+            logger.exception(f"Error executing step {step_id}: {e}")
+            result = {"status": "failed", "error": str(e)}
 
-        # Update executor's internal state
-        self.results[step_id] = current_step_result
-        self.executed_steps.add(step_id)
-        if current_step_result.get("status") == "failed":
-            self.failed_step = step
+            # Record the failure in our data structure
+            self.results[step_id] = result
 
-        return current_step_result
+            # Record failure for the operation
+            if pipeline_name:
+                self.artifact_manager.record_operation_completion(
+                    pipeline_name, step_id, step_type, "failed"
+                )
+
+            typer.echo(f"    ❌ Failed: {str(e)}")
+            return result
 
     def _execute_source_definition(self, step: Dict[str, Any]) -> Dict[str, Any]:
         """Execute a source definition step."""
@@ -796,7 +821,21 @@ class LocalExecutor(BaseExecutor):
         profile_connector_name = step.get("profile_connector_name", None)
         if not profile_connector_name:
             error_msg = (
-                f"Source step {step_id} is missing a profile_connector_name property"
+                f"Source step {step_id} is missing a profile_connector_name property.\n\n"
+                "Correct syntax for profile-based sources:\n"
+                'SOURCE name FROM "connector_name" OPTIONS { ... };'
+            )
+            logger.error(error_msg)
+            return {"status": "failed", "error": error_msg}
+
+        # Check for mistakenly set source_connector_type (mixing FROM and TYPE syntax)
+        if step.get("source_connector_type"):
+            error_msg = (
+                f"Source step {step_id} has both profile_connector_name and source_connector_type set.\n\n"
+                "This indicates mixing of FROM and TYPE syntax, which is not allowed.\n"
+                "Choose one of these formats:\n"
+                '1. SOURCE name FROM "connector_name" OPTIONS { ... };\n'
+                "2. SOURCE name TYPE connector_type PARAMS { ... };\n"
             )
             logger.error(error_msg)
             return {"status": "failed", "error": error_msg}
@@ -810,7 +849,40 @@ class LocalExecutor(BaseExecutor):
         profile_connectors = profile_dict.get("connectors", {})
 
         if not profile_connectors:
-            error_msg = f"No connectors defined in profile '{self.profile_name}'"
+            error_msg = (
+                f"No connectors defined in profile '{self.profile_name}'.\n\n"
+                f"Make sure your profile has a 'connectors' section with the connector '{profile_connector_name}' defined."
+            )
+            logger.error(error_msg)
+            return {"status": "failed", "error": error_msg}
+
+        # Check if the referenced connector exists in the profile
+        if profile_connector_name not in profile_connectors:
+            # Build a list of available connectors as a hint
+            available_connectors = list(profile_connectors.keys())
+            connector_list = ", ".join(f"'{conn}'" for conn in available_connectors)
+
+            error_msg = (
+                f"Connector '{profile_connector_name}' not found in profile '{self.profile_name}'.\n\n"
+                f"Available connectors in profile: {connector_list}.\n"
+                "Check your profile configuration and make sure the connector name matches exactly."
+            )
+            logger.error(error_msg)
+            return {"status": "failed", "error": error_msg}
+
+        # Get the connector from the profile
+        profile_connector = profile_connectors.get(profile_connector_name, {})
+
+        # Check that the connector has a type
+        connector_type = profile_connector.get("type")
+        if not connector_type:
+            error_msg = (
+                f"Connector '{profile_connector_name}' in profile '{self.profile_name}' does not have a 'type' property.\n\n"
+                "Make sure your connector definition includes a 'type' property, such as:\n"
+                "connectors:\n"
+                f"  {profile_connector_name}:\n"
+                "    type: postgres  # or csv, duckdb, etc."
+            )
             logger.error(error_msg)
             return {"status": "failed", "error": error_msg}
 
@@ -818,6 +890,9 @@ class LocalExecutor(BaseExecutor):
         options = step.get("query", {})
 
         try:
+            # Store the connector type in the step for SQL generator to use
+            step["source_connector_type"] = connector_type
+
             # Register the connector using the profile definition plus options
             self.connector_engine.register_profile_connector(
                 source_name, profile_connector_name, profile_connectors, options
@@ -826,10 +901,11 @@ class LocalExecutor(BaseExecutor):
                 f"Registered profile-based connector '{source_name}' referencing profile connector '{profile_connector_name}'"
             )
 
-            # Get the connector type from the profile for tracking
-            profile_connector = profile_connectors.get(profile_connector_name, {})
-            connector_type = profile_connector.get("type", "UNKNOWN")
+            # Track this connector type
             self.source_connectors[source_name] = connector_type
+            logger.debug(
+                f"Source {source_name} using connector type {connector_type} from profile"
+            )
 
         except Exception as e:
             logger.error(
@@ -850,14 +926,34 @@ class LocalExecutor(BaseExecutor):
         self, step: Dict[str, Any], step_id: str, source_name: str
     ) -> Dict[str, Any]:
         """Handle a traditional source definition with TYPE PARAMS syntax."""
-        # Get the connector type
-        connector_type = step.get("source_connector_type")
+        # Extract connector type
+        connector_type = step.get("source_connector_type", "").upper()
         if not connector_type:
             error_msg = (
-                f"Source step {step_id} is missing a source_connector_type property"
+                f"Missing connector type in source step {step_id}.\n\n"
+                "Correct syntax:\n"
+                "SOURCE name TYPE connector_type PARAMS { ... };\n"
             )
             logger.error(error_msg)
             return {"status": "failed", "error": error_msg}
+
+        # Check if connector type is supported
+        supported_connector_types = [
+            "CSV",
+            "POSTGRES",
+            "POSTGRESQL",
+            # Add other supported types here
+        ]
+
+        if connector_type.upper() not in supported_connector_types:
+            error_msg = (
+                f"Unsupported connector type '{connector_type}' in source step {step_id}.\n\n"
+                f"Supported connector types: {', '.join(supported_connector_types)}.\n\n"
+                "If you need to use a custom connector, use the FROM syntax with a profile connector:\n"
+                'SOURCE name FROM "connector_name" OPTIONS { ... };\n'
+            )
+            logger.warning(error_msg)
+            # Don't fail here, as the SQLGenerator will handle the unknown type
 
         # Track connector type for this source
         self.source_connectors[source_name] = connector_type
@@ -875,10 +971,11 @@ class LocalExecutor(BaseExecutor):
                 f"Connector engine registered connector '{source_name}' of type '{connector_type}' with params: {params}"
             )
         except Exception as e:
-            logger.error(f"Failed to register connector '{source_name}': {e}")
+            error_msg = f"Failed to register connector '{source_name}': {e}"
+            logger.error(error_msg)
             return {
                 "status": "failed",
-                "error": f"Failed to register connector '{source_name}': {e}",
+                "error": error_msg,
             }
 
         # Save the step mapping for this source
@@ -2074,3 +2171,47 @@ class LocalExecutor(BaseExecutor):
             return processed_query
         except Exception as e:
             raise UDFError(f"Error processing UDFs in query: {str(e)}") from e
+
+    def _handle_source_step(self, step: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle a source definition step.
+
+        Args:
+            step: The source definition step to execute
+
+        Returns:
+            Result of the execution
+        """
+        return self._execute_source_definition(step)
+
+    def _handle_load_step(self, step: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle a load step.
+
+        Args:
+            step: The load step to execute
+
+        Returns:
+            Result of the execution
+        """
+        return self._execute_load(step)
+
+    def _handle_transform_step(self, step: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle a transform step.
+
+        Args:
+            step: The transform step to execute
+
+        Returns:
+            Result of the execution
+        """
+        return self._execute_transform(step)
+
+    def _handle_export_step(self, step: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle an export step.
+
+        Args:
+            step: The export step to execute
+
+        Returns:
+            Result of the execution
+        """
+        return self._execute_export(step)

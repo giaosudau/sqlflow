@@ -264,12 +264,20 @@ class TestParser:
             },
             line_number=1,
         )
-        assert "SOURCE directive requires a TYPE" in invalid_step2.validate()
+        errors = invalid_step2.validate()
+        assert any(
+            "SOURCE directive with TYPE syntax requires a connector type" in error
+            for error in errors
+        )
 
         invalid_step3 = SourceDefinitionStep(
             name="users", connector_type="POSTGRES", params={}, line_number=1
         )
-        assert "SOURCE directive requires PARAMS" in invalid_step3.validate()
+        errors = invalid_step3.validate()
+        assert any(
+            "SOURCE directive with TYPE syntax requires PARAMS" in error
+            for error in errors
+        )
 
     def test_load_step_validation(self):
         """Test that LoadStep validation works correctly."""

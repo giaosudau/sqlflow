@@ -333,7 +333,7 @@ class DuckDBEngine(SQLEngine):
                                Set to False if calling from a method that already manages transactions
         """
         logger.debug("Registering table %s", name)
-        logger.info(f"Registering table {name} with schema: {data.dtypes}")
+        logger.debug(f"Registering table {name} with schema: {data.dtypes}")
 
         transaction_started = False
 
@@ -385,7 +385,7 @@ class DuckDBEngine(SQLEngine):
                         logger.debug("Error performing checkpoint: %s", e)
                         # Don't raise an error here - checkpoint may not be supported
 
-            logger.info(f"Table {name} registered and persisted successfully")
+            logger.debug(f"Table {name} registered and persisted successfully")
         except Exception as e:
             # Ensure we rollback on any error, but only if we started the transaction
             if transaction_started:
@@ -425,7 +425,6 @@ class DuckDBEngine(SQLEngine):
                 }
 
             logger.debug("Schema for table %s: %s", name, schema)
-            logger.info(f"Schema for table {name}: {schema}")
             return schema
         except Exception as e:
             logger.debug("Error getting schema for table %s: %s", name, e)
@@ -459,7 +458,6 @@ class DuckDBEngine(SQLEngine):
                     exists = False
 
             logger.debug("Table %s exists: %s", table_name, exists)
-            logger.info(f"Table {table_name} exists: {exists}")
             return exists
         except Exception as e:
             logger.debug("Error checking if table %s exists: %s", table_name, e)
@@ -991,12 +989,21 @@ class DuckDBEngine(SQLEngine):
                 f"Error registering Python UDF {flat_name}: {str(e)}"
             ) from e
 
-    def process_query_for_udfs(self, query: str, udfs: Dict[str, Callable]) -> str:
-        # TODO: Refactor this method to reduce complexity below 13 branches.
-        # Consider extracting UDF registration and replacement logic into helpers.
-        # For now, add a noqa to allow CI to pass.
-        # flake8: noqa: C901
-        logger.info("Processing query for UDF references")
+    def process_query_for_udfs(
+        self, query: str, udfs: Dict[str, Callable] = None
+    ) -> str:
+        """Process a query to handle UDF references.
+
+        Args:
+            query: SQL query
+            udfs: Dictionary of UDFs to consider for the query
+
+        Returns:
+            Processed query
+        """
+        if not udfs:
+            logger.debug("No UDF replacements made in query")
+            return query
 
         # Track UDFs that need to be registered
         udfs_to_register = {}
@@ -1082,17 +1089,17 @@ class DuckDBEngine(SQLEngine):
                     if "FROM" in parent_context and "SELECT" in parent_context:
                         # This is likely a FROM clause reference - use flat name directly
                         replacement = f"{flat_name}({udf_args})"
-                        print(f"DEBUG: Table UDF in FROM clause: {replacement}")
+                        logger.debug("Table UDF in FROM clause: %s", replacement)
                         return replacement
                     else:
                         # This is likely a scalar context - use flat name
                         replacement = f"{flat_name}({udf_args})"
-                        print(f"DEBUG: Table UDF in scalar context: {replacement}")
+                        logger.debug("Table UDF in scalar context: %s", replacement)
                         return replacement
                 else:
                     # For scalar UDFs, just replace with flat name
                     replacement = f"{flat_name}({udf_args})"
-                    print(f"DEBUG: Scalar UDF replacement: {replacement}")
+                    logger.debug("Scalar UDF replacement: %s", replacement)
                     return replacement
             else:
                 logger.warning(
@@ -1108,11 +1115,11 @@ class DuckDBEngine(SQLEngine):
 
         # Log the transformation
         if processed_query != query:
-            print(f"DEBUG: Original query: {query}")
-            print(f"DEBUG: Processed query: {processed_query}")
+            logger.debug("Original query: %s", query)
+            logger.debug("Processed query: %s", processed_query)
             logger.info("Processed query with UDF replacements")
         else:
-            print("DEBUG: No UDF replacements made in query")
+            logger.debug("No UDF replacements made in query")
 
         return processed_query
 
@@ -1138,10 +1145,10 @@ class DuckDBEngine(SQLEngine):
                     f"PRAGMA memory_limit='{config['memory_limit']}'"
                 )
                 logger.info(f"Set memory limit to {config['memory_limit']}")
-                print(f"DEBUG: Set memory limit to {config['memory_limit']}")
+                logger.debug("Set memory limit to %s", config["memory_limit"])
             except Exception as e:
                 logger.warning(f"Could not set memory limit: {e}")
-                print(f"DEBUG: Could not set memory limit: {e}")
+                logger.debug("Could not set memory limit: %s", e)
 
     def create_temp_table(self, name: str, data: Any) -> None:
         """Create a temporary table with the given data.

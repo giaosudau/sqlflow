@@ -275,6 +275,19 @@ pip install -e .
 * [Contributing Guide](CONTRIBUTING.md)
 * [Logging Configuration Guide](docs/logging.md)
 
+## Global CLI Options
+
+SQLFlow CLI supports the following global options that can be used with any command:
+
+* `--verbose` / `-v`: Enable verbose output, providing more detailed logs and technical information. This is useful for debugging.
+* `--quiet` / `-q`: Reduce output to essential information only, suppressing less critical messages.
+
+Example:
+```bash
+sqlflow --verbose pipeline run my_pipeline
+sqlflow -q pipeline list
+```
+
 ## 🤝 Join the Community
 
 SQLFlow is an open-source project built for data practitioners by data practitioners.

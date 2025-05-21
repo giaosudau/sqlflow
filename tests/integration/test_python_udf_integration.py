@@ -8,7 +8,10 @@ from typing import Any, Dict
 import pytest
 
 from sqlflow.core.engines.duckdb_engine import DuckDBEngine
+from sqlflow.logging import get_logger
 from sqlflow.udfs.manager import PythonUDFManager
+
+logger = get_logger(__name__)
 
 
 def create_test_udf_file(udf_dir):

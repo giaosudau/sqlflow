@@ -8,6 +8,23 @@ The SQLFlow Command Line Interface (CLI) provides a powerful set of tools for cr
 
 ---
 
+## Global CLI Options
+
+SQLFlow CLI supports the following global options that can be used with any command:
+
+| Option      | Alias | Description                                     |
+|-------------|-------|-------------------------------------------------|
+| `--verbose` | `-v`  | Enable verbose output with technical details.   |
+| `--quiet`   | `-q`  | Reduce output to essential information only.    |
+
+Example:
+```bash
+sqlflow --verbose pipeline run example
+sqlflow -q pipeline list
+```
+
+---
+
 ## Installation
 
 SQLFlow CLI is automatically installed when you install the SQLFlow package:
@@ -68,6 +85,13 @@ Compile a pipeline to validate its syntax and generate the execution plan:
 sqlflow pipeline compile example
 ```
 
+To save the compiled plan to a specific file:
+```bash
+sqlflow pipeline compile example --output target/compiled/custom_plan_name.json
+```
+If `--output` is not provided, the plan is saved to `target/compiled/<pipeline_name>.json` by default.
+If compiling all pipelines (no specific pipeline name given), the `--output` flag is ignored, and each plan is saved to its default location.
+
 > **Note:** Like the run command, always use just the pipeline name without path or file extension.
 
 ### Running a Pipeline
@@ -78,12 +102,11 @@ Execute a pipeline with optional variables:
 sqlflow pipeline run example --profile dev --vars '{"date": "2023-10-25"}'
 ```
 
-> **Important:** When specifying a pipeline to run, always use the pipeline name without the path or file extension. 
-> 
-> ✅ Correct: `sqlflow pipeline run example`  
-> ❌ Incorrect: `sqlflow pipeline run pipelines/example.sf`
->
-> The system automatically locates the pipeline file in the appropriate directory.
+To run a pipeline from a previously compiled plan:
+```bash
+sqlflow pipeline run example --from-compiled
+```
+This will use the plan from `target/compiled/example.json` instead of recompiling.
 
 ### Pipeline Validation
 
@@ -102,146 +125,11 @@ sqlflow pipeline validate example
 | `--profile` | Specify the connection profile to use           |
 | `--vars`    | JSON string of variables to pass to the pipeline|
 | `--dry-run` | Validate and compile without executing          |
+| `--output`  | (compile only) Specify output file for the plan |
+| `--from-compiled` | (run only) Use existing compiled plan       |
 
 ---
 
 ## Connection Management
 
-The `connect` command group manages connection profiles for external data sources.
-
-### Listing Connections
-
-List all available connection profiles:
-
-```bash
-sqlflow connect list
-```
-
-### Testing a Connection
-
-Test if a connection profile is properly configured:
-
-```bash
-sqlflow connect test dev
-```
-
----
-
-## User-Defined Functions (UDFs)
-
-The `udf` command group helps you discover, validate, and get information about Python UDFs.
-
-### Listing UDFs
-
-List all available Python UDFs:
-
-```bash
-sqlflow udf list
-```
-
-### UDF Information
-
-Get detailed information about a specific UDF:
-
-```bash
-sqlflow udf info python_udfs.text_utils.capitalize_words
-```
-
-### Validating UDFs
-
-Validate all Python UDFs to ensure they meet the requirements:
-
-```bash
-sqlflow udf validate
-```
-
----
-
-## Variables in Pipelines
-
-SQLFlow supports variable substitution in pipelines with default values:
-
-```sql
--- Example of variable usage in a pipeline
-SET date = '${run_date|2023-10-25}';
-
-SOURCE sample TYPE CSV PARAMS {
-  "path": "data/sample_${date}.csv",
-  "has_header": true
-};
-```
-
-You can provide variables when running a pipeline:
-
-```bash
-sqlflow pipeline run example --vars '{"run_date": "2023-11-01"}'
-```
-
----
-
-## Best Practices
-
-1. **Use Profiles**: Create different profiles (dev, test, prod) for connection settings.
-   
-2. **Version Control**: Keep your pipeline files under version control.
-
-3. **Parameterize Pipelines**: Use variables to make pipelines reusable.
-
-4. **Organize UDFs**: Keep related UDFs in separate modules within the `python_udfs` directory.
-
-5. **Test Before Production**: Use the `--dry-run` option to validate pipelines before executing them in production.
-
----
-
-## Troubleshooting
-
-### Common Issues
-
-1. **Pipeline Not Found**: Ensure you're in the correct project directory and the pipeline file exists.
-
-2. **Connection Errors**: Verify your connection profile settings and test the connection.
-
-3. **UDF Discovery Issues**: Check UDF imports and ensure they follow required signatures.
-
-4. **Variable Substitution Errors**: Validate variable formats in pipelines (`${var_name|default_value}`).
-
----
-
-## Advanced Usage
-
-### Environment Variables
-
-You can use environment variables in your connection profiles:
-
-```yaml
-# profiles/dev.yml
-default:
-  type: snowflake
-  account: ${SNOWFLAKE_ACCOUNT}
-  user: ${SNOWFLAKE_USER}
-  password: ${SNOWFLAKE_PASSWORD}
-  database: analytics
-```
-
-### Scheduling Pipeline Runs
-
-Use cron or other scheduling tools to run pipelines periodically:
-
-```bash
-# Run daily at midnight
-0 0 * * * cd /path/to/project && sqlflow pipeline run daily_processing --profile prod
-```
-
----
-
-## Reference
-
-For more detailed information on SQLFlow syntax and features, refer to:
-
-- [SQLFlow Syntax Reference](./syntax.md)
-- [Python UDFs Guide](./python_udfs.md)
-- [Connection Profiles Guide](./connector_usage_guide.md)
-
----
-
-For further questions or to contribute improvements, see the main [README](../README.md) or open an issue.
+The `connect`

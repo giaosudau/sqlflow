@@ -49,14 +49,49 @@ class SourceDefinitionStep(PipelineStep):
         if not self.name:
             errors.append("SOURCE directive requires a name")
 
+        # Check for mixing of FROM and TYPE syntax patterns
+        if self.is_from_profile and self.connector_type:
+            errors.append(
+                "Invalid SOURCE syntax: Cannot mix FROM and TYPE syntax patterns.\n\n"
+                "Choose one of these formats:\n"
+                '1. SOURCE name FROM "connector_name" OPTIONS {...};\n'
+                "2. SOURCE name TYPE connector_type PARAMS {...};\n"
+            )
+
+        # Check correct format based on selected syntax pattern
         if self.is_from_profile:
             if not self.profile_connector_name:
-                errors.append("SOURCE directive with FROM requires a connector name")
+                errors.append(
+                    "SOURCE directive with FROM syntax requires a connector name in quotes:\n\n"
+                    'SOURCE name FROM "connector_name" OPTIONS {...};\n'
+                )
+            # Check for PARAMS with FROM (incorrect)
+            if any(param == "PARAMS" for param in self.params.keys()):
+                errors.append(
+                    "Invalid SOURCE syntax: Cannot use PARAMS with FROM-based syntax.\n\n"
+                    "Correct syntax:\n"
+                    'SOURCE name FROM "connector_name" OPTIONS {...};\n'
+                )
         else:
+            # TYPE syntax validation
             if not self.connector_type:
-                errors.append("SOURCE directive requires a TYPE")
+                errors.append(
+                    "SOURCE directive with TYPE syntax requires a connector type:\n\n"
+                    "SOURCE name TYPE connector_type PARAMS {...};\n"
+                )
             if not self.params:
-                errors.append("SOURCE directive requires PARAMS")
+                errors.append(
+                    "SOURCE directive with TYPE syntax requires PARAMS:\n\n"
+                    "SOURCE name TYPE connector_type PARAMS {...};\n"
+                )
+            # Check for OPTIONS with TYPE (incorrect)
+            if any(param == "OPTIONS" for param in self.params.keys()):
+                errors.append(
+                    "Invalid SOURCE syntax: Cannot use OPTIONS with TYPE-based syntax.\n\n"
+                    "Correct syntax:\n"
+                    "SOURCE name TYPE connector_type PARAMS {...};\n"
+                )
+
         return errors
 
 

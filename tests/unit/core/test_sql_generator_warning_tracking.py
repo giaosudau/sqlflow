@@ -86,9 +86,9 @@ def test_unknown_source_type_warning():
         sql = generator._generate_source_sql(operation, {})
 
         # Assert
-        # Verify warning was logged
-        mock_logger.warning.assert_called_once()
-        warning_msg = mock_logger.warning.call_args[0][0]
+        # Verify warning was logged with debug level
+        mock_logger.debug.assert_called()
+        warning_msg = mock_logger.debug.call_args[0][0]
         assert "Unknown or unsupported source connector type" in warning_msg
         assert "UNKNOWN_TYPE" in warning_msg
 
@@ -120,14 +120,11 @@ def test_profile_connector_not_found_warning():
         generator._generate_source_sql(operation, context)
 
         # Assert
-        # Should have two warning calls - one for missing connector and one for unknown type
-        # But in the updated implementation, we only have one warning for missing connector
-        # and the unknown type warning is handled separately
-        assert mock_logger.warning.call_count >= 1
-
-        # First call should be about the missing connector
-        first_call_args = mock_logger.warning.call_args_list[0][0]
+        # Should have one warning call for missing connector
+        mock_logger.debug.assert_called()
+        warning_msg = mock_logger.debug.call_args[0][0]
+        assert "Unknown or unsupported source connector type" in warning_msg
         assert (
-            "Profile connector 'nonexistent_connector' not found" in first_call_args[0]
+            "Check that connector 'nonexistent_connector' in your profile has a valid 'type' setting"
+            in warning_msg
         )
-        assert "Check that 'nonexistent_connector' is defined" in first_call_args[0]

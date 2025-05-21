@@ -600,7 +600,7 @@ class PythonUDFManager:
         if udf_names is None:
             udf_names = list(self.udfs.keys())
 
-        print(f"DEBUG: All UDFs to register: {udf_names}")
+        logger.debug(f"All UDFs to register: {udf_names}")
 
         registration_errors = []
 
@@ -611,18 +611,18 @@ class PythonUDFManager:
 
                 udf = self.udfs[udf_name]
                 # Debug output to understand UDF attributes before registration
-                print(f"DEBUG: Registering UDF {udf_name}")
-                print(f"DEBUG: UDF type: {getattr(udf, '_udf_type', 'unknown')}")
-                print(
-                    f"DEBUG: UDF has output_schema attr: {hasattr(udf, '_output_schema')}"
+                logger.debug(f"Registering UDF {udf_name}")
+                logger.debug(f"UDF type: {getattr(udf, '_udf_type', 'unknown')}")
+                logger.debug(
+                    f"UDF has output_schema attr: {hasattr(udf, '_output_schema')}"
                 )
                 if hasattr(udf, "_output_schema"):
-                    print(f"DEBUG: UDF output_schema: {udf._output_schema}")
-                print(
-                    f"DEBUG: UDF _infer_schema: {getattr(udf, '_infer_schema', False)}"
+                    logger.debug(f"UDF output_schema: {udf._output_schema}")
+                logger.debug(
+                    f"UDF _infer_schema: {getattr(udf, '_infer_schema', False)}"
                 )
-                print(
-                    f"DEBUG: UDF attributes: {[attr for attr in dir(udf) if attr.startswith('_') and not attr.startswith('__')]}"
+                logger.debug(
+                    f"UDF attributes: {[attr for attr in dir(udf) if attr.startswith('_') and not attr.startswith('__')]}"
                 )
 
                 # Register the UDF with the engine
@@ -651,23 +651,23 @@ class PythonUDFManager:
             Dictionary of UDF names to functions for UDFs referenced in the query
         """
         udf_refs = self.extract_udf_references(sql)
-        print(f"DEBUG: UDF references extracted from query: {udf_refs}")
+        logger.debug(f"UDF references extracted from query: {udf_refs}")
 
         result = {}
         for name in udf_refs:
             if name in self.udfs:
                 udf = self.udfs[name]
-                print(f"DEBUG: Adding UDF {name} to query UDFs")
-                print(
-                    f"DEBUG: UDF {name} has _output_schema: {hasattr(udf, '_output_schema')}"
+                logger.debug(f"Adding UDF {name} to query UDFs")
+                logger.debug(
+                    f"UDF {name} has _output_schema: {hasattr(udf, '_output_schema')}"
                 )
                 if hasattr(udf, "_output_schema"):
-                    print(
-                        f"DEBUG: UDF {name} output_schema value: {udf._output_schema}"
+                    logger.debug(
+                        f"UDF {name} output_schema value: {udf._output_schema}"
                     )
                 result[name] = udf
 
-        print(
-            f"DEBUG: Returning {len(result)} UDFs for query, with names: {list(result.keys())}"
+        logger.debug(
+            f"Returning {len(result)} UDFs for query, with names: {list(result.keys())}"
         )
         return result

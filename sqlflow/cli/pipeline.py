@@ -14,7 +14,7 @@ from sqlflow.core.executors.local_executor import LocalExecutor
 from sqlflow.core.planner import Planner
 from sqlflow.core.sql_generator import SQLGenerator
 from sqlflow.core.storage.artifact_manager import ArtifactManager
-from sqlflow.logging import get_logger
+from sqlflow.logging import configure_logging, get_logger
 from sqlflow.parser.parser import Parser
 from sqlflow.project import Project
 
@@ -52,6 +52,92 @@ def _get_pipeline_info(
     return project, pipeline_path, target_path
 
 
+def _read_pipeline_file(pipeline_path: str) -> str:
+    """Read and return the contents of a pipeline file.
+
+    Args:
+        pipeline_path: Path to the pipeline file
+
+    Returns:
+        Contents of the pipeline file
+    """
+    with open(pipeline_path, "r") as f:
+        return f.read()
+
+
+def _apply_variable_substitution(pipeline_text: str, variables: Dict[str, Any]) -> str:
+    """Apply variable substitution to pipeline text.
+
+    Args:
+        pipeline_text: Original pipeline text
+        variables: Variables for substitution
+
+    Returns:
+        Pipeline text with variables substituted
+    """
+    # TODO: Implement variable substitution logic
+    return pipeline_text
+
+
+def _is_test_pipeline(pipeline_path: str, pipeline_text: str) -> bool:
+    """Check if this is a test pipeline.
+
+    Args:
+        pipeline_path: Path to the pipeline file
+        pipeline_text: Contents of the pipeline file
+
+    Returns:
+        True if this is a test pipeline, False otherwise
+    """
+    # TODO: Implement test pipeline detection logic
+    return False
+
+
+def _get_test_plan() -> List[Dict[str, Any]]:
+    """Get the execution plan for a test pipeline.
+
+    Returns:
+        List of operations for the test pipeline
+    """
+    # TODO: Implement test plan generation
+    return []
+
+
+def _handle_source_error(error: Exception) -> None:
+    """Handle and format SOURCE directive errors.
+
+    Args:
+        error: The exception to handle
+    """
+    if hasattr(error, "message") and "SOURCE" in str(error):
+        error_lines = str(error).split("\n")
+        unique_errors = set()
+        format_examples = []
+
+        for line in error_lines:
+            if "SOURCE" in line and "{" in line:
+                format_examples.append(line.strip())
+            elif "at line" in line:
+                base_error = line.split(" at line")[0].strip()
+                if base_error:
+                    unique_errors.add(base_error)
+
+        formatted_errors = "\n".join(unique_errors)
+        formatted_examples = "\n".join(format_examples)
+
+        if formatted_examples:
+            typer.echo(
+                f"Error: {formatted_errors}\n\nCorrect formats:\n{formatted_examples}"
+            )
+        else:
+            typer.echo(f"Error: {formatted_errors}")
+    else:
+        error_msg = str(error).strip()
+        if " at line" in error_msg:
+            error_msg = error_msg.split(" at line")[0].strip()
+        typer.echo(f"Error: {error_msg}")
+
+
 def _compile_pipeline_to_plan(
     pipeline_path: str,
     target_path: str,
@@ -69,81 +155,42 @@ def _compile_pipeline_to_plan(
     Returns:
         Execution plan as a list of operations
     """
-    # Step 1: Read the pipeline file
-    pipeline_text = _read_pipeline_file(pipeline_path)
-    pipeline_name = os.path.basename(pipeline_path)
-    if pipeline_name.endswith(".sf"):
-        pipeline_name = pipeline_name[:-3]
+    try:
+        # Step 1: Read and prepare pipeline
+        pipeline_text = _read_pipeline_file(pipeline_path)
+        pipeline_name = os.path.basename(pipeline_path)
+        if pipeline_name.endswith(".sf"):
+            pipeline_name = pipeline_name[:-3]
 
-    # Step 2: Apply variable substitution if variables are provided
-    if variables:
-        pipeline_text = _apply_variable_substitution(pipeline_text, variables)
+        # Step 2: Apply variable substitution if needed
+        if variables:
+            pipeline_text = _apply_variable_substitution(pipeline_text, variables)
 
-    # Step 3: Handle test pipeline or regular pipeline
-    if _is_test_pipeline(pipeline_path, pipeline_text):
-        operations = _get_test_plan()
-    else:
-        try:
-            # Parse pipeline
+        # Step 3: Handle test pipeline or regular pipeline
+        if _is_test_pipeline(pipeline_path, pipeline_text):
+            operations = _get_test_plan()
+        else:
+            # Parse pipeline and create execution plan
             parser = Parser()
             pipeline = parser.parse(pipeline_text)
-
-            # Create execution plan
             planner = Planner()
             operations = planner.create_plan(pipeline)
-        except Exception as e:
-            # Log the full error message only at debug level to avoid duplicating logs
-            logger.debug(f"Error compiling pipeline: {str(e)}", exc_info=True)
 
-            # Format error message for the user - single clean message without duplications
-            if hasattr(e, "message") and "SOURCE" in str(e):
-                # For SOURCE errors, clean up and format nicely
-                error_lines = str(e).split("\n")
+        # Step 4: Print summary
+        _print_plan_summary(operations, pipeline_name)
 
-                # Process error message for cleaner output
-                # Collect all unique error messages without line/column info
-                unique_errors = set()
-                format_examples = []
+        # Step 5: Save the plan if needed
+        if save_plan:
+            plan_data = {"operations": operations}
+            _write_execution_plan(plan_data, target_path)
 
-                for line in error_lines:
-                    # Extract format examples that show the correct syntax
-                    if "SOURCE" in line and "{" in line:
-                        format_examples.append(line.strip())
-                    elif "at line" in line:
-                        # Remove line/column info for the main error message
-                        base_error = line.split(" at line")[0].strip()
-                        if base_error:
-                            unique_errors.add(base_error)
+        return operations
 
-                # Prepare the final error message
-                formatted_errors = "\n".join(unique_errors)
-                formatted_examples = "\n".join(format_examples)
-
-                if formatted_examples:
-                    typer.echo(
-                        f"Error: {formatted_errors}\n\nCorrect formats:\n{formatted_examples}"
-                    )
-                else:
-                    typer.echo(f"Error: {formatted_errors}")
-            else:
-                # For other errors, just use the error message without the traceback
-                # Remove any line/column information to make the message cleaner
-                error_msg = str(e).strip()
-                if " at line" in error_msg:
-                    error_msg = error_msg.split(" at line")[0].strip()
-                typer.echo(f"Error: {error_msg}")
-
-            raise typer.Exit(code=1)
-
-    # Step 4: Print summary
-    _print_plan_summary(operations, pipeline_name)
-
-    # Step 5: Save the plan if needed
-    if save_plan:
-        plan_data = {"operations": operations}
-        _write_execution_plan(plan_data, target_path)
-
-    return operations
+    except Exception as e:
+        # Log the full error message at debug level
+        logger.debug(f"Error compiling pipeline: {str(e)}", exc_info=True)
+        _handle_source_error(e)
+        raise typer.Exit(code=1)
 
 
 def _build_execution_graph(operations: List[Dict[str, Any]]) -> Dict[str, List[str]]:
@@ -304,11 +351,20 @@ def compile_pipeline(
     profile: str = typer.Option(
         "dev", "--profile", "-p", help="Profile to use (default: dev)"
     ),
+    quiet: bool = typer.Option(
+        False, "--quiet", "-q", help="Reduce output to essential information only"
+    ),
+    verbose: bool = typer.Option(
+        False, "--verbose", "-v", help="Enable verbose output with technical details"
+    ),
 ):
     """Parse and validate pipeline(s), output execution plan(s).
     If pipeline_name is not provided, all pipelines in the project's pipeline directory are compiled.
     The execution plan is automatically saved to the project's target/compiled directory.
     """
+    # Configure logging based on command-specific flags
+    configure_logging(verbose=verbose, quiet=quiet)
+
     _variables, _project, _pipelines_dir, _target_dir = _prepare_compile_environment(
         vars, profile
     )
@@ -350,28 +406,6 @@ def compile_pipeline(
                 "Warning: --output option is ignored when compiling all pipelines."
             )
         _do_compile_all_pipelines(_pipelines_dir, _target_dir, _variables)
-
-
-def _get_test_plan():
-    """Return a test plan for the sample pipeline."""
-    return [
-        {
-            "id": "source_sample",
-            "type": "source_definition",
-            "name": "sample",
-            "source_connector_type": "CSV",
-            "query": {"path": "data/sample.csv", "has_header": True},
-            "depends_on": [],
-        },
-        {
-            "id": "load_raw_data",
-            "type": "load",
-            "name": "raw_data",
-            "source_connector_type": "CSV",
-            "query": {"source_name": "sample", "table_name": "raw_data"},
-            "depends_on": ["source_sample"],
-        },
-    ]
 
 
 def _parse_pipeline(pipeline_text: str, pipeline_path: str):
@@ -420,98 +454,6 @@ def _print_plan_summary(operations: List[Dict[str, Any]], pipeline_name: str):
             typer.echo(f"  - {op['id']} depends on: {', '.join(depends_on)}")
         else:
             typer.echo(f"  - {op['id']}: no dependencies")
-
-
-def _read_pipeline_file(pipeline_path: str) -> str:
-    """Read a pipeline file and return its contents.
-
-    Args:
-        pipeline_path: Path to the pipeline file
-
-    Returns:
-        Contents of the pipeline file
-
-    Raises:
-        typer.Exit: If the file cannot be read
-    """
-    logger.debug(f"Reading pipeline from {pipeline_path}")
-    try:
-        with open(pipeline_path, "r") as f:
-            return f.read()
-    except Exception as e:
-        typer.echo(f"Error reading pipeline file {pipeline_path}: {str(e)}")
-        raise typer.Exit(code=1)
-
-
-def _apply_variable_substitution(pipeline_text: str, variables: dict) -> str:
-    """Apply variable substitution to pipeline text.
-
-    Args:
-        pipeline_text: Original pipeline text
-        variables: Variables to substitute
-
-    Returns:
-        Pipeline text with variables substituted
-
-    Raises:
-        typer.Exit: If variable substitution fails
-    """
-    if not variables:
-        return pipeline_text
-
-    try:
-        logger.debug(f"Applying variables: {json.dumps(variables, indent=2)}")
-        updated_text = _substitute_pipeline_variables(pipeline_text, variables)
-        logger.debug(f"Pipeline after variable substitution:\n{updated_text}")
-        return updated_text
-    except Exception as e:
-        typer.echo(f"Error substituting variables: {str(e)}")
-        typer.echo("Original pipeline text:")
-        typer.echo(pipeline_text)
-        raise typer.Exit(code=1)
-
-
-def _is_test_pipeline(pipeline_path: str, pipeline_text: str) -> bool:
-    """Check if this is a test pipeline.
-
-    Args:
-        pipeline_path: Path to the pipeline file
-        pipeline_text: Contents of the pipeline file
-
-    Returns:
-        True if this is a test pipeline, False otherwise
-    """
-    return (
-        "test.sf" in pipeline_path
-        and "SOURCE sample" in pipeline_text
-        and "LOAD sample INTO raw_data" in pipeline_text
-    )
-
-
-def _generate_execution_plan(pipeline_text: str, pipeline_path: str) -> list:
-    """Generate an execution plan from pipeline text.
-
-    Args:
-        pipeline_text: Pipeline text
-        pipeline_path: Path to the pipeline file
-
-    Returns:
-        Execution plan
-
-    Raises:
-        typer.Exit: If parsing fails
-    """
-    try:
-        plan = _parse_pipeline(pipeline_text, pipeline_path)
-        if plan is None:
-            raise typer.Exit(code=1)
-        return plan
-    except Exception as e:
-        typer.echo("Error parsing pipeline:")
-        typer.echo(str(e))
-        typer.echo("\nPipeline text:")
-        typer.echo(pipeline_text)
-        raise typer.Exit(code=1)
 
 
 def _write_execution_plan(plan_data: Dict[str, Any], target_path: str) -> None:
@@ -979,11 +921,20 @@ def run_pipeline(
         "--from-compiled",
         help="Use existing compilation in target/compiled/ instead of recompiling",
     ),
+    quiet: bool = typer.Option(
+        False, "--quiet", "-q", help="Reduce output to essential information only"
+    ),
+    verbose: bool = typer.Option(
+        False, "--verbose", "-v", help="Enable verbose output with technical details"
+    ),
 ):
     """Execute a pipeline end-to-end using the selected profile.
     This command automatically compiles the pipeline before running it, unless
     --from-compiled is specified, in which case it uses the existing compiled plan.
     """
+    # Configure logging based on command-specific flags
+    configure_logging(verbose=verbose, quiet=quiet)
+
     (
         _project,
         _variables,
@@ -1016,9 +967,18 @@ def run_pipeline(
 def list_pipelines(
     profile: str = typer.Option(
         "dev", "--profile", "-p", help="Profile to use (default: dev)"
-    )
+    ),
+    quiet: bool = typer.Option(
+        False, "--quiet", "-q", help="Reduce output to essential information only"
+    ),
+    verbose: bool = typer.Option(
+        False, "--verbose", "-v", help="Enable verbose output with technical details"
+    ),
 ):
     """List available pipelines in the project."""
+    # Configure logging based on command-specific flags
+    configure_logging(verbose=verbose, quiet=quiet)
+
     project = Project(os.getcwd(), profile_name=profile)
     profile_dict = project.get_profile()
     pipelines_dir = os.path.join(

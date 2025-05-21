@@ -81,7 +81,11 @@ def test_execution_tracking_workflow(tmp_path: Path) -> None:
     # Act - Complete operation (success)
     success_result = {"rows_affected": 10, "database_info": {"engine": "duckdb"}}
     op_result = manager.record_operation_completion(
-        "test_pipeline", "test_op", True, success_result
+        "test_pipeline",
+        "test_op",
+        "transform",
+        True,  # Pass success status
+        success_result,  # Pass results separately
     )
 
     # Assert - Operation completed successfully

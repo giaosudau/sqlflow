@@ -2,7 +2,6 @@
 
 import os
 import sys
-from typing import Optional
 
 import typer
 
@@ -10,6 +9,7 @@ from sqlflow import __version__
 from sqlflow.cli import connect
 from sqlflow.cli.commands.udf import app as udf_app
 from sqlflow.cli.pipeline import pipeline_app
+from sqlflow.logging import configure_logging, suppress_third_party_loggers
 from sqlflow.project import Project
 
 app = typer.Typer(
@@ -31,11 +31,22 @@ def version_callback(value: bool):
 
 @app.callback()
 def main(
-    version: Optional[bool] = typer.Option(
-        None, "--version", callback=version_callback, help="Show version and exit."
+    version: bool = typer.Option(
+        False, "--version", callback=version_callback, help="Show version and exit."
+    ),
+    verbose: bool = typer.Option(
+        False, "--verbose", "-v", help="Enable verbose output with technical details"
+    ),
+    quiet: bool = typer.Option(
+        False, "--quiet", "-q", help="Reduce output to essential information only"
     ),
 ):
-    """SQLFlow - SQL-based data pipeline tool."""
+    """SQLFlow CLI main entrypoint."""
+    # Configure logging based on command line flags
+    configure_logging(verbose=verbose, quiet=quiet)
+
+    # Suppress noisy third-party logs
+    suppress_third_party_loggers()
 
 
 @app.command()
@@ -94,6 +105,24 @@ OPTIONS { "header": true, "delimiter": "," };
     typer.echo('  sqlflow pipeline run example --vars \'{"date": "2023-10-25"}\'')
 
 
+@app.command("logging_status")
+def show_logging_status():
+    """Show the current logging status of all modules."""
+    from sqlflow.logging import get_logging_status
+
+    status = get_logging_status()
+
+    typer.echo("SQLFlow Logging Status")
+    typer.echo(f"Root level: {status['root_level']}")
+    typer.echo("\nModule levels:")
+
+    # Get sorted module names for consistent output
+    module_names = sorted(status["modules"].keys())
+    for name in module_names:
+        info = status["modules"][name]
+        typer.echo(f"  {name}: {info['level']}")
+
+
 def cli():
     """Entry point for the command line."""
     # Fix for the help command issue with Typer
@@ -104,8 +133,11 @@ def cli():
         print("  connect     Manage and test connection profiles.")
         print("  udf         Manage Python User-Defined Functions.")
         print("  init        Initialize a new SQLFlow project.")
+        print("  logging_status  Show the current logging configuration.")
         print("\nOptions:")
         print("  --version   Show version and exit.")
+        print("  --quiet     Reduce output to essential information only.")
+        print("  --verbose   Enable verbose output with technical details.")
         print("  --help      Show this message and exit.")
 
         if len(sys.argv) == 1:

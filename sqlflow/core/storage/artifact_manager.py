@@ -11,7 +11,7 @@ import os
 import re
 import uuid
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 logger = logging.getLogger(__name__)
 
@@ -328,78 +328,140 @@ class ArtifactManager:
             sanitized_name or f"{operation_type}_fallback_{uuid.uuid4().hex[:4]}"
         )  # Ensure not empty, add type for clarity on fallback
 
-    def record_operation_completion(
-        self,
-        pipeline_name: str,
-        operation_id: str,
-        success: bool,
-        results: Dict[str, Any],
-    ) -> Dict[str, Any]:
-        """Record completion of an operation.
+    def _get_operation_file_name(self, pipeline_name: str, operation_id: str) -> str:
+        """Get the file name for an operation from metadata or fallback to operation_id.
 
         Args:
-            pipeline_name: Name of the pipeline.
-            operation_id: ID of the operation.
-            success: Whether operation succeeded.
-            results: Results of the operation.
+            pipeline_name: Name of the pipeline
+            operation_id: ID of the operation
 
         Returns:
-            Updated operation metadata.
+            File name base for the operation
         """
         run_dir = self.get_run_dir(pipeline_name)
-
-        # Look up the file name base from metadata
         metadata_path = os.path.join(run_dir, "metadata.json")
         try:
             with open(metadata_path, "r") as f:
                 metadata = json.load(f)
-
-            # Get the descriptive file name from operation mapping
             operation_mapping = metadata.get("operation_mapping", {})
-            file_name_base = operation_mapping.get(operation_id, operation_id)
+            return operation_mapping.get(operation_id, operation_id)
         except Exception:
-            # Fallback to original ID if any issues
-            file_name_base = operation_id
+            return operation_id
 
+    def _load_operation_metadata(
+        self, run_dir: str, file_name_base: str
+    ) -> Dict[str, Any]:
+        """Load existing operation metadata or create new metadata.
+
+        Args:
+            run_dir: Directory containing operation files
+            file_name_base: Base name for operation files
+
+        Returns:
+            Operation metadata dictionary
+        """
         op_path = os.path.join(run_dir, f"{file_name_base}.json")
-
-        # Load existing metadata
         try:
             with open(op_path, "r") as f:
-                op_metadata = json.load(f)
+                return json.load(f)
         except FileNotFoundError:
-            # If file doesn't exist (shouldn't happen normally), create new metadata
-            op_metadata = {
-                "operation_id": operation_id,
+            return {
+                "operation_id": file_name_base,
                 "file_name_base": file_name_base,
                 "started_at": datetime.now().isoformat(),
             }
 
-        # Update with completion information
+    def _process_operation_status(
+        self,
+        status: Union[bool, str, Dict[str, Any]],
+        results: Optional[Dict[str, Any]] = None,
+    ) -> Tuple[bool, Optional[str], Dict[str, Any]]:
+        """Process operation status and results.
+
+        Args:
+            status: Operation status (bool, str, or dict)
+            results: Optional operation results
+
+        Returns:
+            Tuple of (success: bool, error_details: Optional[str], result_values: Dict[str, Any])
+        """
+        success = False
+        error_details = None
+        result_values = {}
+
+        if isinstance(status, bool):
+            success = status
+        elif isinstance(status, str):
+            success = status == "success"
+            if not success:
+                error_details = status
+        elif isinstance(status, dict):
+            results = status
+            success = results.get("status") == "success"
+            if not success:
+                error_details = results.get("error", "Unknown error")
+            result_values = results
+
+        # If we have separate results dict and didn't use status as results
+        if results is not None and status is not results:
+            result_values = results
+            if "status" in results and not isinstance(status, bool):
+                success = results["status"] == "success"
+            if not success and "error" in results:
+                error_details = results["error"]
+
+        return success, error_details, result_values
+
+    def _update_operation_metadata(
+        self,
+        op_metadata: Dict[str, Any],
+        success: bool,
+        error_details: Optional[str],
+        result_values: Dict[str, Any],
+        started_at: datetime,
+    ) -> Dict[str, Any]:
+        """Update operation metadata with completion information.
+
+        Args:
+            op_metadata: Existing operation metadata
+            success: Whether operation succeeded
+            error_details: Error details if operation failed
+            result_values: Operation result values
+            started_at: Operation start time
+
+        Returns:
+            Updated operation metadata
+        """
         now = datetime.now()
-        started = datetime.fromisoformat(op_metadata.get("started_at", now.isoformat()))
-        duration_ms = int((now - started).total_seconds() * 1000)
+        duration_ms = int((now - started_at).total_seconds() * 1000)
 
         op_metadata.update(
             {
                 "status": "success" if success else "failed",
                 "completed_at": now.isoformat(),
                 "duration_ms": duration_ms,
-                "rows_processed": results.get("rows_processed", 0),
-                "rows_affected": results.get("rows_affected", 0),
-                "rows_rejected": results.get("rows_rejected", 0),
-                "database_info": results.get("database_info", {}),
+                "rows_processed": result_values.get("rows_processed", 0),
+                "rows_affected": result_values.get("rows_affected", 0),
+                "rows_rejected": result_values.get("rows_rejected", 0),
+                "database_info": result_values.get("database_info", {}),
                 "error_details": (
-                    None if success else results.get("error", "Unknown error")
+                    None if success else (error_details or "Unknown error")
                 ),
             }
         )
 
-        # Save updated operation metadata
-        with open(op_path, "w") as f:
-            json.dump(op_metadata, f, indent=2)
+        return op_metadata
 
-        # Update pipeline metadata
+    def _update_pipeline_metadata(self, pipeline_name: str, success: bool) -> None:
+        """Update pipeline metadata with operation completion information.
+
+        Args:
+            pipeline_name: Name of the pipeline
+            success: Whether operation succeeded
+        """
+        run_dir = self.get_run_dir(pipeline_name)
+        metadata_path = os.path.join(run_dir, "metadata.json")
+
         with open(metadata_path, "r") as f:
             metadata = json.load(f)
 
@@ -410,6 +472,51 @@ class ArtifactManager:
 
         with open(metadata_path, "w") as f:
             json.dump(metadata, f, indent=2)
+
+    def record_operation_completion(
+        self,
+        pipeline_name: str,
+        operation_id: str,
+        operation_type: str,
+        status: Union[bool, str, Dict[str, Any]],
+        results: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Record completion of an operation.
+
+        Args:
+            pipeline_name: Name of the pipeline
+            operation_id: ID of the operation
+            operation_type: Type of the operation
+            status: Either a boolean (success/failure), string status, or a results dict
+            results: Optional results of the operation (if status is not a dict)
+
+        Returns:
+            Updated operation metadata
+        """
+        run_dir = self.get_run_dir(pipeline_name)
+        file_name_base = self._get_operation_file_name(pipeline_name, operation_id)
+        op_metadata = self._load_operation_metadata(run_dir, file_name_base)
+
+        # Process operation status and results
+        success, error_details, result_values = self._process_operation_status(
+            status, results
+        )
+
+        # Update operation metadata
+        started_at = datetime.fromisoformat(
+            op_metadata.get("started_at", datetime.now().isoformat())
+        )
+        op_metadata = self._update_operation_metadata(
+            op_metadata, success, error_details, result_values, started_at
+        )
+
+        # Save updated operation metadata
+        op_path = os.path.join(run_dir, f"{file_name_base}.json")
+        with open(op_path, "w") as f:
+            json.dump(op_metadata, f, indent=2)
+
+        # Update pipeline metadata
+        self._update_pipeline_metadata(pipeline_name, success)
 
         return op_metadata
 

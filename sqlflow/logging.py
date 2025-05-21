@@ -1,6 +1,6 @@
 import logging
-import os
-from typing import Any, Dict, Optional
+import sys
+from typing import Any, Dict
 
 DEFAULT_LOG_LEVEL = logging.INFO
 DEFAULT_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -14,6 +14,18 @@ LOG_LEVELS = {
     "critical": logging.CRITICAL,
 }
 
+# Modules that produce verbose, technical output
+# These will be set to WARNING by default unless verbose mode is enabled
+TECHNICAL_MODULES = [
+    "sqlflow.core.engines.duckdb_engine",
+    "sqlflow.core.sql_generator",
+    "sqlflow.core.executors.local_executor",
+    "sqlflow.core.storage.artifact_manager",
+    "sqlflow.parser.parser",
+    "sqlflow.core.planner",
+    "sqlflow.udfs.manager",
+]
+
 
 def get_logger(name: str) -> logging.Logger:
     """Return a logger with the specified name.
@@ -22,63 +34,127 @@ def get_logger(name: str) -> logging.Logger:
         name: The name for the logger, typically __name__
 
     Returns:
-        A configured logger instance
+        Logger instance
     """
-    fmt = DEFAULT_FORMAT
-    handler = logging.StreamHandler()
-    handler.setFormatter(logging.Formatter(fmt))
     logger = logging.getLogger(name)
 
-    # Only add handler if logger doesn't already have handlers
+    # Only add a handler if it doesn't have one already
     if not logger.handlers:
+        handler = logging.StreamHandler()
+        formatter = logging.Formatter(DEFAULT_FORMAT)
+        handler.setFormatter(formatter)
         logger.addHandler(handler)
 
-    # Don't set level here - it will be set by configure_logging
+        # Don't propagate to root logger to avoid duplicate logging
+        logger.propagate = False
+
     return logger
 
 
 def configure_logging(
-    log_level: Optional[str] = None, config: Optional[Dict[str, Any]] = None
+    verbose: bool = False,
+    quiet: bool = False,
 ) -> None:
-    """Configure the logging system for SQLFlow.
+    """Configure logging settings based on command line flags.
 
     Args:
-        log_level: Optional string with log level ("debug", "info", "warning", "error", "critical")
-                  This overrides any level in the config dictionary
-        config: Optional dictionary with configuration values
+        verbose: Whether to enable verbose mode (shows all debug logs)
+        quiet: Whether to enable quiet mode (only shows warnings and errors)
     """
-    # Get level from environment variable first, fallback to parameter
-    env_level = os.environ.get("SQLFLOW_LOG_LEVEL", "").lower()
-    if env_level and env_level in LOG_LEVELS:
-        level = LOG_LEVELS[env_level]
-    elif log_level and log_level.lower() in LOG_LEVELS:
-        level = LOG_LEVELS[log_level.lower()]
-    elif config and "log_level" in config and config["log_level"].lower() in LOG_LEVELS:
-        level = LOG_LEVELS[config["log_level"].lower()]
+    # Determine the root logging level based on flags
+    if quiet:
+        root_level = logging.WARNING  # Only warnings and errors
+    elif verbose:
+        root_level = logging.DEBUG  # All debug logs
     else:
-        level = DEFAULT_LOG_LEVEL
+        root_level = logging.INFO  # Default level - information messages
 
-    # Configure root logger
+    # Configure the root logger
     root_logger = logging.getLogger()
-    root_logger.setLevel(level)
+    root_logger.setLevel(root_level)
 
-    # Set sqlflow package logger level
-    sqlflow_logger = logging.getLogger("sqlflow")
-    sqlflow_logger.setLevel(level)
+    # Clear existing handlers to avoid duplicate logs
+    for handler in root_logger.handlers[:]:
+        root_logger.removeHandler(handler)
 
-    # Configure module-specific logging if provided in config
-    if config and "module_log_levels" in config:
-        module_levels = config["module_log_levels"]
-        for module_name, module_level in module_levels.items():
-            if module_level.lower() in LOG_LEVELS:
-                module_logger = logging.getLogger(module_name)
-                module_logger.setLevel(LOG_LEVELS[module_level.lower()])
+    # Add a single handler
+    handler = logging.StreamHandler(sys.stdout)
+    formatter = logging.Formatter(DEFAULT_FORMAT)
+    handler.setFormatter(formatter)
+    root_logger.addHandler(handler)
+
+    # Set specific levels for technical modules
+    for module_name in TECHNICAL_MODULES:
+        module_logger = logging.getLogger(module_name)
+
+        # In verbose mode, show all logs from technical modules
+        # Otherwise, only show warnings and above
+        if verbose:
+            module_logger.setLevel(logging.DEBUG)
+        else:
+            module_logger.setLevel(logging.WARNING)
+
+        # Add a handler if there isn't one already
+        if not module_logger.handlers:
+            module_logger.addHandler(handler)
+            module_logger.propagate = False
 
 
-def get_all_loggers() -> Dict[str, logging.Logger]:
-    """Return a dictionary of all loggers in the system.
+def suppress_third_party_loggers():
+    """Suppress noisy third-party loggers."""
+    noisy_loggers = [
+        "boto3",
+        "botocore",
+        "urllib3",
+        "s3transfer",
+        "aiohttp",
+        "fsspec",
+        "s3fs",
+        "aiobotocore",
+    ]
+
+    for logger_name in noisy_loggers:
+        logging.getLogger(logger_name).setLevel(logging.WARNING)
+
+
+def get_logging_status() -> Dict[str, Any]:
+    """Get the current logging status of all modules.
 
     Returns:
-        A dictionary mapping logger names to logger instances
+        Dictionary with logging status information
     """
-    return logging.root.manager.loggerDict
+    # Get root logger level
+    root_logger = logging.getLogger()
+    root_level = logging.getLevelName(root_logger.level)
+
+    # Collect all module loggers
+    modules = {}
+
+    for name in logging.root.manager.loggerDict:
+        logger = logging.getLogger(name)
+        modules[name] = {
+            "level": logging.getLevelName(logger.level),
+            "propagate": logger.propagate,
+            "has_handlers": bool(logger.handlers),
+        }
+
+    return {"root_level": root_level, "modules": modules}
+
+
+def get_level_name(level: int) -> str:
+    """Get a formatted name for a logging level.
+
+    Args:
+        level: Logging level (e.g., logging.INFO)
+
+    Returns:
+        Formatted name (e.g., "INFO")
+    """
+    level_names = {
+        logging.DEBUG: "DEBUG",
+        logging.INFO: "INFO",
+        logging.WARNING: "WARNING",
+        logging.ERROR: "ERROR",
+        logging.CRITICAL: "CRITICAL",
+    }
+    return level_names.get(level, str(level))

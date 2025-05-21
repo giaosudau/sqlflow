@@ -38,34 +38,29 @@ class SQLGenerator:
         self._warning_counts = {}
         logger.debug(f"SQL Generator initialized with dialect: {dialect}")
 
-    def _log_warning_once(self, warning_key: str, message: str) -> None:
-        """Log a warning message only once per key.
+    def _log_warning_once(self, key: str, message: str, level: str = "warning") -> None:
+        """Log a warning once to avoid duplicates.
 
         Args:
-            warning_key: A unique key for this warning type
-            message: The warning message to log
+            key: Unique key for the warning.
+            message: Warning message.
+            level: Log level (warning or debug).
         """
-        if warning_key not in self._logged_warnings:
-            logger.warning(message)
-            self._logged_warnings.add(warning_key)
+        if key not in self._logged_warnings:
+            self._logged_warnings.add(key)
+            if key not in self._warning_counts:
+                self._warning_counts[key] = 0
+            self._warning_counts[key] += 1
 
-            # Track warning counts for summary
-            self._warning_counts[warning_key] = (
-                self._warning_counts.get(warning_key, 0) + 1
-            )
+            if level == "debug":
+                logger.debug(message)
+            else:
+                logger.warning(message)
 
-            # Log at debug level that we're suppressing future instances
-            logger.debug(
-                f"Future similar warnings with key '{warning_key}' will be suppressed"
-            )
+            return True
         else:
-            # Increment the count even for suppressed warnings
-            self._warning_counts[warning_key] = (
-                self._warning_counts.get(warning_key, 0) + 1
-            )
-
-            # Log at debug level that we're suppressing this instance
-            logger.debug(f"Suppressing duplicate warning with key '{warning_key}'")
+            self._warning_counts[key] += 1
+            return False
 
     def generate_operation_sql(
         self, operation: Dict[str, Any], context: Dict[str, Any]
@@ -125,7 +120,7 @@ class SQLGenerator:
         # Log a truncated version of the SQL to avoid very long logs
         if sql:
             preview = sql[:100] + "..." if len(sql) > 100 else sql
-            logger.info(f"Generated SQL for {op_type} operation {op_id}: {preview}")
+            logger.debug(f"Generated SQL for {op_type} operation {op_id}: {preview}")
         else:
             warning_key = f"empty_sql:{op_id}"
             self._log_warning_once(
@@ -180,6 +175,7 @@ class SQLGenerator:
                     warning_key,
                     f"Profile connector '{profile_connector_name}' not found in profile. "
                     f"Check that '{profile_connector_name}' is defined in your profile's 'connectors' section.",
+                    level="debug",
                 )
 
         logger.debug(f"Generating source SQL for {name}, type: {source_type}")
@@ -225,7 +221,7 @@ SELECT * FROM {pg_query};"""
                     "SOURCE name TYPE connector_type PARAMS { ... };\n"
                 )
 
-            self._log_warning_once(warning_key, error_msg)
+            self._log_warning_once(warning_key, error_msg, level="debug")
 
             return f"-- Unknown source type: {source_type}\n-- Check your connector configuration\n{query.get('query', '')}"
 
