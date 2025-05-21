@@ -308,14 +308,12 @@ class DuckDBEngine(SQLEngine):
             end_time = __import__("time").time()
             self.stats.record_query(end_time - start_time)
 
-            # Force checkpoint to ensure data is written to disk
-            if self.database_path != ":memory:":
-                try:
-                    self.connection.execute("CHECKPOINT")
-                    logger.debug("Checkpoint executed to persist data")
-                except Exception as e:
-                    logger.debug("Error performing checkpoint: %s", e)
-                    # Don't raise an error here - checkpoint may not be supported
+            # IMPORTANT NOTE FOR DEVELOPERS:
+            # DuckDB does not allow CHECKPOINT within an active transaction.
+            # We previously had a CHECKPOINT here but it was moved to be called after
+            # transaction commit to avoid errors like:
+            # "Cannot CHECKPOINT: the current transaction has transaction local changes"
+            # Always place CHECKPOINT commands OUTSIDE of transactions.
 
             return result
         except Exception as e:
@@ -325,39 +323,77 @@ class DuckDBEngine(SQLEngine):
             logger.debug("Query execution failed: %s", e)
             raise
 
-    def register_table(self, name: str, data: Any):
+    def register_table(self, name: str, data: Any, manage_transaction: bool = True):
         """Register a table in DuckDB.
 
         Args:
             name: Name of the table
             data: Data to register (pandas DataFrame or similar)
+            manage_transaction: Whether this method should handle transaction (begin/commit/rollback)
+                               Set to False if calling from a method that already manages transactions
         """
         logger.debug("Registering table %s", name)
         logger.info(f"Registering table {name} with schema: {data.dtypes}")
+
+        transaction_started = False
+
         try:
+            # Begin transaction for atomicity only if requested
+            if manage_transaction:
+                self.connection.begin()
+                transaction_started = True
+
+            # Register the table
             self.connection.register(name, data)
             logger.debug("Table %s registered successfully", name)
 
-            # Also create a persistent table if using file-based storage
+            # If using file-based storage, create a persistent table directly
             if self.database_path != ":memory:":
                 try:
-                    # Create a persistent copy of the registered table
+                    # Create a persistent table directly (no prefix)
                     self.connection.execute(
-                        f"CREATE TABLE IF NOT EXISTS persistent_{name} AS SELECT * FROM {name}"
+                        f"CREATE TABLE IF NOT EXISTS {name} AS SELECT * FROM {name}"
                     )
-                    logger.debug("Created persistent copy of table %s", name)
-                    # Checkpoint to ensure it's written to disk
+                    logger.debug("Created persistent table %s", name)
+
+                    # IMPORTANT NOTE FOR DEVELOPERS:
+                    # DuckDB requires CHECKPOINT to be executed outside of a transaction.
+                    # Previously, we had the CHECKPOINT here within the transaction,
+                    # which caused "Cannot CHECKPOINT" errors. Now we checkpoint
+                    # only after a successful commit.
+                except Exception as e:
+                    logger.debug("Error during table persistence: %s", e)
+                    if transaction_started:
+                        self.connection.rollback()
+                    raise
+
+            # Commit the transaction if we started one
+            if transaction_started:
+                self.connection.commit()
+
+                # IMPORTANT: Only after a successful commit, it's safe to checkpoint
+                # This follows the correct pattern for DuckDB:
+                # 1. Begin transaction
+                # 2. Modify data
+                # 3. Commit transaction
+                # 4. Execute CHECKPOINT (outside of transaction)
+                if self.database_path != ":memory:":
                     try:
                         self.connection.execute("CHECKPOINT")
+                        logger.debug("Checkpoint executed to persist data")
                     except Exception as e:
-                        logger.debug(
-                            "Error during checkpoint after table creation: %s", e
-                        )
-                except Exception as e:
-                    logger.debug("Could not create persistent table: %s", e)
+                        logger.debug("Error performing checkpoint: %s", e)
+                        # Don't raise an error here - checkpoint may not be supported
 
-            logger.info(f"Table {name} registered successfully")
+            logger.info(f"Table {name} registered and persisted successfully")
         except Exception as e:
+            # Ensure we rollback on any error, but only if we started the transaction
+            if transaction_started:
+                try:
+                    self.connection.rollback()
+                except Exception as rollback_error:
+                    logger.debug(f"Error during rollback: {rollback_error}")
+
             logger.debug("Error registering table %s: %s", name, e)
             logger.error(f"Error registering table {name}: {e}")
             raise
@@ -407,42 +443,22 @@ class DuckDBEngine(SQLEngine):
         """
         logger.debug("Checking if table %s exists", table_name)
         try:
-            # Try both regular and persistent variants of the table name
+            # Try to check if the table exists using information_schema
             try:
                 # First try the information_schema approach (standard)
-                result1 = self.connection.sql(
+                result = self.connection.sql(
                     f"SELECT * FROM information_schema.tables WHERE table_name = '{table_name}'"
                 )
-                exists1 = len(result1.fetchdf()) > 0
-
-                result2 = self.connection.sql(
-                    f"SELECT * FROM information_schema.tables WHERE table_name = 'persistent_{table_name}'"
-                )
-                exists2 = len(result2.fetchdf()) > 0
+                exists = len(result.fetchdf()) > 0
             except Exception:
                 # Fall back to direct query
                 try:
-                    self.connection.sql("SELECT 1 FROM {table_name} LIMIT 0")
-                    exists1 = True
+                    self.connection.sql(f"SELECT 1 FROM {table_name} LIMIT 0")
+                    exists = True
                 except Exception:
-                    exists1 = False
+                    exists = False
 
-                try:
-                    self.connection.sql(
-                        f"SELECT 1 FROM persistent_{table_name} LIMIT 0"
-                    )
-                    exists2 = True
-                except Exception:
-                    exists2 = False
-
-            exists = exists1 or exists2
-            logger.debug(
-                "Table %s exists: %s (regular: %s, persistent: %s)",
-                table_name,
-                exists,
-                exists1,
-                exists2,
-            )
+            logger.debug("Table %s exists: %s", table_name, exists)
             logger.info(f"Table {table_name} exists: {exists}")
             return exists
         except Exception as e:
@@ -454,18 +470,27 @@ class DuckDBEngine(SQLEngine):
         """Commit any pending changes to the database."""
         logger.debug("Committing changes")
         try:
-            # Not all DuckDB versions have explicit commit, so try checkpoint first
+            # IMPORTANT NOTE FOR DEVELOPERS:
+            # DuckDB transaction handling sequence:
+            # 1. First commit the transaction to ensure logical consistency
+            # This makes the changes permanent in the database file
             try:
-                self.connection.execute("CHECKPOINT")
-                logger.debug("Checkpoint executed for commit")
-            except Exception:
-                # Fall back to commit if available
+                self.connection.commit()
+                logger.debug("Changes committed successfully")
+            except Exception as e:
+                logger.debug("Warning: Could not explicitly commit changes: %s", e)
+                # This is not fatal - DuckDB may auto-commit changes
+
+            # 2. Then checkpoint to ensure physical durability
+            # CHECKPOINT must be executed OUTSIDE of a transaction
+            # This ensures changes are written to disk
+            if self.database_path != ":memory:":
                 try:
-                    self.connection.commit()
-                    logger.debug("Changes committed successfully")
+                    self.connection.execute("CHECKPOINT")
+                    logger.debug("Checkpoint executed after commit")
                 except Exception as e:
-                    logger.debug("Warning: Could not explicitly commit changes: %s", e)
-                    # This is not fatal - DuckDB may auto-commit changes
+                    logger.debug("Error performing checkpoint: %s", e)
+                    # Don't raise an error here - checkpoint may not be supported
 
             logger.info("Changes committed successfully")
         except Exception as e:
@@ -1135,40 +1160,86 @@ class DuckDBEngine(SQLEngine):
         else:
             raise TypeError(f"Unsupported data type for temp table: {type(data)}")
 
-    def register_arrow(self, table_name: str, arrow_table: pa.Table) -> None:
+    def register_arrow(
+        self, table_name: str, arrow_table: pa.Table, manage_transaction: bool = True
+    ) -> None:
         """Register an Arrow table with the engine.
 
         Args:
             table_name: Name to register the table as
             arrow_table: PyArrow table to register
+            manage_transaction: Whether this method should handle transaction (begin/commit/rollback)
+                                Set to False if calling from a method that already manages transactions
         """
         logger.info(f"Registering Arrow table {table_name}")
+
+        transaction_started = False
 
         try:
             # Convert to pandas if needed
             if not hasattr(self.connection, "register_arrow"):
                 # For older DuckDB versions without direct Arrow support
                 df = arrow_table.to_pandas()
-                self.register_table(table_name, df)
-            else:
-                # For newer DuckDB versions with direct Arrow support
-                self.connection.register_arrow(table_name, arrow_table)
+                self.register_table(table_name, df, manage_transaction)
+                return  # register_table will handle transaction
 
-                # Also create a persistent table if using file-based storage
+            # Begin transaction for atomicity only if requested
+            if manage_transaction:
+                self.connection.begin()
+                transaction_started = True
+
+            # For newer DuckDB versions with direct Arrow support
+            self.connection.register_arrow(table_name, arrow_table)
+
+            # Create a persistent table if using file-based storage
+            if self.database_path != ":memory:":
+                try:
+                    self.connection.execute(
+                        f"CREATE TABLE IF NOT EXISTS {table_name} AS SELECT * FROM {table_name}"
+                    )
+                    logger.info(f"Created persistent table {table_name}")
+
+                    # IMPORTANT NOTE FOR DEVELOPERS:
+                    # Checkpoint was moved out of the transaction to execute
+                    # only after commit. DuckDB does not allow CHECKPOINT inside
+                    # active transactions. This avoids the error:
+                    # "Cannot CHECKPOINT: the current transaction has transaction local changes"
+                except Exception as e:
+                    logger.warning(f"Could not create persistent table: {e}")
+                    if transaction_started:
+                        self.connection.rollback()
+                    raise
+
+            # Commit the transaction if we started one
+            if transaction_started:
+                self.connection.commit()
+
+                # Only after successful commit, execute CHECKPOINT
+                # This is the correct sequence for DuckDB:
+                # 1. Begin transaction
+                # 2. Perform data operations
+                # 3. Commit transaction
+                # 4. CHECKPOINT (outside transaction)
                 if self.database_path != ":memory:":
                     try:
-                        self.connection.execute(
-                            f"CREATE TABLE IF NOT EXISTS persistent_{table_name} AS SELECT * FROM {table_name}"
-                        )
-                        logger.info(
-                            f"Created persistent copy of Arrow table {table_name}"
-                        )
+                        self.connection.execute("CHECKPOINT")
+                        logger.debug("Checkpoint executed to persist data")
                     except Exception as e:
-                        logger.warning(
-                            f"Could not create persistent table for Arrow data: {e}"
-                        )
+                        logger.debug("Error performing checkpoint: %s", e)
+                        # Don't raise an error here - checkpoint may not be supported
+
+            logger.info(
+                f"Arrow table {table_name} registered and persisted successfully"
+            )
 
         except Exception as e:
+            # Ensure we rollback on any error, but only if we started the transaction
+            if transaction_started:
+                try:
+                    self.connection.rollback()
+                except Exception as rollback_error:
+                    logger.debug(f"Error during rollback: {rollback_error}")
+
             logger.error(f"Error registering Arrow table {table_name}: {e}")
             raise
 

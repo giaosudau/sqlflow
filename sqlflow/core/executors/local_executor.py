@@ -589,7 +589,7 @@ class LocalExecutor(BaseExecutor):
             if step["type"] == "source_definition":
                 result = self._execute_source_definition(step)
             elif step["type"] == "load":
-                result = self.execute_step(step)
+                result = self._execute_load(step)
             elif step["type"] == "transform":
                 result = self.execute_step(step)
             elif step["type"] == "export":
@@ -896,6 +896,7 @@ class LocalExecutor(BaseExecutor):
         Returns:
             Dictionary with execution status
         """
+        # flake8: noqa: C901
         source_name = step["query"]["source_name"]
         table_name = step["query"]["table_name"]
 
@@ -946,26 +947,139 @@ class LocalExecutor(BaseExecutor):
             if all_batches:
                 import pyarrow as pa
 
+                # Concatenate all arrow batches
                 table = pa.concat_tables(all_batches)
+
+                # Store data in memory as Arrow table
                 self.table_data[table_name] = DataChunk(table)
                 self.step_table_map[step["id"]] = table_name
                 if step["id"] not in self.step_output_mapping:
                     self.step_output_mapping[step["id"]] = []
                 self.step_output_mapping[step["id"]].append(table_name)
+
+                # Add direct DuckDB table creation for persistence
+                if (
+                    self.duckdb_mode == "persistent"
+                    and self.duckdb_engine is not None
+                    and self.duckdb_engine.database_path != ":memory:"
+                ):
+                    try:
+                        # Begin transaction for this operation
+                        self.duckdb_engine.connection.begin()
+
+                        # Register the Arrow table directly with DuckDB - don't let it manage transactions
+                        self.duckdb_engine.register_arrow(
+                            table_name, table, manage_transaction=False
+                        )
+
+                        # Create a persistent table from the registered data
+                        self.duckdb_engine.execute_query(
+                            f"CREATE TABLE IF NOT EXISTS {table_name} AS SELECT * FROM {table_name}"
+                        )
+
+                        # Commit the transaction
+                        self.duckdb_engine.connection.commit()
+
+                        # IMPORTANT NOTE FOR DEVELOPERS:
+                        # DuckDB CHECKPOINT must be executed AFTER transaction commit.
+                        # This is crucial for data persistence to work correctly:
+                        # 1. Transaction ensures logical consistency (atomicity)
+                        # 2. CHECKPOINT ensures physical durability (data written to disk)
+                        #
+                        # These two steps can't be combined, and CHECKPOINT should never
+                        # be executed within a transaction.
+                        try:
+                            self.duckdb_engine.execute_query("CHECKPOINT")
+                            logger.debug(
+                                "Checkpoint executed to persist data after commit"
+                            )
+                        except Exception as e:
+                            logger.debug(f"Error performing checkpoint: {e}")
+                            # Don't raise an error here - checkpoint may not be supported
+
+                        logger.debug(
+                            "Created persistent table %s with %d rows",
+                            table_name,
+                            table.num_rows,
+                        )
+                    except Exception as e:
+                        # Rollback on error
+                        try:
+                            self.duckdb_engine.connection.rollback()
+                        except Exception as rollback_error:
+                            logger.debug(f"Error during rollback: {rollback_error}")
+
+                        logger.error(
+                            f"Error creating persistent table {table_name}: {e}"
+                        )
+
                 logger.debug(
                     "Load step %s loaded table '%s' with %d rows",
                     step["id"],
                     table_name,
-                    len(table),
+                    table.num_rows,
                 )
                 return {"status": "success"}
             else:
                 # Create an empty table
-                self.table_data[table_name] = DataChunk(pd.DataFrame())
+                import pyarrow as pa
+
+                # Create an empty Arrow table with the same schema as expected
+                empty_table = pa.table({})
+
+                self.table_data[table_name] = DataChunk(empty_table)
                 self.step_table_map[step["id"]] = table_name
                 if step["id"] not in self.step_output_mapping:
                     self.step_output_mapping[step["id"]] = []
                 self.step_output_mapping[step["id"]].append(table_name)
+
+                # Add direct DuckDB CREATE TABLE for empty table
+                if (
+                    self.duckdb_mode == "persistent"
+                    and self.duckdb_engine is not None
+                    and self.duckdb_engine.database_path != ":memory:"
+                ):
+                    try:
+                        # Begin transaction for this operation
+                        self.duckdb_engine.connection.begin()
+
+                        # Create a persistent table with single column for empty data
+                        self.duckdb_engine.execute_query(
+                            f"CREATE TABLE IF NOT EXISTS {table_name} (dummy INTEGER)"
+                        )
+
+                        # Commit the transaction
+                        self.duckdb_engine.connection.commit()
+
+                        # IMPORTANT NOTE FOR DEVELOPERS:
+                        # Execute CHECKPOINT only AFTER transaction commit.
+                        # This two-phase approach follows DuckDB's requirements:
+                        # 1. Transaction operations (must be committed first)
+                        # 2. CHECKPOINT operation (only works outside of a transaction)
+                        #
+                        # If you try to run CHECKPOINT inside a transaction, it will fail with:
+                        # "Cannot CHECKPOINT: the current transaction has transaction local changes"
+                        try:
+                            self.duckdb_engine.execute_query("CHECKPOINT")
+                            logger.debug(
+                                "Checkpoint executed to persist data after commit"
+                            )
+                        except Exception as e:
+                            logger.debug(f"Error performing checkpoint: {e}")
+                            # Don't raise an error here - checkpoint may not be supported
+
+                        logger.debug("Created empty persistent table %s", table_name)
+                    except Exception as e:
+                        # Rollback on error
+                        try:
+                            self.duckdb_engine.connection.rollback()
+                        except Exception as rollback_error:
+                            logger.debug(f"Error during rollback: {rollback_error}")
+
+                        logger.error(
+                            f"Error creating empty persistent table {table_name}: {e}"
+                        )
+
                 logger.debug(
                     "Load step %s created empty table '%s'", step["id"], table_name
                 )
@@ -981,9 +1095,25 @@ class LocalExecutor(BaseExecutor):
         """Execute a transform step to create a table from a SQL query."""
         sql = step["query"]
         table_name = step["name"]
+        # Get the mode parameter with default REPLACE
+        mode = step.get("mode", "REPLACE").upper()
+        merge_keys = step.get("merge_keys", [])
 
         logger.debug("Transform step query: %s", sql)
         logger.debug("Target table name: %s", table_name)
+        logger.debug("Mode: %s", mode)
+
+        if mode not in ["REPLACE", "APPEND", "MERGE"]:
+            return {
+                "status": "failed",
+                "error": f"Invalid mode: {mode}. Supported modes are REPLACE, APPEND, and MERGE.",
+            }
+
+        if mode == "MERGE" and not merge_keys:
+            return {
+                "status": "failed",
+                "error": "MERGE mode requires merge_keys to be specified.",
+            }
 
         # Register all tables with DuckDB
         self._register_tables_with_engine()
@@ -1002,8 +1132,10 @@ class LocalExecutor(BaseExecutor):
                 direct_udf_match, table_name, step["id"]
             )
 
-        # If not a direct UDF call, proceed with regular SQL execution
-        return self._execute_sql_transform(sql, table_name, step["id"])
+        # If not a direct UDF call, proceed with regular SQL execution using the mode
+        return self._execute_sql_transform(
+            sql, table_name, step["id"], mode, merge_keys
+        )
 
     def _execute_direct_table_udf(
         self, match_obj, table_name: str, step_id: str
@@ -1037,20 +1169,34 @@ class LocalExecutor(BaseExecutor):
             if isinstance(input_data, dict) and input_data.get("status") == "failed":
                 return input_data
 
+            # Safely check for shape attribute
+            input_shape = "unknown"
+            if hasattr(input_data, "shape"):
+                input_shape = input_data.shape
+
             logger.debug(
                 "Executing UDF %s directly with input shape %s",
                 udf_name,
-                input_data.shape,
+                input_shape,
             )
             output_schema = getattr(udf_func, "_output_schema", None)
             logger.debug("UDF output schema: %s", output_schema)
 
             # Execute the UDF directly
             result_df = udf_func(input_data)
+
+            # Safely get result shape
+            result_shape = "unknown"
+            result_columns = []
+            if hasattr(result_df, "shape"):
+                result_shape = result_df.shape
+            if hasattr(result_df, "columns"):
+                result_columns = list(result_df.columns)
+
             logger.debug(
                 "UDF result shape: %s, columns: %s",
-                result_df.shape,
-                list(result_df.columns),
+                result_shape,
+                result_columns,
             )
 
             # Store the result
@@ -1078,10 +1224,19 @@ class LocalExecutor(BaseExecutor):
             return {"status": "failed", "error": error_msg}
 
     def _execute_sql_transform(
-        self, sql: str, table_name: str, step_id: str
+        self,
+        sql: str,
+        table_name: str,
+        step_id: str,
+        mode: str = "REPLACE",
+        merge_keys: List[str] = [],
     ) -> Dict[str, Any]:
         """Execute a transform using SQL through the DuckDB engine."""
+        # flake8: noqa: C901
         try:
+            if self.duckdb_engine is None:
+                return {"status": "failed", "error": "DuckDB engine is not initialized"}
+
             # Check for UDF references
             udfs = self.udf_manager.get_udfs_for_query(sql)
             if udfs:
@@ -1089,44 +1244,142 @@ class LocalExecutor(BaseExecutor):
                     f"DEBUG: Found {len(udfs)} UDFs in query: {list(udfs.keys())}"
                 )
 
-                # Register UDFs with the engine if not already registered
-                for udf_name, udf_func in udfs.items():
-                    logger.debug("DEBUG: Registering UDF %s with engine", udf_name)
-                    logger.debug(
-                        "DEBUG: Registration error (expected if already registered): %s",
-                        udf_func,
-                    )
-
-            # Register UDFs with engine
-            self.udf_manager.register_udfs_with_engine(
-                self.duckdb_engine, list(udfs.keys())
-            )
+                # Register UDFs with the engine
+                self.udf_manager.register_udfs_with_engine(
+                    self.duckdb_engine, list(udfs.keys())
+                )
 
             # Process the query to update UDF references
-            processed_sql = self.duckdb_engine.process_query_for_udfs(sql, udfs)
-            logger.debug("DEBUG: Processed SQL: %s", processed_sql)
-            sql = processed_sql
+            if self.duckdb_engine is not None:  # Recheck to satisfy linter
+                processed_sql = self.duckdb_engine.process_query_for_udfs(sql, udfs)
+                logger.debug("DEBUG: Processed SQL: %s", processed_sql)
+                sql = processed_sql
 
-            # Execute the query
-            logger.debug("DEBUG: Executing SQL: %s", sql)
-            # --- PERSISTENT MODE PATCH ---
-            # If persistent mode, create a persistent table
+            # Handle persistence based on mode
             if (
-                self.duckdb_mode == "persistent"
+                self.duckdb_engine is not None
                 and self.duckdb_engine.database_path != ":memory:"
             ):
-                # Use CREATE TABLE to persist result
-                create_sql = f"CREATE TABLE IF NOT EXISTS {table_name} AS {sql}"
-                self.duckdb_engine.execute_query(create_sql)
-                # Fetch the result for in-memory tracking
-                result = self.duckdb_engine.execute_query(
-                    f"SELECT * FROM {table_name}"
-                ).fetchdf()
+                # Use a single transaction for the entire operation
+                transaction_started = False
+                try:
+                    # Begin transaction
+                    self.duckdb_engine.connection.begin()
+                    transaction_started = True
+
+                    if mode == "REPLACE":
+                        # Use CREATE OR REPLACE TABLE for REPLACE mode
+                        create_sql = f"CREATE OR REPLACE TABLE {table_name} AS {sql}"
+                        self.duckdb_engine.execute_query(create_sql)
+                    elif mode == "APPEND":
+                        # First check if the table exists
+                        table_exists = self.duckdb_engine.table_exists(table_name)
+
+                        if not table_exists:
+                            # If table doesn't exist, create it
+                            create_sql = f"CREATE TABLE {table_name} AS {sql}"
+                            self.duckdb_engine.execute_query(create_sql)
+                        else:
+                            # If table exists, append to it
+                            append_sql = f"INSERT INTO {table_name} {sql}"
+                            self.duckdb_engine.execute_query(append_sql)
+                    elif mode == "MERGE":
+                        # First check if the table exists
+                        table_exists = self.duckdb_engine.table_exists(table_name)
+
+                        if not table_exists:
+                            # If table doesn't exist, create it
+                            create_sql = f"CREATE TABLE {table_name} AS {sql}"
+                            self.duckdb_engine.execute_query(create_sql)
+                        else:
+                            # Create a temporary table for the new data
+                            temp_table = f"temp_{table_name}_{uuid.uuid4().hex[:8]}"
+                            self.duckdb_engine.execute_query(
+                                f"CREATE TEMP TABLE {temp_table} AS {sql}"
+                            )
+
+                            # Build the merge key conditions
+                            join_conditions = " AND ".join(
+                                [f"target.{key} = source.{key}" for key in merge_keys]
+                            )
+
+                            # Build the SET clause for updates
+                            # Get column names from the temporary table
+                            col_query = f"SELECT column_name FROM information_schema.columns WHERE table_name = '{temp_table}'"
+                            columns_result = self.duckdb_engine.execute_query(
+                                col_query
+                            ).fetchdf()
+                            columns = columns_result["column_name"].tolist()
+
+                            # Remove merge keys from update columns
+                            update_columns = [c for c in columns if c not in merge_keys]
+
+                            # Perform the merge operation
+                            # DuckDB doesn't have a native MERGE, so we use DELETE + INSERT approach
+                            if (
+                                update_columns
+                            ):  # Only update if there are non-key columns
+                                # Delete rows that will be updated
+                                delete_sql = f"""
+                                DELETE FROM {table_name} 
+                                WHERE EXISTS (
+                                    SELECT 1 FROM {temp_table} source
+                                    WHERE {join_conditions}
+                                )
+                                """
+                                self.duckdb_engine.execute_query(delete_sql)
+
+                            # Insert all rows from source
+                            insert_sql = (
+                                f"INSERT INTO {table_name} SELECT * FROM {temp_table}"
+                            )
+                            self.duckdb_engine.execute_query(insert_sql)
+
+                            # Drop the temporary table
+                            self.duckdb_engine.execute_query(f"DROP TABLE {temp_table}")
+
+                    # Fetch the result for in-memory tracking
+                    result = self.duckdb_engine.execute_query(
+                        f"SELECT * FROM {table_name}"
+                    ).fetchdf()
+
+                    # Commit the transaction
+                    self.duckdb_engine.connection.commit()
+
+                    # IMPORTANT NOTE FOR DEVELOPERS:
+                    # DuckDB CHECKPOINT must be executed OUTSIDE of a transaction.
+                    # This operation ensures data is properly persisted to disk.
+                    # The sequence is critical:
+                    # 1. Begin transaction
+                    # 2. Perform all data operations
+                    # 3. Commit transaction (makes changes logically permanent)
+                    # 4. CHECKPOINT (makes changes physically permanent on disk)
+                    #
+                    # If you try to CHECKPOINT within a transaction, you'll get:
+                    # "Cannot CHECKPOINT: the current transaction has transaction local changes"
+                    try:
+                        self.duckdb_engine.execute_query("CHECKPOINT")
+                        logger.debug("Checkpoint executed to persist data after commit")
+                    except Exception as e:
+                        logger.debug(f"Error performing checkpoint: {e}")
+                        # Don't raise an error here - checkpoint may not be supported
+
+                except Exception as e:
+                    # Rollback on error
+                    if transaction_started:
+                        try:
+                            self.duckdb_engine.connection.rollback()
+                        except Exception as rollback_error:
+                            logger.debug(f"Error during rollback: {rollback_error}")
+                    logger.error(f"SQL transform error: {e}")
+                    raise
             else:
                 # In memory mode, just run the query and store result
                 result = self.duckdb_engine.execute_query(sql).fetchdf()
+
             logger.debug(
-                "DEBUG: SQL execution successful, result shape: %s", result.shape
+                "DEBUG: SQL execution successful, result shape: %s",
+                result.shape if hasattr(result, "shape") else "unknown",
             )
 
             # Store the result
@@ -1160,8 +1413,16 @@ class LocalExecutor(BaseExecutor):
         if udf_args.strip().upper().startswith("SELECT "):
             logger.debug("UDF argument is a SQL query")
             try:
+                if self.duckdb_engine is None:
+                    return {
+                        "status": "failed",
+                        "error": "DuckDB engine is not initialized",
+                    }
                 result = self.duckdb_engine.execute_query(udf_args).fetchdf()
-                logger.debug("SQL subquery result shape: %s", result.shape)
+                logger.debug(
+                    "SQL subquery result shape: %s",
+                    result.shape if hasattr(result, "shape") else "unknown",
+                )
                 return result
             except Exception as e:
                 error_msg = "Error executing SQL subquery for UDF: " + str(e)
@@ -1174,7 +1435,11 @@ class LocalExecutor(BaseExecutor):
 
         if table_name in self.table_data:
             result = self.table_data[table_name].pandas_df
-            logger.debug("Found table %s, shape: %s", table_name, result.shape)
+            logger.debug(
+                "Found table %s, shape: %s",
+                table_name,
+                result.shape if hasattr(result, "shape") else "unknown",
+            )
             return result
 
         # Table not found, check for partial matches
@@ -1185,7 +1450,7 @@ class LocalExecutor(BaseExecutor):
                     "Found partial match %s for %s, shape: %s",
                     name,
                     table_name,
-                    result.shape,
+                    result.shape if hasattr(result, "shape") else "unknown",
                 )
                 return result
 
@@ -1197,9 +1462,26 @@ class LocalExecutor(BaseExecutor):
 
     def _register_tables_with_engine(self) -> None:
         """Register all tables with the DuckDB engine."""
+        if self.duckdb_engine is None:
+            logger.warning("Cannot register tables: DuckDB engine is not initialized")
+            return
+
         for tbl, chunk in self.table_data.items():
-            df = chunk.pandas_df
-            self.duckdb_engine.connection.register(tbl, df)
+            # Check if the DataChunk contains an Arrow table or pandas DataFrame
+            if hasattr(chunk, "arrow_table") and chunk.arrow_table is not None:
+                # Don't let register_arrow manage transactions, we'll handle them at a higher level
+                self.duckdb_engine.register_arrow(
+                    tbl, chunk.arrow_table, manage_transaction=False
+                )
+            elif hasattr(chunk, "pandas_df") and chunk.pandas_df is not None:
+                # Don't let register_table manage transactions, we'll handle them at a higher level
+                self.duckdb_engine.register_table(
+                    tbl, chunk.pandas_df, manage_transaction=False
+                )
+            else:
+                logger.warning(
+                    f"Could not register table {tbl}: no valid data format found"
+                )
 
     def _is_direct_table_udf_call(self, sql: str) -> bool:
         """Check if the SQL is a direct table UDF call.
@@ -1231,6 +1513,9 @@ class LocalExecutor(BaseExecutor):
     ) -> Dict[str, Any]:
         """Execute the SQL query and store the result."""
         try:
+            if self.duckdb_engine is None:
+                return {"status": "failed", "error": "DuckDB engine is not initialized"}
+
             result = self.duckdb_engine.execute_query(sql).fetchdf()
             self.table_data[table_name] = DataChunk(result)
             self.step_table_map[step_id] = table_name
@@ -1756,6 +2041,11 @@ class LocalExecutor(BaseExecutor):
             logger.debug(f"DEBUG: UDFs for query: {list(udfs_for_query.keys())}")
 
             if not udfs_for_query:
+                return query
+
+            # If the engine is not initialized, just return the original query
+            if self.duckdb_engine is None:
+                logger.warning("Cannot process UDFs: DuckDB engine is not initialized")
                 return query
 
             # For each UDF referenced in the query
