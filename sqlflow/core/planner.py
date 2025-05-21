@@ -768,10 +768,17 @@ class ExecutionPlanBuilder:
         except EvaluationError as e:
             # Log as ERROR not warning, and provide a user-friendly message
             logger.error(f"Condition syntax error: {str(e)}")
-            raise PlanningError(f"Error in conditional expression: {str(e)}") from e
+            # Don't add redundant "Failed to build execution plan" prefix
+            raise PlanningError(str(e)) from e
         except Exception as e:
-            logger.error(f"Error building execution plan: {str(e)}")
-            raise PlanningError(f"Failed to build execution plan: {str(e)}") from e
+            # Don't add redundant prefixes if it's already a PlanningError
+            if isinstance(e, PlanningError):
+                logger.error(f"Planning error: {str(e)}")
+                raise
+            # For unexpected errors, provide more context
+            error_msg = f"Failed to create plan: {str(e)}"
+            logger.error(error_msg)
+            raise PlanningError(error_msg) from e
 
     # --- CONDITIONALS & FLATTENING ---
     def _flatten_conditional_blocks(
