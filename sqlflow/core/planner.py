@@ -68,8 +68,14 @@ class ExecutionPlanBuilder:
         )
         invalid_defaults = self._find_invalid_defaults(referenced_vars, pipeline)
 
-        # Handle missing variables error
+        # Handle missing variables - log and raise error
         if missing_vars:
+            # Just log each missing variable individually at INFO level to help
+            # users understand which variables might be affecting conditionals
+            for var in missing_vars:
+                logger.info(f"Variable {var} not found in context")
+
+            # Still raise the error but avoid extra logging
             self._raise_missing_variables_error(missing_vars, pipeline)
 
         # Handle invalid defaults error
@@ -154,24 +160,25 @@ class ExecutionPlanBuilder:
         self, missing_vars: List[str], pipeline: Pipeline
     ) -> None:
         """Raise PlanningError with details about missing variables."""
-        logger.warning(f"Pipeline references undefined variables: {missing_vars}")
+        # Skip logging here - the calling function already logs missing variables
         error_msg = "Pipeline references undefined variables:\n" + "".join(
             f"  - ${{{var}}} is used but not defined\n" for var in missing_vars
         )
         error_msg += "\nPlease define these variables using SET statements or provide them when running the pipeline."
 
-        # Add additional debugging info for each variable
+        # Add reference locations for better context
         error_msg += "\n\nVariable reference locations:"
         for var in missing_vars:
             locations = self._find_variable_reference_locations(var, pipeline)
             if locations:
                 error_msg += f"\n  ${{{var}}} referenced at: {', '.join(locations)}"
 
+        # Raise PlanningError without additional logging
         raise PlanningError(error_msg)
 
     def _raise_invalid_defaults_error(self, invalid_defaults: List[str]) -> None:
         """Raise PlanningError with details about invalid default values."""
-        logger.warning(f"Found invalid default values: {invalid_defaults}")
+        # Skip logging here - just raise the error
         error_msg = (
             "Invalid default values for variables (must not contain spaces unless quoted):\n"
             + "".join(f"  - {expr}\n" for expr in invalid_defaults)
@@ -745,7 +752,7 @@ class ExecutionPlanBuilder:
             cycles = self._detect_cycles(resolver)
             if cycles:
                 error_msg = self._format_cycle_error(cycles)
-                logger.error(f"Dependency cycle detected: {error_msg}")
+                logger.debug(f"Dependency cycle detected: {error_msg}")
                 raise PlanningError(error_msg)
 
             # Resolve execution order based on dependencies
@@ -765,20 +772,14 @@ class ExecutionPlanBuilder:
             )
             return execution_steps
 
-        except EvaluationError as e:
-            # Log as ERROR not warning, and provide a user-friendly message
-            logger.error(f"Condition syntax error: {str(e)}")
-            # Don't add redundant "Failed to build execution plan" prefix
-            raise PlanningError(str(e)) from e
         except Exception as e:
-            # Don't add redundant prefixes if it's already a PlanningError
-            if isinstance(e, PlanningError):
-                logger.error(f"Planning error: {str(e)}")
+            # Just log at DEBUG level and re-raise - let the CLI handle user-facing errors
+            logger.debug(f"Planning failed: {str(e)}", exc_info=True)
+            if isinstance(e, (PlanningError, EvaluationError)):
+                # Just pass through existing errors
                 raise
-            # For unexpected errors, provide more context
-            error_msg = f"Failed to create plan: {str(e)}"
-            logger.error(error_msg)
-            raise PlanningError(error_msg) from e
+            # Wrap unexpected errors
+            raise PlanningError(f"Failed to create plan: {str(e)}") from e
 
     # --- CONDITIONALS & FLATTENING ---
     def _flatten_conditional_blocks(
@@ -792,25 +793,22 @@ class ExecutionPlanBuilder:
                     active_steps = self._resolve_conditional_block(step, evaluator)
                     for active_step in active_steps:
                         flattened_pipeline.add_step(active_step)
-                except EvaluationError as e:
-                    # This should be caught and handled in _resolve_conditional_block
-                    # But just in case, we add a more detailed error message
-                    error_msg = f"Error evaluating conditional block at line {step.line_number}: {str(e)}"
-                    raise PlanningError(error_msg) from e
-                except PlanningError:
-                    # Pass through PlanningError that are already properly formatted
+                except (PlanningError, EvaluationError):
+                    # Just pass through existing errors without adding more context
+                    # They already have sufficient information
                     raise
                 except Exception as e:
-                    error_msg = f"Error processing conditional block at line {step.line_number}: {str(e)}"
-                    error_msg += (
+                    # For other unexpected errors, add context
+                    error_msg = f"Error processing conditional block at line {step.line_number}."
+                    error_detail = (
                         "\nPlease check your variable syntax. Common issues include:"
-                    )
-                    error_msg += (
                         "\n- Incomplete variable references (e.g. '$' without '{name}')"
+                        "\n- Missing variable definitions (use SET statements to define variables)"
+                        "\n- Invalid variable names or syntax in conditional expressions"
                     )
-                    error_msg += "\n- Missing variable definitions (use SET statements to define variables)"
-                    error_msg += "\n- Invalid variable names or syntax in conditional expressions"
-                    raise PlanningError(error_msg) from e
+                    # Log details but don't duplicate in the error message
+                    logger.debug(f"{error_msg} Details: {str(e)}")
+                    raise PlanningError(f"{error_msg}{error_detail}") from e
             else:
                 flattened_pipeline.add_step(step)
         return flattened_pipeline
@@ -860,6 +858,8 @@ class ExecutionPlanBuilder:
         except EvaluationError as e:
             # Add line number context and re-raise
             error_msg = f"Error in condition: '{branch.condition}' at line {branch.line_number}.\n{str(e)}"
+            # Log at DEBUG level only - let CLI handle user-facing errors
+            logger.debug(error_msg)
             raise PlanningError(error_msg) from e
         except Exception as e:
             # Only catch other generic exceptions and log a warning
@@ -1418,16 +1418,12 @@ class Planner:
             plan = self.builder.build_plan(pipeline, variables)
             logger.info(f"Successfully created plan with {len(plan)} operations")
             return plan
-        except PlanningError:
-            # Don't wrap existing PlanningError with another one, just re-raise
+        except (PlanningError, EvaluationError):
+            # Don't log here - these errors are already properly formatted
+            # and will be handled by the CLI code
             raise
-        except EvaluationError as e:
-            # Convert EvaluationError to PlanningError with context
-            error_msg = f"Error in conditional expression: {str(e)}"
-            logger.error(error_msg)
-            raise PlanningError(error_msg) from e
         except Exception as e:
-            # For unexpected errors, provide more context
+            # For unexpected errors, provide more context but log at debug level
             error_msg = f"Failed to create plan: {str(e)}"
-            logger.error(error_msg)
+            logger.debug(error_msg, exc_info=True)
             raise PlanningError(error_msg) from e
