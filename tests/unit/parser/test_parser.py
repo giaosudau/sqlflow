@@ -200,7 +200,8 @@ class TestParser:
         with pytest.raises(ParserError) as excinfo:
             parser.parse()
 
-        assert "Expected 'TYPE' after source name" in str(excinfo.value)
+        error_message = str(excinfo.value)
+        assert "Expected FROM or TYPE after source name" in error_message
 
     def test_parse_source_directive_missing_params(self):
         """Test that the parser raises an error for a SOURCE directive missing PARAMS."""
@@ -451,3 +452,71 @@ class TestParser:
             line_number=1,
         )
         assert "EXPORT directive requires OPTIONS" in invalid_step4.validate()
+
+    def test_source_syntax_error_handling(self):
+        """Test that the parser correctly handles invalid SOURCE syntax patterns."""
+        # Test mixing FROM and TYPE keywords
+        text = """SOURCE users FROM "postgres" TYPE POSTGRES OPTIONS {
+            "table": "users"
+        };"""
+
+        parser = Parser(text)
+        with pytest.raises(ParserError) as excinfo:
+            parser.parse()
+
+        assert "Cannot mix FROM and TYPE keywords" in str(excinfo.value)
+
+        # Test TYPE followed by FROM
+        text = """SOURCE users TYPE POSTGRES FROM "postgres" PARAMS {
+            "table": "users"
+        };"""
+
+        parser = Parser(text)
+        with pytest.raises(ParserError) as excinfo:
+            parser.parse()
+
+        assert "Cannot mix TYPE and FROM keywords" in str(excinfo.value)
+
+        # Test missing OPTIONS after FROM
+        text = """SOURCE users FROM "postgres" {
+            "table": "users"
+        };"""
+
+        parser = Parser(text)
+        with pytest.raises(ParserError) as excinfo:
+            parser.parse()
+
+        assert "Expected 'OPTIONS' after connector name" in str(excinfo.value)
+
+        # Test missing PARAMS after TYPE
+        text = """SOURCE users TYPE POSTGRES {
+            "table": "users"
+        };"""
+
+        parser = Parser(text)
+        with pytest.raises(ParserError) as excinfo:
+            parser.parse()
+
+        assert "Expected 'PARAMS' after connector type" in str(excinfo.value)
+
+        # Test using OPTIONS with TYPE syntax
+        text = """SOURCE users TYPE POSTGRES OPTIONS {
+            "table": "users"
+        };"""
+
+        parser = Parser(text)
+        with pytest.raises(ParserError) as excinfo:
+            parser.parse()
+
+        assert "Cannot use OPTIONS with TYPE-based syntax" in str(excinfo.value)
+
+        # Test using PARAMS with FROM syntax
+        text = """SOURCE users FROM "postgres" PARAMS {
+            "table": "users"
+        };"""
+
+        parser = Parser(text)
+        with pytest.raises(ParserError) as excinfo:
+            parser.parse()
+
+        assert "Expected 'OPTIONS' after connector name" in str(excinfo.value)

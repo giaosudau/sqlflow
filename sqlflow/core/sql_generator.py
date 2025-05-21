@@ -32,7 +32,40 @@ class SQLGenerator:
             dialect: SQL dialect to use.
         """
         self.dialect = dialect
+        # Track logged warnings to prevent duplicates
+        self._logged_warnings = set()
+        # Track warning counts for summary
+        self._warning_counts = {}
         logger.debug(f"SQL Generator initialized with dialect: {dialect}")
+
+    def _log_warning_once(self, warning_key: str, message: str) -> None:
+        """Log a warning message only once per key.
+
+        Args:
+            warning_key: A unique key for this warning type
+            message: The warning message to log
+        """
+        if warning_key not in self._logged_warnings:
+            logger.warning(message)
+            self._logged_warnings.add(warning_key)
+
+            # Track warning counts for summary
+            self._warning_counts[warning_key] = (
+                self._warning_counts.get(warning_key, 0) + 1
+            )
+
+            # Log at debug level that we're suppressing future instances
+            logger.debug(
+                f"Future similar warnings with key '{warning_key}' will be suppressed"
+            )
+        else:
+            # Increment the count even for suppressed warnings
+            self._warning_counts[warning_key] = (
+                self._warning_counts.get(warning_key, 0) + 1
+            )
+
+            # Log at debug level that we're suppressing this instance
+            logger.debug(f"Suppressing duplicate warning with key '{warning_key}'")
 
     def generate_operation_sql(
         self, operation: Dict[str, Any], context: Dict[str, Any]
@@ -68,7 +101,11 @@ class SQLGenerator:
         elif op_type == "export":
             sql = self._generate_export_sql(operation, context)
         else:
-            logger.warning(f"Unknown operation type: {op_type}, using raw query")
+            warning_key = f"unknown_op_type:{op_type}"
+            self._log_warning_once(
+                warning_key, f"Unknown operation type: {op_type}, using raw query"
+            )
+
             sql = operation.get("query", "")
             if isinstance(sql, dict):
                 sql = sql.get("query", "")
@@ -90,7 +127,10 @@ class SQLGenerator:
             preview = sql[:100] + "..." if len(sql) > 100 else sql
             logger.info(f"Generated SQL for {op_type} operation {op_id}: {preview}")
         else:
-            logger.warning(f"Empty SQL generated for operation {op_id}")
+            warning_key = f"empty_sql:{op_id}"
+            self._log_warning_once(
+                warning_key, f"Empty SQL generated for operation {op_id}"
+            )
 
         return result
 
@@ -98,6 +138,18 @@ class SQLGenerator:
         self, operation: Dict[str, Any], context: Dict[str, Any]
     ) -> str:
         """Generate SQL for a source operation.
+
+        SQLFlow supports two distinct syntax patterns for SOURCE statements:
+
+        1. Profile-based syntax (recommended for production):
+           SOURCE name FROM "connector_name" OPTIONS { ... };
+           Example: SOURCE sales FROM "postgres" OPTIONS { "table": "sales" };
+
+        2. Traditional syntax:
+           SOURCE name TYPE connector_type PARAMS { ... };
+           Example: SOURCE sales TYPE POSTGRES PARAMS { "host": "localhost", "table": "sales" };
+
+        The two syntax patterns CANNOT be mixed. Users must choose one pattern per SOURCE statement.
 
         Args:
             operation: Source operation definition.
@@ -109,6 +161,26 @@ class SQLGenerator:
         source_type = operation.get("source_connector_type", "").upper()
         query = operation.get("query", {})
         name = operation.get("name", "unnamed_source")
+        operation.get("id", "unknown")
+
+        # Handle profile-based source definition (FROM syntax)
+        if operation.get("is_from_profile", False):
+            # Get connector type from profile for profile-based sources
+            profile_connector_name = operation.get("profile_connector_name", "")
+            profile = context.get("profile", {})
+            profile_connectors = profile.get("connectors", {})
+
+            if profile_connector_name and profile_connector_name in profile_connectors:
+                profile_connector = profile_connectors.get(profile_connector_name, {})
+                source_type = profile_connector.get("type", "").upper()
+                logger.debug(f"Using connector type from profile: {source_type}")
+            else:
+                warning_key = f"profile_connector_not_found:{profile_connector_name}"
+                self._log_warning_once(
+                    warning_key,
+                    f"Profile connector '{profile_connector_name}' not found in profile. "
+                    f"Check that '{profile_connector_name}' is defined in your profile's 'connectors' section.",
+                )
 
         logger.debug(f"Generating source SQL for {name}, type: {source_type}")
 
@@ -121,7 +193,7 @@ CREATE OR REPLACE TABLE {name} AS
 SELECT * FROM read_csv_auto('{path}', 
                            header={str(has_header).lower()});"""
 
-        elif source_type == "POSTGRESQL":
+        elif source_type == "POSTGRESQL" or source_type == "POSTGRES":
             pg_query = query.get("query", "")
             logger.debug(f"PostgreSQL source: query length={len(pg_query)}")
             return f"""-- Source type: PostgreSQL
@@ -129,8 +201,54 @@ CREATE OR REPLACE TABLE {name} AS
 SELECT * FROM {pg_query};"""
 
         else:
-            logger.warning(f"Unknown source type: {source_type}, using raw query")
-            return f"-- Unknown source type: {source_type}\n{query.get('query', '')}"
+            # Log warning only once per source type to prevent duplicate logs
+            warning_key = f"unknown_source_type:{source_type}:{name}"
+
+            # Create a more helpful error message for the tests to check
+            supported_types = ["CSV", "POSTGRES", "POSTGRESQL"]
+            supported_types_str = ", ".join(supported_types)
+
+            error_msg = (
+                f"Unknown or unsupported source connector type: '{source_type}' for source '{name}'.\n"
+                f"Supported connector types: {supported_types_str}\n"
+            )
+
+            # Add specific guidance based on syntax pattern
+            if operation.get("is_from_profile", False):
+                error_msg += (
+                    f"Check that connector '{profile_connector_name}' in your profile "
+                    f"has a valid 'type' setting.\n"
+                )
+            else:
+                error_msg += (
+                    "Make sure you're using the correct connector type in your SOURCE statement:\n"
+                    "SOURCE name TYPE connector_type PARAMS { ... };\n"
+                )
+
+            self._log_warning_once(warning_key, error_msg)
+
+            return f"-- Unknown source type: {source_type}\n-- Check your connector configuration\n{query.get('query', '')}"
+
+    def reset_warning_tracking(self) -> None:
+        """Reset warning tracking data.
+
+        Call this at the beginning of a new pipeline execution to clear warnings
+        from previous runs.
+        """
+        if self._warning_counts:
+            logger.debug(
+                f"Resetting warning tracking. Previous warnings: {self._warning_counts}"
+            )
+        self._logged_warnings.clear()
+        self._warning_counts.clear()
+
+    def get_warning_summary(self) -> Dict[str, int]:
+        """Get a summary of warnings that were logged and suppressed.
+
+        Returns:
+            Dictionary mapping warning keys to count of occurrences
+        """
+        return self._warning_counts.copy()
 
     def _generate_transform_sql(
         self, operation: Dict[str, Any], context: Dict[str, Any]

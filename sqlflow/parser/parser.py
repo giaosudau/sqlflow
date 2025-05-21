@@ -112,7 +112,8 @@ class Parser:
             except ParserError as e:
                 # Record the error and continue parsing
                 parsing_errors.append(e)
-                logger.warning(
+                # Log at debug level to avoid duplicate output when CLI formats errors
+                logger.debug(
                     f"Parser error: {e.message} at line {e.line}, column {e.column}"
                 )
                 self._synchronize()
@@ -124,7 +125,8 @@ class Parser:
                     self._peek().column,
                 )
                 parsing_errors.append(err)
-                logger.error(
+                # Log at debug level to avoid duplicate output when CLI formats errors
+                logger.debug(
                     f"Unexpected error: {str(e)} at line {self._peek().line}, column {self._peek().column}"
                 )
                 self._synchronize()
@@ -175,7 +177,8 @@ class Parser:
         # If we encountered any errors, report them all
         if parsing_errors:
             error_message = self._format_error_message(parsing_errors)
-            logger.error(f"Parsing failed: {len(parsing_errors)} errors found")
+            # Log at debug level to avoid duplicate output when CLI formats errors
+            logger.debug(f"Parsing failed: {len(parsing_errors)} errors found")
             raise ParserError(f"Multiple errors found:\n{error_message}", 0, 0)
 
         logger.info(
@@ -239,6 +242,8 @@ class Parser:
         # Look ahead to see if this is a FROM or TYPE based syntax
         next_token = self._peek()
 
+        # Track tokens for syntax validation and error messages
+
         if next_token.type == TokenType.FROM:
             # Handle FROM-based syntax (getting connector from profile)
             self._advance()  # Consume FROM token
@@ -250,10 +255,46 @@ class Parser:
             # Remove quotes from the connector name
             connector_name = connector_name_token.value.strip("\"'")
 
-            self._consume(TokenType.OPTIONS, "Expected 'OPTIONS' after connector name")
+            next_token = self._peek()
+
+            # Check if user mistakenly used TYPE after FROM
+            if next_token.type == TokenType.TYPE:
+                self._advance()  # Consume TYPE token
+                # This is a syntax error - mixing FROM and TYPE
+                error_message = (
+                    f"Invalid SOURCE syntax at line {next_token.line}: Cannot mix FROM and TYPE keywords.\n\n"
+                    "Choose one of these formats:\n"
+                    '1. SOURCE name FROM "connector_name" OPTIONS { ... };\n'
+                    "2. SOURCE name TYPE connector_type PARAMS { ... };\n"
+                )
+                raise ParserError(error_message, next_token.line, next_token.column)
+
+            # Check for OPTIONS keyword
+            if next_token.type == TokenType.OPTIONS:
+                self._advance()  # Consume OPTIONS token
+            else:
+                # Produce a helpful error message with the expected syntax
+                error_message = (
+                    f"Expected 'OPTIONS' after connector name at line {next_token.line}.\n\n"
+                    "Correct syntax:\n"
+                    'SOURCE name FROM "connector_name" OPTIONS { ... };\n'
+                )
+                raise ParserError(error_message, next_token.line, next_token.column)
 
             # Parse options JSON
             options = self._parse_json_token()
+
+            # Look ahead to check for PARAMS (which would be incorrect)
+            next_token = self._peek()
+            if next_token.type == TokenType.PARAMS:
+                self._advance()  # Consume PARAMS token
+                # This is a syntax error - mixing OPTIONS and PARAMS
+                error_message = (
+                    f"Invalid SOURCE syntax at line {next_token.line}: Cannot use PARAMS with FROM-based syntax.\n\n"
+                    "Correct syntax:\n"
+                    'SOURCE name FROM "connector_name" OPTIONS { ... };\n'
+                )
+                raise ParserError(error_message, next_token.line, next_token.column)
 
             self._consume(TokenType.SEMICOLON, "Expected ';' after SOURCE statement")
 
@@ -265,15 +306,50 @@ class Parser:
                 profile_connector_name=connector_name,
                 line_number=source_token.line,
             )
-        else:
+        elif next_token.type == TokenType.TYPE:
             # Handle traditional TYPE-based syntax
-            self._consume(TokenType.TYPE, "Expected 'TYPE' after source name")
+            self._advance()  # Consume TYPE token
 
             type_token = self._consume(
                 TokenType.IDENTIFIER, "Expected connector type after 'TYPE'"
             )
 
-            self._consume(TokenType.PARAMS, "Expected 'PARAMS' after connector type")
+            next_token = self._peek()
+
+            # Check if user mistakenly used FROM after TYPE
+            if next_token.type == TokenType.FROM:
+                self._advance()  # Consume FROM token
+                # This is a syntax error - mixing TYPE and FROM
+                error_message = (
+                    f"Invalid SOURCE syntax at line {next_token.line}: Cannot mix TYPE and FROM keywords.\n\n"
+                    "Choose one of these formats:\n"
+                    '1. SOURCE name FROM "connector_name" OPTIONS { ... };\n'
+                    "2. SOURCE name TYPE connector_type PARAMS { ... };\n"
+                )
+                raise ParserError(error_message, next_token.line, next_token.column)
+
+            # Check for PARAMS keyword
+            if next_token.type == TokenType.PARAMS:
+                self._advance()  # Consume PARAMS token
+            else:
+                # Check if user mistakenly used OPTIONS with TYPE-based syntax
+                if next_token.type == TokenType.OPTIONS:
+                    self._advance()  # Consume OPTIONS token
+                    # This is a syntax error - mixing TYPE and OPTIONS
+                    error_message = (
+                        f"Invalid SOURCE syntax at line {next_token.line}: Cannot use OPTIONS with TYPE-based syntax.\n\n"
+                        "Correct syntax:\n"
+                        "SOURCE name TYPE connector_type PARAMS { ... };\n"
+                    )
+                    raise ParserError(error_message, next_token.line, next_token.column)
+                else:
+                    # Generic error message for missing PARAMS
+                    error_message = (
+                        f"Expected 'PARAMS' after connector type at line {next_token.line}.\n\n"
+                        "Correct syntax:\n"
+                        "SOURCE name TYPE connector_type PARAMS { ... };\n"
+                    )
+                    raise ParserError(error_message, next_token.line, next_token.column)
 
             # Use the _parse_json_token method to handle JSON parsing with variable substitution
             params = self._parse_json_token()
@@ -287,6 +363,15 @@ class Parser:
                 is_from_profile=False,
                 line_number=source_token.line,
             )
+        else:
+            # Neither FROM nor TYPE - provide error with both syntax options
+            error_message = (
+                f"Invalid SOURCE syntax at line {next_token.line}: Expected FROM or TYPE after source name.\n\n"
+                "Choose one of these formats:\n"
+                '1. SOURCE name FROM "connector_name" OPTIONS { ... };\n'
+                "2. SOURCE name TYPE connector_type PARAMS { ... };\n"
+            )
+            raise ParserError(error_message, next_token.line, next_token.column)
 
     def _advance(self) -> Token:
         """Advance to the next token.

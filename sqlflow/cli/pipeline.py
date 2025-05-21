@@ -10,7 +10,6 @@ import typer
 from sqlflow.cli.utils import parse_vars, resolve_pipeline_name
 from sqlflow.cli.variable_handler import VariableHandler
 from sqlflow.core.dependencies import DependencyResolver
-from sqlflow.core.errors import PlanningError
 from sqlflow.core.executors.local_executor import LocalExecutor
 from sqlflow.core.planner import Planner
 from sqlflow.core.sql_generator import SQLGenerator
@@ -92,85 +91,76 @@ def _compile_pipeline_to_plan(
             # Create execution plan
             planner = Planner()
             operations = planner.create_plan(pipeline)
-        except PlanningError as e:
-            # Format error message with line breaks for readability
-            error_msg = str(e).strip()
-            # Only log at debug level to avoid duplication in logs
-            logger.debug(f"Planning error: {error_msg}")
-            # Print error message with formatting
-            typer.echo(error_msg)
-            raise typer.Exit(code=1)
         except Exception as e:
-            # For unexpected errors, log the full stack trace for debugging
-            logger.exception("Unexpected error during planning")
-            typer.echo(f"Unexpected error: {str(e)}")
+            # Log the full error message only at debug level to avoid duplicating logs
+            logger.debug(f"Error compiling pipeline: {str(e)}", exc_info=True)
+
+            # Format error message for the user - single clean message without duplications
+            if hasattr(e, "message") and "SOURCE" in str(e):
+                # For SOURCE errors, clean up and format nicely
+                error_lines = str(e).split("\n")
+
+                # Process error message for cleaner output
+                # Collect all unique error messages without line/column info
+                unique_errors = set()
+                format_examples = []
+
+                for line in error_lines:
+                    # Extract format examples that show the correct syntax
+                    if "SOURCE" in line and "{" in line:
+                        format_examples.append(line.strip())
+                    elif "at line" in line:
+                        # Remove line/column info for the main error message
+                        base_error = line.split(" at line")[0].strip()
+                        if base_error:
+                            unique_errors.add(base_error)
+
+                # Prepare the final error message
+                formatted_errors = "\n".join(unique_errors)
+                formatted_examples = "\n".join(format_examples)
+
+                if formatted_examples:
+                    typer.echo(
+                        f"Error: {formatted_errors}\n\nCorrect formats:\n{formatted_examples}"
+                    )
+                else:
+                    typer.echo(f"Error: {formatted_errors}")
+            else:
+                # For other errors, just use the error message without the traceback
+                # Remove any line/column information to make the message cleaner
+                error_msg = str(e).strip()
+                if " at line" in error_msg:
+                    error_msg = error_msg.split(" at line")[0].strip()
+                typer.echo(f"Error: {error_msg}")
+
             raise typer.Exit(code=1)
 
-    # Step 4: Create full plan with metadata
-    plan = {
-        "pipeline_metadata": {
-            "name": pipeline_name,
-            "compiled_at": datetime.now().isoformat(),
-            "compiler_version": "0.1.0",
-            "variables": variables or {},
-        },
-        "operations": operations,
-        "execution_graph": _build_execution_graph(operations),
-    }
-
-    # Step 5: Print summary
+    # Step 4: Print summary
     _print_plan_summary(operations, pipeline_name)
 
-    # Step 6: Write output if requested
+    # Step 5: Save the plan if needed
     if save_plan:
-        os.makedirs(os.path.dirname(target_path), exist_ok=True)
-        with open(target_path, "w") as f:
-            json.dump(plan, f, indent=2)
-        typer.echo(f"\nExecution plan written to {target_path}")
+        plan_data = {"operations": operations}
+        _write_execution_plan(plan_data, target_path)
 
     return operations
 
 
-def _build_execution_graph(operations: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """Build execution graph metadata from operations.
+def _build_execution_graph(operations: List[Dict[str, Any]]) -> Dict[str, List[str]]:
+    """Build a simple execution graph from operations.
 
     Args:
-        operations: List of operations.
+        operations: List of operations
 
     Returns:
-        Execution graph metadata.
+        Dict mapping step IDs to lists of dependent step IDs
     """
-    # Build lineage map
-    lineage = {}
+    graph = {}
     for op in operations:
-        op_id = op.get("id", "")
+        op_id = op.get("id", "unknown")
         depends_on = op.get("depends_on", [])
-        if depends_on:
-            lineage[op_id] = depends_on
-
-    # Find entry and terminal points
-    all_ops = {op.get("id", "") for op in operations}
-    all_deps = set()
-    for deps in lineage.values():
-        all_deps.update(deps)
-
-    entry_points = list(all_ops - all_deps)
-    terminal_points = []
-
-    for op_id in all_ops:
-        is_terminal = True
-        for deps in lineage.values():
-            if op_id in deps:
-                is_terminal = False
-                break
-        if is_terminal:
-            terminal_points.append(op_id)
-
-    return {
-        "entry_points": entry_points,
-        "terminal_points": terminal_points,
-        "lineage": lineage,
-    }
+        graph[op_id] = depends_on
+    return graph
 
 
 def _prepare_compile_environment(
@@ -217,11 +207,24 @@ def _do_compile_single_pipeline(
             typer.echo(f"Applied variables: {json.dumps(variables, indent=2)}")
 
     except FileNotFoundError as e:
+        # Keep simple error for file not found
         typer.echo(str(e))
         raise typer.Exit(code=1)
+    except typer.Exit:
+        # Re-raise typer.Exit to avoid adding additional error messages
+        # This exception would have been raised by _compile_pipeline_to_plan
+        # which already printed an appropriate error message
+        raise
     except Exception as e:
-        typer.echo(f"Unexpected error compiling pipeline {pipeline_name}: {str(e)}")
-        logger.exception(f"Unexpected compilation error for {pipeline_name}")
+        # Log details at debug level only to avoid duplicating errors
+        logger.debug(
+            f"Unexpected error compiling {pipeline_name}: {str(e)}", exc_info=True
+        )
+        # Print simple error message for the user
+        error_msg = str(e)
+        if " at line" in error_msg:
+            error_msg = error_msg.split(" at line")[0].strip()
+        typer.echo(f"Error compiling pipeline {pipeline_name}: {error_msg}")
         raise typer.Exit(code=1)
 
 
@@ -255,10 +258,19 @@ def _do_compile_all_pipelines(
             typer.echo(f"Compiling {file_name}...")
             _compile_pipeline_to_plan(pipeline_path, auto_output_path, variables)
             compiled_count += 1
+        except typer.Exit:
+            # Exit was already handled in _compile_pipeline_to_plan
+            # Just count it as an error and continue with other pipelines
+            error_count += 1
         except Exception as e:
             error_count += 1
-            typer.echo(f"Error compiling pipeline {file_name}: {str(e)}")
-            logger.exception(f"Error compiling pipeline {file_name}")
+            # Format error message cleanly
+            error_msg = str(e)
+            if " at line" in error_msg:
+                error_msg = error_msg.split(" at line")[0]
+            typer.echo(f"Error compiling pipeline {file_name}: {error_msg}")
+            # Log at debug level to avoid duplicate error messages
+            logger.debug(f"Error compiling pipeline {file_name}", exc_info=True)
             # Continue to compile other pipelines
 
     if (
@@ -303,12 +315,6 @@ def compile_pipeline(
 
     if pipeline_name:
         if os.path.isfile(pipeline_name):  # User provided a full path
-            # For a full path, we might want a different output directory logic or let _compile_pipeline_to_plan handle it based on 'output'
-            # For now, assume target_dir is still relevant for consistency, or let 'output' override.
-            # The `resolve_pipeline_name` might not be needed if full path is given.
-            # This path needs careful consideration.
-            # Let's simplify: if it's a file, treat it as the pipeline_path directly.
-            # The 'output' argument will determine where it goes.
             _pipeline_path = pipeline_name
             _name_for_output = os.path.splitext(os.path.basename(_pipeline_path))[0]
             _auto_output_path = os.path.join(_target_dir, f"{_name_for_output}.json")
@@ -319,11 +325,19 @@ def compile_pipeline(
                 )
                 if _variables:
                     typer.echo(f"Applied variables: {json.dumps(_variables, indent=2)}")
+            except typer.Exit:
+                # Exit was already handled in _compile_pipeline_to_plan with appropriate error message
+                raise
             except Exception as e:
-                typer.echo(
-                    f"Unexpected error compiling pipeline {_pipeline_path}: {str(e)}"
+                # Only log unexpected errors that weren't handled previously
+                logger.debug(
+                    f"Unexpected compilation error for {_pipeline_path}", exc_info=True
                 )
-                logger.exception(f"Unexpected compilation error for {_pipeline_path}")
+                # Format error cleanly
+                error_msg = str(e)
+                if " at line" in error_msg:
+                    error_msg = error_msg.split(" at line")[0].strip()
+                typer.echo(f"Error compiling pipeline {_pipeline_path}: {error_msg}")
                 raise typer.Exit(code=1)
 
         else:  # User provided a name to be resolved
@@ -500,26 +514,35 @@ def _generate_execution_plan(pipeline_text: str, pipeline_path: str) -> list:
         raise typer.Exit(code=1)
 
 
-def _write_execution_plan(plan: list, output: str) -> None:
-    """Write an execution plan to a file.
+def _write_execution_plan(plan_data: Dict[str, Any], target_path: str) -> None:
+    """Write the execution plan to a file.
 
     Args:
-        plan: Execution plan
-        output: Output file path
-
-    Raises:
-        typer.Exit: If writing fails
+        plan_data: The execution plan data
+        target_path: Path to save the plan to
     """
-    plan_json = json.dumps(plan, indent=2)
+    # Add metadata to the plan
+    full_plan = {
+        "pipeline_metadata": {
+            "name": os.path.basename(target_path).replace(".json", ""),
+            "compiled_at": datetime.now().isoformat(),
+            "compiler_version": "0.1.0",
+        },
+        "operations": plan_data.get("operations", []),
+        "execution_graph": _build_execution_graph(plan_data.get("operations", [])),
+    }
+
+    # Create directory if it doesn't exist
+    os.makedirs(os.path.dirname(target_path), exist_ok=True)
+
+    # Write the plan
     try:
-        with open(output, "w") as f:
-            f.write(plan_json)
-        typer.echo(f"\nExecution plan written to {output}")
+        with open(target_path, "w") as f:
+            json.dump(full_plan, f, indent=2)
+        typer.echo(f"\nExecution plan written to {target_path}")
     except Exception as e:
-        typer.echo(f"Error writing execution plan to {output}: {str(e)}")
-        typer.echo("\nExecution plan:")
-        typer.echo(plan_json)
-        raise typer.Exit(code=1)
+        logger.error(f"Failed to write execution plan: {str(e)}")
+        typer.echo(f"Error writing execution plan: {str(e)}")
 
 
 def _compile_single_pipeline(
@@ -856,11 +879,17 @@ def _get_execution_operations(
             )
         except typer.Exit:
             # Exit was already handled in _compile_pipeline_to_plan with appropriate error message
+            # No need to add additional error messages - just propagate the exit
             raise
         except Exception as e:
             # Only log unexpected errors that weren't handled in _compile_pipeline_to_plan
-            logger.exception("Unexpected error during pipeline compilation")
-            typer.echo(f"Error compiling pipeline: {str(e)}")
+            # Log at debug level to avoid duplicate error messages
+            logger.debug("Unexpected error during pipeline compilation", exc_info=True)
+            # Format the error message cleanly - remove line numbers and traceback info
+            error_msg = str(e)
+            if " at line" in error_msg:
+                error_msg = error_msg.split(" at line")[0]
+            typer.echo(f"Error compiling pipeline: {error_msg}")
             raise typer.Exit(code=1)
 
 
