@@ -14,6 +14,7 @@ from sqlflow.core.evaluator import ConditionEvaluator, EvaluationError
 from sqlflow.logging import get_logger
 from sqlflow.parser.ast import (
     ConditionalBlockStep,
+    ConditionalBranchStep,
     ExportStep,
     LoadStep,
     Pipeline,
@@ -775,8 +776,9 @@ class ExecutionPlanBuilder:
             return execution_steps
 
         except EvaluationError as e:
-            logger.error(f"Condition evaluation error: {str(e)}")
-            raise PlanningError(f"Error evaluating conditions: {str(e)}") from e
+            # Log as ERROR not warning, and provide a user-friendly message
+            logger.error(f"Condition syntax error: {str(e)}")
+            raise PlanningError(f"Error in conditional expression: {str(e)}") from e
         except Exception as e:
             logger.error(f"Error building execution plan: {str(e)}")
             raise PlanningError(f"Failed to build execution plan: {str(e)}") from e
@@ -794,7 +796,15 @@ class ExecutionPlanBuilder:
                     for active_step in active_steps:
                         flattened_pipeline.add_step(active_step)
                 except EvaluationError as e:
+                    # This should be caught and handled in _resolve_conditional_block
+                    # But just in case, we add a more detailed error message
                     error_msg = f"Error evaluating conditional block at line {step.line_number}: {str(e)}"
+                    raise PlanningError(error_msg) from e
+                except PlanningError:
+                    # Pass through PlanningError that are already properly formatted
+                    raise
+                except Exception as e:
+                    error_msg = f"Error processing conditional block at line {step.line_number}: {str(e)}"
                     error_msg += (
                         "\nPlease check your variable syntax. Common issues include:"
                     )
@@ -818,49 +828,60 @@ class ExecutionPlanBuilder:
 
         # Process each branch until a true condition is found
         for branch in conditional_block.branches:
-            try:
-                if evaluator.evaluate(branch.condition):
-                    logger.info(
-                        f"Condition '{branch.condition}' evaluated to TRUE - using this branch"
-                    )
-                    # Process any nested conditionals in the active branch
-                    flat_branch_steps = []
-                    for step in branch.steps:
-                        if isinstance(step, ConditionalBlockStep):
-                            flat_branch_steps.extend(
-                                self._resolve_conditional_block(step, evaluator)
-                            )
-                        else:
-                            flat_branch_steps.append(step)
-                    return flat_branch_steps
-                else:
-                    logger.debug(
-                        f"Condition '{branch.condition}' evaluated to FALSE - skipping branch"
-                    )
-            except Exception as e:
-                # Log the error but continue to next branch
-                logger.warning(
-                    f"Error evaluating condition: {branch.condition}. Error: {str(e)}"
-                )
+            branch_result = self._try_evaluate_branch(branch, evaluator)
+            if branch_result:
+                return branch_result
 
         # If no branch condition is true, use the else branch if available
         if conditional_block.else_branch:
             logger.info("No conditions were true - using ELSE branch")
-            flat_else_steps = []
-            for step in conditional_block.else_branch:
-                if isinstance(step, ConditionalBlockStep):
-                    flat_else_steps.extend(
-                        self._resolve_conditional_block(step, evaluator)
-                    )
-                else:
-                    flat_else_steps.append(step)
-            return flat_else_steps
+            return self._flatten_steps(conditional_block.else_branch, evaluator)
 
         # No condition was true and no else branch
         logger.warning(
             "No conditions were true and no else branch exists - skipping entire block"
         )
         return []
+
+    def _try_evaluate_branch(
+        self, branch: ConditionalBranchStep, evaluator: ConditionEvaluator
+    ) -> Optional[List[PipelineStep]]:
+        """Try to evaluate a condition branch and return steps if condition is true."""
+        try:
+            # Do NOT catch EvaluationError here - let it propagate up with line information
+            condition_result = evaluator.evaluate(branch.condition)
+            if condition_result:
+                logger.info(
+                    f"Condition '{branch.condition}' evaluated to TRUE - using this branch"
+                )
+                return self._flatten_steps(branch.steps, evaluator)
+            else:
+                logger.debug(
+                    f"Condition '{branch.condition}' evaluated to FALSE - skipping branch"
+                )
+                return None
+        except EvaluationError as e:
+            # Add line number context and re-raise
+            error_msg = f"Error in condition: '{branch.condition}' at line {branch.line_number}.\n{str(e)}"
+            raise PlanningError(error_msg) from e
+        except Exception as e:
+            # Only catch other generic exceptions and log a warning
+            logger.warning(
+                f"Unexpected error evaluating condition: {branch.condition} at line {branch.line_number}. Error: {str(e)}"
+            )
+            return None
+
+    def _flatten_steps(
+        self, steps: List[PipelineStep], evaluator: ConditionEvaluator
+    ) -> List[PipelineStep]:
+        """Process steps and flatten any nested conditionals."""
+        flat_steps = []
+        for step in steps:
+            if isinstance(step, ConditionalBlockStep):
+                flat_steps.extend(self._resolve_conditional_block(step, evaluator))
+            else:
+                flat_steps.append(step)
+        return flat_steps
 
     # --- DEPENDENCY GRAPH & EXECUTION ORDER ---
     def _build_dependency_graph(self, pipeline: Pipeline) -> None:
