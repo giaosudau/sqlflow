@@ -145,3 +145,12 @@ class TestConditionEvaluator:
         # Test non-boolean result
         with pytest.raises(EvaluationError):
             evaluator.evaluate("${env}")  # Just returning a string
+
+    def test_single_equals_raises_syntax_error(self):
+        """Test that using '=' instead of '==' raises a syntax error with a helpful message."""
+        variables = {"use_csv": "true"}
+        evaluator = ConditionEvaluator(variables)
+        with pytest.raises(EvaluationError) as excinfo:
+            evaluator.evaluate("${use_csv} = 'true'")
+        assert "Syntax error in condition" in str(excinfo.value)
+        assert "Use '==' for equality" in str(excinfo.value)

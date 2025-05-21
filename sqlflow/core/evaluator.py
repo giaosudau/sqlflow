@@ -66,6 +66,14 @@ class ConditionEvaluator:
         # First substitute variables
         substituted_condition = self._substitute_variables(condition)
 
+        # Detect accidental use of '=' instead of '==' (not part of '==', '!=', '>=', '<=')
+        if re.search(r"(?<![=!<>])=(?![=])", substituted_condition):
+            raise EvaluationError(
+                f"Syntax error in condition: '{condition}'.\n"
+                "Hint: Use '==' for equality, not '='. "
+                "Example: IF ${var} == 'value' THEN ..."
+            )
+
         # Handle lowercase true/false by replacing them with True/False
         substituted_condition = re.sub(r"\btrue\b", "True", substituted_condition)
         substituted_condition = re.sub(r"\bfalse\b", "False", substituted_condition)
