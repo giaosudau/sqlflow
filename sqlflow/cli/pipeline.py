@@ -96,8 +96,8 @@ def _compile_pipeline_to_plan(
         except PlanningError as e:
             # Log the error but don't include the full stack trace - just pass on the error message
             logger.error(f"Planning error: {str(e)}")
-            # Format the error message for cleaner CLI output
-            typer.echo(f"Error creating execution plan:\n{str(e)}")
+            # Just show the error message without redundant prefix
+            typer.echo(str(e))
             raise typer.Exit(code=1)
         except EvaluationError as e:
             # Directly handle condition evaluation errors
