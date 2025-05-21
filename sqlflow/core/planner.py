@@ -2,6 +2,13 @@
 
 This module contains the planner that converts a validated SQLFlow DAG
 into a linear, JSON-serialized ExecutionPlan consumable by an executor.
+
+Error Handling Convention:
+- To avoid duplicate error messages, planner methods should avoid logging at ERROR level
+- Instead, log detailed information at DEBUG level and raise appropriately-formatted exceptions
+- PlanningError and EvaluationError objects should contain all user-facing information
+- CLI code is responsible for presenting errors to users in a clean, readable format
+- Variable missing/validation errors are logged at INFO level to help troubleshooting
 """
 
 import json
