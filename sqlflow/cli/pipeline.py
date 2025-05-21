@@ -10,6 +10,8 @@ import typer
 from sqlflow.cli.utils import parse_vars, resolve_pipeline_name
 from sqlflow.cli.variable_handler import VariableHandler
 from sqlflow.core.dependencies import DependencyResolver
+from sqlflow.core.errors import PlanningError
+from sqlflow.core.evaluator import EvaluationError
 from sqlflow.core.executors.local_executor import LocalExecutor
 from sqlflow.core.planner import Planner
 from sqlflow.core.sql_generator import SQLGenerator
@@ -91,9 +93,21 @@ def _compile_pipeline_to_plan(
             # Create execution plan
             planner = Planner()
             operations = planner.create_plan(pipeline)
+        except PlanningError as e:
+            # Log the error but don't include the full stack trace - just pass on the error message
+            logger.error(f"Planning error: {str(e)}")
+            # Format the error message for cleaner CLI output
+            typer.echo(f"Error creating execution plan:\n{str(e)}")
+            raise typer.Exit(code=1)
+        except EvaluationError as e:
+            # Directly handle condition evaluation errors
+            logger.error(f"Condition error: {str(e)}")
+            typer.echo(f"Error in condition: {str(e)}")
+            raise typer.Exit(code=1)
         except Exception as e:
-            logger.error(f"Error creating execution plan: {str(e)}")
-            typer.echo(f"Error creating execution plan: {str(e)}")
+            # For unexpected errors, log the full stack trace for debugging
+            logger.exception("Unexpected error during planning")
+            typer.echo(f"Unexpected error: {str(e)}")
             raise typer.Exit(code=1)
 
     # Step 4: Create full plan with metadata
@@ -843,9 +857,14 @@ def _get_execution_operations(
                 target_path=compiled_plan_path,  # Save compilation here
                 variables=variables,
             )
+        except typer.Exit:
+            # Exit was already handled in _compile_pipeline_to_plan with appropriate error message
+            # No need to log anything additional here
+            raise
         except Exception as e:
+            # Only log unexpected errors that weren't handled in _compile_pipeline_to_plan
+            logger.exception("Unexpected error during pipeline compilation")
             typer.echo(f"Error compiling pipeline: {str(e)}")
-            logger.exception("Pipeline compilation error")
             raise typer.Exit(code=1)
 
 

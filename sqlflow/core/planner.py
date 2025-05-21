@@ -765,16 +765,6 @@ class ExecutionPlanBuilder:
             )
             return execution_steps
 
-            # Create execution steps from pipeline steps in the determined order
-            logger.debug(f"Creating {len(execution_order)} execution steps")
-            execution_steps = self._build_execution_steps(
-                flattened_pipeline, execution_order
-            )
-            logger.info(
-                f"Successfully built execution plan with {len(execution_steps)} steps"
-            )
-            return execution_steps
-
         except EvaluationError as e:
             # Log as ERROR not warning, and provide a user-friendly message
             logger.error(f"Condition syntax error: {str(e)}")
@@ -1421,6 +1411,16 @@ class Planner:
             plan = self.builder.build_plan(pipeline, variables)
             logger.info(f"Successfully created plan with {len(plan)} operations")
             return plan
-        except Exception as e:
-            logger.error(f"Failed to create plan: {str(e)}")
+        except PlanningError:
+            # Don't wrap existing PlanningError with another one, just re-raise
             raise
+        except EvaluationError as e:
+            # Convert EvaluationError to PlanningError with context
+            error_msg = f"Error in conditional expression: {str(e)}"
+            logger.error(error_msg)
+            raise PlanningError(error_msg) from e
+        except Exception as e:
+            # For unexpected errors, provide more context
+            error_msg = f"Failed to create plan: {str(e)}"
+            logger.error(error_msg)
+            raise PlanningError(error_msg) from e
