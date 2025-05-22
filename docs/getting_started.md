@@ -4,7 +4,7 @@ This guide provides a comprehensive introduction to SQLFlow for new users. Follo
 
 ## Prerequisites
 
-- Python 3.8 or higher
+- Python 3.10+ or higher
 - Pip (Python package installer)
 - Basic knowledge of SQL
 

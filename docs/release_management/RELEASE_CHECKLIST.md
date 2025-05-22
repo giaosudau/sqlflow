@@ -91,9 +91,9 @@ Before promoting a release from TestPyPI to PyPI, verify the following:
 - [ ] Test on supported Python versions (3.8+)
   ```bash
   # If available, test with different Python environments
-  # For example, using a Python 3.8 environment:
-  python3.8 -m pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ sqlflow==X.Y.Z
-  python3.8 -c "import sqlflow; print(sqlflow.__version__)"
+  # For example, using a Python 3.10+ environment:
+  python3.10 -m pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ sqlflow==X.Y.Z
+  python3.10 -c "import sqlflow; print(sqlflow.__version__)"
   ```
 
 - [ ] Test connection profiles with supported data sources

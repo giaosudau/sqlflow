@@ -47,16 +47,16 @@ Stop stitching together complex tools. Write SQL you already know, add a few int
 ## Quick Example
 
 ```sql
--- Define your data source
+-- Define your data source (e.g., a CSV file containing order information)
 SOURCE orders TYPE CSV PARAMS {
   "path": "data/orders.csv",
   "has_header": true
 };
 
--- Load it into your workspace
+-- Load data from the 'orders' source into a queryable table named 'orders_data'
 LOAD orders_data FROM orders;
 
--- Transform with familiar SQL
+-- Transform the loaded data using familiar SQL to calculate daily sales metrics
 CREATE TABLE daily_sales AS
 SELECT
   order_date,
@@ -65,14 +65,14 @@ SELECT
 FROM orders_data
 GROUP BY order_date;
 
--- Apply Python transformations when needed
+-- Further enrich the sales data by applying a Python User-Defined Function (UDF)
 CREATE TABLE enriched_sales AS
 SELECT
   *,
   PYTHON_FUNC("python_udfs.calculate_trend", daily_sales) AS trend_indicator
 FROM daily_sales;
 
--- Export to your destination
+-- Export the final enriched sales report to an S3 bucket as a Parquet file
 EXPORT
   SELECT * FROM enriched_sales
 TO "s3://analytics/${date}/sales_report.parquet"
@@ -153,6 +153,10 @@ sqlflow pipeline run first_pipeline
 
 # View your results
 cat output/user_stats.csv
+# Expected output:
+# country,user_count,avg_age
+# US,2,25.0
+# UK,1,34.0
 ```
 
 For a comprehensive step-by-step guide, check out our [Getting Started Guide](docs/getting_started.md).
@@ -191,7 +195,7 @@ sqlflow pipeline run my_pipeline
 sqlflow pipeline run my_pipeline --profile production
 ```
 
-Each profile can define its own variables, engine settings, and connector configurations.
+Each profile can define its own variables (e.g., API keys, S3 bucket names), engine settings (like memory allocation for DuckDB), and connector configurations (e.g., database connection strings for PostgreSQL).
 
 ### 2. DuckDB-Powered Execution
 
@@ -277,25 +281,13 @@ pip install -e .
 * [Contributing Guide](CONTRIBUTING.md)
 * [Logging Configuration Guide](docs/logging.md)
 
-## Global CLI Options
-
-SQLFlow CLI supports the following global options that can be used with any command:
-
-* `--verbose` / `-v`: Enable verbose output, providing more detailed logs and technical information. This is useful for debugging.
-* `--quiet` / `-q`: Reduce output to essential information only, suppressing less critical messages.
-
-Example:
-```bash
-sqlflow --verbose pipeline run my_pipeline
-sqlflow -q pipeline list
-```
-
 ## 🤝 Join the Community
 
-SQLFlow is an open-source project built for data practitioners by data practitioners.
+SQLFlow is an open-source project built for data practitioners by data practitioners. We welcome contributions of all kinds, from documentation improvements to new features!
 
-* ⭐ **Star us on GitHub!** Show your support
-* 🐞 [Report issues](https://github.com/sqlflow/sqlflow/issues) or suggest features
+* ⭐ **Star us on GitHub!** Show your support.
+* 🐞 [Report issues](https://github.com/sqlflow/sqlflow/issues) or suggest features.
+* 🧑‍💻 Want to contribute? Check out our [Contributing Guide](CONTRIBUTING.md) and look for [open issues](https://github.com/sqlflow/sqlflow/issues) (especially those tagged 'good first issue' or 'help wanted').
 
 ## 📜 License
 
@@ -314,6 +306,12 @@ A: Simply use the `--profile` flag: `sqlflow pipeline run my_pipeline --profile 
 
 **Q: Are intermediate tables saved when using persistent mode?**  
 A: Yes. All tables created during pipeline execution are persisted to disk when using the persistent mode, making debugging and data examination easier.
+
+**Q: How does SQLFlow handle large datasets, especially with DuckDB as the engine?**
+A: SQLFlow, powered by DuckDB, can efficiently process datasets larger than available RAM. DuckDB uses out-of-core algorithms for operations like sorting and joining, spilling excess data to disk. For very large initial loads or specific connector behaviors, performance will also depend on the connector's implementation and the source system's capabilities. Persistent mode ensures intermediate results are stored on disk.
+
+**Q: Can I integrate SQLFlow into my existing CI/CD pipelines?**
+A: Absolutely. SQLFlow is a CLI tool, making it easy to integrate into CI/CD workflows (e.g., Jenkins, GitHub Actions, GitLab CI). You can run `sqlflow pipeline run` commands as part of your deployment scripts to automate your data pipeline execution and testing.
 
 ---
 
