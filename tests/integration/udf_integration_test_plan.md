@@ -10,7 +10,7 @@ For the MVP release, we will focus on ensuring that basic UDF functionality work
 2. ✅ Basic table UDF functionality
 3. ✅ Complex data type handling
 4. ✅ Edge case handling (NULL, empty datasets, large values)
-5. 🔄 Error handling and recovery (in progress)
+5. ✅ Error handling and recovery
 
 ## Test Categories
 
@@ -26,7 +26,7 @@ For the MVP release, we will focus on ensuring that basic UDF functionality work
   - ✅ Test with DataFrames containing mixed data types
   - ✅ Test with NULL values in various columns
   - ✅ Test with empty DataFrames
-  - ⬜ Test with large DataFrames (performance test)
+  - 🔄 Test with large DataFrames (performance test)
 
 ### 2. Parameter Handling Tests
 
@@ -55,17 +55,17 @@ For the MVP release, we will focus on ensuring that basic UDF functionality work
 
 ### 4. Error Handling Tests
 
-- 🔄 **Test error conditions in UDFs**
-  - 🔄 Test UDFs that raise exceptions
-  - 🔄 Test error reporting clarity
-  - 🔄 Test error handling in complex pipelines
+- ✅ **Test error conditions in UDFs**
+  - ✅ Test UDFs that raise exceptions
+  - ✅ Test error reporting clarity
+  - ✅ Test error handling in complex pipelines
 
 ### 5. Performance Tests
 
-- ⬜ **Test UDF performance with various data sizes**
-  - ⬜ Test with small datasets
-  - ⬜ Test with medium datasets (hundreds of rows)
-  - ⬜ Test with large datasets (thousands of rows)
+- 🔄 **Test UDF performance with various data sizes**
+  - 🔄 Test with small datasets
+  - 🔄 Test with medium datasets (hundreds of rows)
+  - 🔄 Test with large datasets (thousands of rows)
 
 ## Implementation Plan
 
@@ -74,8 +74,8 @@ We will implement these tests in the following order:
 1. ✅ Data type tests (basic tests first)
 2. ✅ Parameter handling tests 
 3. ✅ Real-world scenario tests (e-commerce focus)
-4. 🔄 Error handling tests (in progress)
-5. ⬜ Performance tests (if time permits)
+4. ✅ Error handling tests 
+5. 🔄 Performance tests (in progress)
 
 Each test will be added incrementally, with a focus on testing real use cases that users will encounter.
 
@@ -97,18 +97,17 @@ Each test will be added incrementally, with a focus on testing real use cases th
    - Tests product performance analysis with table UDFs
    - Tests a full e-commerce analysis pipeline with multiple UDFs
 
-## In Progress
-
-4. 🔄 **test_udf_error_handling.py** - Tests UDF error handling and reporting
+4. ✅ **test_udf_error_handling.py** - Tests UDF error handling and reporting
    - Tests syntax errors in UDF definitions
    - Tests runtime errors in UDF execution
    - Tests type conversion errors
    - Tests error propagation in complex pipelines
    - Tests error reporting clarity
 
-## Next Steps
+## In Progress
 
-5. **test_udf_performance.py** - Tests UDF performance with different data sizes
-   - Test with small, medium, and large datasets
-   - Measure execution time and resource usage
-   - Test optimizations for common operations 
+5. 🔄 **test_udf_performance.py** - Tests UDF performance with different data sizes
+   - Tests scalar UDF performance with small and medium datasets
+   - Compares optimized (vectorized) and non-optimized (row-by-row) table UDFs
+   - Tests aggregation operations in table UDFs vs. SQL
+   - Measures performance metrics and suggests optimization strategies 
