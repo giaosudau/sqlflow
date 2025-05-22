@@ -159,7 +159,7 @@ cat output/user_stats.csv
 # UK,1,34.0
 ```
 
-For a comprehensive step-by-step guide, check out our [Getting Started Guide](docs/getting_started.md).
+For a comprehensive step-by-step guide, check out our [Getting Started Guide](docs/user/getting_started.md).
 
 ## 🔍 Why Teams Choose SQLFlow
 
@@ -273,13 +273,22 @@ pip install -e .
 
 ## 📖 Documentation
 
-* [SQLFlow Syntax Reference](docs/syntax.md)
-* [Getting Started Guide](docs/getting_started.md)
-* [Architecture & Concepts](docs/architecture.md)
-* [CLI Reference Guide](docs/cli_guide.md)
-* [Examples](examples/)
-* [Contributing Guide](CONTRIBUTING.md)
-* [Logging Configuration Guide](docs/logging.md)
+Visit our [Documentation Hub](docs/README.md) for comprehensive guides and references.
+
+### For Users
+* [Getting Started Guide](docs/user/getting_started.md)
+* [Core Concepts](docs/user/concepts.md)
+* [Syntax Reference](docs/user/reference/syntax.md)
+* [Python UDFs Guide](docs/user/reference/python_udfs.md)
+
+### For Developers
+* [Contributing Guide](docs/developer/contributing.md)
+* [Architecture Overview](docs/developer/architecture.md)
+
+### Examples & Comparisons
+* [Example Pipelines](examples/)
+* [SQLFlow vs dbt](docs/comparison/vs_dbt.md)
+* [SQLFlow vs Airflow](docs/comparison/vs_airflow.md)
 
 ## 🤝 Join the Community
 
@@ -287,7 +296,7 @@ SQLFlow is an open-source project built for data practitioners by data practitio
 
 * ⭐ **Star us on GitHub!** Show your support.
 * 🐞 [Report issues](https://github.com/sqlflow/sqlflow/issues) or suggest features.
-* 🧑‍💻 Want to contribute? Check out our [Contributing Guide](CONTRIBUTING.md) and look for [open issues](https://github.com/sqlflow/sqlflow/issues) (especially those tagged 'good first issue' or 'help wanted').
+* 🧑‍💻 Want to contribute? Check out our [Contributing Guide](docs/developer/contributing.md) and look for [open issues](https://github.com/sqlflow/sqlflow/issues) (especially those tagged 'good first issue' or 'help wanted').
 
 ## 📜 License
 

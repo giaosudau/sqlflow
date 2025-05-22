@@ -143,7 +143,7 @@ After exploring this demo, you can:
 3. Experiment with more complex transformations
 4. Integrate with your own data sources
 
-For more information, see the [SQLFlow Python UDFs documentation](../../docs/python_udfs.md).
+For more information, see the [SQLFlow Python UDFs documentation](../../docs/user/reference/python_udfs.md).
 
 ## Verifying UDF Discovery
 

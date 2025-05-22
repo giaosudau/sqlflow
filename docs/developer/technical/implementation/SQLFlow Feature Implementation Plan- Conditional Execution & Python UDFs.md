@@ -456,7 +456,7 @@ def build_plan(self, pipeline: Pipeline) -> List[Dict[str, Any]]:
 **Description:** Create documentation and example pipelines for conditional execution.
 
 **Files Impacted:**
-- `docs/conditionals.md`
+- `docs/user/guides/conditionals.md`
 - `examples/conditional_pipelines/`
 
 **Subtasks:**
@@ -1218,7 +1218,7 @@ def cli():
 **Description:** Create comprehensive documentation for using Python UDFs in SQLFlow.
 
 **Files Impacted:**
-- `docs/features/python_udfs.md` (new)
+- `docs/user/reference/python_udfs.md` (new)
 - `examples/udf_demo.sf` (new)
 - `examples/python_udfs/example_udf.py` (new)
 

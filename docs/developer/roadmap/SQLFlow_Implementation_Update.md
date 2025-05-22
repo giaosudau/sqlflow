@@ -38,7 +38,7 @@
 
 #### Task 1.6: Documentation & Examples
 ✅ Complete - Documentation and examples created
-- Added detailed documentation in `docs/conditionals.md`
+- Added detailed documentation in `docs/user/guides/conditionals.md`
 - Created example conditional pipelines in `examples/conditional_pipelines/`
 - Built a comprehensive demo in `demos/conditional_demo/` with realistic data
 - Demonstrated various use cases: region-based, environment-based, and nested conditionals

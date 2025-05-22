@@ -48,7 +48,7 @@ We welcome contributions to SQLFlow! As an early-stage project, we are excited t
 1. Create a new branch for your changes
 2. Make your changes and add tests
 3. Update documentation if necessary
-   - Follow our [Documentation Style Guide](docs/developer/code_organization.md)
+   - Follow our [Documentation Style Guide](code_organization.md)
    - Ensure all CLI examples use the correct format
 4. Run tests to ensure they pass
 5. Submit a pull request
@@ -60,7 +60,7 @@ SQLFlow follows a two-stage release process to ensure quality:
 1. **TestPyPI Stage**: New versions are first published to TestPyPI for verification
 2. **PyPI Stage**: After testing, releases are promoted to PyPI for public use
 
-For detailed instructions on the release process, please refer to our [Release Process Documentation](docs/developer/release_process.md).
+For detailed instructions on the release process, please refer to our [Release Process Documentation](release_process.md).
 
 ### Release Frequency
 

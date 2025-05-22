@@ -70,14 +70,14 @@ Before promoting a release from TestPyPI to PyPI, verify the following:
 ## Documentation Check
 
 - [ ] CLI documentation is up-to-date with any new commands or options
-  - Check against `docs/cli_guide.md`
+  - Check against `docs/user/reference/cli.md`
   - Verify CLI commands work as documented
   
 - [ ] All new features are documented in relevant guides:
-  - `docs/syntax.md` for SQL syntax changes
-  - `docs/python_udfs.md` for UDF changes
-  - `docs/getting_started.md` for basic workflow changes
-  - `docs/connector_usage_guide.md` for connector changes
+  - `docs/user/reference/syntax.md` for SQL syntax changes
+  - `docs/user/reference/python_udfs.md` for UDF changes
+  - `docs/user/getting_started.md` for basic workflow changes
+  - `docs/user/reference/connectors.md` for connector changes
   
 - [ ] Examples are up-to-date with the latest features and changes
   - `examples/ecommerce` reflects current recommended patterns

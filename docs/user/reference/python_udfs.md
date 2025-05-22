@@ -1,4 +1,4 @@
-<!-- filepath: /Users/chanhle/ai-playground/sqlflow/docs/python_udfs.md -->
+<!-- filepath: /Users/chanhle/ai-playground/sqlflow/docs/user/reference/python_udfs.md -->
 # Python UDFs in SQLFlow: Advanced Guide
 
 ## Overview
@@ -89,7 +89,7 @@ FROM PYTHON_FUNC("python_udfs.data_transforms.add_sales_metrics", price_variants
 ```
 
 ### End-to-End Example
-See [`examples/udf_examples/pipelines/customer_text_processing.sf`](../examples/udf_examples/pipelines/customer_text_processing.sf) and [`examples/udf_examples/pipelines/sales_analysis.sf`](../examples/udf_examples/pipelines/sales_analysis.sf) for real pipelines using UDFs.
+See [`examples/udf_examples/pipelines/customer_text_processing.sf`](../../../examples/udf_examples/pipelines/customer_text_processing.sf) and [`examples/udf_examples/pipelines/sales_analysis.sf`](../../../examples/udf_examples/pipelines/sales_analysis.sf) for real pipelines using UDFs.
 
 ---
 
@@ -145,8 +145,8 @@ SQLFlow provides examples of table UDFs that process entire DataFrames:
 - `add_sales_metrics(df: pd.DataFrame) -> pd.DataFrame`: Adds calculated columns to a sales DataFrame (total, tax, final_price)
 - `detect_outliers(df: pd.DataFrame, column_name: str = "price") -> pd.DataFrame`: Identifies outliers using Z-score method
 
-See [`examples/udf_examples/python_udfs/`](../examples/udf_examples/python_udfs/) for complete implementation examples.
+See [`examples/udf_examples/python_udfs/`](../../../examples/udf_examples/python_udfs/) for complete implementation examples.
 
 ---
 
-For further questions or to contribute improvements, see the main [README](../README.md) or open an issue.
+For further questions or to contribute improvements, see the main [README](../../../README.md) or open an issue.

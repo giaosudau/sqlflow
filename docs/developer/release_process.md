@@ -109,5 +109,5 @@ After successfully publishing to PyPI, create a GitHub release:
 2. Click "Draft a new release"
 3. Select the production tag (e.g., v0.1.5-prod)
 4. Title the release "SQLFlow v0.1.5"
-5. Include release notes (see template in docs/GITHUB_RELEASE_TEMPLATE.md)
+5. Include release notes (see template in release_management/GITHUB_RELEASE_TEMPLATE.md)
 6. Publish the release

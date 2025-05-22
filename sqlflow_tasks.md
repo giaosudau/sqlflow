@@ -259,7 +259,7 @@ This document tracks the implementation status of Conditional Execution, Python 
 **Description:** Create comprehensive documentation and example pipelines for conditional execution.
 
 **Files Impacted:**
-- `docs/conditionals.md`
+- `docs/user/guides/conditionals.md`
 - `examples/conditional_pipelines/`
 
 **Subtasks:**
@@ -395,7 +395,7 @@ This document tracks the implementation status of Conditional Execution, Python 
 **Description:** Create comprehensive documentation for using Python UDFs in SQLFlow.
 
 **Files Impacted:**
-- `docs/features/python_udfs.md` (new)
+- `docs/user/reference/python_udfs.md` (new)
 - `examples/udf_demo.sf` (new)
 - `examples/python_udfs/example_udf.py` (new)
 
@@ -607,7 +607,7 @@ This document tracks the implementation status of Conditional Execution, Python 
 
 **Status:** ✅ COMPLETED
 
-- Comprehensive Python UDF documentation added in `docs/python_udfs.md`.
+- Comprehensive Python UDF documentation added in `docs/user/reference/python_udfs.md`.
 - Main `README.md` updated with UDF quickstart and best practices.
 - Documentation reviewed for best practices by Principal Software Advocates and SMEs (Snowflake, Databricks, dbt, sqlmesh).
 - Covers scalar/table UDFs, signature requirements, discovery, usage, CLI, troubleshooting, performance, and best practices.
@@ -782,7 +782,7 @@ This document tracks the implementation status of Conditional Execution, Python 
 **Description:** Create comprehensive documentation for load modes and their usage.
 
 **Files Impacted:**
-- `docs/load_modes.md` (new)
+- `docs/user/reference/load_modes.md` (new)
 - `examples/load_modes/` (new directory)
 
 **Subtasks:**
@@ -936,7 +936,7 @@ This document tracks the implementation status of Conditional Execution, Python 
 **Description:** Create comprehensive documentation for using connectors in SQLFlow.
 
 **Files Impacted:**
-- `docs/connectors/` (new directory)
+- `docs/user/reference/connectors/` (new directory)
 - `examples/connectors/` (new directory)
 
 **Subtasks:**
@@ -1089,7 +1089,7 @@ This document tracks the implementation status of Conditional Execution, Python 
 **Description:** Create comprehensive documentation for schema management features.
 
 **Files Impacted:**
-- `docs/schema_management.md` (new)
+- `docs/user/reference/schema_management.md` (new)
 - `examples/schema_management/` (new directory)
 
 **Subtasks:**
