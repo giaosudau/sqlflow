@@ -1705,59 +1705,102 @@ class DuckDBEngine(SQLEngine):
         return registered
 
     def validate_schema_compatibility(
-        self, table_name: str, output_schema: Dict[str, str]
+        self, target_table: str, source_schema: Dict[str, str]
     ) -> bool:
-        """Validate that a UDF's output schema is compatible with an existing table.
+        """Validate schema compatibility between source and target tables.
+
+        This method checks if the schema of the source is compatible with the target table
+        for operations like APPEND and MERGE.
 
         Args:
-            table_name: Name of the table to validate against
-            output_schema: Output schema from the UDF
+            target_table: Name of the target table
+            source_schema: Schema of the source table as a dict of column names to types
 
         Returns:
-            True if schema is compatible, False otherwise
+            True if schemas are compatible, raises ValueError otherwise
+
+        Raises:
+            ValueError: If schemas are incompatible with detailed explanation
         """
-        if not self.table_exists(table_name):
-            return True  # No table to compare against
+        logger.debug(
+            f"Validating schema compatibility between source and target {target_table}"
+        )
 
-        try:
-            table_schema = self.get_table_schema(table_name)
-
-            # Check if all required columns exist with compatible types
-            for col_name, col_type in output_schema.items():
-                if col_name not in table_schema:
-                    logger.warning(
-                        f"Column {col_name} in UDF schema not found in table {table_name}"
-                    )
-                    return False
-
-                # Check type compatibility (simplified)
-                # A more robust implementation would check actual type compatibility
-                table_col_type = table_schema[col_name].upper()
-                udf_col_type = col_type.upper()
-
-                # Basic type compatibility checks
-                if (
-                    ("INT" in table_col_type and "INT" not in udf_col_type)
-                    or (
-                        "FLOAT" in table_col_type
-                        and "FLOAT" not in udf_col_type
-                        and "DOUBLE" not in udf_col_type
-                    )
-                    or (
-                        "VARCHAR" in table_col_type
-                        and "VARCHAR" not in udf_col_type
-                        and "TEXT" not in udf_col_type
-                    )
-                ):
-                    logger.warning(
-                        f"Column {col_name} type mismatch: {table_col_type} in table vs {udf_col_type} in UDF"
-                    )
-                    return False
-
+        # If target table doesn't exist, any schema is compatible
+        if not self.table_exists(target_table):
+            logger.debug(
+                f"Target table {target_table} doesn't exist, no schema validation needed"
+            )
             return True
-        except Exception as e:
-            logger.error(f"Error validating schema compatibility: {e}")
-            return False
+
+        # Get target table schema
+        target_schema = self.get_table_schema(target_table)
+
+        # Check source columns exist in target with compatible types
+        for col_name, col_type in source_schema.items():
+            if col_name not in target_schema:
+                error_msg = f"Column '{col_name}' in source does not exist in target table '{target_table}'"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+
+            # Normalize types for comparison
+            source_type = col_type.upper()
+            target_type = target_schema[col_name].upper()
+
+            # Check type compatibility
+            # This is a simplified check - could be enhanced for more precise type compatibility
+            if not self._are_types_compatible(source_type, target_type):
+                error_msg = f"Column '{col_name}' has incompatible types: source={source_type}, target={target_type}"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+
+        logger.debug(f"Schema validation successful for {target_table}")
+        return True
+
+    def _are_types_compatible(self, source_type: str, target_type: str) -> bool:
+        """Check if two SQL types are compatible.
+
+        Args:
+            source_type: Source column type
+            target_type: Target column type
+
+        Returns:
+            True if types are compatible, False otherwise
+        """
+
+        # Normalize types by removing length specifiers, etc.
+        def normalize_type(type_str):
+            if (
+                "VARCHAR" in type_str
+                or "CHAR" in type_str
+                or "TEXT" in type_str
+                or "STRING" in type_str
+            ):
+                return "STRING"
+            elif "INT" in type_str:
+                return "INTEGER"
+            elif (
+                "FLOAT" in type_str
+                or "DOUBLE" in type_str
+                or "DECIMAL" in type_str
+                or "NUMERIC" in type_str
+            ):
+                return "FLOAT"
+            elif "BOOL" in type_str:
+                return "BOOLEAN"
+            elif "DATE" in type_str:
+                return "DATE"
+            elif "TIME" in type_str and "TIMESTAMP" not in type_str:
+                return "TIME"
+            elif "TIMESTAMP" in type_str:
+                return "TIMESTAMP"
+            else:
+                return type_str
+
+        norm_source = normalize_type(source_type)
+        norm_target = normalize_type(target_type)
+
+        return norm_source == norm_target
 
     def execute_query_with_udfs(
         self, query: str, udf_args: Optional[Dict[str, Dict[str, Any]]] = None
@@ -1995,3 +2038,123 @@ class DuckDBEngine(SQLEngine):
             info["udf_info_error"] = str(e)
 
         return info
+
+    def generate_load_sql(self, load_step: "LoadStep") -> str:
+        """Generate SQL for a LOAD step based on its mode.
+
+        Args:
+            load_step: The LoadStep containing table_name, source_name, mode, and merge_keys
+
+        Returns:
+            SQL string for executing the LOAD operation
+
+        Raises:
+            ValueError: If the load mode is invalid or unsupported
+        """
+        table_name = load_step.table_name
+        source_name = load_step.source_name
+        mode = load_step.mode.upper()
+        merge_keys = load_step.merge_keys
+
+        # Validate the mode
+        valid_modes = ["REPLACE", "APPEND", "MERGE"]
+        if mode not in valid_modes:
+            raise ValueError(
+                f"Invalid load mode: {mode}. Must be one of: {', '.join(valid_modes)}"
+            )
+
+        # Check if the table exists
+        table_exists = self.table_exists(table_name)
+
+        # Get source table schema for validation
+        source_schema = self.get_table_schema(source_name)
+
+        # Handle REPLACE mode
+        if mode == "REPLACE":
+            if table_exists:
+                # Use CREATE OR REPLACE for existing tables
+                sql = f"CREATE OR REPLACE TABLE {table_name} AS SELECT * FROM {source_name}"
+            else:
+                # Simple CREATE TABLE for new tables
+                sql = f"CREATE TABLE {table_name} AS SELECT * FROM {source_name}"
+            return sql
+
+        # Handle APPEND mode
+        elif mode == "APPEND":
+            if table_exists:
+                # Validate schema compatibility for APPEND mode
+                self.get_table_schema(table_name)
+                self.validate_schema_compatibility(table_name, source_schema)
+                # Use INSERT INTO for existing tables
+                sql = f"INSERT INTO {table_name} SELECT * FROM {source_name}"
+            else:
+                # Create the table first if it doesn't exist
+                sql = f"CREATE TABLE {table_name} AS SELECT * FROM {source_name}"
+            return sql
+
+        # Handle MERGE mode
+        elif mode == "MERGE":
+            if not merge_keys:
+                raise ValueError("MERGE mode requires merge keys to be specified")
+
+            if table_exists:
+                # Validate schema compatibility for MERGE mode
+                self.get_table_schema(table_name)
+                self.validate_schema_compatibility(table_name, source_schema)
+
+                # Build the ON clause with merge keys
+                on_clauses = []
+                for key in merge_keys:
+                    on_clauses.append(f"target.{key} = source.{key}")
+                on_clause = " AND ".join(on_clauses)
+
+                # In DuckDB, we can use INSERT INTO with ON CONFLICT
+                # For compatibility across versions, we'll use a temporary view and MERGE INTO
+                sql = f"""
+                CREATE TEMPORARY VIEW temp_source AS SELECT * FROM {source_name};
+                
+                MERGE INTO {table_name} AS target
+                USING temp_source AS source
+                ON {on_clause}
+                WHEN MATCHED THEN
+                    UPDATE SET {', '.join([f'target.{col} = source.{col}' for col in source_schema.keys()])}
+                WHEN NOT MATCHED THEN
+                    INSERT ({', '.join(source_schema.keys())}) 
+                    VALUES ({', '.join([f'source.{col}' for col in source_schema.keys()])});
+                
+                DROP VIEW temp_source;
+                """
+            else:
+                # Create the table if it doesn't exist
+                sql = f"CREATE TABLE {table_name} AS SELECT * FROM {source_name}"
+
+            return sql
+
+        # This should never happen due to the validation above
+        else:
+            raise ValueError(f"Unsupported load mode: {mode}")
+
+    def validate_udf_schema_compatibility(
+        self, table_name: str, output_schema: Dict[str, str]
+    ) -> bool:
+        """Validate that a UDF's output schema is compatible with an existing table.
+
+        Args:
+            table_name: Name of the table to validate against
+            output_schema: Output schema from the UDF
+
+        Returns:
+            True if schema is compatible, False otherwise
+        """
+        if not self.table_exists(table_name):
+            return True  # No table to compare against
+
+        try:
+            # Reuse our general schema compatibility method
+            return self.validate_schema_compatibility(table_name, output_schema)
+        except ValueError as e:
+            logger.warning(f"UDF schema incompatible with table {table_name}: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"Error validating UDF schema compatibility: {e}")
+            return False

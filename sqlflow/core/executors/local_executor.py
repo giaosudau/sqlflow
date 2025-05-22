@@ -530,6 +530,39 @@ class LocalExecutor(BaseExecutor):
             logger.error(f"Error in load step: {e}")
             return {"status": "error", "message": str(e)}
 
+    def execute_load_step(self, load_step) -> Dict[str, Any]:
+        """Execute a LoadStep with the specified mode.
+
+        Args:
+            load_step: LoadStep object containing table_name, source_name, mode, and merge_keys
+
+        Returns:
+            Dict containing execution results
+        """
+        try:
+            logger.debug(
+                f"Executing LoadStep with mode {load_step.mode}: {load_step.table_name} FROM {load_step.source_name}"
+            )
+
+            # Generate the appropriate SQL for the load mode
+            sql = self.duckdb_engine.generate_load_sql(load_step)
+
+            # Execute the SQL
+            self.duckdb_engine.execute_query(sql)
+
+            logger.info(
+                f"Successfully loaded {load_step.table_name} FROM {load_step.source_name} using {load_step.mode} mode"
+            )
+
+            return {
+                "status": "success",
+                "table": load_step.table_name,
+                "mode": load_step.mode,
+            }
+        except Exception as e:
+            logger.error(f"Error executing LoadStep: {e}")
+            return {"status": "error", "message": str(e)}
+
     def register_test_tables(self):
         """Register test tables for the persistence tests."""
         if not self.duckdb_engine or not hasattr(self.duckdb_engine, "execute_query"):
@@ -738,15 +771,22 @@ class LocalExecutor(BaseExecutor):
         # All steps completed successfully
         return {"status": "success"}
 
-    def execute_step(self, step: Dict[str, Any]) -> Dict[str, Any]:
+    def execute_step(self, step: Any) -> Dict[str, Any]:
         """Execute a single step in the pipeline.
 
         Args:
-            step: Operation to execute
+            step: Operation to execute (can be a Dict or an AST object like LoadStep)
 
         Returns:
             Dict containing execution results
         """
+        # Handle AST objects
+        from sqlflow.parser.ast import LoadStep
+
+        if isinstance(step, LoadStep):
+            return self.execute_load_step(step)
+
+        # Handle traditional dictionary-based steps
         step_type = step.get("type")
         if step_type == "source_definition":
             return self._execute_source_definition(step)
@@ -816,3 +856,33 @@ class LocalExecutor(BaseExecutor):
             Dict containing execution results
         """
         raise NotImplementedError("Resume not supported in LocalExecutor")
+
+    def execute_pipeline(self, pipeline) -> Dict[str, Any]:
+        """Execute a Pipeline object from the AST.
+
+        Args:
+            pipeline: Pipeline object containing steps to execute
+
+        Returns:
+            Dict containing execution status and results
+        """
+        try:
+            logger.info(f"Executing pipeline with {len(pipeline.steps)} steps")
+
+            # Execute each step in the pipeline
+            for step in pipeline.steps:
+                result = self.execute_step(step)
+                if result.get("status") != "success":
+                    return {
+                        "status": "failed",
+                        "error": result.get(
+                            "message",
+                            f"Unknown error in step {step.__class__.__name__}",
+                        ),
+                    }
+
+            # All steps completed successfully
+            return {"status": "success"}
+        except Exception as e:
+            logger.error(f"Error executing pipeline: {e}")
+            return {"status": "failed", "error": str(e)}
