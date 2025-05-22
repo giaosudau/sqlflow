@@ -3,22 +3,42 @@ name: CI
 on:
   push:
     branches: [ main, dev ]
+    paths:
+      - '**.py'
+      - 'tests/**'
+      - 'setup.py'
+      - 'setup.cfg'
+      - 'pyproject.toml'
+      - 'requirements*.txt'
+      - '.github/workflows/ci.yml'
   pull_request:
     branches: [ main, dev ]
+    paths:
+      - '**.py'
+      - 'tests/**'
+      - 'setup.py'
+      - 'setup.cfg'
+      - 'pyproject.toml'
+      - 'requirements*.txt'
+      - '.github/workflows/ci.yml'
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.8', '3.9', '3.10', '3.11']
+
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
+      - uses: actions/checkout@v3
         with:
           fetch-depth: 0
 
-      - name: Set up Python
+      - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v4
         with:
-          python-version: '3.10'
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
 
       - name: Install dependencies
         run: |
@@ -34,20 +54,13 @@ jobs:
         run: |
           black .
 
-      - name: Sort imports with isort
+      - name: Run tests with coverage
         run: |
-          isort --profile black .
+          pytest --cov=sqlflow --cov-branch --cov-report=xml
 
-      - name: Lint with flake8
-        run: |
-          flake8 --ignore=E501,E221,E222,E223,E224,E303,E301,E302,E402,F401,F841,E741,W291,W293,D100,D101,W503,W504,E203 --max-complexity=10 .
-
-      - name: Run tests
-        run: |
-          pytest -q --maxfail=5 --disable-warnings --cov=sqlflow
-          COVERAGE=$(pytest --cov=sqlflow --cov-report=xml | grep TOTAL | awk '{print $4}' | sed 's/%//')
-          echo "Test coverage: $COVERAGE%"
-          if [ "$COVERAGE" -lt 80 ]; then
-            echo "Test coverage below target (< 80%)"
-            echo "::warning::Test coverage is below 80%. Current coverage: $COVERAGE%"
-          fi
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: true 
+          verbose: true

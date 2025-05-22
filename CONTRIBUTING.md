@@ -20,14 +20,27 @@ We welcome contributions to SQLFlow! As an early-stage project, we are excited t
    cd sqlflow
    ```
 
-2. Install in development mode:
+2. Create and activate a virtual environment:
+   ```bash
+   python -m venv venv
+   source venv/bin/activate  # On Linux/Mac
+   # OR
+   .\venv\Scripts\activate  # On Windows
+   ```
+
+3. Install in development mode:
    ```bash
    pip install -e ".[dev]"
    ```
 
-3. Run tests to verify your setup:
+4. Run tests to verify your setup:
    ```bash
    pytest
+   ```
+
+5. Run pre-commit hooks to ensure code style and linting:
+   ```bash
+   pre-commit run --all-files
    ```
 
 ### Pull Request Process
@@ -65,4 +78,4 @@ While we formalize a detailed Code of Conduct, please interact with respect, pro
 
 Feel free to open an issue for any questions related to contributing.
 
-Thank you for your interest in making SQLFlow better! 
+Thank you for your interest in making SQLFlow better!
