@@ -21,6 +21,10 @@ You can verify the installation was successful by checking the version:
 ```bash
 sqlflow --version
 ```
+You should see output similar to:
+```
+sqlflow, version x.y.z
+```
 
 ## 2. Create Your First SQLFlow Project
 
@@ -195,6 +199,21 @@ Your results will be in the output directory:
 cat output/enhanced_users.csv
 cat output/region_summary.csv
 ```
+The `output/enhanced_users.csv` will contain:
+```csv
+id,name,email,country,signup_date,region
+1,Alice,alice@example.com,US,2023-01-15,North America
+2,Bob,bob@example.com,UK,2023-02-20,Europe
+3,Charlie,charlie@example.com,FR,2023-01-25,Europe
+4,Diana,diana@example.com,US,2023-03-10,North America
+```
+
+The `output/region_summary.csv` will contain (order of rows with same `user_count` might vary):
+```csv
+region,user_count,earliest_signup,latest_signup
+North America,2,2023-01-15,2023-03-10
+Europe,2,2023-01-25,2023-02-20
+```
 
 ## 7. Using Production Mode
 
@@ -317,8 +336,22 @@ TYPE CSV
 OPTIONS { "header": true };
 EOF
 
+This pipeline uses `INCLUDE "python_udfs/string_utils.py";` at the top to make the Python functions defined in `string_utils.py` available to the SQLFlow engine.
+
 # Run the UDF pipeline
 sqlflow pipeline run udf_pipeline
+```
+After running, check the output:
+```bash
+cat output/users_with_features.csv
+```
+The `output/users_with_features.csv` will contain:
+```csv
+id,name,email,name_and_country,name_length,name_first_letter
+1,Alice,alice@example.com,"Alice US",5,A
+2,Bob,bob@example.com,"Bob UK",3,B
+3,Charlie,charlie@example.com,"Charlie FR",7,C
+4,Diana,diana@example.com,"Diana US",5,D
 ```
 
 ## 10. Next Steps
