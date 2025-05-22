@@ -445,6 +445,11 @@ class Parser:
     def _parse_load_statement(self) -> LoadStep:
         """Parse a LOAD statement.
 
+        Supports three formats:
+        1. LOAD table_name FROM source_name;  (default MODE is REPLACE)
+        2. LOAD table_name FROM source_name MODE mode_type;
+        3. LOAD table_name FROM source_name MODE MERGE MERGE_KEYS key1, key2, ...;
+
         Returns:
             LoadStep
 
@@ -463,11 +468,76 @@ class Parser:
             TokenType.IDENTIFIER, "Expected source name after 'FROM'"
         )
 
+        # Default mode is REPLACE if not specified
+        mode = "REPLACE"
+        merge_keys = []
+
+        # Check if MODE is specified
+        if self._check(TokenType.MODE):
+            self._advance()  # Consume MODE token
+
+            # Parse the mode type
+            if self._check(TokenType.REPLACE):
+                self._advance()  # Consume REPLACE token
+                mode = "REPLACE"
+            elif self._check(TokenType.APPEND):
+                self._advance()  # Consume APPEND token
+                mode = "APPEND"
+            elif self._check(TokenType.MERGE):
+                self._advance()  # Consume MERGE token
+                mode = "MERGE"
+
+                # For MERGE mode, MERGE_KEYS is required
+                if self._check(TokenType.MERGE_KEYS):
+                    self._advance()  # Consume MERGE_KEYS token
+
+                    # Parse comma-separated list of merge keys
+                    while (
+                        not self._check(TokenType.SEMICOLON) and not self._is_at_end()
+                    ):
+                        key_token = self._consume(
+                            TokenType.IDENTIFIER, "Expected column name for MERGE_KEYS"
+                        )
+                        merge_keys.append(key_token.value)
+
+                        # Check if there's a comma after the key
+                        if (
+                            self._check(TokenType.IDENTIFIER)
+                            and self._peek().value == ","
+                        ):
+                            self._advance()  # Consume comma
+                        elif not self._check(TokenType.SEMICOLON):
+                            # If we don't see a semicolon, we expect a comma
+                            token = self._peek()
+                            if token.value != ",":
+                                raise ParserError(
+                                    "Expected comma between merge keys",
+                                    token.line,
+                                    token.column,
+                                )
+                            self._advance()  # Consume comma
+                else:
+                    token = self._peek()
+                    raise ParserError(
+                        "Expected 'MERGE_KEYS' after 'MERGE'",
+                        token.line,
+                        token.column,
+                    )
+            else:
+                token = self._peek()
+                raise ParserError(
+                    "Expected 'REPLACE', 'APPEND', or 'MERGE' after 'MODE'",
+                    token.line,
+                    token.column,
+                )
+
         self._consume(TokenType.SEMICOLON, "Expected ';' after LOAD statement")
 
         return LoadStep(
             table_name=table_name_token.value,
             source_name=source_name_token.value,
+            mode=mode,
+            merge_keys=merge_keys,
             line_number=load_token.line,
         )
 
