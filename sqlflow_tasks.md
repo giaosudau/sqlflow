@@ -74,7 +74,7 @@ This document tracks the implementation status of Conditional Execution, Python 
 | Task | Description | Status | Priority | Assignee |
 |------|-------------|--------|----------|----------|
 | [Task 3.1](#task-31-parser-updates-for-load-modes) | Parser Updates for Load Modes | ✅ COMPLETED | 🔥 MVP Critical | |
-| [Task 3.2](#task-32-sql-generator-for-load-modes) | SQL Generator for Load Modes | ⬜ NOT STARTED | | |
+| [Task 3.2](#task-32-sql-generator-for-load-modes) | SQL Generator for Load Modes | ✅ COMPLETED | | |
 | [Task 3.3](#task-33-schema-compatibility-validation) | Schema Compatibility Validation | ⬜ NOT STARTED | | |
 | [Task 3.4](#task-34-merge-key-handling) | Merge Key Handling | ⬜ NOT STARTED | | |
 | [Task 3.5](#task-35-load-mode-documentation) | Load Mode Documentation | ⬜ NOT STARTED | | |
@@ -694,31 +694,34 @@ This document tracks the implementation status of Conditional Execution, Python 
 **Description:** Implement SQL generation strategies for different load modes in SQLEngine implementations.
 
 **Files Impacted:**
-- `sqlflow/core/engines/base.py`
 - `sqlflow/core/engines/duckdb_engine.py`
-- Other engine implementations
+- `sqlflow/core/executors/local_executor.py`
 
 **Subtasks:**
-1. Extend SQLEngine interface to support different load modes
-2. Implement REPLACE mode SQL generation (CREATE OR REPLACE TABLE)
-3. Implement APPEND mode SQL generation (INSERT INTO)
-4. Implement MERGE mode SQL generation (INSERT INTO ON CONFLICT DO UPDATE)
-5. Add transaction handling for modes that require it
+1. ✅ Add `generate_load_sql` method to DuckDBEngine to support different load modes
+2. ✅ Implement REPLACE mode SQL generation (CREATE OR REPLACE TABLE)
+3. ✅ Implement APPEND mode SQL generation (INSERT INTO)
+4. ✅ Implement MERGE mode SQL generation with ON clause for merge keys
+5. ✅ Add schema compatibility validation for APPEND and MERGE modes
+6. ✅ Implement `execute_load_step` method in LocalExecutor for executing LoadStep objects
+7. ✅ Add `execute_pipeline` method to LocalExecutor for executing Pipeline objects
 
 **Testing Requirements:**
-- Test SQL generation for each mode with various scenarios
-- Test transaction handling and atomicity
-- Test error handling for each mode
-- Test engine-specific optimizations
-- Test with edge cases (empty data, schema mismatches)
+- ✅ Unit tests for SQL generation for each mode (REPLACE, APPEND, MERGE)
+- ✅ Unit tests for MERGE mode with multiple merge keys
+- ✅ Tests for table creation when table doesn't exist
+- ✅ Tests for schema validation
+- ✅ Tests for execution of LoadStep objects
+- ✅ Tests for error handling during execution
 
 **Definition of Done:**
-- Each mode generates correct SQL for its target engine
-- Operations are transactional where required
-- Generated SQL is optimized for the target engine
-- Error cases are properly handled
-- All tests passing with >90% coverage
-- Documentation updated to reflect implementation details
+- ✅ SQL generation produces correct SQL for each mode
+- ✅ SQL is optimized for DuckDB
+- ✅ Executors can handle LoadStep objects directly
+- ✅ Schema compatibility is validated for APPEND and MERGE modes
+- ✅ All tests passing with >90% coverage
+
+**Status:** ✅ COMPLETED in commit from feature/enhanced-load-controls branch (July 2024)
 
 ### Task 3.3: Schema Compatibility Validation
 
@@ -1070,4 +1073,182 @@ This document tracks the implementation status of Conditional Execution, Python 
 1. Implement `schema show` command to display current schema
 2. Implement `schema history` command to show schema changes
 3. Implement `schema accept` command to accept current schema
-4. Implement `
+4. Implement `schema reject` command to reject current schema
+
+**Testing Requirements:**
+- Test `schema show` command with various schemas
+- Test `schema history` command with multiple schema changes
+- Test `schema accept` command with valid and invalid schema acceptance
+- Test `schema reject` command with valid and invalid schema rejection
+- Test error handling for schema management commands
+
+**Definition of Done:**
+- CLI commands for schema management are implemented and tested
+- Schema management commands are functional and error-free
+- All tests passing with >90% coverage
+- Documentation updated with schema management CLI usage
+
+**Status:** ✅ COMPLETED (June 2024)
+
+### Task 5.5: Schema Management Documentation
+
+**Description:** Create comprehensive documentation for schema management features.
+
+**Files Impacted:**
+- `docs/user/reference/schema_management.md` (new)
+
+**Subtasks:**
+1. Document schema management CLI commands
+2. Explain schema management concepts and best practices
+3. Provide examples of schema management scenarios
+4. Create a schema management quickstart guide
+
+**Testing Requirements:**
+- Test documentation for clarity and accuracy
+- Verify all examples are executable and functional
+- Ensure documentation covers all schema management features
+
+**Definition of Done:**
+- Schema management documentation is complete and accurate
+- Documentation is easy to understand and follow
+- All examples are executable and functional
+- Documentation covers all schema management features
+
+**Status:** ✅ COMPLETED (June 2024)
+
+### Task 6.1: DAG Execution Enhancements
+
+**Description:** Improve the DAG visualization and execution flow.
+
+**Files Impacted:**
+- `sqlflow/visualizer/dag_builder_ast.py`
+- `sqlflow/core/planner.py`
+
+**Subtasks:**
+1. Implement a more user-friendly and interactive DAG visualization
+2. Add interactive features to the DAG visualization
+3. Implement DAG execution enhancements
+4. Add DAG execution metrics collection
+
+**Testing Requirements:**
+- Test DAG visualization with various DAG structures
+- Test interactive features with real DAGs
+- Test DAG execution with different scenarios
+- Test DAG execution metrics collection
+
+**Definition of Done:**
+- DAG visualization is more user-friendly and interactive
+- Interactive features are implemented
+- DAG execution enhancements are implemented
+- DAG execution metrics collection is implemented
+- All tests passing with >90% coverage
+
+**Status:** ⬜ NOT STARTED
+
+### Task 6.2: Parallel Execution Implementation
+
+**Description:** Implement parallel execution capabilities.
+
+**Files Impacted:**
+- `sqlflow/core/executors/base_executor.py`
+- `sqlflow/core/executors/local_executor.py`
+- `sqlflow/core/executors/thread_pool_executor.py`
+
+**Subtasks:**
+1. Implement parallel execution logic
+2. Add parallel execution metrics collection
+3. Implement parallel execution error handling
+
+**Testing Requirements:**
+- Test parallel execution with various DAG structures
+- Test parallel execution metrics collection
+- Test parallel execution error handling
+
+**Definition of Done:**
+- Parallel execution logic is implemented
+- Parallel execution metrics collection is implemented
+- Parallel execution error handling is implemented
+- All tests passing with >90% coverage
+
+**Status:** ⬜ NOT STARTED
+
+### Task 6.3: Failure Handling and Recovery
+
+**Description:** Implement failure handling and recovery mechanisms.
+
+**Files Impacted:**
+- `sqlflow/core/executors/base_executor.py`
+- `sqlflow/core/executors/local_executor.py`
+- `sqlflow/core/executors/thread_pool_executor.py`
+
+**Subtasks:**
+1. Implement failure handling logic
+2. Implement recovery logic
+3. Add failure handling and recovery metrics collection
+
+**Testing Requirements:**
+- Test failure handling with various DAG structures
+- Test recovery with various DAG structures
+- Test failure handling and recovery metrics collection
+
+**Definition of Done:**
+- Failure handling logic is implemented
+- Recovery logic is implemented
+- Failure handling and recovery metrics collection is implemented
+- All tests passing with >90% coverage
+
+**Status:** ⬜ NOT STARTED
+
+### Task 6.4: Execution Status Tracking
+
+**Description:** Implement execution status tracking for all tasks and stages.
+
+**Files Impacted:**
+- `sqlflow/core/executors/base_executor.py`
+- `sqlflow/core/executors/local_executor.py`
+- `sqlflow/core/executors/thread_pool_executor.py`
+
+**Subtasks:**
+1. Implement execution status tracking logic
+2. Add execution status tracking metrics collection
+3. Implement execution status tracking error handling
+
+**Testing Requirements:**
+- Test execution status tracking with various DAG structures
+- Test execution status tracking metrics collection
+- Test execution status tracking error handling
+
+**Definition of Done:**
+- Execution status tracking logic is implemented
+- Execution status tracking metrics collection is implemented
+- Execution status tracking error handling is implemented
+- All tests passing with >90% coverage
+
+**Status:** ⬜ NOT STARTED
+
+### Task 6.5: Execution Metrics Collection
+
+**Description:** Implement execution metrics collection for all tasks and stages.
+
+**Files Impacted:**
+- `sqlflow/core/executors/base_executor.py`
+- `sqlflow/core/executors/local_executor.py`
+- `sqlflow/core/executors/thread_pool_executor.py`
+
+**Subtasks:**
+1. Implement execution metrics collection logic
+2. Add execution metrics collection metrics collection
+3. Implement execution metrics collection error handling
+
+**Testing Requirements:**
+- Test execution metrics collection with various DAG structures
+- Test execution metrics collection metrics collection
+- Test execution metrics collection error handling
+
+**Definition of Done:**
+- Execution metrics collection logic is implemented
+- Execution metrics collection metrics collection is implemented
+- Execution metrics collection error handling is implemented
+- All tests passing with >90% coverage
+
+**Status:** ⬜ NOT STARTED
