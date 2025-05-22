@@ -158,3 +158,60 @@ def test_execute_load_step_with_error(local_executor):
     # Verify the error was captured in the result
     assert result["status"] == "error"
     assert "SQL execution failed" in result["message"]
+
+
+def test_execute_load_step_schema_compatibility_error(local_executor):
+    """Test error handling when LoadStep execution encounters schema compatibility issues."""
+    # Create a LoadStep with APPEND mode
+    load_step = LoadStep(
+        table_name="users_table",
+        source_name="users_source",
+        mode="APPEND",
+        line_number=1,
+    )
+
+    # Make generate_load_sql raise a ValueError for schema incompatibility
+    local_executor.duckdb_engine.generate_load_sql.side_effect = ValueError(
+        "Column 'email' in source does not exist in target table 'users_table'"
+    )
+
+    # Execute the step - it should handle the schema validation error
+    result = local_executor.execute_load_step(load_step)
+
+    # Verify the error was captured in the result
+    assert result["status"] == "error"
+    assert "Column 'email' in source does not exist" in result["message"]
+
+    # Reset the side effect
+    local_executor.duckdb_engine.generate_load_sql.side_effect = None
+
+
+def test_execute_pipeline_schema_incompatibility(local_executor):
+    """Test that a pipeline execution fails appropriately when schema is incompatible."""
+    # Create a pipeline with a LoadStep that will trigger a schema validation error
+    pipeline = Pipeline()
+
+    # Add a LoadStep with APPEND mode
+    pipeline.add_step(
+        LoadStep(
+            table_name="users_table",
+            source_name="users_source",
+            mode="APPEND",
+            line_number=1,
+        )
+    )
+
+    # Make generate_load_sql raise a ValueError for schema incompatibility
+    local_executor.duckdb_engine.generate_load_sql.side_effect = ValueError(
+        "Column 'email' in source has incompatible types: source=VARCHAR, target=INTEGER"
+    )
+
+    # Execute the pipeline
+    result = local_executor.execute_pipeline(pipeline)
+
+    # Verify the pipeline execution failed with the schema error
+    assert result["status"] == "failed"
+    assert "Column 'email' in source has incompatible types" in result["error"]
+
+    # Reset the side effect
+    local_executor.duckdb_engine.generate_load_sql.side_effect = None
