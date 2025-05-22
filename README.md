@@ -316,37 +316,6 @@ A: Yes. All tables created during pipeline execution are persisted to disk when 
 
 ---
 
-## Contributing and Development
-
-### Installation for Development
-
-```bash
-git clone https://github.com/YOUR_ORG/sqlflow.git
-cd sqlflow
-pip install -e ".[dev]"
-```
-
-### Release Process
-
-SQLFlow follows a two-stage release process:
-
-1. **TestPyPI**: New versions are first published to TestPyPI for verification
-2. **PyPI**: After testing, releases are promoted to PyPI for public use
-
-For maintainers, we provide simple scripts to manage releases:
-
-```bash
-# Create a new release to TestPyPI
-./tag_release.sh patch  # or minor, major
-
-# After testing, promote to PyPI
-./release_to_pypi.sh v0.x.y  # using the tag name
-```
-
-For detailed instructions, see our [Release Process Documentation](docs/RELEASE_PROCESS.md).
-
----
-
 <div align="center">
   <strong>
     Built with ❤️ for data teams who love SQL
