@@ -95,4 +95,17 @@ Each test will be added incrementally, with a focus on testing real use cases th
    - Tests pricing/discount calculations with scalar UDFs
    - Tests customer analytics with table UDFs
    - Tests product performance analysis with table UDFs
-   - Tests a full e-commerce analysis pipeline with multiple UDFs 
+   - Tests a full e-commerce analysis pipeline with multiple UDFs
+
+## Next Steps
+
+4. **test_udf_error_handling.py** - Tests UDF error handling and reporting
+   - Test syntax errors in UDF definitions
+   - Test runtime errors in UDF execution
+   - Test type conversion errors
+   - Test error propagation in complex pipelines
+
+5. **test_udf_performance.py** - Tests UDF performance with different data sizes
+   - Test with small, medium, and large datasets
+   - Measure execution time and resource usage
+   - Test optimizations for common operations 
