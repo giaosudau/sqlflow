@@ -1,0 +1,4 @@
+user_id,first_name,last_name,email,registration_date,active
+6,Sarah,Miller,sarahm@example.com,2023-06-18,true
+7,David,Taylor,davidt@example.com,2023-06-25,true
+8,Emma,Davis,emmad@example.com,2023-07-02,true 

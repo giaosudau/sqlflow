@@ -53,6 +53,13 @@ class TokenType(Enum):
     CREATE = auto()
     TABLE = auto()
 
+    # Load mode tokens
+    MODE = auto()
+    REPLACE = auto()
+    APPEND = auto()
+    MERGE = auto()
+    MERGE_KEYS = auto()
+
     # Conditional execution tokens
     IF = auto()
     THEN = auto()
@@ -145,6 +152,12 @@ class Lexer:
             (TokenType.IN, re.compile(r"IN\b", re.IGNORECASE)),
             (TokenType.AND, re.compile(r"AND\b", re.IGNORECASE)),
             (TokenType.OR, re.compile(r"OR\b", re.IGNORECASE)),
+            # Load mode patterns
+            (TokenType.MODE, re.compile(r"MODE\b", re.IGNORECASE)),
+            (TokenType.REPLACE, re.compile(r"REPLACE\b", re.IGNORECASE)),
+            (TokenType.APPEND, re.compile(r"APPEND\b", re.IGNORECASE)),
+            (TokenType.MERGE, re.compile(r"MERGE\b", re.IGNORECASE)),
+            (TokenType.MERGE_KEYS, re.compile(r"MERGE_KEYS\b", re.IGNORECASE)),
             # Conditional execution patterns
             (TokenType.IF, re.compile(r"IF\b", re.IGNORECASE)),
             (TokenType.THEN, re.compile(r"THEN\b", re.IGNORECASE)),

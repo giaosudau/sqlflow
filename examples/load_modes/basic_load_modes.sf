@@ -1,0 +1,35 @@
+-- This example demonstrates the use of MODE parameter in LOAD statements
+
+-- Define a source for users data
+SOURCE users_csv TYPE CSV PARAMS {
+  "file_path": "examples/load_modes/data/users.csv", 
+  "has_header": true
+};
+
+-- Define a source for users updates
+SOURCE users_updates TYPE CSV PARAMS {
+  "file_path": "examples/load_modes/data/users_updates.csv",
+  "has_header": true
+};
+
+-- Define a source for new users
+SOURCE new_users TYPE CSV PARAMS {
+  "file_path": "examples/load_modes/data/new_users.csv",
+  "has_header": true
+};
+
+-- Load users with REPLACE mode (default)
+-- This will create or replace the users_table with data from users_csv
+LOAD users_table FROM users_csv;
+
+-- Load updates with APPEND mode
+-- This will add new records to users_table without affecting existing data
+LOAD users_table FROM new_users MODE APPEND;
+
+-- Load updates with MERGE mode using user_id as the merge key
+-- This will update existing records that match on user_id and insert new records
+LOAD users_table FROM users_updates MODE MERGE MERGE_KEYS user_id;
+
+-- Create a merged users table with all data
+CREATE TABLE all_users AS 
+SELECT * FROM users_table; 

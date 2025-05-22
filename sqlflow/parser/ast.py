@@ -101,10 +101,18 @@ class LoadStep(PipelineStep):
 
     Example:
         LOAD users_table FROM users_source;
+
+    Example with MODE:
+        LOAD users_table FROM users_source MODE REPLACE;
+
+    Example with MERGE and MERGE_KEYS:
+        LOAD users_table FROM users_source MODE MERGE MERGE_KEYS user_id;
     """
 
     table_name: str
     source_name: str
+    mode: str = "REPLACE"  # Default mode is REPLACE
+    merge_keys: List[str] = field(default_factory=list)  # For MERGE mode
     line_number: Optional[int] = None
 
     def validate(self) -> List[str]:
@@ -118,6 +126,18 @@ class LoadStep(PipelineStep):
             errors.append("LOAD directive requires a table name")
         if not self.source_name:
             errors.append("LOAD directive requires a source name")
+
+        # Validate mode
+        valid_modes = ["REPLACE", "APPEND", "MERGE"]
+        if self.mode.upper() not in valid_modes:
+            errors.append(
+                f"Invalid MODE: {self.mode}. Must be one of: {', '.join(valid_modes)}"
+            )
+
+        # Validate merge keys when MODE is MERGE
+        if self.mode.upper() == "MERGE" and not self.merge_keys:
+            errors.append("MERGE mode requires MERGE_KEYS to be specified")
+
         return errors
 
 
