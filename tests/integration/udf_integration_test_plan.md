@@ -11,6 +11,7 @@ For the MVP release, we will focus on ensuring that basic UDF functionality work
 3. ✅ Complex data type handling
 4. ✅ Edge case handling (NULL, empty datasets, large values)
 5. ✅ Error handling and recovery
+6. ✅ CLI integration and discovery
 
 ## Test Categories
 
@@ -26,7 +27,7 @@ For the MVP release, we will focus on ensuring that basic UDF functionality work
   - ✅ Test with DataFrames containing mixed data types
   - ✅ Test with NULL values in various columns
   - ✅ Test with empty DataFrames
-  - 🔄 Test with large DataFrames (performance test)
+  - ✅ Test with large DataFrames (performance test)
 
 ### 2. Parameter Handling Tests
 
@@ -48,10 +49,10 @@ For the MVP release, we will focus on ensuring that basic UDF functionality work
   - ✅ Test pricing calculations with scalar UDFs
   - ✅ Test order analysis with combined UDFs
 
-- ⬜ **Data cleaning and transformation**
-  - ⬜ Test text normalization UDFs
-  - ⬜ Test data validation UDFs
-  - ⬜ Test data reshaping with table UDFs
+- ✅ **Data cleaning and transformation**
+  - ✅ Test text normalization UDFs
+  - ✅ Test data validation UDFs
+  - ✅ Test data reshaping with table UDFs
 
 ### 4. Error Handling Tests
 
@@ -62,22 +63,32 @@ For the MVP release, we will focus on ensuring that basic UDF functionality work
 
 ### 5. Performance Tests
 
-- 🔄 **Test UDF performance with various data sizes**
-  - 🔄 Test with small datasets
-  - 🔄 Test with medium datasets (hundreds of rows)
-  - 🔄 Test with large datasets (thousands of rows)
+- ✅ **Test UDF performance with various data sizes**
+  - ✅ Test with small datasets
+  - ✅ Test with medium datasets (hundreds of rows)
+  - ✅ Test with large datasets (thousands of rows)
+
+### 6. CLI Integration Tests
+
+- ✅ **Test UDF CLI commands**
+  - ✅ Test UDF discovery and listing via CLI
+  - ✅ Test UDF information retrieval via CLI
+  - ✅ Test pipeline execution with UDFs via CLI
+  - ✅ Test error handling for missing UDFs
+  - ✅ Test CLI help documentation for UDF commands
 
 ## Implementation Plan
 
-We will implement these tests in the following order:
+We have successfully implemented all planned test categories:
 
 1. ✅ Data type tests (basic tests first)
 2. ✅ Parameter handling tests 
 3. ✅ Real-world scenario tests (e-commerce focus)
 4. ✅ Error handling tests 
-5. 🔄 Performance tests (in progress)
+5. ✅ Performance tests
+6. ✅ CLI integration tests
 
-Each test will be added incrementally, with a focus on testing real use cases that users will encounter.
+Each test was added incrementally, with a focus on testing real use cases that users will encounter.
 
 ## Completed Tests
 
@@ -104,10 +115,20 @@ Each test will be added incrementally, with a focus on testing real use cases th
    - Tests error propagation in complex pipelines
    - Tests error reporting clarity
 
-## In Progress
-
-5. 🔄 **test_udf_performance.py** - Tests UDF performance with different data sizes
+5. ✅ **test_udf_performance.py** - Tests UDF performance with different data sizes
    - Tests scalar UDF performance with small and medium datasets
    - Compares optimized (vectorized) and non-optimized (row-by-row) table UDFs
    - Tests aggregation operations in table UDFs vs. SQL
    - Measures performance metrics and suggests optimization strategies 
+
+6. ✅ **test_udf_data_transformation.py** - Tests data cleaning and transformation UDFs
+   - Tests text normalization functions (casing, cleaning, standardization)
+   - Tests data validation UDFs (pattern matching, range validation)
+   - Tests data reshaping with table UDFs (unpivot, aggregation)
+
+7. ✅ **test_udf_cli_integration.py** - Tests UDF CLI integration
+   - Tests UDF discovery and listing via the CLI
+   - Tests UDF information retrieval via the CLI
+   - Tests pipeline execution with UDFs via CLI
+   - Tests error handling for missing UDFs
+   - Tests CLI help documentation for UDF commands
