@@ -3,6 +3,7 @@
 import inspect
 import os
 import re
+import time
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import duckdb
@@ -35,6 +36,145 @@ class UDFError(Exception):
         self.udf_name = udf_name
         self.query = query
         super().__init__(message)
+
+
+class TransactionError(Exception):
+    """Exception raised when a transaction operation fails."""
+
+
+class PersistenceError(Exception):
+    """Exception raised when a persistence operation fails."""
+
+
+class TransactionManager:
+    """Manages database transactions with proper persistence guarantees."""
+
+    def __init__(self, engine: "DuckDBEngine"):
+        """Initialize the transaction manager.
+
+        Args:
+            engine: DuckDB engine instance
+        """
+        self.engine = engine
+        self.connection = engine.connection
+        self.database_path = engine.database_path
+        self.is_persistent = engine.is_persistent
+        self.transaction_active = False
+        self.auto_checkpoint = True
+        self.logger = get_logger(f"{__name__}.TransactionManager")
+        self.logger.debug(
+            f"Transaction manager initialized: persistent={self.is_persistent}, path={self.database_path}"
+        )
+
+    def begin(self) -> None:
+        """Begin a transaction if one is not already active."""
+        if self.transaction_active:
+            self.logger.warning("Transaction already active, ignoring begin() call")
+            return
+
+        try:
+            self.connection.begin()
+            self.transaction_active = True
+            self.logger.debug("Transaction started")
+        except Exception as e:
+            raise TransactionError(f"Failed to begin transaction: {str(e)}") from e
+
+    def commit(self) -> None:
+        """Commit the current transaction and optionally checkpoint for persistence."""
+        if not self.transaction_active:
+            self.logger.warning("No active transaction to commit")
+            return
+
+        try:
+            self.connection.commit()
+            self.transaction_active = False
+            self.logger.debug("Transaction committed")
+
+            # For persistent databases, checkpoint after commit to ensure durability
+            if self.is_persistent and self.auto_checkpoint:
+                self._checkpoint()
+        except Exception as e:
+            raise TransactionError(f"Failed to commit transaction: {str(e)}") from e
+
+    def rollback(self) -> None:
+        """Roll back the current transaction."""
+        if not self.transaction_active:
+            self.logger.warning("No active transaction to roll back")
+            return
+
+        try:
+            self.connection.rollback()
+            self.transaction_active = False
+            self.logger.debug("Transaction rolled back")
+        except Exception as e:
+            raise TransactionError(f"Failed to roll back transaction: {str(e)}") from e
+
+    def _checkpoint(self) -> None:
+        """Force DuckDB to write in-memory state to disk."""
+        if not self.is_persistent:
+            return
+
+        try:
+            # Use the engine's execute_query method instead of directly calling connection.execute
+            # This allows for testing with mocks
+            self.engine.execute_query("CHECKPOINT")
+            self.logger.debug("Checkpoint executed successfully")
+        except Exception as e:
+            error_msg = f"Checkpoint failed: {str(e)}"
+            self.logger.error(error_msg)
+            raise PersistenceError(error_msg) from e
+
+    def verify_persistence(self) -> bool:
+        """Verify that the database file exists and has recent modification time.
+
+        Returns:
+            True if persistence verified, False otherwise
+        """
+        if not self.is_persistent or self.database_path == ":memory:":
+            return False
+
+        try:
+            # Check if database file exists
+            if not os.path.exists(self.database_path):
+                self.logger.warning(
+                    f"Database file does not exist: {self.database_path}"
+                )
+                return False
+
+            # Check if file was recently modified
+            mtime = os.path.getmtime(self.database_path)
+            now = time.time()
+            age_seconds = now - mtime
+
+            # Log file details
+            file_size = os.path.getsize(self.database_path)
+            self.logger.debug(
+                f"Database file: {self.database_path}, "
+                f"size: {file_size} bytes, "
+                f"age: {age_seconds:.1f} seconds"
+            )
+
+            # File should exist and have reasonable size
+            return file_size > 0
+        except Exception as e:
+            self.logger.error(f"Error verifying persistence: {str(e)}")
+            return False
+
+    def __enter__(self):
+        """Enter context manager - begin transaction."""
+        self.begin()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Exit context manager - commit or rollback transaction."""
+        if exc_type is not None:
+            # Exception occurred, roll back
+            self.rollback()
+            return False  # Re-raise the exception
+        else:
+            # No exception, commit
+            self.commit()
+            return True
 
 
 class UDFExecutionContext:
@@ -146,41 +286,38 @@ class DuckDBEngine(SQLEngine):
     """Primary execution engine using DuckDB."""
 
     def __init__(self, database_path: Optional[str] = None):
-        """Initialize a DuckDBEngine.
+        """Initialize DuckDB engine.
 
         Args:
-            database_path: Path to the DuckDB database file, or None for in-memory
+            database_path: Path to DuckDB database file, or ":memory:" for in-memory database
         """
-        self.database_path = self._setup_database_path(database_path)
-        self.connection = None  # Initialize connection to None for safety
-        self.variables: Dict[str, Any] = {}
-        self.registered_udfs: Dict[str, Callable] = {}
         self.stats = ExecutionStats()
+        self.connection = None
+        self.variables = {}
+        self.registered_udfs = {}
+        self.database_path = self._setup_database_path(database_path)
+        self.is_persistent = self.database_path != ":memory:"
 
-        try:
+        # Create directories if needed
+        if self.is_persistent:
             self._ensure_directory_exists()
-            self.connection = self._establish_connection()
-            self._configure_persistence()
-            self._verify_connection()
-        except Exception as e:
-            logger.error(f"Error initializing DuckDB engine: {e}")
-            if self.database_path != ":memory:":
-                # Fall back to in-memory if file-based connection fails
-                logger.warning(f"Falling back to in-memory database due to error: {e}")
-                print(f"WARNING: Falling back to in-memory database due to error: {e}")
-                self.database_path = ":memory:"
-                try:
-                    self.connection = duckdb.connect(":memory:")
-                    print(
-                        "DEBUG: Successfully connected to fallback in-memory database"
-                    )
-                except Exception as fallback_error:
-                    logger.error(
-                        f"Error connecting to fallback in-memory database: {fallback_error}"
-                    )
-                    print(
-                        f"ERROR: Could not connect to fallback in-memory database: {fallback_error}"
-                    )
+
+        # Establish connection
+        self._establish_connection()
+
+        # Configure persistence
+        self._configure_persistence()
+
+        # Initialize transaction manager AFTER connection is established
+        self.transaction_manager = TransactionManager(self)
+
+        # Verify connection
+        self._verify_connection()
+
+        logger.info(
+            f"DuckDBEngine initialized: persistent={self.is_persistent}, "
+            f"path={self.database_path}"
+        )
 
     def _setup_database_path(self, database_path: Optional[str] = None) -> str:
         """Set up the database path based on input.
@@ -221,26 +358,30 @@ class DuckDBEngine(SQLEngine):
                     )
 
     def _establish_connection(self):
-        """Establish a connection to the DuckDB database.
-
-        Returns:
-            DuckDB connection object
-
-        Raises:
-            RuntimeError: If connection fails
-        """
-        logger.debug("Connecting to DuckDB database at: %s", self.database_path)
+        """Establish connection to DuckDB."""
         try:
-            # Connect with standard parameters
-            connection = duckdb.connect(self.database_path, read_only=False)
-            logger.debug("DuckDB connection established successfully")
-            return connection
+            self.connection = duckdb.connect(self.database_path)
+            logger.debug(f"Connected to DuckDB: {self.database_path}")
         except Exception as e:
-            logger.debug("Error connecting to DuckDB: %s", e)
-            # Don't fall back to memory - throw an error instead
-            raise RuntimeError(
-                f"Failed to connect to DuckDB database at {self.database_path}: {e}"
-            )
+            error_msg = f"Error initializing DuckDB: {str(e)}"
+            logger.error(error_msg)
+
+            # If we were trying to use a persistent database but failed,
+            # try falling back to in-memory mode
+            if self.database_path != ":memory:":
+                logger.warning(
+                    f"Falling back to in-memory database due to error: {str(e)}"
+                )
+                self.database_path = ":memory:"
+                self.is_persistent = False
+                try:
+                    self.connection = duckdb.connect(":memory:")
+                    logger.info(
+                        "Successfully connected to in-memory DuckDB as fallback"
+                    )
+                except Exception as fallback_error:
+                    logger.error(f"Fallback to in-memory also failed: {fallback_error}")
+                    raise
 
     def _configure_persistence(self) -> None:
         """Configure persistence settings for the database."""
@@ -281,44 +422,36 @@ class DuckDBEngine(SQLEngine):
             raise RuntimeError(f"DuckDB connection test failed: {e}")
 
     def execute_query(self, query: str) -> duckdb.DuckDBPyRelation:
-        """Execute a SQL query.
+        """Execute SQL query.
 
         Args:
             query: SQL query to execute
 
         Returns:
-            DuckDB relation object with the query results
+            DuckDB query result
+
+        Raises:
+            Exception: If query execution fails
         """
-        logger.debug("Executing DuckDB query: %s...", query[:100])
-
-        # Verify connection is still alive
+        start_time = time.time()
         try:
-            self.connection.execute("SELECT 1").fetchone()
-            logger.debug("DuckDB connection verified before query")
-        except Exception as e:
-            logger.debug("DuckDB connection lost, reconnecting: %s", e)
-            self.__init__(self.database_path)
+            # Log the query for debugging
+            logger.debug(f"Executing query: {query}")
 
-        start_time = __import__("time").time()
+            # Execute query
+            result = self.connection.execute(query)
 
-        try:
-            # Substitute variables in the query
-            processed_query = self.substitute_variables(query)
-            logger.debug("Query after variable substitution: %s", processed_query)
+            # Record statistics
+            duration = time.time() - start_time
+            self.stats.record_query(duration)
 
-            # Execute the processed query
-            result = self.connection.execute(processed_query)
-            logger.debug("Query executed successfully")
-
-            end_time = __import__("time").time()
-            self.stats.record_query(end_time - start_time)
-
+            logger.debug(f"Query executed in {duration:.6f}s")
             return result
         except Exception as e:
-            end_time = __import__("time").time()
-            self.stats.record_query(end_time - start_time)
-            logger.error(f"Query execution failed: {e}")
-            logger.debug("Query execution failed: %s", e)
+            # Log error with full query context
+            duration = time.time() - start_time
+            logger.error(f"Query execution failed: {str(e)}")
+            logger.debug(f"Failed query: {query}")
             raise
 
     def register_table(self, name: str, data: Any, manage_transaction: bool = True):
@@ -403,7 +536,6 @@ class DuckDBEngine(SQLEngine):
                         logger.debug("Checkpoint executed to persist data")
                     except Exception as e:
                         logger.debug("Error performing checkpoint: %s", e)
-                        # Don't raise an error here - checkpoint may not be supported
 
             logger.debug(f"Table {name} registered and persisted successfully")
         except Exception as e:
@@ -508,7 +640,6 @@ class DuckDBEngine(SQLEngine):
                     logger.debug("Checkpoint executed after commit")
                 except Exception as e:
                     logger.debug("Error performing checkpoint: %s", e)
-                    # Don't raise an error here - checkpoint may not be supported
 
             logger.info("Changes committed successfully")
         except Exception as e:
@@ -614,28 +745,21 @@ class DuckDBEngine(SQLEngine):
         """
         return self.variables.get(name)
 
-    def close(self) -> None:
-        """Close the DuckDB connection."""
-        if hasattr(self, "connection") and self.connection is not None:
-            # Force checkpoint before closing
-            if self.database_path != ":memory:":
-                try:
-                    self.connection.execute("CHECKPOINT")
-                    logger.debug("Final checkpoint executed before closing")
-                except Exception as e:
-                    logger.debug("Error performing final checkpoint: %s", e)
+    def close(self):
+        """Close the database connection and release resources."""
+        if self.connection is not None:
+            try:
+                logger.debug(f"Closing DuckDB connection for {self.database_path}")
+                self.connection.close()
+                self.connection = None
+                logger.debug("DuckDB connection closed successfully")
+            except Exception as e:
+                logger.error(f"Error closing DuckDB connection: {str(e)}")
+                # Don't re-raise the exception, as this is typically called during cleanup
 
-            self.connection.close()
-            self.connection = None
-            logger.debug("DuckDB connection closed")
-
-    def __del__(self) -> None:
-        """Close the connection when the object is deleted."""
-        try:
-            self.close()
-        except Exception as e:
-            # Suppress errors in __del__ to prevent issues during garbage collection
-            logger.debug("Error during DuckDBEngine cleanup: %s", e)
+    def __del__(self):
+        """Clean up resources when the object is garbage collected."""
+        self.close()
 
     def _validate_table_udf_signature(
         self, name: str, function: Callable
@@ -835,12 +959,12 @@ class DuckDBEngine(SQLEngine):
                     logger.debug(
                         f"Registering table UDF {name} with output schema: {return_type_str}"
                     )
-                    print(
+                    logger.debug(
                         f"DEBUG: Table UDF {name} - return_type_str: {return_type_str}"
                     )
 
                     # Register with the structured return type
-                    print(
+                    logger.debug(
                         f"DEBUG: Table UDF {name} - calling create_function with explicit return_type"
                     )
                     self.connection.create_function(
@@ -863,13 +987,13 @@ class DuckDBEngine(SQLEngine):
                     import traceback
 
                     logger.debug(traceback.format_exc())
-                    print(f"DEBUG: Schema registration error: {schema_error}")
-                    print(f"DEBUG: {traceback.format_exc()}")
+                    logger.debug(f"DEBUG: Schema registration error: {schema_error}")
+                    logger.debug(f"DEBUG: {traceback.format_exc()}")
                     registration_approach = "fallback_to_infer"
 
             # If infer is True or we're falling back, try with infer=True
             if infer_schema or registration_approach == "fallback_to_infer":
-                print(f"DEBUG: Registering UDF {name} with infer=True")
+                logger.debug(f"DEBUG: Registering UDF {name} with infer=True")
                 registration_approach = "infer"
                 try:
                     self.connection.create_function(
@@ -883,7 +1007,9 @@ class DuckDBEngine(SQLEngine):
                     )
                     return
                 except Exception as infer_error:
-                    print(f"DEBUG: Failed to register with inference: {infer_error}")
+                    logger.debug(
+                        f"DEBUG: Failed to register with inference: {infer_error}"
+                    )
                     registration_approach = "fallback_to_standard"
 
             # Final fallback: try to register without any special handling
@@ -892,7 +1018,7 @@ class DuckDBEngine(SQLEngine):
                 registration_approach == "fallback_to_standard"
                 or registration_approach == "unknown"
             ):
-                print(
+                logger.debug(
                     f"DEBUG: Last attempt to register UDF {name} with standard approach"
                 )
                 self.connection.create_function(
@@ -909,8 +1035,10 @@ class DuckDBEngine(SQLEngine):
             import traceback
 
             logger.error(traceback.format_exc())
-            print(f"DEBUG: Final registration error for UDF {name}: {e}")
-            print(f"DEBUG: Registration approach attempted: {registration_approach}")
+            logger.debug(f"DEBUG: Final registration error for UDF {name}: {e}")
+            logger.debug(
+                f"DEBUG: Registration approach attempted: {registration_approach}"
+            )
 
             raise UDFRegistrationError(
                 f"Failed to register table UDF {name} with DuckDB: {e}"
@@ -960,10 +1088,12 @@ class DuckDBEngine(SQLEngine):
             output_schema = getattr(function, "_output_schema", None)
             infer_schema = getattr(function, "_infer_schema", False)
 
-            print(f"DEBUG: register_python_udf - name={name}, flat_name={flat_name}")
-            print(f"DEBUG: register_python_udf - udf_type={udf_type}")
-            print(f"DEBUG: register_python_udf - output_schema={output_schema}")
-            print(f"DEBUG: register_python_udf - infer_schema={infer_schema}")
+            logger.debug(
+                f"DEBUG: register_python_udf - name={name}, flat_name={flat_name}"
+            )
+            logger.debug(f"DEBUG: register_python_udf - udf_type={udf_type}")
+            logger.debug(f"DEBUG: register_python_udf - output_schema={output_schema}")
+            logger.debug(f"DEBUG: register_python_udf - infer_schema={infer_schema}")
 
             # Get the actual function to register (unwrap if needed)
             actual_function = getattr(function, "__wrapped__", function)
@@ -1255,12 +1385,14 @@ class DuckDBEngine(SQLEngine):
         logger.info(f"Registering Arrow table {table_name}")
 
         # Add detailed debug logging
-        print(f"DEBUG: Arrow table {table_name} schema: {arrow_table.schema}")
-        print(
+        logger.debug(f"DEBUG: Arrow table {table_name} schema: {arrow_table.schema}")
+        logger.debug(
             f"DEBUG: Arrow table {table_name} column names: {arrow_table.column_names}"
         )
         for i, col in enumerate(arrow_table.column_names):
-            print(f"DEBUG: Column {i}: {col} - Type: {arrow_table.schema.types[i]}")
+            logger.debug(
+                f"DEBUG: Column {i}: {col} - Type: {arrow_table.schema.types[i]}"
+            )
 
         transaction_started = False
 
@@ -1269,7 +1401,7 @@ class DuckDBEngine(SQLEngine):
             if not hasattr(self.connection, "register_arrow"):
                 # For older DuckDB versions without direct Arrow support
                 df = arrow_table.to_pandas()
-                print(
+                logger.debug(
                     f"DEBUG: Converting to pandas DataFrame. DataFrame columns: {df.columns.tolist()}"
                 )
                 self.register_table(table_name, df, manage_transaction)
@@ -1292,7 +1424,7 @@ class DuckDBEngine(SQLEngine):
                     if column_names:
                         # Drop the table if it exists to avoid "already exists" errors
                         drop_sql = f"DROP TABLE IF EXISTS {table_name}"
-                        print(f"DEBUG: Dropping existing table: {drop_sql}")
+                        logger.debug(f"DEBUG: Dropping existing table: {drop_sql}")
                         self.connection.execute(drop_sql)
 
                         # Create a SELECT statement that explicitly names each column
@@ -1302,7 +1434,7 @@ class DuckDBEngine(SQLEngine):
 
                         # Create a persistent table that preserves column names
                         create_sql = f"CREATE TABLE {table_name} AS SELECT {column_clause} FROM {table_name}"
-                        print(f"DEBUG: Creating table with SQL: {create_sql}")
+                        logger.debug(f"DEBUG: Creating table with SQL: {create_sql}")
                         self.connection.execute(create_sql)
 
                         # Verify the created table structure
@@ -1310,11 +1442,11 @@ class DuckDBEngine(SQLEngine):
                             desc_result = self.connection.execute(
                                 f"DESCRIBE {table_name}"
                             ).fetchdf()
-                            print(
+                            logger.debug(
                                 f"DEBUG: Table {table_name} after create: {desc_result}"
                             )
                         except Exception as e:
-                            print(f"DEBUG: Error describing table: {e}")
+                            logger.debug(f"DEBUG: Error describing table: {e}")
                     else:
                         # Drop the table if it exists to avoid "already exists" errors
                         self.connection.execute(f"DROP TABLE IF EXISTS {table_name}")
@@ -1323,7 +1455,7 @@ class DuckDBEngine(SQLEngine):
                         self.connection.execute(
                             f"CREATE TABLE {table_name} AS SELECT * FROM {table_name}"
                         )
-                        print(
+                        logger.debug(
                             f"DEBUG: Created table with default column names (no explicit names available)"
                         )
 
@@ -1332,7 +1464,7 @@ class DuckDBEngine(SQLEngine):
                     )
                 except Exception as e:
                     logger.warning(f"Could not create persistent table: {e}")
-                    print(f"DEBUG: Error creating persistent table: {e}")
+                    logger.debug(f"DEBUG: Error creating persistent table: {e}")
                     if transaction_started:
                         self.connection.rollback()
                     raise

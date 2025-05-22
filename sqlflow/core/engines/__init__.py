@@ -23,7 +23,7 @@ def get_engine(engine_type: str = "duckdb", **kwargs) -> SQLEngine:
         Engine instance
     """
     logger.info(f"Initializing engine: {engine_type}")
-    print(f"DEBUG: Initializing engine: {engine_type} with kwargs: {kwargs}")
+    logger.debug(f"Initializing engine: {engine_type} with kwargs: {kwargs}")
 
     if engine_type.lower() == "duckdb":
         return DuckDBEngine(**kwargs)

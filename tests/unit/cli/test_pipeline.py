@@ -94,10 +94,15 @@ def test_cli_run_profile_memory_mode(tmp_path, monkeypatch):
             "E",
             (),
             {
-                "execute": lambda self, plan, dep: {"summary": {}},
-                "duckdb_engine": type("D", (), {"path": ":memory:"})(),
+                "execute": lambda self, plan, variables=None: {"summary": {}},
+                "duckdb_engine": type(
+                    "D", (), {"path": ":memory:", "database_path": ":memory:"}
+                )(),
                 "results": {},
                 "_generate_step_summary": lambda self, ops: None,
+                "profile": {"variables": {}},
+                "variables": {},
+                "duckdb_mode": "memory",
             },
         )(),
     )
@@ -117,22 +122,27 @@ def test_cli_run_profile_memory_mode(tmp_path, monkeypatch):
 
 def test_cli_run_profile_persistent_mode(tmp_path, monkeypatch):
     runner = CliRunner()
+    db_path = tmp_path / "prod.db"
     monkeypatch.setattr(
         "sqlflow.cli.pipeline.LocalExecutor",
         lambda profile_name: type(
             "E",
             (),
             {
-                "execute": lambda self, plan, dep: {"summary": {}},
-                "duckdb_engine": type("D", (), {"path": "prod.db"})(),
+                "execute": lambda self, plan, variables=None: {"summary": {}},
+                "duckdb_engine": type(
+                    "D", (), {"path": str(db_path), "database_path": str(db_path)}
+                )(),
                 "results": {},
                 "_generate_step_summary": lambda self, ops: None,
+                "profile": {"variables": {}},
+                "variables": {},
+                "duckdb_mode": "persistent",
             },
         )(),
     )
     profiles_dir = tmp_path / "profiles"
     profiles_dir.mkdir()
-    db_path = tmp_path / "prod.db"
     make_profile(profiles_dir, "production", "persistent", path=db_path)
     pipeline_path = tmp_path / "pipelines"
     pipeline_path.mkdir()

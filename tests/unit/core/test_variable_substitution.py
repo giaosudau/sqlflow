@@ -25,6 +25,8 @@ class TestExportPathVariableSubstitution(unittest.TestCase):
         # Mock profile loading
         self.executor = LocalExecutor()
         self.executor.profile = self.test_profile
+        # Initialize variables attribute
+        self.executor.variables = self.test_profile.get("variables", {})
 
     def tearDown(self):
         """Clean up after tests."""

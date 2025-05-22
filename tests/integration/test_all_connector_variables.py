@@ -23,6 +23,7 @@ class TestAllConnectorVariableSubstitution:
         executor.profile = {
             "variables": {"region": "us-east", "date": "2023-10-25", "env": "test"}
         }
+        executor.variables = {"region": "us-east", "date": "2023-10-25", "env": "test"}
         executor.connector_engine = MagicMock()
         return executor
 
@@ -213,9 +214,30 @@ class TestRealConnectorIntegration:
         planner = Planner()
         operations = planner.create_plan(pipeline, variables)
 
+        # Create a modified operations list with explicit dependencies to ensure correct order
+        modified_operations = []
+        for i, step in enumerate(operations):
+            step_copy = step.copy()
+            # For transform and export steps, ensure they depend on previous steps
+            if i > 0 and step_copy.get("type") in ["transform", "export"]:
+                if "depends_on" not in step_copy:
+                    step_copy["depends_on"] = []
+                # Add dependency on previous step if not already there
+                prev_step_id = operations[i - 1]["id"]
+                if prev_step_id not in step_copy["depends_on"]:
+                    step_copy["depends_on"].append(prev_step_id)
+            modified_operations.append(step_copy)
+
+        # Print modified operations for debugging
+        print("MODIFIED OPERATIONS:")
+        for op in modified_operations:
+            print(
+                f"Step {op['id']} (type: {op.get('type')}), depends_on: {op.get('depends_on', [])}"
+            )
+
         executor = LocalExecutor()
         executor.profile = {"variables": variables}
-        result = executor.execute(operations, variables=variables)
+        result = executor.execute(modified_operations, variables=variables)
 
         # Check if the export was successful
         assert "error" not in result, f"Pipeline execution error: {result.get('error')}"

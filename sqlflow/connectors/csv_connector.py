@@ -15,6 +15,9 @@ from sqlflow.connectors.base import (
 from sqlflow.connectors.data_chunk import DataChunk
 from sqlflow.connectors.registry import register_connector
 from sqlflow.core.errors import ConnectorError
+from sqlflow.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 @register_connector("CSV")
@@ -48,7 +51,7 @@ class CSVConnector(Connector):
 
             # Handle variations of header parameter naming
             self.has_header = params.get("has_header", params.get("header", True))
-            print(f"DEBUG: CSV Connector configured with has_header: {self.has_header}")
+            logger.debug(f"CSV Connector configured with has_header: {self.has_header}")
 
             self.quote_char = params.get("quote_char", '"')
             self.encoding = params.get("encoding", "utf-8")
@@ -225,8 +228,8 @@ class CSVConnector(Connector):
             import pandas as pd
 
             # Add debug output
-            print(f"DEBUG: CSV Connector reading file: {self.path}")
-            print(f"DEBUG: Has header: {self.has_header}")
+            logger.debug(f"CSV Connector reading file: {self.path}")
+            logger.debug(f"Has header: {self.has_header}")
 
             # Read the first few lines to debug the content
             with open(self.path, "r", encoding=self.encoding) as f:
@@ -234,7 +237,7 @@ class CSVConnector(Connector):
                     f.readline().strip()
                     for _ in range(min(5, sum(1 for _ in open(self.path))))
                 ]
-                print(f"DEBUG: First lines of CSV: {first_lines}")
+                logger.debug(f"First lines of CSV: {first_lines}")
 
             # Initialize original_column_names
             original_column_names = None
@@ -242,7 +245,7 @@ class CSVConnector(Connector):
             # Read CSV file with pandas - explicitly set header=0 when has_header is True
             # This ensures pandas uses the first row as column names
             header_row = 0 if self.has_header else None
-            print(f"DEBUG: Using header_row={header_row} for pandas.read_csv")
+            logger.debug(f"Using header_row={header_row} for pandas.read_csv")
 
             df = pd.read_csv(
                 self.path,
@@ -256,13 +259,13 @@ class CSVConnector(Connector):
             # Store original column names if headers are available
             if self.has_header:
                 original_column_names = df.columns.tolist()
-                print(f"DEBUG: Storing original column names: {original_column_names}")
+                logger.debug(f"Storing original column names: {original_column_names}")
 
             # Print DataFrame info for debugging
-            print(f"DEBUG: CSV loaded with columns: {df.columns.tolist()}")
-            print(f"DEBUG: DataFrame shape: {df.shape}")
-            print(
-                f"DEBUG: DataFrame first row: {df.iloc[0].tolist() if len(df) > 0 else 'empty'}"
+            logger.debug(f"CSV loaded with columns: {df.columns.tolist()}")
+            logger.debug(f"DataFrame shape: {df.shape}")
+            logger.debug(
+                f"DataFrame first row: {df.iloc[0].tolist() if len(df) > 0 else 'empty'}"
             )
 
             if columns:
@@ -279,9 +282,9 @@ class CSVConnector(Connector):
             table = pa.Table.from_pandas(df, preserve_index=False)
 
             # Print PyArrow table info for debugging
-            print(f"DEBUG: PyArrow table schema: {table.schema}")
-            print(f"DEBUG: PyArrow column names: {table.column_names}")
-            print(f"DEBUG: Original column names being passed: {original_column_names}")
+            logger.debug(f"PyArrow table schema: {table.schema}")
+            logger.debug(f"PyArrow column names: {table.column_names}")
+            logger.debug(f"Original column names being passed: {original_column_names}")
 
             # Create and yield the DataChunk with the table and original column names
             yield DataChunk(table, original_column_names=original_column_names)

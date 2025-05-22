@@ -57,7 +57,10 @@ def parse_vars(vars_input: Optional[str]) -> Dict[str, Any]:
     except json.JSONDecodeError:
         result = {}
         try:
-            for pair in vars_input.split():
+            # Support both space-separated and comma-separated key=value pairs
+            # Convert commas to spaces first to handle both formats consistently
+            normalized_input = vars_input.replace(",", " ")
+            for pair in normalized_input.split():
                 if "=" not in pair:
                     raise ValueError(f"Invalid key=value pair: {pair}")
                 key, value = pair.split("=", 1)
@@ -65,5 +68,5 @@ def parse_vars(vars_input: Optional[str]) -> Dict[str, Any]:
             return result
         except Exception as e:
             raise ValueError(
-                f"Failed to parse variables. Use JSON format or 'key=value' pairs. Error: {e}"
+                f"Failed to parse variables. Use JSON format or 'key=value' pairs (space or comma-separated). Error: {e}"
             )

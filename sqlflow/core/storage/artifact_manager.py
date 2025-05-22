@@ -520,12 +520,15 @@ class ArtifactManager:
 
         return op_metadata
 
-    def finalize_execution(self, pipeline_name: str, success: bool) -> Dict[str, Any]:
+    def finalize_execution(
+        self, pipeline_name: str, success: bool, error_message: Optional[str] = None
+    ) -> Dict[str, Any]:
         """Finalize the execution tracking.
 
         Args:
             pipeline_name: Name of the pipeline.
             success: Whether pipeline execution succeeded.
+            error_message: Optional error message if pipeline failed.
 
         Returns:
             Final pipeline execution metadata.
@@ -549,6 +552,10 @@ class ArtifactManager:
                 "duration_ms": duration_ms,
             }
         )
+
+        # Add error message if provided and pipeline failed
+        if not success and error_message:
+            metadata["error_message"] = error_message
 
         # Save updated metadata
         with open(metadata_path, "w") as f:

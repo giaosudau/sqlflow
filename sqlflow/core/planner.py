@@ -18,6 +18,7 @@ from typing import Any, Dict, List, Optional
 from sqlflow.core.dependencies import DependencyResolver
 from sqlflow.core.errors import PlanningError
 from sqlflow.core.evaluator import ConditionEvaluator, EvaluationError
+from sqlflow.core.variables import VariableContext, VariableSubstitutor
 from sqlflow.logging import get_logger
 from sqlflow.parser.ast import (
     ConditionalBlockStep,
@@ -417,15 +418,13 @@ class ExecutionPlanBuilder:
         # If the value is itself a variable reference with default, extract it
         var_ref_match = re.match(r"\$\{([^|{}]+)\|([^{}]*)\}", var_value)
         if var_ref_match:
-            ref_var = var_ref_match.group(1).strip()
+            var_ref_match.group(1).strip()
             default_val = var_ref_match.group(2).strip()
 
-            # If it's a self-reference with default, use the default
-            if ref_var == var_name:
-                logger.debug(
-                    f"Self-referential variable ${{{var_name}}} with default '{default_val}'"
-                )
-                return self._convert_value_to_appropriate_type(default_val)
+            # Always use the default value for variables defined in SET statements with defaults
+            # This ensures SET var = "${var|default}" properly uses the default value
+            logger.debug(f"Variable ${{{var_name}}} has default value '{default_val}'")
+            return self._convert_value_to_appropriate_type(default_val)
 
         # Not a variable reference with default, return the value with quotes removed if present
         return self._remove_quotes_if_present(var_value)
@@ -1482,181 +1481,53 @@ class Planner:
         self.builder = ExecutionPlanBuilder()
         logger.debug("Planner initialized")
 
-    def _substitute_variables_in_plan(
-        self, execution_plan: List[Dict[str, Any]], variables: Dict[str, Any]
-    ) -> List[Dict[str, Any]]:
-        """Substitute variables in the execution plan.
-
-        Args:
-            execution_plan: The execution plan to process
-            variables: Variables to substitute
-
-        Returns:
-            Updated execution plan with variables substituted
-        """
-        if not variables:
-            return execution_plan
-
-        # Process each step in the execution plan
-        updated_plan = []
-        for step in execution_plan:
-            updated_step = self._substitute_variables_in_dict(step, variables)
-            updated_plan.append(updated_step)
-
-            # Log substitutions in exports for debugging
-            self._log_export_substitutions(step, updated_step)
-
-        return updated_plan
-
-    def _substitute_variables_in_dict(
-        self, data: Dict[str, Any], variables: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """Recursively substitute variables in a dictionary.
-
-        Args:
-            data: The dictionary to process
-            variables: Variables to substitute
-
-        Returns:
-            Updated dictionary with variables substituted
-        """
-        if not isinstance(data, dict):
-            return data
-
-        result = {}
-        for key, value in data.items():
-            if isinstance(value, dict):
-                result[key] = self._substitute_variables_in_dict(value, variables)
-            elif isinstance(value, list):
-                result[key] = self._substitute_variables_in_list(value, variables)
-            elif isinstance(value, str):
-                result[key] = self._substitute_variables_in_string(value, variables)
-            else:
-                result[key] = value
-        return result
-
-    def _substitute_variables_in_list(
-        self, data_list: List[Any], variables: Dict[str, Any]
-    ) -> List[Any]:
-        """Substitute variables in a list.
-
-        Args:
-            data_list: The list to process
-            variables: Variables to substitute
-
-        Returns:
-            Updated list with variables substituted
-        """
-        return [
-            (
-                self._substitute_variables_in_dict(item, variables)
-                if isinstance(item, dict)
-                else (
-                    self._substitute_variables_in_string(item, variables)
-                    if isinstance(item, str)
-                    else item
-                )
-            )
-            for item in data_list
-        ]
-
-    def _substitute_variables_in_string(
-        self, text: str, variables: Dict[str, Any]
-    ) -> str:
-        """Substitute variables in a string.
-
-        Args:
-            text: The string to process
-            variables: Variables to substitute
-
-        Returns:
-            Updated string with variables substituted
-        """
-        if not isinstance(text, str):
-            return text
-
-        return re.sub(
-            r"\$\{([^}]+)\}", lambda m: self._replace_variable(m, variables), text
-        )
-
-    def _replace_variable(self, match: re.Match, variables: Dict[str, Any]) -> str:
-        """Replace a variable match with its value.
-
-        Args:
-            match: The regular expression match
-            variables: Variables dictionary
-
-        Returns:
-            The replacement value
-        """
-        var_expr = match.group(1)
-        if "|" in var_expr:
-            # Handle default value
-            var_name, default = var_expr.split("|", 1)
-            var_name = var_name.strip()
-            default = default.strip()
-
-            # Check if var exists in variables dict
-            if var_name in variables:
-                return str(variables[var_name])
-            return default
-        else:
-            var_name = var_expr.strip()
-            if var_name in variables:
-                return str(variables[var_name])
-            return match.group(0)  # Keep the original if not found
-
-    def _log_export_substitutions(
-        self, original_step: Dict[str, Any], updated_step: Dict[str, Any]
-    ) -> None:
-        """Log substitutions in export steps for debugging.
-
-        Args:
-            original_step: The original step
-            updated_step: The updated step with variables substituted
-        """
-        if original_step.get("type") == "export" and "query" in original_step:
-            orig_dest = original_step.get("query", {}).get("destination_uri", "")
-            new_dest = updated_step.get("query", {}).get("destination_uri", "")
-            if orig_dest != new_dest:
-                logger.debug(
-                    f"Substituted export destination: {orig_dest} -> {new_dest}"
-                )
-
     def create_plan(
-        self, pipeline: Pipeline, variables: Optional[Dict[str, Any]] = None
+        self,
+        pipeline: Pipeline,
+        variables: Optional[Dict[str, Any]] = None,
+        profile_variables: Optional[Dict[str, Any]] = None,
     ) -> List[Dict[str, Any]]:
         """Create an execution plan from a pipeline.
 
         Args:
-            pipeline: The parsed pipeline
-            variables: Variables for variable substitution
+            pipeline: The pipeline to build a plan for
+            variables: Variables to substitute in the plan (CLI variables - highest priority)
+            profile_variables: Profile variables (medium priority)
 
         Returns:
-            List of executable operations
+            The execution plan as a list of operation dictionaries
 
-        Raises:
-            PlanningError: If the plan cannot be created
+        Priority order for variable substitution:
+        1. SET variables in pipeline (lowest priority)
+        2. Profile variables (medium priority)
+        3. CLI variables (highest priority)
+        4. Default values in ${var|default} expressions (only used when no other value is found)
         """
-        logger.info(f"Creating plan for pipeline with {len(pipeline.steps)} steps")
-        try:
-            plan = self.builder.build_plan(pipeline, variables)
+        # First extract SET variables including default values from the pipeline
+        set_variables = self.builder._extract_set_defined_variables(pipeline)
+        logger.debug(f"SET variables with defaults from pipeline: {set_variables}")
 
-            # Substitute variables in the execution plan
-            if variables:
-                logger.debug(
-                    f"Substituting variables in execution plan: {list(variables.keys())}"
-                )
-                plan = self._substitute_variables_in_plan(plan, variables)
+        # Create a VariableContext with all sources following priority order
+        var_context = VariableContext(
+            cli_variables=variables,
+            profile_variables=profile_variables,
+            set_variables=set_variables,
+        )
 
-            logger.info(f"Successfully created plan with {len(plan)} operations")
-            return plan
-        except (PlanningError, EvaluationError):
-            # Don't log here - these errors are already properly formatted
-            # and will be handled by the CLI code
-            raise
-        except Exception as e:
-            # For unexpected errors, provide more context but log at debug level
-            error_msg = f"Failed to create plan: {str(e)}"
-            logger.debug(error_msg, exc_info=True)
-            raise PlanningError(error_msg) from e
+        # Build the plan using the extracted variables
+        execution_plan = self.builder.build_plan(
+            pipeline, var_context.get_all_variables()
+        )
+
+        # Create a VariableSubstitutor and apply substitution to the plan
+        substitutor = VariableSubstitutor(var_context)
+        execution_plan = substitutor.substitute_any(execution_plan)
+
+        # Check for any unresolved variables and log warnings
+        if var_context.has_unresolved_variables():
+            unresolved = var_context.get_unresolved_variables()
+            logger.warning(
+                f"Plan contains unresolved variables: {', '.join(unresolved)}"
+            )
+
+        return execution_plan

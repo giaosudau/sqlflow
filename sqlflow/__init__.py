@@ -17,3 +17,6 @@ try:
 except ImportError:
     # This can happen during installation when dependencies are not yet satisfied
     pass
+
+# Import core modules for easier access
+from sqlflow.core.variables import VariableContext, VariableSubstitutor

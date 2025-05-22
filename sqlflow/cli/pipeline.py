@@ -1,18 +1,17 @@
 """Pipeline commands for the SQLFlow CLI."""
 
+import datetime
 import json
 import os
-from datetime import datetime
+import re
 from typing import Any, Dict, List, Optional, Tuple
 
 import typer
 
 from sqlflow.cli.utils import parse_vars, resolve_pipeline_name
-from sqlflow.cli.variable_handler import VariableHandler
 from sqlflow.core.dependencies import DependencyResolver
 from sqlflow.core.executors.local_executor import LocalExecutor
 from sqlflow.core.planner import Planner
-from sqlflow.core.sql_generator import SQLGenerator
 from sqlflow.core.storage.artifact_manager import ArtifactManager
 from sqlflow.logging import configure_logging, get_logger
 from sqlflow.parser.parser import Parser
@@ -69,14 +68,29 @@ def _apply_variable_substitution(pipeline_text: str, variables: Dict[str, Any]) 
     """Apply variable substitution to pipeline text.
 
     Args:
-        pipeline_text: Original pipeline text
-        variables: Variables for substitution
+        pipeline_text: Pipeline text with variables
+        variables: Dictionary of variable values
 
     Returns:
         Pipeline text with variables substituted
     """
-    # TODO: Implement variable substitution logic
-    return pipeline_text
+    from sqlflow.core.variables import VariableContext, VariableSubstitutor
+
+    # Create a variable context and substitutor
+    var_context = VariableContext(cli_variables=variables)
+    substitutor = VariableSubstitutor(var_context)
+
+    # Substitute variables in the pipeline text
+    result = substitutor.substitute_string(pipeline_text)
+
+    # Log any unresolved variables
+    if var_context.has_unresolved_variables():
+        unresolved = var_context.get_unresolved_variables()
+        logger.warning(
+            f"Pipeline contains unresolved variables: {', '.join(unresolved)}"
+        )
+
+    return result
 
 
 def _is_test_pipeline(pipeline_path: str, pipeline_text: str) -> bool:
@@ -148,47 +162,48 @@ def _compile_pipeline_to_plan(
 
     Args:
         pipeline_path: Path to the pipeline file
-        target_path: Path to save the compilation output
-        variables: Variables for variable substitution
+        target_path: Path to save the execution plan
+        variables: Variables to substitute in the pipeline
         save_plan: Whether to save the plan to disk
 
     Returns:
-        Execution plan as a list of operations
+        The execution plan as a list of operations
     """
+    from sqlflow.core.planner import Planner
+    from sqlflow.project import Project
+
     try:
-        # Step 1: Read and prepare pipeline
+        # Read the pipeline file
         pipeline_text = _read_pipeline_file(pipeline_path)
-        pipeline_name = os.path.basename(pipeline_path)
-        if pipeline_name.endswith(".sf"):
-            pipeline_name = pipeline_name[:-3]
 
-        # Step 2: Apply variable substitution if needed
-        if variables:
-            pipeline_text = _apply_variable_substitution(pipeline_text, variables)
+        # Get project and profile to access profile variables
+        project_dir = os.getcwd()
+        project = Project(project_dir)
+        profile_dict = project.get_profile()
+        profile_variables = (
+            profile_dict.get("variables", {}) if isinstance(profile_dict, dict) else {}
+        )
 
-        # Step 3: Handle test pipeline or regular pipeline
-        if _is_test_pipeline(pipeline_path, pipeline_text):
-            operations = _get_test_plan()
-        else:
-            # Parse pipeline and create execution plan
-            parser = Parser()
-            pipeline = parser.parse(pipeline_text)
-            planner = Planner()
-            operations = planner.create_plan(pipeline)
+        # Parse the pipeline
+        parser = Parser()
+        pipeline = parser.parse(pipeline_text)
 
-        # Step 4: Print summary
-        _print_plan_summary(operations, pipeline_name)
+        # Create a plan with variable substitution
+        planner = Planner()
+        operations = planner.create_plan(
+            pipeline, variables=variables, profile_variables=profile_variables
+        )
 
-        # Step 5: Save the plan if needed
+        # Save the plan if requested
         if save_plan:
-            plan_data = {"operations": operations}
-            _write_execution_plan(plan_data, target_path)
+            os.makedirs(os.path.dirname(target_path), exist_ok=True)
+            with open(target_path, "w") as f:
+                json.dump(operations, f, indent=2)
+                logger.debug(f"Saved execution plan to {target_path}")
 
         return operations
-
     except Exception as e:
-        # Log the full error message at debug level
-        logger.debug(f"Error compiling pipeline: {str(e)}", exc_info=True)
+        logger.error(f"Error compiling pipeline: {str(e)}")
         _handle_source_error(e)
         raise typer.Exit(code=1)
 
@@ -248,7 +263,13 @@ def _do_compile_single_pipeline(
         auto_output_path = os.path.join(target_dir, f"{name_without_ext}.json")
         final_output_path = output_override or auto_output_path
 
-        _compile_pipeline_to_plan(pipeline_path, final_output_path, variables)
+        operations = _compile_pipeline_to_plan(
+            pipeline_path, final_output_path, variables
+        )
+
+        # Print the operation IDs to stdout for testing
+        for op in operations:
+            typer.echo(f"{op['id']} ({op['type']})")
 
         if variables:  # Log applied variables only once after successful compilation
             typer.echo(f"Applied variables: {json.dumps(variables, indent=2)}")
@@ -376,9 +397,14 @@ def compile_pipeline(
             _auto_output_path = os.path.join(_target_dir, f"{_name_for_output}.json")
             _final_output_path = output or _auto_output_path
             try:
-                _compile_pipeline_to_plan(
+                operations = _compile_pipeline_to_plan(
                     _pipeline_path, _final_output_path, _variables
                 )
+
+                # Print a summary of the operations to stdout
+                for op in operations:
+                    typer.echo(f"{op['id']} ({op['type']})")
+
                 if _variables:
                     typer.echo(f"Applied variables: {json.dumps(_variables, indent=2)}")
             except typer.Exit:
@@ -467,7 +493,7 @@ def _write_execution_plan(plan_data: Dict[str, Any], target_path: str) -> None:
     full_plan = {
         "pipeline_metadata": {
             "name": os.path.basename(target_path).replace(".json", ""),
-            "compiled_at": datetime.now().isoformat(),
+            "compiled_at": datetime.datetime.now().isoformat(),
             "compiler_version": "0.1.0",
         },
         "operations": plan_data.get("operations", []),
@@ -512,12 +538,41 @@ def _compile_single_pipeline(
         raise typer.Exit(code=1)
 
 
-def _substitute_pipeline_variables(pipeline_text: str, variables: dict) -> str:
-    """Substitute variables in the pipeline text."""
-    handler = VariableHandler(variables)
-    if not handler.validate_variable_usage(pipeline_text):
-        typer.echo("Warning: Some variables are missing and don't have defaults")
-    return handler.substitute_variables(pipeline_text)
+def _read_and_substitute_pipeline(pipeline_path: str, variables: dict) -> str:
+    """Read a pipeline file and substitute variables.
+
+    Args:
+        pipeline_path: Path to the pipeline file
+        variables: Dictionary of variable values
+
+    Returns:
+        Pipeline text with variables substituted
+    """
+    from sqlflow.core.variables import VariableContext, VariableSubstitutor
+
+    # Read the pipeline file
+    with open(pipeline_path, "r") as f:
+        pipeline_text = f.read()
+
+    # If no variables, return as is
+    if not variables:
+        return pipeline_text
+
+    # Create a variable context and substitutor
+    var_context = VariableContext(cli_variables=variables)
+    substitutor = VariableSubstitutor(var_context)
+
+    # Substitute variables in the pipeline text
+    result = substitutor.substitute_string(pipeline_text)
+
+    # Log any unresolved variables
+    if var_context.has_unresolved_variables():
+        unresolved = var_context.get_unresolved_variables()
+        logger.warning(
+            f"Pipeline contains unresolved variables: {', '.join(unresolved)}"
+        )
+
+    return result
 
 
 def _build_dependency_resolver(plan: list) -> DependencyResolver:
@@ -530,48 +585,82 @@ def _build_dependency_resolver(plan: list) -> DependencyResolver:
     return dependency_resolver
 
 
-def _find_entry_points(plan: list) -> list:
-    """Find entry points (steps with no dependencies) in the plan."""
-    return [
-        step["id"]
-        for step in plan
-        if not step.get("depends_on") or len(step.get("depends_on", [])) == 0
-    ]
+def _find_entry_points(plan: List[Dict[str, Any]]) -> List[str]:
+    """Find entry points in the plan.
+
+    Entry points are steps that are not dependent on other steps.
+
+    Args:
+        plan: The pipeline plan
+
+    Returns:
+        List of entry point step IDs
+    """
+    # Find all steps that don't have any dependencies
+    entry_points = []
+    for step in plan:
+        if not step.get("depends_on"):
+            entry_points.append(step["id"])
+
+    # If no entry points were found but there are steps in the plan,
+    # use the first step as an entry point
+    if not entry_points and plan:
+        entry_points = [plan[0]["id"]]
+
+    return entry_points
 
 
 def _build_execution_order_from_entry_points(
-    dependency_resolver: DependencyResolver, entry_points: list
-) -> list:
-    """Build execution order from entry points using the dependency resolver."""
+    dependency_resolver: DependencyResolver, entry_points: List[str]
+) -> List[str]:
+    """Build the execution order from entry points."""
     execution_order = []
     for entry_point in entry_points:
-        try:
-            deps = dependency_resolver.resolve_dependencies(entry_point)
-            for dep in deps:
-                if dep not in execution_order:
-                    execution_order.append(dep)
-        except Exception as e:
-            typer.echo(
-                f"Warning: Error resolving dependencies from {entry_point}: {str(e)}"
-            )
+        if entry_point in execution_order:
+            continue
+        deps = dependency_resolver.resolve_dependencies(entry_point)
+        for dep in deps:
+            if dep not in execution_order:
+                execution_order.append(dep)
+
+    # Store the resolved order in the resolver for future reference
+    dependency_resolver.last_resolved_order = execution_order
+
     return execution_order
 
 
-def _resolve_and_build_execution_order(plan: list) -> tuple[DependencyResolver, list]:
-    """Resolve dependencies and build execution order for the pipeline plan."""
-    dependency_resolver = _build_dependency_resolver(plan)
+def _resolve_execution_order(
+    dependency_resolver: DependencyResolver, plan: List[Dict[str, Any]]
+) -> List[str]:
+    """Resolve the execution order using the dependency resolver.
+
+    Args:
+        dependency_resolver: The dependency resolver to use
+        plan: The execution plan
+
+    Returns:
+        List of step IDs in execution order
+    """
+    # Get all step IDs from the plan
     all_step_ids = [step["id"] for step in plan]
+
+    # Find entry points (steps with no dependencies)
     entry_points = _find_entry_points(plan)
-    if not entry_points and plan:
-        entry_points = [plan[0]["id"]]
+
+    # Build the execution order from entry points
     execution_order = _build_execution_order_from_entry_points(
         dependency_resolver, entry_points
     )
+
+    # Ensure all steps are included in the execution order
     for step_id in all_step_ids:
         if step_id not in execution_order:
             execution_order.append(step_id)
+
+    # Store the resolved order in the resolver for future reference
     dependency_resolver.last_resolved_order = execution_order
-    return dependency_resolver, execution_order
+
+    return execution_order
 
 
 def _print_summary(summary: dict) -> None:
@@ -698,13 +787,6 @@ def _resolve_pipeline_path(project: Project, pipeline_name: str) -> str:
         return project.get_pipeline_path(pipeline_name)
 
 
-def _read_and_substitute_pipeline(pipeline_path: str, variables: dict) -> str:
-    """Read the pipeline file and apply variable substitution."""
-    with open(pipeline_path, "r") as f:
-        pipeline_text = f.read()
-    return _substitute_pipeline_variables(pipeline_text, variables)
-
-
 def _parse_and_plan_pipeline(pipeline_text: str) -> list:
     """Parse the pipeline text and create an execution plan."""
     parser = Parser()
@@ -793,49 +875,321 @@ def _get_execution_operations(
     pipeline_path: str,
     variables: Optional[Dict[str, Any]],
     pipeline_name: str,
+    profile_name: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
-    """Loads a compiled plan or compiles the pipeline to get operations."""
-    if from_compiled_arg:
-        typer.echo(f"Using existing compilation from {compiled_plan_path}")
-        if not os.path.exists(compiled_plan_path):
-            typer.echo(
-                f"No existing compilation found at {compiled_plan_path}. "
-                f"Run 'sqlflow pipeline compile {pipeline_name}' first or remove --from-compiled flag."
-            )
-            raise typer.Exit(code=1)
+    """Loads a compiled plan or compiles the pipeline to get operations.
+
+    Args:
+        from_compiled_arg: Whether to use a pre-compiled plan
+        compiled_plan_path: Path to the compiled plan if from_compiled_arg is True
+        pipeline_path: Path to the pipeline file
+        variables: CLI variables for substitution
+        pipeline_name: Name of the pipeline
+        profile_name: Name of the profile to use
+
+    Returns:
+        List of operations for execution
+    """
+    if from_compiled_arg and os.path.exists(compiled_plan_path):
+        logger.info(f"Using compiled plan: {compiled_plan_path}")
         try:
-            with open(compiled_plan_path, "r") as f:
-                plan_data = json.load(f)
-            return plan_data.get("operations", [])
+            return _load_execution_plan(compiled_plan_path)
         except Exception as e:
-            typer.echo(f"Error loading compiled plan: {str(e)}")
+            logger.error(f"Error loading compiled plan: {str(e)}")
             raise typer.Exit(code=1)
     else:
-        typer.echo(f"Compiling pipeline: {pipeline_path}")
-        try:
-            # Let _compile_pipeline_to_plan handle all error formatting and logging
-            return _compile_pipeline_to_plan(
-                pipeline_path=pipeline_path,
-                target_path=compiled_plan_path,  # Save compilation here
-                variables=variables,
+        # If from_compiled_arg but file doesn't exist, or not from_compiled
+        if from_compiled_arg:
+            logger.warning(
+                f"Compiled plan not found: {compiled_plan_path}, recompiling..."
             )
-        except typer.Exit:
-            # Exit was already handled in _compile_pipeline_to_plan with appropriate error message
-            # No need to add additional error messages - just propagate the exit
-            raise
+        logger.info(f"Compiling pipeline: {pipeline_path}")
+
+        # Get profile variables if profile_name is provided
+        profile_variables = None
+        if profile_name:
+            project = Project(os.getcwd(), profile_name=profile_name)
+            profile = project.get_profile()
+            if profile and isinstance(profile, dict):
+                profile_variables = profile.get("variables", {})
+                logger.debug(f"Extracted profile variables: {profile_variables}")
+
+        try:
+            # Read the pipeline file
+            with open(pipeline_path, "r") as f:
+                pipeline_text = f.read()
+
+            # Parse the pipeline
+            parser = Parser()
+            pipeline = parser.parse(pipeline_text)
+
+            # Create execution plan with planner
+            planner = Planner()
+
+            # Pass both CLI variables and profile variables to the planner
+            operations = planner.create_plan(
+                pipeline, variables=variables, profile_variables=profile_variables
+            )
+
+            return operations
         except Exception as e:
-            # Only log unexpected errors that weren't handled in _compile_pipeline_to_plan
-            # Log at debug level to avoid duplicate error messages
-            logger.debug("Unexpected error during pipeline compilation", exc_info=True)
-            # Format the error message cleanly - remove line numbers and traceback info
-            error_msg = str(e)
-            if " at line" in error_msg:
-                error_msg = error_msg.split(" at line")[0]
-            typer.echo(f"Error compiling pipeline: {error_msg}")
+            logger.error(f"Error compiling pipeline: {str(e)}")
             raise typer.Exit(code=1)
+
+
+def _extract_set_variables_from_operations(
+    operations: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Extract SET variables with default values from operations.
+
+    Args:
+        operations: List of operation steps
+
+    Returns:
+        Dictionary of variable names to default values
+    """
+    set_variables = {}
+    for op in operations:
+        if op.get("type") == "transform" and op.get(
+            "query", ""
+        ).strip().upper().startswith("SET "):
+            # Simple extraction of variable name and value from SET statements
+            set_match = re.match(
+                r"SET\s+([a-zA-Z0-9_]+)\s*=\s*(.+?)\s*;?",
+                op.get("query", ""),
+                re.IGNORECASE,
+            )
+            if set_match:
+                var_name = set_match.group(1).strip()
+                var_value = set_match.group(2).strip()
+
+                # Check if this has a default value in ${var|default} format
+                default_match = re.match(r"\$\{([^|{}]+)\|([^{}]*)\}", var_value)
+                if default_match:
+                    # Use the default value as lowest priority
+                    default_val = default_match.group(2).strip()
+                    # Remove quotes if present
+                    if (default_val.startswith('"') and default_val.endswith('"')) or (
+                        default_val.startswith("'") and default_val.endswith("'")
+                    ):
+                        default_val = default_val[1:-1]
+
+                    logger.debug(
+                        f"Extracted default value '{default_val}' for variable '{var_name}'"
+                    )
+                    set_variables[var_name] = default_val
+
+    logger.debug(f"Extracted SET variables with defaults: {set_variables}")
+    return set_variables
+
+
+def _build_effective_variables(
+    set_variables: Dict[str, Any],
+    executor_profile: Any,
+    cli_variables: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Build effective variables by applying priority rules.
+
+    Args:
+        set_variables: Variables from SET statements (lowest priority)
+        executor_profile: Executor profile for profile variables (medium priority)
+        cli_variables: Variables from CLI (highest priority)
+
+    Returns:
+        Combined dictionary of variables
+    """
+    # 1. Start with SET variables (lowest priority)
+    effective_variables = set_variables.copy() if set_variables else {}
+
+    # 2. Add profile variables (medium priority)
+    profile_vars = (
+        executor_profile.get("variables", {})
+        if isinstance(executor_profile, dict)
+        else {}
+    )
+    if profile_vars:
+        logger.debug(f"Adding profile variables: {profile_vars}")
+        effective_variables.update(profile_vars)
+
+    # 3. Add CLI variables (highest priority)
+    if cli_variables:
+        logger.debug(f"Adding CLI variables: {cli_variables}")
+        effective_variables.update(cli_variables)
+
+    logger.debug(f"Final executor variables: {effective_variables}")
+    return effective_variables
+
+
+def _check_duckdb_engine(executor) -> None:
+    """Check if DuckDB engine is initialized and log its status.
+
+    Args:
+        executor: Executor instance with DuckDB engine
+    """
+    logger = get_logger(__name__)
+    if hasattr(executor, "duckdb_engine") and executor.duckdb_engine:
+        logger.debug(
+            f"DuckDB engine initialized with path: {executor.duckdb_engine.database_path}"
+        )
+        logger.debug(f"DuckDB mode: {executor.duckdb_mode}")
+    else:
+        logger.debug("DuckDB engine not initialized!")
+
+
+def _verify_duckdb_tables(executor) -> None:
+    """Verify DuckDB tables after execution.
+
+    Args:
+        executor: Executor instance with DuckDB engine
+    """
+    logger = get_logger(__name__)
+    if (
+        hasattr(executor, "duckdb_engine")
+        and executor.duckdb_engine
+        and executor.duckdb_mode == "persistent"
+    ):
+        try:
+            logger.debug("Checking DuckDB tables after execution...")
+            tables_result = executor.duckdb_engine.execute_query(
+                "SHOW TABLES"
+            ).fetchdf()
+            logger.debug(f"Tables after execution: {tables_result}")
+        except Exception as e:
+            logger.debug(f"Error checking tables: {e}")
+
+
+def _execute_and_handle_result(
+    executor,
+    operations: List[Dict[str, Any]],
+    variables: Optional[Dict[str, Any]],
+    pipeline_name: str,
+    artifact_manager: ArtifactManager,
+    start_time: datetime.datetime,
+) -> bool:
+    """Execute operations and handle the execution result.
+
+    Args:
+        executor: Executor instance
+        operations: List of operations to execute
+        variables: Variables for execution
+        pipeline_name: Name of the pipeline
+        artifact_manager: Artifact manager
+        start_time: Start time of execution
+
+    Returns:
+        True if execution succeeded, False otherwise
+    """
+    try:
+        # Execute pipeline with CLI variables
+        logger = get_logger(__name__)
+        logger.debug("Calling executor.execute...")
+        result = executor.execute(operations, variables=variables)
+        logger.debug(f"Execution result: {result.get('status', 'unknown')}")
+
+        # Verify DuckDB tables if needed
+        _verify_duckdb_tables(executor)
+
+        # Report execution time
+        end_time = datetime.datetime.now()
+        execution_time = end_time - start_time
+        typer.echo(
+            f"⏱️  Execution completed in {execution_time.total_seconds():.2f} seconds"
+        )
+
+        # Check overall success
+        if result.get("status") == "success":
+            typer.echo("✅ Pipeline completed successfully")
+            artifact_manager.finalize_execution(pipeline_name, True)
+            return True
+        else:
+            error_message = result.get("error", "Unknown error")
+            typer.echo(f"❌ Pipeline failed: {error_message}")
+            artifact_manager.finalize_execution(pipeline_name, False, error_message)
+            return False
+
+    except Exception as e:
+        # Handle unexpected errors
+        end_time = datetime.datetime.now()
+        execution_time = end_time - start_time
+        typer.echo(
+            f"⏱️  Execution failed after {execution_time.total_seconds():.2f} seconds"
+        )
+        typer.echo(f"❌ Error: {e}")
+        logger.debug(f"Exception during execution: {e}")
+        artifact_manager.finalize_execution(pipeline_name, False, str(e))
+        return False
 
 
 # Helper function to execute operations and report results
+def _log_pipeline_execution_details(
+    operations: List[Dict[str, Any]],
+    pipeline_name: str,
+    profile_name: str,
+    variables: Optional[Dict[str, Any]],
+    execution_id: str,
+) -> None:
+    """Log pipeline execution details for debugging.
+
+    Args:
+        operations: List of operations in the pipeline
+        pipeline_name: Name of the pipeline
+        profile_name: Name of the profile to use
+        variables: Dictionary of variables for the pipeline
+        execution_id: Execution ID for tracking
+    """
+    logger.debug(f"Initializing executor with profile {profile_name}")
+    logger.debug(f"Executing pipeline {pipeline_name} with profile {profile_name}")
+    logger.debug(f"Variables: {variables}")
+    logger.debug(f"Execution ID: {execution_id}")
+
+    # Log operations for debugging
+    logger.debug("Operations to execute:")
+    for i, op in enumerate(operations):
+        logger.debug(
+            f"Operation {i}: {op.get('type')} - {op.get('id')} - {op.get('name', '')}"
+        )
+        if op.get("type") == "transform":
+            # Log transform SQL for debugging
+            logger.debug(f"Transform SQL: {op.get('query', '')}")
+
+
+def _initialize_executor(
+    profile_name: str,
+    execution_id: str,
+    artifact_manager: ArtifactManager,
+    operations: List[Dict[str, Any]],
+    variables: Optional[Dict[str, Any]],
+) -> LocalExecutor:
+    """Initialize the executor with proper configuration.
+
+    Args:
+        profile_name: Name of the profile to use
+        execution_id: Execution ID for tracking
+        artifact_manager: Artifact manager for tracking
+        operations: List of operations in the pipeline
+        variables: Dictionary of variables for the pipeline
+
+    Returns:
+        Configured LocalExecutor instance
+    """
+    # Initialize executor
+    executor = LocalExecutor(profile_name=profile_name)
+    executor.execution_id = execution_id
+    executor.artifact_manager = artifact_manager
+
+    # Extract variables from different sources and build effective set
+    set_variables = _extract_set_variables_from_operations(operations)
+    executor.variables = _build_effective_variables(
+        set_variables, executor.profile, variables
+    )
+
+    # Check DuckDB engine initialization
+    _check_duckdb_engine(executor)
+
+    return executor
+
+
+# flake8: noqa: C901
 def _execute_pipeline_operations_and_report(
     operations: List[Dict[str, Any]],
     pipeline_name: str,
@@ -843,80 +1197,38 @@ def _execute_pipeline_operations_and_report(
     variables: Optional[Dict[str, Any]],
     artifact_manager: ArtifactManager,
     execution_id: str,
-):
-    """Executes the pipeline operations and reports results."""
-    if not operations:
-        typer.echo("No operations to execute.")
-        artifact_manager.finalize_execution(
-            pipeline_name, True
-        )  # Finalize with success if no ops
-        return
+) -> bool:
+    """Execute a pipeline with the given operations.
 
-    typer.echo(f"Execution plan: {len(operations)} steps")
-    for op in operations:
-        typer.echo(f"  - {op['id']} ({op['type']})")
+    Args:
+        operations: List of operations in the pipeline
+        pipeline_name: Name of the pipeline
+        profile_name: Name of the profile to use
+        variables: Dictionary of variables for the pipeline
+        artifact_manager: Artifact manager for tracking
+        execution_id: Execution ID for tracking
 
-    dependency_resolver, execution_order = _resolve_and_build_execution_order(
-        operations
+    Returns:
+        True if execution succeeded, False otherwise
+    """
+    # Log execution details
+    _log_pipeline_execution_details(
+        operations, pipeline_name, profile_name, variables, execution_id
     )
-    typer.echo(f"Final execution order: {execution_order}")
 
-    sql_generator = SQLGenerator(dialect="duckdb")  # TODO: Make dialect configurable
-    executor = LocalExecutor(profile_name=profile_name)
+    # Initialize executor
+    executor = _initialize_executor(
+        profile_name, execution_id, artifact_manager, operations, variables
+    )
 
-    # Set execution_id and artifact_manager on the executor instance for its internal use
-    executor.execution_id = execution_id
-    executor.artifact_manager = artifact_manager
+    # Start execution timer
+    start_time = datetime.datetime.now()
+    typer.echo(f"⏱️  Starting execution at {start_time.strftime('%H:%M:%S')}")
 
-    # Ensure the executor has the variables in the profile as well
-    if variables:
-        # Initialize profile to an empty dict if None
-        if executor.profile is None:
-            executor.profile = {}
-        # Create a variables dict in profile if it doesn't exist
-        if "variables" not in executor.profile:
-            executor.profile["variables"] = {}
-        # Update the variables in the profile
-        executor.profile["variables"].update(variables)
-        logger.debug(f"Updated executor profile with variables: {variables}")
-
-    # executor.sql_generator is already initialized by its __init__
-
-    success = True
-
-    typer.echo("Executing pipeline...")
-    for operation_id in execution_order:
-        operation = next((op for op in operations if op["id"] == operation_id), None)
-        if not operation:
-            logger.warning(
-                f"Operation {operation_id} in execution_order not found in operations list."
-            )
-            continue
-
-        context = {"variables": variables or {}, "execution_id": execution_id}
-        sql = sql_generator.generate_operation_sql(operation, context)
-
-        # Pass pipeline_name to execute_step for artifact recording
-        artifact_manager.record_operation_start(
-            pipeline_name, operation_id, operation.get("type", "unknown"), sql
-        )
-
-        typer.echo(f"  Executing {operation_id}...")
-        # Pass pipeline_name to execute_step so it can also record artifacts if it needs to
-        result = executor.execute_step(operation, pipeline_name=pipeline_name)
-
-        # record_operation_completion is now handled inside execute_step
-        # so we only need to check the result status here for breaking the loop
-        if result.get("status") != "success":
-            success = False
-            typer.echo(f"    ❌ Failed: {result.get('error', 'Unknown error')}")
-            # No need to call artifact_manager.record_operation_completion for failure here
-            # as execute_step is expected to do it.
-            break
-
-    artifact_manager.finalize_execution(pipeline_name, success)
-    executor._generate_step_summary(operations)
-    _report_pipeline_results(operations, executor.results)
+    # Execute operations and handle result
+    return _execute_and_handle_result(
+        executor, operations, variables, pipeline_name, artifact_manager, start_time
+    )
 
 
 @pipeline_app.command("run")
@@ -959,7 +1271,12 @@ def run_pipeline(
     ) = _setup_run_environment(pipeline_name, vars, profile)
 
     operations = _get_execution_operations(
-        from_compiled, _compiled_plan_path, _pipeline_path, _variables, pipeline_name
+        from_compiled,
+        _compiled_plan_path,
+        _pipeline_path,
+        _variables,
+        pipeline_name,
+        _profile_name,
     )
 
     # Initialize execution tracking - this returns execution_id needed by the execute helper
@@ -1014,3 +1331,12 @@ def list_pipelines(
     for file_name in pipeline_files:
         pipeline_name = file_name[:-3]
         typer.echo(f"  - {pipeline_name}")
+
+
+def _resolve_and_build_execution_order(
+    plan: List[Dict[str, Any]], pipeline_name: str = None
+) -> tuple[DependencyResolver, List[str]]:
+    """Resolve dependencies and build execution order for the pipeline plan."""
+    dependency_resolver = _build_dependency_resolver(plan)
+    execution_order = _resolve_execution_order(dependency_resolver, plan)
+    return dependency_resolver, execution_order
