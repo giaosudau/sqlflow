@@ -76,7 +76,7 @@ This document tracks the implementation status of Conditional Execution, Python 
 | [Task 3.1](#task-31-parser-updates-for-load-modes) | Parser Updates for Load Modes | ✅ COMPLETED | 🔥 MVP Critical | |
 | [Task 3.2](#task-32-sql-generator-for-load-modes) | SQL Generator for Load Modes | ✅ COMPLETED | | |
 | [Task 3.3](#task-33-schema-compatibility-validation) | Schema Compatibility Validation | ⬜ NOT STARTED | | |
-| [Task 3.4](#task-34-merge-key-handling) | Merge Key Handling | ⬜ NOT STARTED | | |
+| [Task 3.4](#task-34-merge-key-handling) | Merge Key Handling | ✅ COMPLETED | | |
 | [Task 3.5](#task-35-load-mode-documentation) | Load Mode Documentation | ⬜ NOT STARTED | | |
 
 ### Epic 4: Core Connector Framework
@@ -785,6 +785,8 @@ This document tracks the implementation status of Conditional Execution, Python 
 - Performance optimized for the merge operation
 - All tests passing with >90% coverage
 - Documentation updated with merge key examples
+
+**Status:** ✅ COMPLETED in commit 58d12ab (August 2024)
 
 ### Task 3.5: Load Mode Documentation
 

@@ -215,3 +215,63 @@ def test_execute_pipeline_schema_incompatibility(local_executor):
 
     # Reset the side effect
     local_executor.duckdb_engine.generate_load_sql.side_effect = None
+
+
+def test_execute_load_step_merge_key_missing(local_executor):
+    """Test error handling when LoadStep execution encounters merge key validation issues."""
+    # Create a LoadStep with MERGE mode
+    load_step = LoadStep(
+        table_name="users_table",
+        source_name="users_source",
+        mode="MERGE",
+        merge_keys=["user_id"],
+        line_number=1,
+    )
+
+    # Make validate_merge_keys raise a ValueError for missing merge key
+    local_executor.duckdb_engine.validate_merge_keys = MagicMock(
+        side_effect=ValueError(
+            "Merge key 'user_id' does not exist in source 'users_source'"
+        )
+    )
+
+    # Execute the step - it should handle the merge key validation error
+    result = local_executor.execute_load_step(load_step)
+
+    # Verify the error was captured in the result
+    assert result["status"] == "error"
+    assert "Merge key 'user_id' does not exist in source" in result["message"]
+
+    # Verify validate_merge_keys was called
+    local_executor.duckdb_engine.validate_merge_keys.assert_called_once()
+
+
+def test_execute_load_step_merge_key_incompatible(local_executor):
+    """Test error handling when LoadStep execution encounters merge key type incompatibility."""
+    # Create a LoadStep with MERGE mode
+    load_step = LoadStep(
+        table_name="users_table",
+        source_name="users_source",
+        mode="MERGE",
+        merge_keys=["user_id"],
+        line_number=1,
+    )
+
+    # Make validate_merge_keys raise a ValueError for incompatible types
+    local_executor.duckdb_engine.validate_merge_keys = MagicMock(
+        side_effect=ValueError(
+            "Merge key 'user_id' has incompatible types: source=VARCHAR, target=INTEGER. "
+            "Merge keys must have compatible types."
+        )
+    )
+
+    # Execute the step
+    result = local_executor.execute_load_step(load_step)
+
+    # Verify the error was captured in the result
+    assert result["status"] == "error"
+    assert "Merge key 'user_id' has incompatible types" in result["message"]
+    assert "Merge keys must have compatible types" in result["message"]
+
+    # Verify validate_merge_keys was called
+    local_executor.duckdb_engine.validate_merge_keys.assert_called_once()
