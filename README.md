@@ -7,6 +7,7 @@
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![DuckDB Powered](https://img.shields.io/badge/powered%20by-DuckDB-DCA344.svg)](https://duckdb.org/)
+[![codecov](https://codecov.io/github/giaosudau/sqlflow/graph/badge.svg?token=69WRMEYAAZ)](https://codecov.io/github/giaosudau/sqlflow)
 
 </div>
 
