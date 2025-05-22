@@ -544,6 +544,22 @@ class LocalExecutor(BaseExecutor):
                 f"Executing LoadStep with mode {load_step.mode}: {load_step.table_name} FROM {load_step.source_name}"
             )
 
+            # If this is a MERGE operation, validate merge keys explicitly
+            # This allows us to handle merge key validation errors separately
+            if load_step.mode.upper() == "MERGE" and hasattr(
+                self.duckdb_engine, "validate_merge_keys"
+            ):
+                try:
+                    self.duckdb_engine.validate_merge_keys(
+                        load_step.table_name,
+                        load_step.source_name,
+                        load_step.merge_keys,
+                    )
+                except ValueError as e:
+                    # Specific handling for merge key validation errors
+                    logger.error(f"Merge key validation error: {e}")
+                    return {"status": "error", "message": str(e)}
+
             # Generate the appropriate SQL for the load mode
             sql = self.duckdb_engine.generate_load_sql(load_step)
 
