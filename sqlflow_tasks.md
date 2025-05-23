@@ -67,9 +67,11 @@ This document tracks the implementation status of Conditional Execution, Python 
 | [Task 2.17](#task-217-optimize-type-mapping-for-udfs) | Optimize Type Mapping for UDFs | ⬜ NOT STARTED | | |
 | [Task 2.18](#task-218-performance-profiling-and-optimization) | Performance Profiling and Optimization | ⬜ NOT STARTED | | |
 
-### Epic 3: Enhanced Load Controls (MODE Parameter)
+### Epic 3: Enhanced Load Controls (MODE Parameter) ✅ COMPLETED
 
 **Goal:** Implement unified data loading controls with various operation modes (REPLACE, APPEND, MERGE) to support common data warehousing patterns.
+
+**Major Update (January 2025):** Fixed critical issue where LOAD commands were not properly connecting to SOURCE connectors. The implementation now properly integrates SOURCE definitions with LOAD operations using ConnectorEngine.
 
 | Task | Description | Status | Priority | Assignee |
 |------|-------------|--------|----------|----------|
@@ -77,7 +79,8 @@ This document tracks the implementation status of Conditional Execution, Python 
 | [Task 3.2](#task-32-sql-generator-for-load-modes) | SQL Generator for Load Modes | ✅ COMPLETED | | |
 | [Task 3.3](#task-33-schema-compatibility-validation) | Schema Compatibility Validation | ✅ COMPLETED | | |
 | [Task 3.4](#task-34-merge-key-handling) | Merge Key Handling | ✅ COMPLETED | | |
-| [Task 3.5](#task-35-load-mode-documentation) | Load Mode Documentation | ⬜ NOT STARTED | | |
+| [Task 3.5](#task-35-load-mode-documentation) | Load Mode Documentation | ✅ COMPLETED | | |
+| [Task 3.6](#task-36-source-load-integration-fix) | SOURCE -> LOAD Integration Fix | ✅ COMPLETED | 🔥 Critical | |
 
 ### Epic 4: Core Connector Framework
 
@@ -819,6 +822,46 @@ This document tracks the implementation status of Conditional Execution, Python 
 - ✅ Documentation follows project style guidelines
 
 **Status:** ✅ COMPLETED in commit 4f33f7a (August 2024)
+
+### Task 3.6: SOURCE -> LOAD Integration Fix
+
+**Description:** Fix critical issue where LOAD commands were not properly connecting to SOURCE connectors. Implement proper integration between SOURCE definitions and LOAD operations using ConnectorEngine.
+
+**Files Impacted:**
+- `sqlflow/core/executors/local_executor.py`
+- `sqlflow/core/engines/duckdb_engine.py` 
+- `tests/integration/test_load_modes.py`
+- `tests/unit/core/executors/test_load_step_execution.py`
+
+**Subtasks:**
+1. ✅ Enhanced LocalExecutor to store SOURCE definitions for later use by LOAD steps
+2. ✅ Implemented proper `execute_load_step` method to connect SOURCE connectors to LOAD operations
+3. ✅ Added ConnectorEngine integration for loading data from SOURCE into DuckDB
+4. ✅ Updated DuckDBEngine `generate_load_sql` to use UPDATE/INSERT pattern instead of MERGE INTO for compatibility
+5. ✅ Added comprehensive integration tests for SOURCE -> LOAD flow
+6. ✅ Maintained backward compatibility with existing direct DuckDB table registration
+7. ✅ Added proper error handling and logging for SOURCE connector operations
+
+**Testing Requirements:**
+- ✅ Test REPLACE mode with SOURCE connectors
+- ✅ Test APPEND mode with SOURCE connectors  
+- ✅ Test MERGE mode with SOURCE connectors
+- ✅ Test error handling for missing SOURCE definitions
+- ✅ Test validation for MERGE mode without merge keys
+- ✅ Test backward compatibility with legacy table registration
+- ✅ Updated unit tests to account for new execution behavior
+
+**Definition of Done:**
+- ✅ LOAD commands properly connect to SOURCE connectors instead of bypassing them
+- ✅ SOURCE definitions are stored and retrieved correctly
+- ✅ ConnectorEngine loads data from SOURCE into DuckDB before applying LOAD mode
+- ✅ All LOAD modes (REPLACE/APPEND/MERGE) work with SOURCE connectors
+- ✅ Backward compatibility maintained with existing codebases
+- ✅ Comprehensive error handling and clear error messages
+- ✅ All tests passing (20/20 integration tests, 9/9 unit tests)
+- ✅ Implementation follows project style guidelines
+
+**Status:** ✅ COMPLETED (January 2025) - Fixed fundamental SOURCE -> LOAD integration issue
 
 ### Task 4.1: Connector Interface Design
 

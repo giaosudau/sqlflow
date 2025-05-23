@@ -2,6 +2,7 @@
 
 import os
 import tempfile
+from typing import Generator
 
 import pandas as pd
 import pytest
@@ -866,3 +867,370 @@ def test_schema_compatibility_column_subset_selection(engine, executor):
     expected_ids = [1, 1, 2, 2, 3]  # Each source row was appended twice
     actual_ids = sorted(result_df["id"].tolist())
     assert sorted(actual_ids) == sorted(expected_ids)
+
+
+@pytest.fixture
+def temp_csv_file() -> Generator[str, None, None]:
+    """Create a temporary CSV file for testing.
+
+    Yields:
+        Path to the temporary CSV file
+    """
+    # Create sample data
+    data = pd.DataFrame(
+        {
+            "id": [1, 2, 3, 4, 5],
+            "name": ["Alice", "Bob", "Charlie", "David", "Eve"],
+            "value": [10.5, 20.3, 30.1, 40.7, 50.9],
+            "active": [True, False, True, True, False],
+        }
+    )
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
+        data.to_csv(f.name, index=False)
+        temp_path = f.name
+
+    yield temp_path
+
+    # Cleanup
+    if os.path.exists(temp_path):
+        os.unlink(temp_path)
+
+
+@pytest.fixture
+def executor_with_source(temp_csv_file) -> LocalExecutor:
+    """Create a LocalExecutor with a SOURCE definition.
+
+    Args:
+        temp_csv_file: Path to temporary CSV file
+
+    Returns:
+        Configured LocalExecutor
+    """
+    executor = LocalExecutor()
+
+    # Register a SOURCE definition
+    source_step = {
+        "id": "source_users",
+        "type": "source_definition",
+        "name": "users",
+        "connector_type": "CSV",
+        "params": {"path": temp_csv_file, "has_header": True},
+    }
+
+    # Execute the source definition to register it
+    result = executor._execute_source_definition(source_step)
+    assert result["status"] == "success"
+
+    return executor
+
+
+def test_load_replace_mode_with_source(executor_with_source):
+    """Test LOAD with REPLACE mode using SOURCE connector."""
+
+    # Create a LoadStep with REPLACE mode
+    load_step = LoadStep(table_name="users_table", source_name="users", mode="REPLACE")
+
+    # Execute the load step
+    result = executor_with_source.execute_load_step(load_step)
+
+    # Verify success
+    assert result["status"] == "success"
+    assert result["table"] == "users_table"
+    assert result["mode"] == "REPLACE"
+    assert "rows_loaded" in result
+    assert result["rows_loaded"] > 0
+
+    # Verify the table was created in DuckDB
+    engine = executor_with_source.duckdb_engine
+    assert engine.table_exists("users_table")
+
+    # Verify data was loaded correctly
+    data = engine.execute_query("SELECT * FROM users_table").fetchall()
+    assert len(data) == 5  # Should have all 5 rows from CSV
+
+
+def test_load_append_mode_with_source(executor_with_source):
+    """Test LOAD with APPEND mode using SOURCE connector."""
+
+    # First, create the target table with REPLACE
+    load_step_1 = LoadStep(
+        table_name="users_table", source_name="users", mode="REPLACE"
+    )
+    result_1 = executor_with_source.execute_load_step(load_step_1)
+    assert result_1["status"] == "success"
+
+    # Now append the same data again
+    load_step_2 = LoadStep(table_name="users_table", source_name="users", mode="APPEND")
+    result_2 = executor_with_source.execute_load_step(load_step_2)
+
+    # Verify success
+    assert result_2["status"] == "success"
+    assert result_2["table"] == "users_table"
+    assert result_2["mode"] == "APPEND"
+
+    # Verify data was appended
+    engine = executor_with_source.duckdb_engine
+    data = engine.execute_query("SELECT * FROM users_table").fetchall()
+    assert len(data) == 10  # Should have 5 + 5 = 10 rows
+
+
+def test_load_merge_mode_with_source(executor_with_source):
+    """Test LOAD with MERGE mode using SOURCE connector."""
+
+    # First, create the target table with some initial data
+    load_step_1 = LoadStep(
+        table_name="users_table", source_name="users", mode="REPLACE"
+    )
+    result_1 = executor_with_source.execute_load_step(load_step_1)
+    assert result_1["status"] == "success"
+
+    # Now merge the same data (should update, not insert new rows)
+    load_step_2 = LoadStep(
+        table_name="users_table", source_name="users", mode="MERGE", merge_keys=["id"]
+    )
+    result_2 = executor_with_source.execute_load_step(load_step_2)
+
+    # Verify success
+    assert result_2["status"] == "success"
+    assert result_2["table"] == "users_table"
+    assert result_2["mode"] == "MERGE"
+
+    # Verify data count remains the same (merged, not appended)
+    engine = executor_with_source.duckdb_engine
+    data = engine.execute_query("SELECT * FROM users_table").fetchall()
+    assert len(data) == 5  # Should still have 5 rows (merged)
+
+
+def test_load_with_missing_source():
+    """Test LOAD step fails when SOURCE is not defined."""
+
+    executor = LocalExecutor()
+
+    load_step = LoadStep(
+        table_name="users_table", source_name="nonexistent_source", mode="REPLACE"
+    )
+
+    # Should fail because source is not defined
+    result = executor.execute_load_step(load_step)
+    assert result["status"] == "error"
+    assert "SOURCE 'nonexistent_source' is not defined" in result["message"]
+
+
+def test_load_merge_without_keys(executor_with_source):
+    """Test LOAD with MERGE mode fails when merge keys are not specified."""
+
+    load_step = LoadStep(
+        table_name="users_table",
+        source_name="users",
+        mode="MERGE",
+        # No merge_keys specified
+    )
+
+    result = executor_with_source.execute_load_step(load_step)
+    assert result["status"] == "error"
+    assert "MERGE operation requires at least one merge key" in result["message"]
+
+
+def test_source_connector_registration(temp_csv_file):
+    """Test that SOURCE definitions are properly stored and can be retrieved."""
+
+    executor = LocalExecutor()
+
+    # Register a SOURCE definition
+    source_step = {
+        "id": "source_test",
+        "type": "source_definition",
+        "name": "test_source",
+        "connector_type": "CSV",
+        "params": {"path": temp_csv_file, "has_header": True},
+    }
+
+    # Execute the source definition
+    result = executor._execute_source_definition(source_step)
+    assert result["status"] == "success"
+
+    # Verify it was stored
+    source_def = executor._get_source_definition("test_source")
+    assert source_def is not None
+    assert source_def["name"] == "test_source"
+    assert source_def["connector_type"] == "CSV"
+    assert source_def["params"]["path"] == temp_csv_file
+
+
+def test_load_with_invalid_connector_type():
+    """Test LOAD step fails when SOURCE has invalid connector type."""
+
+    executor = LocalExecutor()
+
+    # Register a SOURCE definition with invalid connector type
+    source_step = {
+        "id": "source_invalid",
+        "type": "source_definition",
+        "name": "invalid_source",
+        "connector_type": "INVALID_TYPE",
+        "params": {"path": "/nonexistent/path.csv", "has_header": True},
+    }
+
+    # Execute the source definition
+    result = executor._execute_source_definition(source_step)
+    assert result["status"] == "success"  # Source definition should succeed
+
+    load_step = LoadStep(
+        table_name="test_table", source_name="invalid_source", mode="REPLACE"
+    )
+
+    # Should fail when trying to load from invalid connector
+    result = executor.execute_load_step(load_step)
+    assert result["status"] == "error"
+    # Error should mention connector registration or loading issue
+
+
+def test_load_with_empty_source_params():
+    """Test LOAD step handles SOURCE with empty parameters."""
+
+    executor = LocalExecutor()
+
+    # Register a SOURCE definition with empty params
+    source_step = {
+        "id": "source_empty",
+        "type": "source_definition",
+        "name": "empty_source",
+        "connector_type": "CSV",
+        "params": {},  # Empty params
+    }
+
+    # Execute the source definition
+    result = executor._execute_source_definition(source_step)
+    assert result["status"] == "success"
+
+    load_step = LoadStep(
+        table_name="test_table", source_name="empty_source", mode="REPLACE"
+    )
+
+    # Should fail when trying to load with missing required params
+    result = executor.execute_load_step(load_step)
+    assert result["status"] == "error"
+
+
+def test_load_mode_case_insensitive():
+    """Test that LOAD modes work with different case variations."""
+
+    executor = LocalExecutor()
+
+    # Register a SOURCE definition
+    source_step = {
+        "id": "source_case",
+        "type": "source_definition",
+        "name": "case_source",
+        "connector_type": "CSV",
+        "params": {
+            "path": "/tmp/dummy.csv",  # Will fail but that's ok for this test
+            "has_header": True,
+        },
+    }
+
+    result = executor._execute_source_definition(source_step)
+    assert result["status"] == "success"
+
+    # Test different case variations of modes
+    modes_to_test = ["replace", "REPLACE", "Replace", "append", "APPEND", "Append"]
+
+    for mode in modes_to_test:
+        load_step = LoadStep(
+            table_name="case_table", source_name="case_source", mode=mode
+        )
+
+        # Should handle case variations (though may fail on connector loading)
+        result = executor.execute_load_step(load_step)
+        # We're testing that the mode parsing doesn't fail due to case
+        # The actual error will be in connector loading, which is expected
+        assert result["status"] == "error"  # Expected due to dummy path
+        assert "mode" not in result["message"].lower()  # No mode-related errors
+
+
+def test_source_definition_retrieval():
+    """Test comprehensive SOURCE definition storage and retrieval."""
+
+    executor = LocalExecutor()
+
+    # Test multiple SOURCE definitions
+    sources = [
+        {
+            "id": "source_csv",
+            "type": "source_definition",
+            "name": "csv_source",
+            "connector_type": "CSV",
+            "params": {"path": "/tmp/test.csv", "has_header": True},
+        },
+        {
+            "id": "source_json",
+            "type": "source_definition",
+            "name": "json_source",
+            "connector_type": "JSON",
+            "params": {"path": "/tmp/test.json"},
+        },
+        {
+            "id": "source_db",
+            "type": "source_definition",
+            "name": "db_source",
+            "connector_type": "POSTGRES",
+            "params": {"host": "localhost", "database": "test"},
+        },
+    ]
+
+    # Register all sources
+    for source in sources:
+        result = executor._execute_source_definition(source)
+        assert result["status"] == "success"
+
+    # Verify all sources are stored and retrievable
+    csv_def = executor._get_source_definition("csv_source")
+    assert csv_def is not None
+    assert csv_def["connector_type"] == "CSV"
+    assert csv_def["params"]["path"] == "/tmp/test.csv"
+
+    json_def = executor._get_source_definition("json_source")
+    assert json_def is not None
+    assert json_def["connector_type"] == "JSON"
+
+    db_def = executor._get_source_definition("db_source")
+    assert db_def is not None
+    assert db_def["connector_type"] == "POSTGRES"
+
+    # Test non-existent source
+    missing_def = executor._get_source_definition("nonexistent")
+    assert missing_def is None
+
+
+def test_load_with_profile_based_source():
+    """Test LOAD step with profile-based SOURCE definition."""
+
+    executor = LocalExecutor()
+
+    # Register a profile-based SOURCE definition
+    source_step = {
+        "id": "source_profile",
+        "type": "source_definition",
+        "name": "profile_source",
+        "connector_type": "CSV",
+        "params": {"path": "/tmp/profile.csv", "has_header": True},
+        "is_from_profile": True,  # Indicate this is from profile
+    }
+
+    # Execute the source definition
+    result = executor._execute_source_definition(source_step)
+    assert result["status"] == "success"
+
+    # Verify the source definition is stored with profile flag
+    source_def = executor._get_source_definition("profile_source")
+    assert source_def is not None
+    assert source_def["is_from_profile"] is True
+
+    load_step = LoadStep(
+        table_name="profile_table", source_name="profile_source", mode="REPLACE"
+    )
+
+    # Should attempt to load (will fail on file access but that's expected)
+    result = executor.execute_load_step(load_step)
+    assert result["status"] == "error"  # Expected due to dummy file path
