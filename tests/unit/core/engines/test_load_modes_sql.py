@@ -82,8 +82,8 @@ def test_generate_sql_for_merge_mode(duckdb_engine):
 
     sql = duckdb_engine.generate_load_sql(load_step)
 
-    # MERGE mode should use a more complex SQL pattern with MERGE INTO or equivalent
-    assert "MERGE INTO" in sql
+    # MERGE mode should use UPDATE/INSERT pattern for DuckDB compatibility
+    assert "UPDATE users_table" in sql or "INSERT INTO users_table" in sql
     assert "users_table" in sql
     assert "users_source" in sql
     assert "user_id" in sql

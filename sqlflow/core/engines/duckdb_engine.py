@@ -2111,19 +2111,40 @@ class DuckDBEngine(SQLEngine):
                     on_clauses.append(f"target.{key} = source.{key}")
                 on_clause = " AND ".join(on_clauses)
 
-                # In DuckDB, we can use INSERT INTO with ON CONFLICT
-                # For compatibility across versions, we'll use a temporary view and MERGE INTO
+                # For compatibility with all DuckDB versions, use UPDATE + INSERT pattern
+                # instead of MERGE INTO which may not be supported
+
+                # Generate SET clause for UPDATE (all columns except merge keys)
+                set_clauses = []
+                for col in source_schema.keys():
+                    if col not in merge_keys:
+                        set_clauses.append(f"{col} = source.{col}")
+                set_clause = (
+                    ", ".join(set_clauses) if set_clauses else "1 = 1"
+                )  # Handle case where only merge keys exist
+
+                # Create WHERE clause for INSERT (records not in target)
+                where_clauses = []
+                for key in merge_keys:
+                    where_clauses.append(
+                        f"source.{key} NOT IN (SELECT {key} FROM {table_name})"
+                    )
+                where_clause = " AND ".join(where_clauses)
+
                 sql = f"""
                 CREATE TEMPORARY VIEW temp_source AS SELECT * FROM {source_name};
                 
-                MERGE INTO {table_name} AS target
-                USING temp_source AS source
-                ON {on_clause}
-                WHEN MATCHED THEN
-                    UPDATE SET {', '.join([f'target.{col} = source.{col}' for col in source_schema.keys()])}
-                WHEN NOT MATCHED THEN
-                    INSERT ({', '.join(source_schema.keys())}) 
-                    VALUES ({', '.join([f'source.{col}' for col in source_schema.keys()])});
+                -- Update existing records
+                UPDATE {table_name} 
+                SET {set_clause}
+                FROM temp_source AS source
+                WHERE {on_clause.replace('target.', f'{table_name}.')};
+                
+                -- Insert new records
+                INSERT INTO {table_name} ({', '.join(source_schema.keys())})
+                SELECT {', '.join(source_schema.keys())}
+                FROM temp_source AS source
+                WHERE {where_clause};
                 
                 DROP VIEW temp_source;
                 """

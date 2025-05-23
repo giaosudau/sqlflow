@@ -5,42 +5,13 @@ import os
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
+from sqlflow.connectors.data_chunk import DataChunk
 from sqlflow.core.engines.duckdb_engine import DuckDBEngine
 from sqlflow.core.executors.base_executor import BaseExecutor
 from sqlflow.project import Project
 
 # Configure logger
 logger = logging.getLogger(__name__)
-
-
-class DataChunk:
-    """Container for data being transferred between components."""
-
-    def __init__(self, data: Any):
-        """Initialize a DataChunk.
-
-        Args:
-            data: Data object (pandas DataFrame, pyarrow Table, etc.)
-        """
-        self.data = data
-        self.original_column_names = None
-
-        # Try to convert to pandas if needed
-        try:
-            import pandas as pd
-            import pyarrow as pa
-
-            if isinstance(data, pa.Table):
-                self.pandas_df = data.to_pandas()
-            elif hasattr(data, "to_pandas"):
-                self.pandas_df = data.to_pandas()
-            elif isinstance(data, pd.DataFrame):
-                self.pandas_df = data
-            else:
-                self.pandas_df = pd.DataFrame(data)
-        except Exception as e:
-            logger.warning(f"Could not convert data to pandas DataFrame: {e}")
-            self.pandas_df = None
 
 
 class LocalExecutor(BaseExecutor):
@@ -55,54 +26,157 @@ class LocalExecutor(BaseExecutor):
         """Initialize a LocalExecutor.
 
         Args:
-            project: Project instance, optional
-            profile_name: Name of the profile to use, optional (defaults to 'dev')
-            project_dir: Path to project directory, optional (defaults to current directory)
+            project: Project object containing profiles and configurations
+            profile_name: Name of profile to use from the project
+            project_dir: Directory path for the project (used for UDF discovery)
         """
+        # Initialize base class (includes udf_manager)
         super().__init__()
 
-        # For backward compatibility, if neither project nor project_dir is provided,
-        # use the current working directory
-        if project is None:
-            if project_dir is None:
-                project_dir = os.getcwd()
-
-            # Use default profile name if none is provided
-            if profile_name is None:
-                profile_name = "dev"
-
-            # Create Project instance from directory
-            try:
-                from sqlflow.project import Project
-
-                project = Project(project_dir, profile_name)
-            except Exception:
-                # If we can't create a project, just set attributes directly
-                # This allows tests to mock these attributes
-                self.project = None
-                self.profile_name = profile_name
-                self.profile = {}
-                self.variables = {}
-                # Initialize engine-related attributes
-                self.duckdb_engine = None
-                self.duckdb_mode = "memory"
-                self.table_data = {}
-                self.connector_engine = None
-                return
-
-        self.project = project
-        self.profile_name = profile_name or project.profile_name
-        self.profile = getattr(project, "profile", {})
-        self.variables = self.profile.get("variables", {})
+        # Initialize basic attributes
+        self.source_definitions: Dict[str, Dict[str, Any]] = {}
         self.source_connectors = {}
         self.step_table_map = {}
         self.table_data = {}
         self.connector_engine = None
-
-        # Initialize DuckDB engine
         self.duckdb_engine = None
         self.duckdb_mode = "memory"
+
+        # Handle project initialization
+        project = self._initialize_project(project, project_dir, profile_name)
+
+        # Set project-related attributes
+        self._set_project_attributes(project, profile_name)
+
+        # Initialize DuckDB engine
         self.init_duckdb_engine()
+
+        # Discover UDFs if project directory is provided
+        if project_dir:
+            self.discover_udfs(project_dir)
+
+        # Handle backward compatibility
+        self._handle_backward_compatibility(project, project_dir, profile_name)
+
+    def _initialize_project(
+        self,
+        project: Optional[Project],
+        project_dir: Optional[str],
+        profile_name: Optional[str],
+    ) -> Optional[Project]:
+        """Initialize project object if not provided.
+
+        Args:
+            project: Existing project object or None
+            project_dir: Project directory path
+            profile_name: Profile name to use
+
+        Returns:
+            Project object or None
+        """
+        if project:
+            return project
+
+        # Auto-discover project directory if not provided
+        if not project_dir:
+            # Check if current working directory is a project directory
+            current_dir = os.getcwd()
+            profiles_dir = os.path.join(current_dir, "profiles")
+            if os.path.exists(profiles_dir):
+                project_dir = current_dir
+                logger.debug(f"Auto-discovered project directory: {project_dir}")
+            else:
+                return None
+
+        # Use default profile name if none is provided
+        if profile_name is None:
+            profile_name = "dev"
+
+        # Create Project instance from directory
+        try:
+            from sqlflow.project import Project
+
+            return Project(project_dir, profile_name)
+        except Exception:
+            # If we can't create a project, return None
+            # This allows tests to mock these attributes
+            logger.debug("Could not create project from project_dir, using defaults")
+            return None
+
+    def _set_project_attributes(
+        self, project: Optional[Project], profile_name: Optional[str]
+    ) -> None:
+        """Set project-related attributes.
+
+        Args:
+            project: Project object or None
+            profile_name: Profile name to use
+        """
+        self.project = project
+
+        if project:
+            self.profile_name = profile_name or project.profile_name
+            self.profile = getattr(project, "profile", {})
+            self.variables = self.profile.get("variables", {})
+        else:
+            self.profile_name = profile_name
+            self.profile = {}
+            self.variables = {}
+
+    def _handle_backward_compatibility(
+        self,
+        project: Optional[Project],
+        project_dir: Optional[str],
+        profile_name: Optional[str],
+    ) -> None:
+        """Handle backward compatibility when no project is provided.
+
+        Args:
+            project: Project object or None
+            project_dir: Project directory path
+            profile_name: Profile name to use
+        """
+        if project:
+            return
+
+        try:
+            # Create a default project if we have a project_dir
+            if project_dir:
+                from sqlflow.project import Project
+
+                project = Project(project_dir=project_dir)
+                self.project = project
+                self._configure_profile_database(project, profile_name)
+        except Exception:
+            # If we can't create a project, keep the current initialization
+            logger.debug("Could not create project from project_dir, using defaults")
+
+    def _configure_profile_database(
+        self, project: Project, profile_name: Optional[str]
+    ) -> None:
+        """Configure database settings from profile.
+
+        Args:
+            project: Project object
+            profile_name: Profile name to use
+        """
+        if not profile_name:
+            return
+
+        self.profile_name = profile_name
+        try:
+            profile = project.get_profile(profile_name)
+            if not profile:
+                return
+
+            target = profile.get_target()
+            if target and target.get("type") == "duckdb":
+                database_path = target.get("database")
+                if database_path and database_path != ":memory:":
+                    self.database_path = database_path
+                    self.duckdb_mode = "persistent"
+        except Exception as e:
+            logger.warning(f"Error loading profile '{profile_name}': {e}")
 
     def _get_database_path_from_profile(self) -> str:
         """Get the database path from the profile configuration.
@@ -113,9 +187,9 @@ class LocalExecutor(BaseExecutor):
         # Default to memory mode
         database_path = ":memory:"
 
-        if self.project and hasattr(self.project, "profile"):
+        if self.profile:
             # Get engine configuration from profile
-            engine_config = self.project.profile.get("engines", {}).get("duckdb", {})
+            engine_config = self.profile.get("engines", {}).get("duckdb", {})
 
             # Set engine mode from configuration
             self.duckdb_mode = engine_config.get("mode", "memory")
@@ -544,40 +618,179 @@ class LocalExecutor(BaseExecutor):
                 f"Executing LoadStep with mode {load_step.mode}: {load_step.table_name} FROM {load_step.source_name}"
             )
 
-            # If this is a MERGE operation, validate merge keys explicitly
-            # This allows us to handle merge key validation errors separately
-            if load_step.mode.upper() == "MERGE" and hasattr(
-                self.duckdb_engine, "validate_merge_keys"
-            ):
-                try:
-                    self.duckdb_engine.validate_merge_keys(
-                        load_step.table_name,
-                        load_step.source_name,
-                        load_step.merge_keys,
+            # Step 1: Get the SOURCE definition
+            source_definition = self._get_source_definition(load_step.source_name)
+
+            # Check if we have a proper SOURCE definition
+            if source_definition:
+                # Use the proper SOURCE connector approach
+                return self._execute_load_with_source_connector(
+                    load_step, source_definition
+                )
+            else:
+                # Backward compatibility: Check if table is already registered in DuckDB
+                if self.duckdb_engine and self.duckdb_engine.table_exists(
+                    load_step.source_name
+                ):
+                    logger.warning(
+                        f"Using backward compatibility mode for '{load_step.source_name}' - "
+                        f"table is registered directly in DuckDB without SOURCE definition"
                     )
-                except ValueError as e:
-                    # Specific handling for merge key validation errors
-                    logger.error(f"Merge key validation error: {e}")
-                    return {"status": "error", "message": str(e)}
+                    return self._execute_load_with_existing_table(load_step)
+                else:
+                    raise ValueError(
+                        f"SOURCE '{load_step.source_name}' is not defined and table does not exist in DuckDB"
+                    )
 
-            # Generate the appropriate SQL for the load mode
-            sql = self.duckdb_engine.generate_load_sql(load_step)
-
-            # Execute the SQL
-            self.duckdb_engine.execute_query(sql)
-
-            logger.info(
-                f"Successfully loaded {load_step.table_name} FROM {load_step.source_name} using {load_step.mode} mode"
-            )
-
-            return {
-                "status": "success",
-                "table": load_step.table_name,
-                "mode": load_step.mode,
-            }
         except Exception as e:
             logger.error(f"Error executing LoadStep: {e}")
             return {"status": "error", "message": str(e)}
+
+    def _execute_load_with_source_connector(
+        self, load_step, source_definition
+    ) -> Dict[str, Any]:
+        """Execute LoadStep using proper SOURCE connector.
+
+        Args:
+            load_step: LoadStep object
+            source_definition: SOURCE definition dict
+
+        Returns:
+            Dict containing execution results
+        """
+        # Step 2: Initialize ConnectorEngine if not already initialized
+        if not hasattr(self, "connector_engine") or self.connector_engine is None:
+            from sqlflow.connectors.connector_engine import ConnectorEngine
+
+            self.connector_engine = ConnectorEngine()
+            logger.debug("Initialized ConnectorEngine")
+
+        # Step 3: Register the connector with ConnectorEngine
+        connector_type = source_definition.get(
+            "connector_type", source_definition.get("type")
+        )
+        connector_params = source_definition.get("params", {})
+
+        if not connector_type:
+            raise ValueError(
+                f"SOURCE '{load_step.source_name}' is missing connector type"
+            )
+
+        try:
+            self.connector_engine.register_connector(
+                load_step.source_name, connector_type, connector_params
+            )
+            logger.debug(
+                f"Registered connector '{load_step.source_name}' of type '{connector_type}'"
+            )
+        except ValueError as e:
+            # Connector might already be registered, which is fine
+            if "already registered" not in str(e):
+                raise
+
+        # Step 4: Load data from the SOURCE using ConnectorEngine
+        table_name_for_source = connector_params.get("table", load_step.source_name)
+        data_chunks = list(
+            self.connector_engine.load_data(
+                load_step.source_name, table_name_for_source
+            )
+        )
+
+        if not data_chunks:
+            raise ValueError(f"No data loaded from SOURCE '{load_step.source_name}'")
+
+        # Step 5: Get the first chunk and register it with DuckDB as the source table
+        data_chunk = data_chunks[0]  # For simplicity, use first chunk
+        source_df = data_chunk.pandas_df
+
+        # Register the source data with DuckDB using the source_name
+        self.duckdb_engine.register_table(load_step.source_name, source_df)
+        logger.debug(f"Registered SOURCE data '{load_step.source_name}' with DuckDB")
+
+        return self._execute_load_common(load_step, len(source_df))
+
+    def _execute_load_with_existing_table(self, load_step) -> Dict[str, Any]:
+        """Execute LoadStep using existing table in DuckDB (backward compatibility).
+
+        Args:
+            load_step: LoadStep object
+
+        Returns:
+            Dict containing execution results
+        """
+        # Get row count for reporting
+        try:
+            result = self.duckdb_engine.execute_query(
+                f"SELECT COUNT(*) FROM {load_step.source_name}"
+            )
+            row_count = result.fetchone()[0]
+        except Exception:
+            row_count = 0  # Fallback if we can't get count
+
+        return self._execute_load_common(load_step, row_count)
+
+    def _execute_load_common(self, load_step, rows_loaded: int) -> Dict[str, Any]:
+        """Common logic for executing LOAD operations after source data is available.
+
+        Args:
+            load_step: LoadStep object
+            rows_loaded: Number of rows loaded from source
+
+        Returns:
+            Dict containing execution results
+        """
+        # Step 6: If this is a MERGE operation, validate merge keys explicitly
+        if load_step.mode.upper() == "MERGE" and hasattr(
+            self.duckdb_engine, "validate_merge_keys"
+        ):
+            try:
+                self.duckdb_engine.validate_merge_keys(
+                    load_step.table_name,
+                    load_step.source_name,
+                    load_step.merge_keys,
+                )
+            except ValueError as e:
+                # Specific handling for merge key validation errors
+                logger.error(f"Merge key validation error: {e}")
+                return {"status": "error", "message": str(e)}
+
+        # Step 7: Generate the appropriate SQL for the load mode
+        sql = self.duckdb_engine.generate_load_sql(load_step)
+
+        # Step 8: Execute the SQL
+        self.duckdb_engine.execute_query(sql)
+
+        logger.info(
+            f"Successfully loaded {load_step.table_name} FROM {load_step.source_name} using {load_step.mode} mode"
+        )
+
+        return {
+            "status": "success",
+            "table": load_step.table_name,
+            "mode": load_step.mode,
+            "rows_loaded": rows_loaded,
+        }
+
+    def _get_source_definition(self, source_name: str) -> Optional[Dict[str, Any]]:
+        """Get the SOURCE definition for a given source name.
+
+        Args:
+            source_name: Name of the source to look up
+
+        Returns:
+            Dict containing source definition or None if not found
+        """
+        # Check if we have stored source definitions
+        if (
+            hasattr(self, "source_definitions")
+            and source_name in self.source_definitions
+        ):
+            return self.source_definitions[source_name]
+
+        # For backward compatibility, return None if not found
+        # In production, this should always find the source definition
+        logger.warning(f"SOURCE definition '{source_name}' not found")
+        return None
 
     def register_test_tables(self):
         """Register test tables for the persistence tests."""
@@ -820,6 +1033,22 @@ class LocalExecutor(BaseExecutor):
         """
         step_id = step["id"]
         source_name = step["name"]
+
+        # Initialize source_definitions storage if needed
+        if not hasattr(self, "source_definitions"):
+            self.source_definitions = {}
+
+        # Store the source definition for later use by LOAD steps
+        self.source_definitions[source_name] = {
+            "name": source_name,
+            "connector_type": step.get("connector_type", step.get("type")),
+            "params": step.get("params", {}),
+            "is_from_profile": step.get("is_from_profile", False),
+        }
+
+        logger.debug(
+            f"Stored SOURCE definition '{source_name}' with type '{self.source_definitions[source_name]['connector_type']}'"
+        )
 
         if step.get("is_from_profile"):
             return self._handle_profile_based_source(step, step_id, source_name)
