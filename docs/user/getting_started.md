@@ -291,7 +291,89 @@ TYPE CSV
 OPTIONS { "header": true };
 ```
 
-## 8. Run All the Examples
+## 8. Pipeline Validation - Catch Errors Early
+
+SQLFlow includes powerful built-in validation to catch common errors before execution, saving you time and preventing pipeline failures.
+
+### Validate Individual Pipelines
+
+```bash
+# Validate a specific pipeline without running it
+sqlflow pipeline validate customer_analytics
+
+# Validate with detailed output
+sqlflow pipeline validate customer_analytics --verbose
+```
+
+### Validate All Pipelines
+
+```bash
+# Validate all pipelines in your project
+sqlflow pipeline validate
+
+# Quick validation check (minimal output)
+sqlflow pipeline validate --quiet
+```
+
+### Example: Catching Common Errors
+
+Let's create a pipeline with intentional errors to see validation in action:
+
+```bash
+# Create a pipeline with missing required parameters
+cat > pipelines/test_validation.sf << EOF
+-- Pipeline with validation errors
+SOURCE missing_path TYPE csv PARAMS {
+    "delimiter": ","
+};
+
+SOURCE invalid_type TYPE unknown_connector PARAMS {
+    "path": "data/test.csv"
+};
+EOF
+
+# Validate the broken pipeline
+sqlflow pipeline validate test_validation
+```
+
+You'll see helpful error messages like:
+```
+❌ Validation failed for test_validation.sf
+
+📋 Pipeline: test_validation
+❌ SOURCE missing_path: Missing required parameter 'path'
+💡 Suggestion: Add "path": "your_file.csv" to the PARAMS
+
+❌ SOURCE invalid_type: Unknown connector type 'unknown_connector'
+💡 Suggestion: Use one of: csv, postgresql, s3, bigquery
+
+📊 Summary: 2 errors found
+```
+
+### Automatic Validation in Commands
+
+Validation runs automatically when you:
+- **Compile**: `sqlflow pipeline compile` validates before compilation
+- **Run**: `sqlflow pipeline run` validates before execution
+
+```bash
+# These commands automatically validate first
+sqlflow pipeline run test_validation  # Will fail validation and stop
+sqlflow pipeline compile test_validation  # Will fail validation and stop
+```
+
+### Skip Validation (Advanced Users Only)
+
+For compilation in CI/CD environments where speed matters:
+
+```bash
+# Skip validation during compilation (not recommended for development)
+sqlflow pipeline compile customer_analytics --no-validate
+```
+
+**Note**: The `run` command always validates for safety - there's no `--no-validate` option.
+
+## 9. Run All the Examples
 
 ```bash
 # Basic example (inline data)
@@ -311,7 +393,7 @@ cat output/data_quality_report.csv
 sqlflow pipeline list
 ```
 
-## 9. Using Production Mode
+## 10. Using Production Mode
 
 Run with persistent storage (data saved to disk):
 
@@ -323,7 +405,7 @@ sqlflow pipeline run customer_analytics --profile prod
 # Results persist between runs
 ```
 
-## 10. Working with Variables
+## 11. Working with Variables
 
 SQLFlow supports variable substitution for dynamic pipelines:
 
@@ -370,7 +452,7 @@ sqlflow pipeline run parameterized_report --vars '{"region": "US", "date": "2023
 cat output/customer_report_US_2023-05-19.csv
 ```
 
-## 11. Working with SQL Functions
+## 12. Working with SQL Functions
 
 SQLFlow supports standard SQL functions. Here's an advanced example:
 
@@ -419,7 +501,7 @@ sqlflow pipeline run advanced_features
 cat output/customers_enhanced.csv
 ```
 
-## 12. Speed Comparison: Why SQLFlow is Fastest
+## 13. Speed Comparison: Why SQLFlow is Fastest
 
 | Framework | Setup Time | First Results | Sample Data | Working Examples |
 |-----------|------------|---------------|-------------|------------------|
@@ -434,7 +516,7 @@ cat output/customers_enhanced.csv
 3. **Zero Configuration**: Profiles pre-configured for immediate use
 4. **Pure SQL**: No new syntax or templating language to learn
 
-## 13. Next Steps
+## 14. Next Steps
 
 Now that you've experienced SQLFlow's speed, explore more advanced features:
 
@@ -495,7 +577,19 @@ cat examples/ecommerce/README.md
 
 ### Common Issues and Solutions
 
-1. **Best Practice - Use Inline Data**: For learning and testing, use `VALUES` clauses instead of CSV files:
+1. **Pipeline Validation Errors**: When validation fails, read the error messages carefully:
+   ```bash
+   # Always validate first when debugging
+   sqlflow pipeline validate my_pipeline --verbose
+   
+   # Common issues and fixes:
+   # - Missing required parameters: Add missing PARAMS
+   # - Unknown connector types: Check supported connector list
+   # - Invalid file paths: Verify file exists and path is correct
+   # - Syntax errors: Check SQL syntax and SQLFlow directives
+   ```
+
+2. **Best Practice - Use Inline Data**: For learning and testing, use `VALUES` clauses instead of CSV files:
    ```sql
    CREATE TABLE test_data AS
    SELECT * FROM VALUES
@@ -504,7 +598,7 @@ cat examples/ecommerce/README.md
    AS t(id, name, email);
    ```
 
-2. **String Concatenation**: Use `CONCAT()` function instead of `||`:
+3. **String Concatenation**: Use `CONCAT()` function instead of `||`:
    ```sql
    -- Correct
    SELECT CONCAT(name, ' - ', country) AS description FROM customers;
@@ -513,25 +607,27 @@ cat examples/ecommerce/README.md
    SELECT name || ' - ' || country AS description FROM customers;
    ```
 
-3. **Variable Substitution**: Ensure proper escaping:
+4. **Variable Substitution**: Ensure proper escaping:
    ```sql
    SET region = "\${region|US}";  -- Note the quotes
    ```
 
-4. **Memory vs Persistent Mode**: 
+5. **Memory vs Persistent Mode**: 
    - Use `dev` profile for fast testing (in-memory)
    - Use `prod` profile to save results (persistent)
 
-5. **Output Files**: If output files aren't created, check:
+6. **Output Files**: If output files aren't created, check:
    - The `output/` directory exists (auto-created in new projects)
    - You're using the correct profile mode
    - Pipeline completed successfully without errors
+   - Validate the pipeline first: `sqlflow pipeline validate <pipeline_name>`
 
 ### Getting Help
 
 - **CLI Help**: `sqlflow --help` or `sqlflow pipeline --help`
-- **Pipeline Validation**: `sqlflow pipeline validate <pipeline_name>`
+- **Pipeline Validation**: `sqlflow pipeline validate <pipeline_name>` - **Start here for any pipeline issues!**
 - **Verbose Output**: `sqlflow --verbose pipeline run <pipeline_name>`
+- **Validation with Details**: `sqlflow pipeline validate <pipeline_name> --verbose`
 
 ## What's Next?
 
