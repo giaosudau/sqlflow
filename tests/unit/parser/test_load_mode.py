@@ -107,3 +107,41 @@ def test_load_with_merge_mode_validation():
     # Validate should return an error
     errors = load_step.validate()
     assert "MERGE mode requires MERGE_KEYS to be specified" in errors
+
+
+def test_load_with_merge_mode_parentheses():
+    """Test LOAD with MODE MERGE and MERGE_KEYS with parentheses."""
+    parser = Parser("LOAD users FROM users_source MODE MERGE MERGE_KEYS (user_id);")
+    pipeline = parser.parse()
+
+    assert len(pipeline.steps) == 1
+    assert isinstance(pipeline.steps[0], LoadStep)
+    assert pipeline.steps[0].mode == "MERGE"
+    assert pipeline.steps[0].table_name == "users"
+    assert pipeline.steps[0].source_name == "users_source"
+    assert pipeline.steps[0].merge_keys == ["user_id"]
+
+
+def test_load_with_merge_mode_multiple_keys_parentheses():
+    """Test LOAD with MODE MERGE and multiple MERGE_KEYS with parentheses."""
+    parser = Parser(
+        "LOAD users FROM users_source MODE MERGE MERGE_KEYS (user_id, email);"
+    )
+    pipeline = parser.parse()
+
+    assert len(pipeline.steps) == 1
+    assert isinstance(pipeline.steps[0], LoadStep)
+    assert pipeline.steps[0].mode == "MERGE"
+    assert pipeline.steps[0].table_name == "users"
+    assert pipeline.steps[0].source_name == "users_source"
+    assert pipeline.steps[0].merge_keys == ["user_id", "email"]
+
+
+def test_load_with_merge_mode_missing_closing_paren():
+    """Test LOAD with MODE MERGE and MERGE_KEYS with missing closing parenthesis."""
+    parser = Parser("LOAD users FROM users_source MODE MERGE MERGE_KEYS (user_id;")
+
+    with pytest.raises(ParserError) as excinfo:
+        parser.parse()
+
+    assert "Expected ')' to close merge keys list" in str(excinfo.value)

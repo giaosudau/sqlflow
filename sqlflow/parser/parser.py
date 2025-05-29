@@ -474,62 +474,7 @@ class Parser:
 
         # Check if MODE is specified
         if self._check(TokenType.MODE):
-            self._advance()  # Consume MODE token
-
-            # Parse the mode type
-            if self._check(TokenType.REPLACE):
-                self._advance()  # Consume REPLACE token
-                mode = "REPLACE"
-            elif self._check(TokenType.APPEND):
-                self._advance()  # Consume APPEND token
-                mode = "APPEND"
-            elif self._check(TokenType.MERGE):
-                self._advance()  # Consume MERGE token
-                mode = "MERGE"
-
-                # For MERGE mode, MERGE_KEYS is required
-                if self._check(TokenType.MERGE_KEYS):
-                    self._advance()  # Consume MERGE_KEYS token
-
-                    # Parse comma-separated list of merge keys
-                    while (
-                        not self._check(TokenType.SEMICOLON) and not self._is_at_end()
-                    ):
-                        key_token = self._consume(
-                            TokenType.IDENTIFIER, "Expected column name for MERGE_KEYS"
-                        )
-                        merge_keys.append(key_token.value)
-
-                        # Check if there's a comma after the key
-                        if (
-                            self._check(TokenType.IDENTIFIER)
-                            and self._peek().value == ","
-                        ):
-                            self._advance()  # Consume comma
-                        elif not self._check(TokenType.SEMICOLON):
-                            # If we don't see a semicolon, we expect a comma
-                            token = self._peek()
-                            if token.value != ",":
-                                raise ParserError(
-                                    "Expected comma between merge keys",
-                                    token.line,
-                                    token.column,
-                                )
-                            self._advance()  # Consume comma
-                else:
-                    token = self._peek()
-                    raise ParserError(
-                        "Expected 'MERGE_KEYS' after 'MERGE'",
-                        token.line,
-                        token.column,
-                    )
-            else:
-                token = self._peek()
-                raise ParserError(
-                    "Expected 'REPLACE', 'APPEND', or 'MERGE' after 'MODE'",
-                    token.line,
-                    token.column,
-                )
+            mode, merge_keys = self._parse_load_mode()
 
         self._consume(TokenType.SEMICOLON, "Expected ';' after LOAD statement")
 
@@ -540,6 +485,107 @@ class Parser:
             merge_keys=merge_keys,
             line_number=load_token.line,
         )
+
+    def _parse_load_mode(self) -> tuple[str, list[str]]:
+        """Parse the MODE clause of a LOAD statement.
+
+        Returns:
+            Tuple of (mode, merge_keys)
+
+        Raises:
+            ParserError: If the MODE clause cannot be parsed
+        """
+        self._advance()  # Consume MODE token
+
+        # Parse the mode type
+        if self._check(TokenType.REPLACE):
+            self._advance()  # Consume REPLACE token
+            return "REPLACE", []
+        elif self._check(TokenType.APPEND):
+            self._advance()  # Consume APPEND token
+            return "APPEND", []
+        elif self._check(TokenType.MERGE):
+            self._advance()  # Consume MERGE token
+            merge_keys = self._parse_merge_keys()
+            return "MERGE", merge_keys
+        else:
+            token = self._peek()
+            raise ParserError(
+                "Expected 'REPLACE', 'APPEND', or 'MERGE' after 'MODE'",
+                token.line,
+                token.column,
+            )
+
+    def _parse_merge_keys(self) -> list[str]:
+        """Parse MERGE_KEYS clause with optional parentheses.
+
+        Supports both:
+        - MERGE_KEYS key1, key2
+        - MERGE_KEYS (key1, key2)
+
+        Returns:
+            List of merge key column names
+
+        Raises:
+            ParserError: If the MERGE_KEYS clause cannot be parsed
+        """
+        # For MERGE mode, MERGE_KEYS is required
+        if not self._check(TokenType.MERGE_KEYS):
+            token = self._peek()
+            raise ParserError(
+                "Expected 'MERGE_KEYS' after 'MERGE'",
+                token.line,
+                token.column,
+            )
+
+        self._advance()  # Consume MERGE_KEYS token
+
+        # Check for optional opening parenthesis
+        has_parentheses = False
+        if self._check(TokenType.LEFT_PAREN):
+            self._advance()  # Consume '(' token
+            has_parentheses = True
+
+        merge_keys = []
+
+        # Parse comma-separated list of merge keys
+        while (
+            not self._check(TokenType.SEMICOLON)
+            and not (has_parentheses and self._check(TokenType.RIGHT_PAREN))
+            and not self._is_at_end()
+        ):
+            key_token = self._consume(
+                TokenType.IDENTIFIER, "Expected column name for MERGE_KEYS"
+            )
+            merge_keys.append(key_token.value)
+
+            # Check if there's a comma after the key
+            if self._check(TokenType.IDENTIFIER) and self._peek().value == ",":
+                self._advance()  # Consume comma
+            elif not self._check(TokenType.SEMICOLON) and not (
+                has_parentheses and self._check(TokenType.RIGHT_PAREN)
+            ):
+                # If we don't see a semicolon or closing paren, we expect a comma
+                token = self._peek()
+                if token.value != ",":
+                    expected_tokens = "comma between merge keys"
+                    if has_parentheses:
+                        expected_tokens += " or ')'"
+                    raise ParserError(
+                        f"Expected {expected_tokens}",
+                        token.line,
+                        token.column,
+                    )
+                self._advance()  # Consume comma
+
+        # If we started with a parenthesis, we must close it
+        if has_parentheses:
+            self._consume(
+                TokenType.RIGHT_PAREN,
+                "Expected ')' to close merge keys list",
+            )
+
+        return merge_keys
 
     def _parse_export_statement(self) -> ExportStep:
         """Parse an EXPORT statement.
