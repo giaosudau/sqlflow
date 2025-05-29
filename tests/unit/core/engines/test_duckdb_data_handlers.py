@@ -191,3 +191,64 @@ class TestDataRegistrationManager:
         assert "Unsupported data type" in str(exc_info.value)
         assert not manager.is_registered("test_table")
         assert len(manager.get_registered_names()) == 0
+
+    def test_get_registered_names_order_preservation(self):
+        """Test that get_registered_names preserves registration order."""
+        mock_connection = Mock()
+        manager = DataRegistrationManager(mock_connection)
+
+        # Register multiple datasets in a specific order
+        data1 = pd.DataFrame({"col1": [1, 2, 3]})
+        data2 = pa.table({"col2": ["a", "b", "c"]})
+        data3 = pd.DataFrame({"col3": [4, 5, 6]})
+
+        manager.register("alpha", data1)
+        manager.register("beta", data2)
+        manager.register("gamma", data3)
+
+        names = manager.get_registered_names()
+
+        # Should maintain insertion order (Python 3.7+ dict behavior)
+        assert names == ["alpha", "beta", "gamma"]
+
+    def test_get_registered_names_after_partial_unregistration(self):
+        """Test get_registered_names after unregistering some data."""
+        mock_connection = Mock()
+        manager = DataRegistrationManager(mock_connection)
+
+        # Register multiple datasets
+        data1 = pd.DataFrame({"col1": [1, 2, 3]})
+        data2 = pa.table({"col2": ["a", "b", "c"]})
+        data3 = pd.DataFrame({"col3": [4, 5, 6]})
+
+        manager.register("table1", data1)
+        manager.register("table2", data2)
+        manager.register("table3", data3)
+
+        # Unregister middle one
+        manager.unregister("table2")
+
+        names = manager.get_registered_names()
+
+        # Should contain only remaining tables
+        assert set(names) == {"table1", "table3"}
+        assert len(names) == 2
+        assert "table2" not in names
+
+    def test_get_registered_names_immutability(self):
+        """Test that modifying returned list doesn't affect internal state."""
+        mock_connection = Mock()
+        manager = DataRegistrationManager(mock_connection)
+        data = pd.DataFrame({"col1": [1, 2, 3]})
+
+        manager.register("test_table", data)
+
+        # Get the list and modify it
+        names = manager.get_registered_names()
+        original_length = len(names)
+        names.append("malicious_entry")
+
+        # Internal state should be unchanged
+        assert len(manager.get_registered_names()) == original_length
+        assert "malicious_entry" not in manager.get_registered_names()
+        assert manager.get_registered_names() == ["test_table"]
