@@ -187,11 +187,14 @@ class Parser:
         if validate:
             validation_errors = self._validate_pipeline()
             if validation_errors:
-                # Raise the first validation error (they all have proper formatting)
+                # Import the aggregated error class
+                from sqlflow.validation import AggregatedValidationError
+
                 logger.debug(
                     f"Validation failed: {len(validation_errors)} errors found"
                 )
-                raise validation_errors[0]
+                # Raise aggregated error containing all validation errors
+                raise AggregatedValidationError(validation_errors)
 
         logger.info(
             f"Successfully parsed {'and validated ' if validate else ''}pipeline with {len(self.pipeline.steps)} steps"

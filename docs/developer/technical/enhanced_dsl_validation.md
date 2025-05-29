@@ -81,9 +81,11 @@ Based on user feedback analysis and industry best practices, this design follows
 - ✅ 27 comprehensive tests covering all CLI validation functionality
 - ✅ **NEW**: Dedicated `sqlflow pipeline validate` command for single/bulk validation
 - ✅ **NEW**: Integration into `sqlflow pipeline run` (always validates before execution)
-- ✅ **NEW**: Integration into `sqlflow pipeline compile` (validates by default with --no-validate option)
+- ✅ **NEW**: Integration into `sqlflow pipeline compile` (validates by default with --skip-validation option)
 - ✅ **NEW**: Smart caching with --clear-cache option
 - ✅ **NEW**: Comprehensive error reporting and user feedback
+- ✅ **NEW**: Enhanced aggregated error reporting that displays all validation errors grouped by type
+- ✅ **NEW**: Improved CLI option naming (--skip-validation instead of --no-validate) for better clarity
 
 ### 🎉 **Phase 1 Status: 100% COMPLETE**
 
@@ -277,7 +279,7 @@ def validate_references(statements: List[Statement]) -> List[ValidationError]:
 
 ### 2.3 Error Representation
 
-Simple, extensible error model using Python dataclasses:
+Simple, extensible error model using Python dataclasses with enhanced aggregation:
 
 ```python
 @dataclass
@@ -316,8 +318,117 @@ class ValidationError:
             column=parse_error.column,
             error_type="Syntax Error"
         )
+
+@dataclass  
+class AggregatedValidationError(Exception):
+    """Exception that aggregates multiple validation errors.
+    
+    Provides comprehensive error reporting by collecting all validation
+    errors and presenting them grouped by type with intelligent formatting.
+    """
+    errors: List[ValidationError]
+    
+    def _group_errors_by_type(self) -> dict:
+        """Group validation errors by type and sort by line number."""
+        error_groups = {}
+        for error in self.errors:
+            error_type = error.error_type
+            if error_type not in error_groups:
+                error_groups[error_type] = []
+            error_groups[error_type].append(error)
+        
+        # Sort errors within each group by line number
+        for error_list in error_groups.values():
+            error_list.sort(key=lambda e: (e.line, e.column))
+        
+        return error_groups
+
+    def _format_error_line(self, error: ValidationError) -> str:
+        """Format the main error line with location information."""
+        error_line = f"  Line {error.line}"
+        if error.column > 0:
+            error_line += f", Column {error.column}"
+        error_line += f": {error.message}"
+        return error_line
+
+    def _format_error_suggestions(self, error: ValidationError) -> List[str]:
+        """Format suggestion lines for an error."""
+        suggestion_lines = []
+        if error.suggestions:
+            for suggestion in error.suggestions:
+                suggestion_lines.append(f"    💡 {suggestion}")
+        
+        if error.help_url:
+            suggestion_lines.append(f"    📖 Help: {error.help_url}")
+            
+        return suggestion_lines
+
+    def _format_error_group(self, error_type: str, type_errors: List[ValidationError]) -> List[str]:
+        """Format a group of errors of the same type."""
+        lines = []
+        if len(type_errors) > 0:
+            lines.append(f"📋 {error_type}s:")
+            
+            for error in type_errors:
+                # Add main error line
+                lines.append(self._format_error_line(error))
+                
+                # Add suggestions if available
+                suggestion_lines = self._format_error_suggestions(error)
+                lines.extend(suggestion_lines)
+                
+                lines.append("")  # Empty line between errors
+        
+        return lines
+    
+    def __str__(self) -> str:
+        """Format all validation errors for display with intelligent grouping.
+        
+        This method has been refactored into smaller helper methods to improve
+        maintainability and reduce complexity while preserving functionality.
+        """
+        if not self.errors:
+            return "No validation errors found"
+        
+        if len(self.errors) == 1:
+            return str(self.errors[0])
+        
+        # Group errors by type using helper method
+        error_groups = self._group_errors_by_type()
+        
+        # Build formatted output with grouping
+        lines = []
+        lines.append(f"❌ Pipeline validation failed with {len(self.errors)} error(s):")
+        lines.append("")
+        
+        # Format each error group using helper method
+        for error_type, type_errors in error_groups.items():
+            group_lines = self._format_error_group(error_type, type_errors)
+            lines.extend(group_lines)
+        
+        return "\n".join(lines).rstrip()
 ```
 
+**Enhanced Error Handling in Parser:**
+```python
+# Parser now raises AggregatedValidationError instead of single errors
+def parse(self, text: Optional[str] = None, validate: bool = True) -> Pipeline:
+    # ... parsing logic ...
+    
+    if validate:
+        validation_errors = self._validate_pipeline()
+        if validation_errors:
+            from sqlflow.validation import AggregatedValidationError
+            
+            logger.debug(f"Validation failed: {len(validation_errors)} errors found")
+            # Raise aggregated error containing all validation errors
+            raise AggregatedValidationError(validation_errors)
+```
+
+**Code Quality Improvements (2024 Refactoring):**
+- ✅ **Reduced Complexity**: Broke down complex `__str__` method into focused helper methods
+- ✅ **Improved Maintainability**: Separated concerns for grouping, formatting, and suggestions
+- ✅ **Enhanced Readability**: Each method has a single responsibility
 ## 3. MVP Implementation Details
 
 ### 3.1 Phase 1: Core Validation ✅ **COMPLETED**
@@ -599,6 +710,26 @@ sqlflow run pipeline.sf         # Validate + execute (with smart caching)
 
 ### 6.2 CLI Implementation
 
+**Enhanced Error Reporting:**
+The CLI now provides comprehensive error reporting that displays all validation errors at once, grouped by type:
+
+```python
+# Enhanced validation error handling
+from sqlflow.validation import AggregatedValidationError
+
+try:
+    errors = validate_pipeline_with_caching(pipeline_file)
+    if errors:
+        # All errors are collected and displayed together
+        # Grouped by type: Connector Errors, Parameter Errors, Reference Errors
+        # Sorted by line number within each group
+        for error in errors:
+            typer.echo(str(error), err=True)
+except AggregatedValidationError as e:
+    # Multiple errors handled comprehensively
+    typer.echo(str(e), err=True)  # Shows all errors grouped by type
+```
+
 ```python
 # sqlflow/cli/commands/validate.py
 @click.command()
@@ -609,9 +740,10 @@ def validate(pipeline_file: str):
         errors = validate_pipeline_with_caching(pipeline_file)
         
         if errors:
+            # Enhanced error formatting with grouping by type
             for error in errors:
                 click.echo(str(error), err=True)
-            click.echo(f"\n❌ Found {len(errors)} validation error(s)", err=True)
+            click.echo(f"\n❌ Found {len(errors)} validation error(s) across {len(set(e.error_type for e in errors))} error type(s)", err=True)
             sys.exit(1)
         else:
             click.echo("✅ Pipeline validation passed!")
@@ -624,14 +756,15 @@ def validate(pipeline_file: str):
 @click.argument('pipeline_file')
 def run(pipeline_file: str):
     """Run a SQLFlow pipeline (includes validation)"""
-    # Always validate before running
+    # Always validate before running with comprehensive error reporting
     try:
         errors = validate_pipeline_with_caching(pipeline_file)
         
         if errors:
+            # Show all errors grouped by type
             for error in errors:
                 click.echo(str(error), err=True)
-            click.echo(f"\n❌ Pipeline validation failed. Fix errors before running.", err=True)
+            click.echo(f"\n❌ Pipeline validation failed. Fix all {len(errors)} error(s) before running.", err=True)
             sys.exit(1)
         
         # Validation passed, proceed with execution
@@ -641,6 +774,29 @@ def run(pipeline_file: str):
     except Exception as e:
         click.echo(f"❌ Execution failed: {str(e)}", err=True)
         sys.exit(1)
+```
+
+**Enhanced CLI Options:**
+```python
+@pipeline_app.command("compile")
+def compile_pipeline(
+    # ... other arguments ...
+    skip_validation: bool = typer.Option(
+        False,
+        "--skip-validation",
+        help="Skip validation before compilation (for CI/CD performance)",
+    ),
+):
+    """Compile pipeline with optional validation skip for CI/CD scenarios."""
+    if not skip_validation:
+        # Comprehensive validation with all errors reported
+        errors = validate_pipeline_with_caching(pipeline_path)
+        if errors:
+            # Show all validation errors grouped by type
+            typer.echo("❌ Validation failed. Aborting compilation.", err=True)
+            for error in errors:
+                typer.echo(f"  {error}", err=True)
+            raise typer.Exit(code=1)
 ```
 
 ### 6.3 User Experience Examples
@@ -666,30 +822,55 @@ $ sqlflow run pipeline.sf
 **Error Handling:**
 ```bash
 $ sqlflow validate broken_pipeline.sf
-❌ ValidationError at line 5, column 15: Missing required parameter 'file'
+❌ Pipeline validation failed with 3 error(s):
 
-💡 Suggestions:
-  - Add 'file': <value> to parameters
+📋 Connector Errors:
+  Line 2: Unknown connector type: MYSQL
+    💡 Available connector types: CSV, POSTGRES, S3
+    💡 Check the connector type spelling and case
 
-❌ Found 1 validation error(s)
+📋 Parameter Errors:
+  Line 5: Missing required parameter 'path'
+    💡 Add "path": "your_file.csv" to the PARAMS
+    💡 Check the CSV connector documentation
+
+📋 Reference Errors:
+  Line 8: LOAD references undefined source: 'products'
+    💡 Define SOURCE 'products' before using it in LOAD
+    💡 Available sources: users, orders
+
+📊 Summary: 1 Connector Error, 1 Parameter Error, 1 Reference Error
 
 $ sqlflow run broken_pipeline.sf
-❌ ValidationError at line 5, column 15: Missing required parameter 'file'
+❌ Pipeline validation failed with 3 error(s):
 
-💡 Suggestions:
-  - Add 'file': <value> to parameters
+📋 Connector Errors:
+  Line 2: Unknown connector type: MYSQL
+    💡 Available connector types: CSV, POSTGRES, S3
 
-❌ Pipeline validation failed. Fix errors before running.
+📋 Parameter Errors:
+  Line 5: Missing required parameter 'path'
+    💡 Add "path": "your_file.csv" to the PARAMS
+
+📋 Reference Errors:
+  Line 8: LOAD references undefined source: 'products'
+    💡 Define SOURCE 'products' before using it in LOAD
+
+❌ Pipeline validation failed. Fix all 3 error(s) before running.
 ```
 
 ### 6.4 Future CLI Enhancements (Phase 2+)
 
 **Add features only based on user feedback:**
-- `--skip-validation` flag (if users request emergency override)
 - `--strict` mode (treat warnings as errors)
 - `--verbose` / `--quiet` output modes
 - Configuration file support
 - IDE integration hooks
+
+**Recently Completed (2024):**
+- ✅ `--skip-validation` flag for CI/CD scenarios (previously `--no-validate`)
+- ✅ Enhanced error reporting with comprehensive error aggregation and grouping by type
+- ✅ Validation caching with `--clear-cache` option
 
 **Philosophy:** Start simple, add complexity only when proven necessary through user feedback and usage patterns.
 
