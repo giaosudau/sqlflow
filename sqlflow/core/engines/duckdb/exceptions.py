@@ -37,7 +37,7 @@ class PersistenceError(DuckDBEngineError):
     """Exception raised when a persistence operation fails."""
 
 
-class ConnectionError(DuckDBEngineError):
+class DuckDBConnectionError(DuckDBEngineError):
     """Exception raised when database connection operations fail."""
 
 

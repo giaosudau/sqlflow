@@ -13,7 +13,7 @@ from sqlflow.core.engines.base import SQLEngine
 from sqlflow.logging import get_logger
 
 from .constants import DuckDBConstants, RegexPatterns, SQLTemplates
-from .exceptions import ConnectionError, UDFError, UDFRegistrationError
+from .exceptions import DuckDBConnectionError, UDFError, UDFRegistrationError
 from .load.handlers import LoadModeHandlerFactory
 from .transaction_manager import TransactionManager
 from .udf import UDFHandlerFactory, UDFQueryProcessor
@@ -202,7 +202,7 @@ class DuckDBEngine(SQLEngine):
                     logger.debug("Directory created/verified: %s", dir_path)
                 except Exception as e:
                     logger.debug("Error creating directory: %s", e)
-                    raise ConnectionError(
+                    raise DuckDBConnectionError(
                         f"Failed to create directory for DuckDB database: {e}"
                     )
 
@@ -233,7 +233,7 @@ class DuckDBEngine(SQLEngine):
     def _configure_persistence(self) -> None:
         """Configure persistence settings for the database."""
         if not self.connection:
-            raise ConnectionError("No database connection available")
+            raise DuckDBConnectionError("No database connection available")
 
         if self.database_path != DuckDBConstants.MEMORY_DATABASE:
             try:
@@ -268,17 +268,17 @@ class DuckDBEngine(SQLEngine):
         """Verify the connection is working.
 
         Raises:
-            ConnectionError: If test query fails
+            DuckDBConnectionError: If test query fails
         """
         if not self.connection:
-            raise ConnectionError("No database connection available")
+            raise DuckDBConnectionError("No database connection available")
 
         try:
             self.connection.execute(DuckDBConstants.SQL_SELECT_ONE).fetchone()
             logger.debug("DuckDB connection verified with test query")
         except Exception as e:
             logger.debug("DuckDB test query failed: %s", e)
-            raise ConnectionError(f"DuckDB connection test failed: {e}")
+            raise DuckDBConnectionError(f"DuckDB connection test failed: {e}")
 
     def execute_query(self, query: str) -> Any:
         """Execute SQL query.
@@ -293,7 +293,7 @@ class DuckDBEngine(SQLEngine):
             Exception: If query execution fails
         """
         if not self.connection:
-            raise ConnectionError("No database connection available")
+            raise DuckDBConnectionError("No database connection available")
 
         start_time = time.time()
         try:
@@ -317,7 +317,7 @@ class DuckDBEngine(SQLEngine):
             function: Python function to register
         """
         if not self.connection:
-            raise ConnectionError("No database connection available")
+            raise DuckDBConnectionError("No database connection available")
 
         logger.info(f"Registering Python UDF: {name}")
 
@@ -360,7 +360,7 @@ class DuckDBEngine(SQLEngine):
             manage_transaction: Whether this method should handle transaction
         """
         if not self.connection:
-            raise ConnectionError("No database connection available")
+            raise DuckDBConnectionError("No database connection available")
 
         logger.debug("Registering table %s", name)
         logger.debug(f"Registering table {name} with schema: {data.dtypes}")
@@ -379,7 +379,7 @@ class DuckDBEngine(SQLEngine):
             data: Data to register
         """
         if not self.connection:
-            raise ConnectionError("No database connection available")
+            raise DuckDBConnectionError("No database connection available")
 
         # Register the table
         self.connection.register(name, data)
@@ -397,7 +397,7 @@ class DuckDBEngine(SQLEngine):
             data: Data to persist
         """
         if not self.connection:
-            raise ConnectionError("No database connection available")
+            raise DuckDBConnectionError("No database connection available")
 
         try:
             if hasattr(data, "columns"):
@@ -445,7 +445,7 @@ class DuckDBEngine(SQLEngine):
             Dict mapping column names to their types
         """
         if not self.connection:
-            raise ConnectionError("No database connection available")
+            raise DuckDBConnectionError("No database connection available")
 
         logger.debug("Getting schema for table %s", table_name)
         try:
