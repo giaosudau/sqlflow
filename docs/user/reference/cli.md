@@ -338,13 +338,51 @@ sqlflow pipeline validate example --clear-cache
 ❌ Validation failed for broken_pipeline.sf
 
 📋 Pipeline: broken_pipeline
-❌ SOURCE missing_path: Missing required parameter 'path'
-💡 Suggestion: Add "path": "your_file.csv" to the PARAMS
+❌ Pipeline validation failed with 3 error(s):
 
-❌ SOURCE invalid_type: Unknown connector type 'unknown_connector'  
-💡 Suggestion: Use one of: csv, postgresql, s3, bigquery
+📋 Connector Errors:
+  Line 2: Unknown connector type: MYSQL
+    💡 Available connector types: CSV, POSTGRES, S3
+    💡 Check the connector type spelling and case
 
-📊 Summary: 2 errors found
+📋 Parameter Errors:
+  Line 5: Missing required parameter 'path'
+    💡 Add "path": "your_file.csv" to the PARAMS
+    💡 Check the CSV connector documentation
+
+📋 Reference Errors:
+  Line 8: LOAD references undefined source: 'products'
+    💡 Define SOURCE 'products' before using it in LOAD
+    💡 Check the source name spelling
+    💡 Available sources: users, orders
+
+📊 Summary: 3 errors found across 3 error types
+```
+
+**Multiple Errors - Enhanced Reporting:**
+```
+❌ broken_pipeline
+
+📋 Pipeline validation failed with 5 error(s):
+
+📋 Connector Errors:
+  Line 2: Unknown connector type: MYSQL  
+    💡 Available connector types: CSV, POSTGRES, S3
+  Line 15: Unknown connector type: ORACLE
+    💡 Available connector types: CSV, POSTGRES, S3
+
+📋 Parameter Errors:
+  Line 5: Missing required parameter 'path'
+    💡 Add "path": "your_file.csv" to the PARAMS
+  Line 10: Field 'path' does not match required pattern: .*\.csv$
+    💡 CSV files should end with .csv extension
+
+📋 Reference Errors:
+  Line 20: LOAD references undefined source: 'products'
+    💡 Define SOURCE 'products' before using it in LOAD
+    💡 Available sources: users, orders
+
+📊 Summary: 2 Connector Errors, 2 Parameter Errors, 1 Reference Error
 ```
 
 **Mixed Results (Bulk Validation):**
@@ -354,16 +392,23 @@ sqlflow pipeline validate example --clear-cache
 ❌ broken_pipeline
 ✅ data_quality
 
-📊 Summary: 3 passed, 1 failed
+📊 Validation Summary:
+  Total pipelines: 4
+  Passed: 3
+  Failed: 1
+  Total errors: 3
+
 ❌ Failed pipelines: broken_pipeline
 ```
 
 #### Validation Features
 
+- **Comprehensive Error Reporting**: Reports all validation errors at once, grouped by type (Connector, Parameter, Reference errors)
 - **Type Safety**: Validates connector types and required parameters
 - **Reference Checking**: Ensures SOURCE references exist in LOAD statements
 - **Parameter Validation**: Checks required and optional parameters for each connector
 - **File Extension Validation**: Verifies file extensions match connector types
+- **Intelligent Error Grouping**: Groups errors by type and sorts by line number for easier debugging
 - **Helpful Suggestions**: Provides specific suggestions for fixing errors
 - **Caching**: Caches validation results for faster subsequent checks
 - **Batch Processing**: Validates multiple pipelines efficiently
@@ -377,7 +422,7 @@ sqlflow pipeline validate example --clear-cache
 | `--dry-run` | Validate and compile without executing          |
 | `--output`  | (compile only) Specify output file for the plan |
 | `--from-compiled` | (run only) Use existing compiled plan       |
-| `--no-validate` | (compile only) Skip validation step          |
+| `--skip-validation` | (compile only) Skip validation step for CI/CD performance |
 | `--clear-cache` | (validate only) Clear validation cache       |
 | `--verbose` | Enable detailed output with technical information |
 | `--quiet`   | Reduce output to essential information only      |
@@ -402,7 +447,7 @@ sqlflow pipeline run customer_analytics
 sqlflow pipeline compile customer_analytics
 
 # Skip validation for CI/CD speed (advanced users only)
-sqlflow pipeline compile customer_analytics --no-validate
+sqlflow pipeline compile customer_analytics --skip-validation
 ```
 
 ---

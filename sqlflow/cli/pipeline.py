@@ -447,9 +447,9 @@ def compile_pipeline(
     profile: str = typer.Option(
         "dev", "--profile", "-p", help="Profile to use (default: dev)"
     ),
-    no_validate: bool = typer.Option(
+    skip_validation: bool = typer.Option(
         False,
-        "--no-validate",
+        "--skip-validation",
         help="Skip validation before compilation (for CI/CD performance)",
     ),
     quiet: bool = typer.Option(
@@ -464,7 +464,7 @@ def compile_pipeline(
     The execution plan is automatically saved to the project's target/compiled directory.
 
     By default, validation is performed before compilation to catch errors early.
-    Use --no-validate to skip validation for CI/CD performance scenarios.
+    Use --skip-validation to skip validation for CI/CD performance scenarios.
     """
     # Configure logging based on command-specific flags
     configure_logging(verbose=verbose, quiet=quiet)
@@ -476,7 +476,7 @@ def compile_pipeline(
     # Helper function to validate a pipeline file
     def validate_pipeline_file(pipeline_path: str, pipeline_display_name: str) -> bool:
         """Validate a pipeline file and return True if valid, False otherwise."""
-        if no_validate:
+        if skip_validation:
             return True
 
         from sqlflow.cli.validation_helpers import validate_pipeline_with_caching
@@ -570,7 +570,7 @@ def compile_pipeline(
             )
 
         # For multiple pipelines, validate each before compilation if not skipped
-        if not no_validate:
+        if not skip_validation:
             validation_failed = False
             pipeline_files = [
                 f for f in os.listdir(_pipelines_dir) if f.endswith(".sf")

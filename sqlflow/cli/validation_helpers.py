@@ -68,19 +68,33 @@ def _parse_and_validate_pipeline(
         logger.debug("Pipeline validation found 1 error for %s", pipeline_path)
 
     except Exception as e:
-        # Parser error or other issues
-        error_msg = str(e)
-        if "Multiple errors found:" in error_msg:
-            # Handle multiple parsing errors - convert to validation errors
-            errors = [
-                ValidationError(message=error_msg, line=1, error_type="Parser Error")
-            ]
+        # Check if this is an AggregatedValidationError
+        from sqlflow.validation import AggregatedValidationError
+
+        if isinstance(e, AggregatedValidationError):
+            # Extract all validation errors from the aggregated error
+            errors = e.errors
+            logger.debug(
+                "Pipeline validation found %d errors for %s", len(errors), pipeline_path
+            )
         else:
-            # Single parser error
-            errors = [
-                ValidationError(message=error_msg, line=1, error_type="Parser Error")
-            ]
-        logger.debug("Pipeline parsing failed for %s: %s", pipeline_path, error_msg)
+            # Parser error or other issues
+            error_msg = str(e)
+            if "Multiple errors found:" in error_msg:
+                # Handle multiple parsing errors - convert to validation errors
+                errors = [
+                    ValidationError(
+                        message=error_msg, line=1, error_type="Parser Error"
+                    )
+                ]
+            else:
+                # Single parser error
+                errors = [
+                    ValidationError(
+                        message=error_msg, line=1, error_type="Parser Error"
+                    )
+                ]
+            logger.debug("Pipeline parsing failed for %s: %s", pipeline_path, error_msg)
 
     return errors
 

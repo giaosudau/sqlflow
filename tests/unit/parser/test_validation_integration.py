@@ -4,7 +4,6 @@ import pytest
 
 from sqlflow.parser.ast import LoadStep, SourceDefinitionStep
 from sqlflow.parser.parser import Parser
-from sqlflow.validation.errors import ValidationError
 
 
 class TestParserValidationIntegration:
@@ -38,10 +37,17 @@ class TestParserValidationIntegration:
 
         parser = Parser()
 
-        with pytest.raises(ValidationError) as exc_info:
+        # Import the aggregated error class for type checking
+        from sqlflow.validation import AggregatedValidationError
+
+        with pytest.raises(AggregatedValidationError) as exc_info:
             parser.parse(text)
 
-        error = exc_info.value
+        # For single error, check the first (and only) error
+        aggregated_error = exc_info.value
+        assert len(aggregated_error.errors) == 1
+        error = aggregated_error.errors[0]
+
         assert error.error_type == "Connector Error"
         assert "Unknown connector type: MYSQL" in error.message
         assert error.line == 2  # Should point to the SOURCE line
@@ -55,10 +61,17 @@ class TestParserValidationIntegration:
 
         parser = Parser()
 
-        with pytest.raises(ValidationError) as exc_info:
+        # Import the aggregated error class for type checking
+        from sqlflow.validation import AggregatedValidationError
+
+        with pytest.raises(AggregatedValidationError) as exc_info:
             parser.parse(text)
 
-        error = exc_info.value
+        # For single error, check the first (and only) error
+        aggregated_error = exc_info.value
+        assert len(aggregated_error.errors) == 1
+        error = aggregated_error.errors[0]
+
         assert error.error_type == "Parameter Error"
         assert "does not match required pattern" in error.message
 
@@ -71,10 +84,17 @@ class TestParserValidationIntegration:
 
         parser = Parser()
 
-        with pytest.raises(ValidationError) as exc_info:
+        # Import the aggregated error class for type checking
+        from sqlflow.validation import AggregatedValidationError
+
+        with pytest.raises(AggregatedValidationError) as exc_info:
             parser.parse(text)
 
-        error = exc_info.value
+        # For single error, check the first (and only) error
+        aggregated_error = exc_info.value
+        assert len(aggregated_error.errors) == 1
+        error = aggregated_error.errors[0]
+
         assert error.error_type == "Reference Error"
         assert "LOAD references undefined source: 'products'" in error.message
         assert error.line == 3  # Should point to the LOAD line
@@ -88,10 +108,17 @@ class TestParserValidationIntegration:
 
         parser = Parser()
 
-        with pytest.raises(ValidationError) as exc_info:
+        # Import the aggregated error class for type checking
+        from sqlflow.validation import AggregatedValidationError
+
+        with pytest.raises(AggregatedValidationError) as exc_info:
             parser.parse(text)
 
-        error = exc_info.value
+        # For single error, check the first (and only) error
+        aggregated_error = exc_info.value
+        assert len(aggregated_error.errors) == 1
+        error = aggregated_error.errors[0]
+
         assert error.error_type == "Reference Error"
         assert "Duplicate source definition: 'users'" in error.message
         assert error.line == 3  # Should point to the second SOURCE line
@@ -122,13 +149,17 @@ class TestParserValidationIntegration:
 
         parser = Parser()
 
-        with pytest.raises(ValidationError) as exc_info:
+        # Import the aggregated error class for type checking
+        from sqlflow.validation import AggregatedValidationError
+
+        with pytest.raises(AggregatedValidationError) as exc_info:
             parser.parse(text)
 
-        error = exc_info.value
-        error_str = str(error)
+        # Check aggregated error formatting
+        aggregated_error = exc_info.value
+        error_str = str(aggregated_error)
 
-        # Check that the error string includes all expected components
+        # For single error, should show the error without aggregation header
         assert "❌ Connector Error" in error_str
         assert "line 2" in error_str
         assert "Unknown connector type: UNKNOWN" in error_str
@@ -136,7 +167,7 @@ class TestParserValidationIntegration:
         assert "Available connector types" in error_str
 
     def test_parser_handles_multiple_validation_errors(self):
-        """Test that parser reports the first validation error when multiple exist."""
+        """Test that parser reports all validation errors when multiple exist."""
         text = """
         SOURCE users TYPE MYSQL PARAMS {"host": "localhost"};
         LOAD products_table FROM undefined_source;
@@ -144,13 +175,37 @@ class TestParserValidationIntegration:
 
         parser = Parser()
 
-        with pytest.raises(ValidationError) as exc_info:
+        # Import the aggregated error class for type checking
+        from sqlflow.validation import AggregatedValidationError
+
+        with pytest.raises(AggregatedValidationError) as exc_info:
             parser.parse(text)
 
-        # Should get the first error (connector error)
-        error = exc_info.value
-        assert error.error_type == "Connector Error"
-        assert "Unknown connector type: MYSQL" in error.message
+        # Should get an aggregated error containing both errors
+        aggregated_error = exc_info.value
+        assert len(aggregated_error.errors) == 2
+
+        # Verify we have both error types
+        error_types = [error.error_type for error in aggregated_error.errors]
+        assert "Connector Error" in error_types
+        assert "Reference Error" in error_types
+
+        # Verify specific error messages
+        connector_errors = [
+            e for e in aggregated_error.errors if e.error_type == "Connector Error"
+        ]
+        reference_errors = [
+            e for e in aggregated_error.errors if e.error_type == "Reference Error"
+        ]
+
+        assert len(connector_errors) == 1
+        assert "Unknown connector type: MYSQL" in connector_errors[0].message
+
+        assert len(reference_errors) == 1
+        assert (
+            "LOAD references undefined source: 'undefined_source'"
+            in reference_errors[0].message
+        )
 
     def test_parser_syntax_errors_take_precedence_over_validation(self):
         """Test that syntax errors are reported before validation errors."""
