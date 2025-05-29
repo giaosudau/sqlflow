@@ -571,13 +571,31 @@ class ExecutionPlanBuilder:
     ) -> Dict[str, PipelineStep]:
         table_to_step = {}
         duplicate_tables = []
+
         for step in pipeline.steps:
             if isinstance(step, (LoadStep, SQLBlockStep)):
                 table_name = step.table_name
+
                 if table_name in table_to_step:
-                    duplicate_tables.append((table_name, step.line_number))
+                    existing_step = table_to_step[table_name]
+
+                    # Allow multiple LoadSteps on the same table (for different load modes)
+                    # but disallow:
+                    # 1. Multiple SQLBlockSteps creating the same table
+                    # 2. SQLBlockStep creating a table that LoadStep already created
+                    # 3. LoadStep creating a table that SQLBlockStep already created
+                    if isinstance(step, LoadStep) and isinstance(
+                        existing_step, LoadStep
+                    ):
+                        # Multiple LoadSteps on same table are allowed for load modes
+                        # Keep the first one in the mapping for dependency purposes
+                        continue
+                    else:
+                        # This is a true duplicate: different step types creating same table
+                        duplicate_tables.append((table_name, step.line_number))
                 else:
                     table_to_step[table_name] = step
+
         if duplicate_tables:
             error_msg = "Duplicate table definitions found:\n" + "".join(
                 f"  - Table '{table}' defined at line {line}, but already defined at line {getattr(table_to_step[table], 'line_number', 'unknown')}\n"

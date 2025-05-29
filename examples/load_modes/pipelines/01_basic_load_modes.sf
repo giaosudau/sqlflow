@@ -1,0 +1,37 @@
+-- Basic Load Modes Pipeline
+-- This pipeline demonstrates the three core load modes in SQLFlow:
+-- 1. REPLACE (default) - Creates or replaces a table
+-- 2. APPEND - Adds data to existing table
+-- 3. MERGE - Updates existing records and inserts new ones
+
+-- Step 1: Load initial users data using REPLACE mode (default)
+-- This creates the users_table with initial data
+SOURCE users_csv TYPE CSV PARAMS {
+  "path": "data/users.csv", 
+  "has_header": true
+};
+
+LOAD users_table FROM users_csv;
+
+-- Step 2: Load additional users using APPEND mode
+-- This adds new users to the existing users_table
+SOURCE new_users_csv TYPE CSV PARAMS {
+  "path": "data/new_users.csv",
+  "has_header": true
+};
+
+LOAD users_table FROM new_users_csv MODE APPEND;
+
+-- Step 3: Load user updates using MERGE mode
+-- This updates existing users (user_id 2, 4) and inserts new user (user_id 9)
+SOURCE users_updates_csv TYPE CSV PARAMS {
+  "path": "data/users_updates.csv",
+  "has_header": true
+};
+
+LOAD users_table FROM users_updates_csv MODE MERGE MERGE_KEYS (user_id);
+
+-- Export the final results to verify all load modes worked correctly
+EXPORT SELECT * FROM users_table
+TO "output/basic_load_modes_result.csv"
+TYPE CSV OPTIONS { "header": true }; 

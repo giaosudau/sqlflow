@@ -1,0 +1,32 @@
+-- Schema Compatibility Pipeline
+-- This pipeline demonstrates schema compatibility validation with different load modes
+-- Shows how SQLFlow handles compatible and incompatible schemas
+
+-- Step 1: Load users data with basic schema for testing
+SOURCE users_csv TYPE CSV PARAMS {
+  "path": "data/users.csv",
+  "has_header": true
+};
+
+LOAD users FROM users_csv MODE REPLACE;
+
+-- Step 2: Load additional users to test APPEND mode
+SOURCE new_users_csv TYPE CSV PARAMS {
+  "path": "data/new_users.csv", 
+  "has_header": true
+};
+
+LOAD users FROM new_users_csv MODE APPEND;
+
+-- Step 3: Load user updates to test MERGE mode
+SOURCE users_updates_csv TYPE CSV PARAMS {
+  "path": "data/users_updates.csv",
+  "has_header": true
+};
+
+LOAD users FROM users_updates_csv MODE MERGE MERGE_KEYS (user_id);
+
+-- Export results to verify schema compatibility worked correctly
+EXPORT SELECT * FROM users
+TO "output/schema_compatibility_result.csv"
+TYPE CSV OPTIONS { "header": true }; 

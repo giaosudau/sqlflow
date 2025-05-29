@@ -1,0 +1,5 @@
+product_id,warehouse_id,product_name,quantity,last_updated
+101,1,Laptop,20,2023-06-01
+102,1,Smartphone,45,2023-06-01
+101,2,Laptop,15,2023-06-01
+104,1,Monitor,12,2023-06-01 
