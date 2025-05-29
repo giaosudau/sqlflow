@@ -19,7 +19,6 @@ LOG_LEVELS = {
 TECHNICAL_MODULES = [
     "sqlflow.core.engines.duckdb_engine",
     "sqlflow.core.sql_generator",
-    "sqlflow.core.executors.local_executor",
     "sqlflow.core.storage.artifact_manager",
     "sqlflow.parser.parser",
     "sqlflow.core.planner",

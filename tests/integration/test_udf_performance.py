@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from sqlflow.core.engines.duckdb_engine import DuckDBEngine
+from sqlflow.core.engines.duckdb import DuckDBEngine
 from sqlflow.logging import get_logger
 from sqlflow.udfs.manager import PythonUDFManager
 

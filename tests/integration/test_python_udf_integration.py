@@ -3,11 +3,11 @@
 import os
 import tempfile
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Generator
 
 import pytest
 
-from sqlflow.core.engines.duckdb_engine import DuckDBEngine
+from sqlflow.core.engines.duckdb import DuckDBEngine
 from sqlflow.logging import get_logger
 from sqlflow.udfs.manager import PythonUDFManager
 
@@ -66,7 +66,7 @@ FROM source_data;
 
 
 @pytest.fixture
-def test_env() -> Dict[str, Any]:
+def test_env() -> Generator[Dict[str, Any], None, None]:
     """Create a test environment with UDFs and a pipeline."""
     with tempfile.TemporaryDirectory() as tmp_dir:
         # Set up directories
