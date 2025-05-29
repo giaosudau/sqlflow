@@ -1,0 +1,171 @@
+-- Nested Conditions Pipeline Example
+-- This example demonstrates using nested conditional blocks to handle
+-- complex decision trees based on multiple variables
+
+-- Define data sources
+SOURCE customers_source TYPE CSV PARAMS {
+  "path": "data/customers.csv",
+  "has_header": true
+};
+
+SOURCE sales_source TYPE CSV PARAMS {
+  "path": "data/sales.csv",
+  "has_header": true
+};
+
+-- Complex nested conditional logic based on environment and region
+IF ${env} == 'production' THEN
+    -- Production environment has different data processing per region
+    LOAD customers FROM customers_source;
+    LOAD sales FROM sales_source;
+    
+    IF ${region} == 'us-east' THEN
+        -- US East region processing
+        CREATE TABLE transformed_customers AS
+        SELECT
+            customer_id,
+            name,
+            email,
+            'US-East' as region,
+            signup_date,
+            account_type
+        FROM customers
+        WHERE region = 'us-east' AND account_type = 'premium';
+        
+    ELSE IF ${region} == 'us-west' THEN
+        -- US West region processing
+        CREATE TABLE transformed_customers AS
+        SELECT
+            customer_id,
+            name,
+            email,
+            'US-West' as region,
+            signup_date,
+            account_type
+        FROM customers
+        WHERE region = 'us-west' AND account_type = 'premium';
+        
+    ELSE IF ${region} == 'eu' THEN
+        -- EU region has GDPR considerations
+        CREATE TABLE transformed_customers AS
+        SELECT
+            customer_id,
+            name,
+            -- Only include email if GDPR consent given
+            CASE WHEN gdpr_consent = 'true' THEN email ELSE 'GDPR_PROTECTED' END as email,
+            'EU' as region,
+            signup_date,
+            account_type
+        FROM customers
+        WHERE region = 'eu';
+        
+    ELSE
+        -- Default region handling for production
+        CREATE TABLE transformed_customers AS
+        SELECT
+            customer_id,
+            name,
+            email,
+            'Other' as region,
+            signup_date,
+            account_type
+        FROM customers
+        WHERE region NOT IN ('us-east', 'us-west', 'eu');
+        
+    END IF;
+    
+    -- Additional production-specific processing across all regions
+    CREATE TABLE customer_metrics AS
+    SELECT
+        region,
+        COUNT(*) as customer_count,
+        COUNT(DISTINCT email) as unique_emails,
+        COUNT(CASE WHEN account_type = 'premium' THEN 1 END) as premium_customers
+    FROM transformed_customers
+    GROUP BY region;
+    
+ELSE IF ${env} == 'staging' THEN
+    -- Staging environment has simplified region handling
+    LOAD customers FROM customers_source;
+    
+    IF ${use_production_data|false} == 'true' THEN
+        -- Use recent data for staging
+        CREATE TABLE transformed_customers AS
+        SELECT
+            customer_id,
+            name,
+            email,
+            region,
+            signup_date,
+            account_type
+        FROM customers
+        WHERE signup_date > '2023-01-01';
+    ELSE
+        -- Use limited staging data
+        CREATE TABLE transformed_customers AS
+        SELECT
+            customer_id,
+            name,
+            email,
+            region,
+            signup_date,
+            account_type
+        FROM customers
+        LIMIT 100;
+    END IF;
+    
+    -- Simplified metrics for staging
+    CREATE TABLE customer_metrics AS
+    SELECT
+        region,
+        COUNT(*) as customer_count
+    FROM transformed_customers
+    GROUP BY region;
+    
+ELSE
+    -- Development environment
+    LOAD customers FROM customers_source;
+    
+    IF ${use_sample_data|true} == 'true' THEN
+        -- Use small sample for development
+        CREATE TABLE transformed_customers AS
+        SELECT * FROM customers LIMIT 10;
+    ELSE
+        -- Use slightly larger dev set
+        CREATE TABLE transformed_customers AS
+        SELECT * FROM customers LIMIT 50;
+    END IF;
+    
+    -- Development metrics are minimal
+    CREATE TABLE customer_metrics AS
+    SELECT
+        COUNT(*) as customer_count,
+        COUNT(DISTINCT region) as region_count
+    FROM transformed_customers;
+END IF;
+
+-- Final export varies by environment but not nested
+IF ${env} == 'production' THEN
+    -- Production exports with detailed breakdown
+    EXPORT SELECT * FROM customer_metrics
+    TO "output/production/customer_metrics_${env}_${region|global}.csv"
+    TYPE CSV
+    OPTIONS {
+        "header": true
+    };
+    
+    EXPORT SELECT * FROM transformed_customers
+    TO "output/production/transformed_customers_${env}_${region|global}.csv"
+    TYPE CSV
+    OPTIONS {
+        "header": true
+    };
+ELSE
+    -- Non-production exports to environment-specific folders
+    EXPORT SELECT * FROM customer_metrics
+    TO "output/${env}/customer_metrics.csv"
+    TYPE CSV
+    OPTIONS {
+        "header": true
+    };
+END IF; 

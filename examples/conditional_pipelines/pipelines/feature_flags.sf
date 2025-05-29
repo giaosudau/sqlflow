@@ -1,0 +1,149 @@
+-- Feature Flag Pipeline Example
+-- This example demonstrates using conditionals as feature flags
+-- to enable/disable certain pipeline features or behaviors
+
+-- Define data sources
+SOURCE customers_source TYPE CSV PARAMS {
+  "path": "data/customers.csv",
+  "has_header": true
+};
+
+SOURCE sales_source TYPE CSV PARAMS {
+  "path": "data/sales.csv",
+  "has_header": true
+};
+
+-- Load base data
+LOAD customers FROM customers_source;
+LOAD sales FROM sales_source;
+
+-- Base user cleaning transformation
+CREATE TABLE cleaned_users AS
+SELECT
+    customer_id,
+    name,
+    email,
+    region,
+    COALESCE(account_type, 'unknown') as account_type,
+    signup_date
+FROM customers
+WHERE customer_id IS NOT NULL;
+
+-- Enable additional data enrichment if feature flag is enabled
+IF ${enable_enrichment|false} == 'true' THEN
+    -- Create enriched view with sales data
+    CREATE TABLE enriched_users AS
+    SELECT
+        c.customer_id,
+        c.name,
+        c.email,
+        c.region,
+        c.account_type,
+        c.signup_date,
+        COUNT(s.order_id) as order_count,
+        COALESCE(SUM(s.quantity * s.price), 0) as total_spent,
+        MAX(s.order_date) as last_order_date
+    FROM cleaned_users c
+    LEFT JOIN sales s ON c.customer_id = s.customer_id
+    GROUP BY c.customer_id, c.name, c.email, c.region, c.account_type, c.signup_date;
+ELSE
+    -- Without enrichment, just rename the table for consistent downstream reference
+    CREATE TABLE enriched_users AS
+    SELECT 
+        customer_id,
+        name,
+        email,
+        region,
+        account_type,
+        signup_date,
+        0 as order_count,
+        0 as total_spent,
+        NULL as last_order_date
+    FROM cleaned_users;
+END IF;
+
+-- Enable address verification if that feature flag is on
+IF ${enable_address_verification|false} == 'true' THEN
+    -- Add region-based address verification status
+    CREATE TABLE users_with_addresses AS
+    SELECT
+        *,
+        CASE 
+            WHEN region IN ('us-east', 'us-west') THEN 'verified'
+            WHEN region = 'eu' THEN 'gdpr_compliant'
+            ELSE 'pending'
+        END as address_verified
+    FROM enriched_users;
+ELSE
+    -- Without address verification, just use the enriched users
+    CREATE TABLE users_with_addresses AS
+    SELECT *, 'not_verified' as address_verified
+    FROM enriched_users;
+END IF;
+
+-- Apply different segmentation strategies based on the segmentation model flag
+IF ${segmentation_model|basic} == 'advanced' THEN
+    -- Advanced segmentation with spending and recency analysis
+    CREATE TABLE user_segments AS
+    SELECT
+        customer_id,
+        name,
+        email,
+        region,
+        account_type,
+        CASE
+            WHEN total_spent > 1000 AND order_count > 10 THEN 'vip'
+            WHEN total_spent > 500 AND order_count > 5 THEN 'active'
+            WHEN total_spent > 100 AND order_count > 1 THEN 'casual'
+            ELSE 'dormant'
+        END as segment,
+        order_count,
+        total_spent,
+        last_order_date
+    FROM users_with_addresses;
+ELSE
+    -- Basic segmentation model just uses account type
+    CREATE TABLE user_segments AS
+    SELECT
+        customer_id,
+        name,
+        email,
+        region,
+        account_type,
+        CASE
+            WHEN account_type = 'premium' THEN 'active'
+            ELSE 'inactive'
+        END as segment,
+        order_count,
+        total_spent,
+        last_order_date
+    FROM users_with_addresses;
+END IF;
+
+-- Export to different destinations based on the enable_export_* flags
+IF ${enable_export_csv|true} == 'true' THEN
+    EXPORT SELECT * FROM user_segments
+    TO "output/user_segments.csv"
+    TYPE CSV
+    OPTIONS {
+        "header": true
+    };
+END IF;
+
+IF ${enable_export_json|false} == 'true' THEN
+    EXPORT SELECT * FROM user_segments
+    TO "output/user_segments.json"
+    TYPE JSON
+    OPTIONS {
+        "header": true
+    };
+END IF;
+
+IF ${enable_export_warehouse|false} == 'true' THEN
+    EXPORT SELECT * FROM user_segments
+    TO "output/warehouse/user_segments_${segmentation_model|basic}.csv"
+    TYPE CSV
+    OPTIONS {
+        "header": true
+    };
+END IF; 

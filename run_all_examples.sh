@@ -1,0 +1,119 @@
+#!/bin/bash
+
+# SQLFlow Examples Test Runner
+# This script runs all example demo scripts to ensure they work correctly
+# Used by pre-commit hooks and for testing
+
+set -e  # Exit immediately if any command fails
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+print_status() {
+    echo -e "${BLUE}[INFO]${NC} $1"
+}
+
+print_success() {
+    echo -e "${GREEN}[SUCCESS]${NC} $1"
+}
+
+print_error() {
+    echo -e "${RED}[ERROR]${NC} $1"
+}
+
+print_warning() {
+    echo -e "${YELLOW}[WARNING]${NC} $1"
+}
+
+# Get the absolute path to the repository root
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$REPO_ROOT"
+
+print_status "🚀 Running all SQLFlow example demo scripts..."
+print_status "📂 Repository root: $REPO_ROOT"
+echo ""
+
+# Check if SQLFlow is available
+SQLFLOW_PATH="$REPO_ROOT/.venv/bin/sqlflow"
+if [ ! -f "$SQLFLOW_PATH" ]; then
+    print_error "SQLFlow not found at $SQLFLOW_PATH"
+    print_error "Please ensure SQLFlow is installed and the path is correct"
+    exit 1
+fi
+print_success "✅ SQLFlow found at $SQLFLOW_PATH"
+echo ""
+
+# Find all run.sh scripts in examples directories
+EXAMPLE_SCRIPTS=($(find examples -name "run.sh" -type f | sort))
+
+if [ ${#EXAMPLE_SCRIPTS[@]} -eq 0 ]; then
+    print_warning "No run.sh scripts found in examples directories"
+    exit 0
+fi
+
+print_status "📋 Found ${#EXAMPLE_SCRIPTS[@]} example scripts:"
+for script in "${EXAMPLE_SCRIPTS[@]}"; do
+    echo "  - $script"
+done
+echo ""
+
+# Run each script with timeout
+FAILED_SCRIPTS=()
+SUCCESSFUL_SCRIPTS=()
+
+for script in "${EXAMPLE_SCRIPTS[@]}"; do
+    script_dir="$(dirname "$script")"
+    script_name="$(basename "$script")"
+    
+    print_status "🏃 Running $script..."
+    
+    # Change to script directory and run
+    cd "$REPO_ROOT/$script_dir"
+    
+    if timeout 120 "./$script_name" > /dev/null 2>&1; then
+        print_success "✅ Success: $script"
+        SUCCESSFUL_SCRIPTS+=("$script")
+    else
+        print_error "❌ Failed: $script"
+        FAILED_SCRIPTS+=("$script")
+        # Don't exit immediately, continue with other scripts for debugging
+    fi
+    
+    # Return to repo root for next iteration
+    cd "$REPO_ROOT"
+    echo ""
+done
+
+# Summary
+echo "========================================"
+echo "📊 Example Scripts Test Summary"
+echo "========================================"
+echo ""
+print_status "✅ Successful: ${#SUCCESSFUL_SCRIPTS[@]}"
+for script in "${SUCCESSFUL_SCRIPTS[@]}"; do
+    echo "  - $script"
+done
+echo ""
+
+if [ ${#FAILED_SCRIPTS[@]} -gt 0 ]; then
+    print_error "❌ Failed: ${#FAILED_SCRIPTS[@]}"
+    for script in "${FAILED_SCRIPTS[@]}"; do
+        echo "  - $script"
+    done
+    echo ""
+    print_error "Some example scripts failed. Please check the logs above."
+    exit 1
+else
+    print_success "🎉 All example scripts completed successfully!"
+    echo ""
+    echo "What was tested:"
+    echo "  ✅ Load modes demonstrations"
+    echo "  ✅ Conditional pipelines with various scenarios"  
+    echo "  ✅ Python UDF showcases and examples"
+    echo ""
+    echo "All example demos are working correctly! 🚀"
+fi 

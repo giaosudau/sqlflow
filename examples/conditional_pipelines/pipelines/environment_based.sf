@@ -1,0 +1,141 @@
+-- Environment-based Pipeline Example
+-- This example demonstrates using conditionals to adapt pipeline behavior
+-- based on the environment (production, staging, development)
+
+-- Define data sources
+SOURCE customers_source TYPE CSV PARAMS {
+  "path": "data/customers.csv",
+  "has_header": true
+};
+
+SOURCE sales_source TYPE CSV PARAMS {
+  "path": "data/sales.csv",
+  "has_header": true
+};
+
+-- Use different data loading strategies based on environment
+IF ${env} == 'production' THEN
+    -- In production, load all data
+    LOAD customers FROM customers_source;
+    LOAD sales FROM sales_source;
+    
+    -- Apply stricter filtering in production
+    CREATE TABLE filtered_users AS
+    SELECT 
+        customer_id,
+        name,
+        email,
+        region,
+        signup_date,
+        account_type
+    FROM customers
+    WHERE 
+        email IS NOT NULL 
+        AND account_type = 'premium'
+        AND signup_date > '2021-01-01';
+        
+ELSE IF ${env} == 'staging' THEN
+    -- In staging, load all data but apply different filters
+    LOAD customers FROM customers_source;
+    LOAD sales FROM sales_source;
+    
+    -- Apply looser filtering for staging testing
+    CREATE TABLE filtered_users AS
+    SELECT 
+        customer_id,
+        name,
+        email,
+        region,
+        signup_date,
+        account_type
+    FROM customers
+    WHERE email IS NOT NULL;
+    
+ELSE
+    -- In development, create a small sample
+    LOAD customers_raw FROM customers_source;
+    LOAD sales_raw FROM sales_source;
+    
+    -- Create development samples
+    CREATE TABLE customers AS
+    SELECT * FROM customers_raw LIMIT 5;
+    
+    CREATE TABLE sales AS
+    SELECT * FROM sales_raw LIMIT 10;
+    
+    -- Apply minimal filtering for development
+    CREATE TABLE filtered_users AS
+    SELECT 
+        customer_id,
+        name,
+        email,
+        region,
+        signup_date,
+        account_type
+    FROM customers
+    WHERE email IS NOT NULL;
+END IF;
+
+-- Create reports with different levels of aggregation based on environment
+IF ${env} == 'production' THEN
+    -- Comprehensive stats for production
+    CREATE TABLE user_stats AS
+    SELECT
+        COUNT(*) as total_users,
+        COUNT(DISTINCT region) as region_count,
+        MIN(signup_date) as oldest_signup,
+        MAX(signup_date) as newest_signup,
+        COUNT(CASE WHEN account_type = 'premium' THEN 1 END) as premium_users,
+        COUNT(CASE WHEN account_type = 'standard' THEN 1 END) as standard_users
+    FROM filtered_users;
+ELSE
+    -- Simplified stats for non-production
+    CREATE TABLE user_stats AS
+    SELECT
+        COUNT(*) as total_users,
+        COUNT(DISTINCT region) as region_count,
+        MIN(signup_date) as oldest_signup,
+        MAX(signup_date) as newest_signup
+    FROM filtered_users;
+END IF;
+
+-- Use different export strategies based on environment
+IF ${env} == 'production' THEN
+    -- Production exports with detailed naming
+    EXPORT SELECT * FROM user_stats
+    TO "output/production/user_stats_${env}.csv"
+    TYPE CSV
+    OPTIONS {
+        "header": true
+    };
+    
+    EXPORT SELECT * FROM filtered_users
+    TO "output/production/filtered_users_${env}.csv"
+    TYPE CSV
+    OPTIONS {
+        "header": true
+    };
+ELSE IF ${env} == 'staging' THEN
+    -- Staging exports
+    EXPORT SELECT * FROM user_stats
+    TO "output/staging/user_stats_${env}.csv"
+    TYPE CSV
+    OPTIONS {
+        "header": true
+    };
+ELSE
+    -- Development exports
+    EXPORT SELECT * FROM user_stats
+    TO "output/dev/user_stats_${env}.csv"
+    TYPE CSV
+    OPTIONS {
+        "header": true
+    };
+    
+    EXPORT SELECT * FROM filtered_users
+    TO "output/dev/filtered_users_${env}.csv"
+    TYPE CSV
+    OPTIONS {
+        "header": true
+    };
+END IF; 

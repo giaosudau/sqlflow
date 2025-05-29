@@ -57,3 +57,12 @@ repos:
         ]
         pass_filenames: false
         require_serial: true
+
+    -   id: examples-demo-scripts
+        name: Run example demo scripts
+        entry: ./run_all_examples.sh
+        language: system
+        pass_filenames: false
+        files: '^examples/.*\.(sf|py|csv|yml|yaml|sh)$'
+        require_serial: true
+        verbose: true
