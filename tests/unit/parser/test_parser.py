@@ -71,7 +71,7 @@ class TestParser:
         };"""
 
         parser = Parser(text)
-        pipeline = parser.parse()
+        pipeline = parser.parse(validate=False)
 
         assert len(pipeline.steps) == 1
         assert isinstance(pipeline.steps[0], SourceDefinitionStep)
@@ -90,7 +90,7 @@ class TestParser:
         text = """LOAD users_table FROM users;"""
 
         parser = Parser(text)
-        pipeline = parser.parse()
+        pipeline = parser.parse(validate=False)
 
         assert len(pipeline.steps) == 1
         assert isinstance(pipeline.steps[0], LoadStep)
@@ -112,7 +112,7 @@ class TestParser:
         };"""
 
         parser = Parser(text)
-        pipeline = parser.parse()
+        pipeline = parser.parse(validate=False)
 
         assert len(pipeline.steps) == 2
         assert isinstance(pipeline.steps[0], SourceDefinitionStep)
@@ -143,7 +143,7 @@ class TestParser:
         LOAD users_table FROM users;"""
 
         parser = Parser(text)
-        pipeline = parser.parse()
+        pipeline = parser.parse(validate=False)
 
         assert len(pipeline.steps) == 2
         assert isinstance(pipeline.steps[0], SourceDefinitionStep)
@@ -165,7 +165,7 @@ class TestParser:
 
         parser = Parser(text)
         with pytest.raises(ParserError) as excinfo:
-            parser.parse()
+            parser.parse(validate=False)
 
         assert "Expected ';' after SOURCE statement" in str(excinfo.value)
 
@@ -175,7 +175,7 @@ class TestParser:
 
         parser = Parser(text)
         with pytest.raises(ParserError) as excinfo:
-            parser.parse()
+            parser.parse(validate=False)
 
         assert "Expected ';' after LOAD statement" in str(excinfo.value)
 
@@ -185,7 +185,7 @@ class TestParser:
 
         parser = Parser(text)
         with pytest.raises(ParserError) as excinfo:
-            parser.parse()
+            parser.parse(validate=False)
 
         assert "Expected 'FROM' after table name" in str(excinfo.value)
 
@@ -198,7 +198,7 @@ class TestParser:
 
         parser = Parser(text)
         with pytest.raises(ParserError) as excinfo:
-            parser.parse()
+            parser.parse(validate=False)
 
         error_message = str(excinfo.value)
         assert "Expected FROM or TYPE after source name" in error_message
@@ -209,7 +209,7 @@ class TestParser:
 
         parser = Parser(text)
         with pytest.raises(ParserError) as excinfo:
-            parser.parse()
+            parser.parse(validate=False)
 
         assert "Expected 'PARAMS' after connector type" in str(excinfo.value)
 
@@ -223,7 +223,7 @@ class TestParser:
 
         parser = Parser(text)
         with pytest.raises(ParserError) as excinfo:
-            parser.parse()
+            parser.parse(validate=False)
 
         error_message = str(excinfo.value)
         assert (
@@ -334,7 +334,7 @@ class TestParser:
         };"""
 
         parser = Parser(text)
-        pipeline = parser.parse()
+        pipeline = parser.parse(validate=False)
 
         assert len(pipeline.steps) == 1
         assert isinstance(pipeline.steps[0], ExportStep)
@@ -355,7 +355,7 @@ class TestParser:
 
         parser = Parser(text)
         with pytest.raises(ParserError) as excinfo:
-            parser.parse()
+            parser.parse(validate=False)
 
         assert "Expected 'OPTIONS' after connector type" in str(excinfo.value)
 
@@ -371,7 +371,7 @@ class TestParser:
 
         parser = Parser(text)
         with pytest.raises(ParserError) as excinfo:
-            parser.parse()
+            parser.parse(validate=False)
 
         assert "Expected 'TYPE' after destination URI" in str(excinfo.value)
 
@@ -388,7 +388,7 @@ class TestParser:
 
         parser = Parser(text)
         with pytest.raises(ParserError) as excinfo:
-            parser.parse()
+            parser.parse(validate=False)
 
         assert "Expected 'TO' after SQL query" in str(excinfo.value)
 
@@ -406,7 +406,7 @@ class TestParser:
 
         parser = Parser(text)
         with pytest.raises(ParserError) as excinfo:
-            parser.parse()
+            parser.parse(validate=False)
 
         error_message = str(excinfo.value)
         assert (
@@ -470,7 +470,7 @@ class TestParser:
 
         parser = Parser(text)
         with pytest.raises(ParserError) as excinfo:
-            parser.parse()
+            parser.parse(validate=False)
 
         assert "Cannot mix FROM and TYPE keywords" in str(excinfo.value)
 
@@ -481,7 +481,7 @@ class TestParser:
 
         parser = Parser(text)
         with pytest.raises(ParserError) as excinfo:
-            parser.parse()
+            parser.parse(validate=False)
 
         assert "Cannot mix TYPE and FROM keywords" in str(excinfo.value)
 
@@ -492,7 +492,7 @@ class TestParser:
 
         parser = Parser(text)
         with pytest.raises(ParserError) as excinfo:
-            parser.parse()
+            parser.parse(validate=False)
 
         assert "Expected 'OPTIONS' after connector name" in str(excinfo.value)
 
@@ -503,7 +503,7 @@ class TestParser:
 
         parser = Parser(text)
         with pytest.raises(ParserError) as excinfo:
-            parser.parse()
+            parser.parse(validate=False)
 
         assert "Expected 'PARAMS' after connector type" in str(excinfo.value)
 
@@ -514,7 +514,7 @@ class TestParser:
 
         parser = Parser(text)
         with pytest.raises(ParserError) as excinfo:
-            parser.parse()
+            parser.parse(validate=False)
 
         assert "Cannot use OPTIONS with TYPE-based syntax" in str(excinfo.value)
 
@@ -525,6 +525,6 @@ class TestParser:
 
         parser = Parser(text)
         with pytest.raises(ParserError) as excinfo:
-            parser.parse()
+            parser.parse(validate=False)
 
         assert "Expected 'OPTIONS' after connector name" in str(excinfo.value)

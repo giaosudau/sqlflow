@@ -109,7 +109,7 @@ CSV_SCHEMA = ConnectorSchema(
     description="CSV file connector for reading/writing CSV files",
     fields=[
         FieldSchema(
-            name="file",
+            name="path",
             required=True,
             field_type="string",
             description="Path to the CSV file",
@@ -123,7 +123,7 @@ CSV_SCHEMA = ConnectorSchema(
             allowed_values=[",", ";", "\t", "|"],
         ),
         FieldSchema(
-            name="header",
+            name="has_header",
             required=False,
             field_type="boolean",
             description="Whether the first row contains column headers",

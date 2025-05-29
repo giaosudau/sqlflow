@@ -150,16 +150,18 @@ class Parser:
         ]
         return "\n".join(error_messages)
 
-    def parse(self, text: Optional[str] = None) -> Pipeline:
+    def parse(self, text: Optional[str] = None, validate: bool = True) -> Pipeline:
         """Parse the input text into a Pipeline AST.
 
         Args:
             text: The input text to parse (optional if provided in constructor)
+            validate: Whether to run validation after parsing (default: True)
 
         Returns:
             Pipeline AST
 
         Raises:
+            ValidationError: If the pipeline has validation errors and validate=True
             ParserError: If the input text cannot be parsed
             ValueError: If no text is provided
         """
@@ -181,10 +183,46 @@ class Parser:
             logger.debug(f"Parsing failed: {len(parsing_errors)} errors found")
             raise ParserError(f"Multiple errors found:\n{error_message}", 0, 0)
 
+        # Validate the parsed pipeline if requested
+        if validate:
+            validation_errors = self._validate_pipeline()
+            if validation_errors:
+                # Raise the first validation error (they all have proper formatting)
+                logger.debug(
+                    f"Validation failed: {len(validation_errors)} errors found"
+                )
+                raise validation_errors[0]
+
         logger.info(
-            f"Successfully parsed pipeline with {len(self.pipeline.steps)} steps"
+            f"Successfully parsed {'and validated ' if validate else ''}pipeline with {len(self.pipeline.steps)} steps"
         )
         return self.pipeline
+
+    def _validate_pipeline(self) -> List:
+        """Validate the parsed pipeline using the validation module.
+
+        Returns:
+            List of ValidationError objects, empty if valid
+        """
+        try:
+            from sqlflow.validation import ValidationError, validate_pipeline
+
+            return validate_pipeline(self.pipeline)
+        except Exception as e:
+            logger.error(f"Validation error: {str(e)}")
+            # Return a basic error if validation module fails
+            from sqlflow.validation import ValidationError
+
+            return [
+                ValidationError(
+                    message=f"Validation failed: {str(e)}",
+                    line=1,
+                    column=0,
+                    error_type="validation_error",
+                    suggestions=["Check the pipeline syntax"],
+                    help_url="",
+                )
+            ]
 
     def _parse_statement(self) -> Optional[PipelineStep]:
         """Parse a statement in the SQLFlow DSL.

@@ -5,7 +5,7 @@ from typing import List, Optional
 
 
 @dataclass
-class ValidationError:
+class ValidationError(Exception):
     """Immutable validation error with precise location.
 
     Provides clear, actionable error messages with precise location information
