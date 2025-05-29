@@ -39,6 +39,12 @@ Documentation for developers contributing to SQLFlow:
 - [Architecture Overview](developer/architecture.md) - System architecture and design
 - [Code Organization](developer/code_organization.md) - How the codebase is organized
 
+### Technical Design
+
+- [CREATE TABLE AS MODE Design](developer/technical/implementation/create_table_as_mode_design.md) - Technical design for extending CREATE TABLE AS with MODE parameter support
+- [Incremental Loading Implementation](developer/technical/incremental_loading_implementation.md) - Technical implementation guide for incremental loading capabilities
+- [DAG Planner & Executor](developer/technical/dag_planner_executor.md) - Architecture of the DAG planning and execution system
+
 ### Extending SQLFlow
 
 - [Creating Connectors](developer/extending/connectors.md) - How to create new connectors

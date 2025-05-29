@@ -4,6 +4,7 @@ from typing import Any, Dict
 
 DEFAULT_LOG_LEVEL = logging.INFO
 DEFAULT_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+USER_FRIENDLY_FORMAT = "%(message)s"
 
 # Map string log levels to logging constants
 LOG_LEVELS = {
@@ -23,6 +24,17 @@ TECHNICAL_MODULES = [
     "sqlflow.parser.parser",
     "sqlflow.core.planner",
     "sqlflow.udfs.manager",
+    "sqlflow.udfs.udf_patch",
+    "sqlflow.udfs.enhanced_manager",
+    "sqlflow.project",
+    "sqlflow.core.engines",
+]
+
+# Modules that should be completely hidden from users unless in verbose mode
+NOISY_MODULES = [
+    "sqlflow.udfs.udf_patch",
+    "sqlflow.udfs.enhanced_manager",
+    "sqlflow.project",
 ]
 
 
@@ -60,14 +72,40 @@ def configure_logging(
         verbose: Whether to enable verbose mode (shows all debug logs)
         quiet: Whether to enable quiet mode (only shows warnings and errors)
     """
-    # Determine the root logging level based on flags
-    if quiet:
-        root_level = logging.WARNING  # Only warnings and errors
-    elif verbose:
-        root_level = logging.DEBUG  # All debug logs
-    else:
-        root_level = logging.INFO  # Default level - information messages
+    root_level = _determine_root_log_level(quiet, verbose)
+    handler = _setup_root_logger(root_level, verbose)
+    _configure_noisy_modules(verbose, handler)
+    _configure_technical_modules(verbose, handler)
 
+
+def _determine_root_log_level(quiet: bool, verbose: bool) -> int:
+    """Determine the appropriate root logging level based on flags.
+
+    Args:
+        quiet: Whether quiet mode is enabled
+        verbose: Whether verbose mode is enabled
+
+    Returns:
+        Appropriate logging level constant
+    """
+    if quiet:
+        return logging.WARNING  # Only warnings and errors
+    elif verbose:
+        return logging.DEBUG  # All debug logs
+    else:
+        return logging.INFO  # Default level - information messages
+
+
+def _setup_root_logger(root_level: int, verbose: bool) -> logging.Handler:
+    """Setup the root logger with appropriate level and handler.
+
+    Args:
+        root_level: The logging level to set
+        verbose: Whether verbose mode is enabled
+
+    Returns:
+        The configured handler for reuse by other loggers
+    """
     # Configure the root logger
     root_logger = logging.getLogger()
     root_logger.setLevel(root_level)
@@ -76,14 +114,61 @@ def configure_logging(
     for handler in root_logger.handlers[:]:
         root_logger.removeHandler(handler)
 
-    # Add a single handler
+    # Add a single handler with appropriate format
     handler = logging.StreamHandler(sys.stdout)
-    formatter = logging.Formatter(DEFAULT_FORMAT)
+    formatter = _create_formatter(verbose)
     handler.setFormatter(formatter)
     root_logger.addHandler(handler)
 
-    # Set specific levels for technical modules
+    return handler
+
+
+def _create_formatter(verbose: bool) -> logging.Formatter:
+    """Create the appropriate formatter based on mode.
+
+    Args:
+        verbose: Whether verbose mode is enabled
+
+    Returns:
+        Configured logging formatter
+    """
+    if verbose:
+        # Technical format for verbose mode
+        return logging.Formatter(DEFAULT_FORMAT)
+    else:
+        # Clean format for normal users
+        return logging.Formatter(USER_FRIENDLY_FORMAT)
+
+
+def _configure_noisy_modules(verbose: bool, handler: logging.Handler) -> None:
+    """Configure noisy modules that should be suppressed unless verbose.
+
+    Args:
+        verbose: Whether verbose mode is enabled
+        handler: The logging handler to use
+    """
+    for module_name in NOISY_MODULES:
+        module_logger = logging.getLogger(module_name)
+
+        if verbose:
+            module_logger.setLevel(logging.DEBUG)
+        else:
+            module_logger.setLevel(logging.CRITICAL)  # Effectively silent
+
+        _ensure_logger_handler(module_logger, handler)
+
+
+def _configure_technical_modules(verbose: bool, handler: logging.Handler) -> None:
+    """Configure technical modules with appropriate log levels.
+
+    Args:
+        verbose: Whether verbose mode is enabled
+        handler: The logging handler to use
+    """
     for module_name in TECHNICAL_MODULES:
+        if module_name in NOISY_MODULES:
+            continue  # Already handled by _configure_noisy_modules
+
         module_logger = logging.getLogger(module_name)
 
         # In verbose mode, show all logs from technical modules
@@ -93,10 +178,19 @@ def configure_logging(
         else:
             module_logger.setLevel(logging.WARNING)
 
-        # Add a handler if there isn't one already
-        if not module_logger.handlers:
-            module_logger.addHandler(handler)
-            module_logger.propagate = False
+        _ensure_logger_handler(module_logger, handler)
+
+
+def _ensure_logger_handler(logger: logging.Logger, handler: logging.Handler) -> None:
+    """Ensure a logger has the appropriate handler and propagation settings.
+
+    Args:
+        logger: The logger to configure
+        handler: The handler to add if needed
+    """
+    if not logger.handlers:
+        logger.addHandler(handler)
+        logger.propagate = False
 
 
 def suppress_third_party_loggers():

@@ -19,8 +19,10 @@ def local_executor():
     # Mock generate_load_sql method
     executor.duckdb_engine.generate_load_sql = MagicMock(return_value="MOCK SQL")
 
-    # Mock execute_query method
-    executor.duckdb_engine.execute_query = MagicMock()
+    # Mock execute_query method with proper return value for fetchone()
+    mock_result = MagicMock()
+    mock_result.fetchone.return_value = [100]  # Mock row count of 100
+    executor.duckdb_engine.execute_query = MagicMock(return_value=mock_result)
 
     # Mock table_exists and get_table_schema to avoid database calls
     executor.duckdb_engine.table_exists = MagicMock(return_value=True)

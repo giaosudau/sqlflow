@@ -27,7 +27,7 @@ class Project:
         # Configure logging based on profile settings
         self._configure_logging_from_profile()
 
-        logger.info(f"Loaded profile: {profile_name}")
+        logger.debug(f"Loaded profile: {profile_name}")
 
     def _load_profile(self, profile_name: str) -> Dict[str, Any]:
         """Load profile configuration from profiles directory.
@@ -39,13 +39,13 @@ class Project:
         """
         profiles_dir = os.path.join(self.project_dir, "profiles")
         profile_path = os.path.join(profiles_dir, f"{profile_name}.yml")
-        logger.info(f"Loading profile from: {profile_path}")
+        logger.debug(f"Loading profile from: {profile_path}")
         if not os.path.exists(profile_path):
             logger.warning(f"Profile not found at {profile_path}")
             return {}
         with open(profile_path, "r") as f:
             profile = yaml.safe_load(f)
-            logger.info(f"Loaded profile configuration: {profile}")
+            logger.debug(f"Loaded profile configuration: {profile}")
             return profile or {}
 
     def _configure_logging_from_profile(self) -> None:
@@ -115,12 +115,11 @@ class Project:
         logger.debug(
             f"Initializing new project at {project_dir} with name {project_name}"
         )
+        # Only create directories for implemented features
         os.makedirs(os.path.join(project_dir, "pipelines"), exist_ok=True)
-        os.makedirs(os.path.join(project_dir, "models"), exist_ok=True)
-        os.makedirs(os.path.join(project_dir, "macros"), exist_ok=True)
-        os.makedirs(os.path.join(project_dir, "connectors"), exist_ok=True)
         os.makedirs(os.path.join(project_dir, "profiles"), exist_ok=True)
-        os.makedirs(os.path.join(project_dir, "tests"), exist_ok=True)
+        # Create data directory for input files
+        os.makedirs(os.path.join(project_dir, "data"), exist_ok=True)
 
         # Only create a default profile, not sqlflow.yml
         default_profile = {

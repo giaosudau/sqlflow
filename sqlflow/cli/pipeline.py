@@ -263,16 +263,22 @@ def _do_compile_single_pipeline(
         auto_output_path = os.path.join(target_dir, f"{name_without_ext}.json")
         final_output_path = output_override or auto_output_path
 
+        # Display compilation start with consistent formatting
+        typer.echo(f"📝 Compiling {pipeline_name}")
+        typer.echo(f"Pipeline: {pipeline_path}")
+
+        if variables:
+            typer.echo(f"With variables: {json.dumps(variables, indent=2)}")
+
         operations = _compile_pipeline_to_plan(
             pipeline_path, final_output_path, variables
         )
 
-        # Print the operation IDs to stdout for testing
-        for op in operations:
-            typer.echo(f"{op['id']} ({op['type']})")
+        # Display compilation summary with better formatting
+        _print_compilation_summary(operations, final_output_path)
 
-        if variables:  # Log applied variables only once after successful compilation
-            typer.echo(f"Applied variables: {json.dumps(variables, indent=2)}")
+        if variables:
+            typer.echo(f"\n📋 Applied variables: {json.dumps(variables, indent=2)}")
 
     except FileNotFoundError as e:
         # Keep simple error for file not found
@@ -292,8 +298,43 @@ def _do_compile_single_pipeline(
         error_msg = str(e)
         if " at line" in error_msg:
             error_msg = error_msg.split(" at line")[0].strip()
-        typer.echo(f"Error compiling pipeline {pipeline_name}: {error_msg}")
+        typer.echo(f"❌ Error compiling pipeline {pipeline_name}: {error_msg}")
         raise typer.Exit(code=1)
+
+
+def _print_compilation_summary(
+    operations: List[Dict[str, Any]], output_path: str
+) -> None:
+    """Print a user-friendly compilation summary.
+
+    Args:
+        operations: List of operations in the compiled plan
+        output_path: Path where the execution plan was saved
+    """
+    # Count operations by type
+    operation_counts = {}
+    for op in operations:
+        op_type = op.get("type", "unknown")
+        operation_counts[op_type] = operation_counts.get(op_type, 0) + 1
+
+    # Print summary header
+    typer.echo(f"\n✅ Compilation successful!")
+    typer.echo(f"📄 Execution plan: {output_path}")
+    typer.echo(f"🔢 Total operations: {len(operations)}")
+
+    # Print operations by type with counts
+    typer.echo("\n📋 Operations by type:")
+    for op_type, count in sorted(operation_counts.items()):
+        typer.echo(f"  • {op_type}: {count}")
+
+    # Print operation list in a more readable format
+    typer.echo("\n🔗 Execution order:")
+    for i, op in enumerate(operations, 1):
+        op_id = op.get("id", "unknown")
+        op_type = op.get("type", "unknown")
+        typer.echo(f"  {i:2d}. {op_id} ({op_type})")
+
+    typer.echo(f"\n💾 Plan saved to: {output_path}")
 
 
 def _do_compile_all_pipelines(
@@ -301,34 +342,53 @@ def _do_compile_all_pipelines(
 ):
     """Compiles all .sf pipelines in the specified directory."""
     if not os.path.exists(pipelines_dir):
-        typer.echo(f"Pipelines directory '{pipelines_dir}' not found.")
+        typer.echo(f"❌ Pipelines directory '{pipelines_dir}' not found.")
         raise typer.Exit(code=1)
 
     pipeline_files = [f for f in os.listdir(pipelines_dir) if f.endswith(".sf")]
 
     if not pipeline_files:
-        typer.echo(f"No pipeline files found in '{pipelines_dir}'.")
+        typer.echo(f"❌ No pipeline files found in '{pipelines_dir}'.")
         # Consider if this should be an error or just a silent return.
         # For now, exiting as it implies a misconfiguration or empty project.
         raise typer.Exit(code=1)
 
-    typer.echo(
-        f"Found {len(pipeline_files)} pipeline(s) in '{pipelines_dir}'. Compiling all..."
-    )
+    # Show initial summary
+    typer.echo(f"📝 Compiling {len(pipeline_files)} pipeline(s) from '{pipelines_dir}'")
+    if variables:
+        typer.echo(f"With variables: {json.dumps(variables, indent=2)}")
+    typer.echo()
+
     compiled_count = 0
     error_count = 0
 
-    for file_name in pipeline_files:
+    # Track all operations for final summary
+    total_operations = 0
+    all_operation_types = {}
+
+    for i, file_name in enumerate(pipeline_files, 1):
         pipeline_path = os.path.join(pipelines_dir, file_name)
         name_without_ext = file_name[:-3]
         auto_output_path = os.path.join(target_dir, f"{name_without_ext}.json")
+
         try:
-            typer.echo(f"Compiling {file_name}...")
-            _compile_pipeline_to_plan(pipeline_path, auto_output_path, variables)
+            typer.echo(f"  📄 [{i}/{len(pipeline_files)}] {file_name}")
+            operations = _compile_pipeline_to_plan(
+                pipeline_path, auto_output_path, variables
+            )
+
+            # Count operations for summary
+            total_operations += len(operations)
+            for op in operations:
+                op_type = op.get("type", "unknown")
+                all_operation_types[op_type] = all_operation_types.get(op_type, 0) + 1
+
+            typer.echo(f"      ✅ Success ({len(operations)} operations)")
             compiled_count += 1
         except typer.Exit:
             # Exit was already handled in _compile_pipeline_to_plan
             # Just count it as an error and continue with other pipelines
+            typer.echo(f"      ❌ Failed")
             error_count += 1
         except Exception as e:
             error_count += 1
@@ -336,25 +396,40 @@ def _do_compile_all_pipelines(
             error_msg = str(e)
             if " at line" in error_msg:
                 error_msg = error_msg.split(" at line")[0]
-            typer.echo(f"Error compiling pipeline {file_name}: {error_msg}")
+            typer.echo(f"      ❌ Failed: {error_msg}")
             # Log at debug level to avoid duplicate error messages
             logger.debug(f"Error compiling pipeline {file_name}", exc_info=True)
             # Continue to compile other pipelines
 
-    if (
-        variables and compiled_count > 0
-    ):  # Log variables if any pipeline was successfully compiled with them
-        typer.echo(
-            f"Applied variables to all compiled pipelines: {json.dumps(variables, indent=2)}"
-        )
-
+    # Print final summary
+    typer.echo()
     if error_count > 0:
-        typer.echo(
-            f"Finished compiling all. {compiled_count} succeeded, {error_count} failed."
-        )
+        typer.echo(f"⚠️  Compilation completed with errors:")
+        typer.echo(f"   ✅ {compiled_count} succeeded")
+        typer.echo(f"   ❌ {error_count} failed")
+        if compiled_count > 0:
+            typer.echo(
+                f"   📊 {total_operations} total operations in successful pipelines"
+            )
+            typer.echo(
+                f"   📋 Operation types: {', '.join(f'{k}: {v}' for k, v in sorted(all_operation_types.items()))}"
+            )
+        typer.echo(f"   💾 Plans saved to: {target_dir}")
         raise typer.Exit(code=1)  # Exit with error if any compilation failed
     else:
-        typer.echo(f"Successfully compiled {compiled_count} pipeline(s).")
+        typer.echo(f"✅ All pipelines compiled successfully!")
+        typer.echo(
+            f"   📊 {compiled_count} pipelines, {total_operations} total operations"
+        )
+        typer.echo(
+            f"   📋 Operation types: {', '.join(f'{k}: {v}' for k, v in sorted(all_operation_types.items()))}"
+        )
+        typer.echo(f"   💾 Plans saved to: {target_dir}")
+
+    if variables and compiled_count > 0:
+        typer.echo(
+            f"\n📋 Applied variables to all pipelines: {json.dumps(variables, indent=2)}"
+        )
 
 
 @pipeline_app.command("compile")
@@ -397,16 +472,24 @@ def compile_pipeline(
             _auto_output_path = os.path.join(_target_dir, f"{_name_for_output}.json")
             _final_output_path = output or _auto_output_path
             try:
+                # Display compilation start with consistent formatting
+                typer.echo(f"📝 Compiling {pipeline_name}")
+                typer.echo(f"Pipeline: {_pipeline_path}")
+
+                if _variables:
+                    typer.echo(f"With variables: {json.dumps(_variables, indent=2)}")
+
                 operations = _compile_pipeline_to_plan(
                     _pipeline_path, _final_output_path, _variables
                 )
 
-                # Print a summary of the operations to stdout
-                for op in operations:
-                    typer.echo(f"{op['id']} ({op['type']})")
+                # Display compilation summary with better formatting
+                _print_compilation_summary(operations, _final_output_path)
 
                 if _variables:
-                    typer.echo(f"Applied variables: {json.dumps(_variables, indent=2)}")
+                    typer.echo(
+                        f"\n📋 Applied variables: {json.dumps(_variables, indent=2)}"
+                    )
             except typer.Exit:
                 # Exit was already handled in _compile_pipeline_to_plan with appropriate error message
                 raise
@@ -419,7 +502,7 @@ def compile_pipeline(
                 error_msg = str(e)
                 if " at line" in error_msg:
                     error_msg = error_msg.split(" at line")[0].strip()
-                typer.echo(f"Error compiling pipeline {_pipeline_path}: {error_msg}")
+                typer.echo(f"❌ Error compiling pipeline {_pipeline_path}: {error_msg}")
                 raise typer.Exit(code=1)
 
         else:  # User provided a name to be resolved
@@ -518,9 +601,12 @@ def _compile_single_pipeline(
 ):
     """Compile a single pipeline and output the execution plan."""
     try:
+        # Provide a default target path if output is None to satisfy type checker
+        target_path = output or "/tmp/temp_plan.json"
+
         operations = _compile_pipeline_to_plan(
             pipeline_path=pipeline_path,
-            target_path=output,
+            target_path=target_path,
             variables=variables,
             save_plan=output is not None,
         )
@@ -903,7 +989,11 @@ def _get_execution_operations(
             logger.warning(
                 f"Compiled plan not found: {compiled_plan_path}, recompiling..."
             )
-        logger.info(f"Compiling pipeline: {pipeline_path}")
+
+        # User-friendly compilation message
+        pipeline_filename = os.path.basename(pipeline_path)
+        print(f"📝 Compiling {pipeline_filename}")
+        logger.debug(f"Compiling pipeline: {pipeline_path}")
 
         # Get profile variables if profile_name is provided
         profile_variables = None
@@ -1079,9 +1169,11 @@ def _execute_and_handle_result(
     Returns:
         True if execution succeeded, False otherwise
     """
+    # Get logger - ensure it's available in scope
+    logger = get_logger(__name__)
+
     try:
         # Execute pipeline with CLI variables
-        logger = get_logger(__name__)
         logger.debug("Calling executor.execute...")
         result = executor.execute(operations, variables=variables)
         logger.debug(f"Execution result: {result.get('status', 'unknown')}")
@@ -1174,8 +1266,8 @@ def _initialize_executor(
     """
     # Initialize executor
     executor = LocalExecutor(profile_name=profile_name)
-    executor.execution_id = execution_id
-    executor.artifact_manager = artifact_manager
+    # Note: execution_id and artifact_manager are passed as parameters where needed
+    # rather than assigned as attributes since they're not part of the LocalExecutor interface
 
     # Extract variables from different sources and build effective set
     set_variables = _extract_set_variables_from_operations(operations)
@@ -1334,9 +1426,43 @@ def list_pipelines(
 
 
 def _resolve_and_build_execution_order(
-    plan: List[Dict[str, Any]], pipeline_name: str = None
+    plan: List[Dict[str, Any]], pipeline_name: Optional[str] = None
 ) -> tuple[DependencyResolver, List[str]]:
     """Resolve dependencies and build execution order for the pipeline plan."""
     dependency_resolver = _build_dependency_resolver(plan)
     execution_order = _resolve_execution_order(dependency_resolver, plan)
     return dependency_resolver, execution_order
+
+
+def _print_step_success(
+    step_type: str, step_name: str, row_count: Optional[int] = None
+) -> None:
+    """Print a clean success message for a completed step.
+
+    Args:
+        step_type: Type of step (load, transform, export)
+        step_name: Name/identifier of the step
+        row_count: Optional row count for data operations
+    """
+    emoji_map = {
+        "load": "📥",
+        "transform": "🔄",
+        "export": "📤",
+        "source_definition": "🔗",
+    }
+
+    emoji = emoji_map.get(step_type, "✅")
+
+    if step_type == "load":
+        verb = "Loaded"
+    elif step_type == "transform":
+        verb = "Created"
+    elif step_type == "export":
+        verb = "Exported"
+    else:
+        verb = "Completed"
+
+    if row_count is not None:
+        typer.echo(f"{emoji} {verb} {step_name} ({row_count:,} rows)")
+    else:
+        typer.echo(f"{emoji} {verb} {step_name}")

@@ -324,7 +324,8 @@ class LocalExecutor(BaseExecutor):
         step_type = step.get("type")
         step_id = step.get("id")
 
-        logger.info(f"Executing {step_type} step: {step_id}")
+        # Use user-friendly logging instead of technical INFO logs
+        logger.debug(f"Executing {step_type} step: {step_id}")
 
         if step_type == "export":
             return self._execute_export(step)
@@ -361,6 +362,9 @@ class LocalExecutor(BaseExecutor):
                 dummy_data = pd.DataFrame({"id": [1, 2, 3], "value": [100, 200, 300]})
                 data_chunk = DataChunk(dummy_data)
 
+            # Get row count for user feedback
+            row_count = len(data_chunk) if data_chunk else 0
+
             # Create parent directory if needed
             if connector_type.upper() == "CSV":
                 dirname = os.path.dirname(destination)
@@ -376,7 +380,10 @@ class LocalExecutor(BaseExecutor):
                     destination=destination,
                     options=options,
                 )
-                logger.info(f"Exported data to: {destination}")
+                # User-friendly message with row count
+                filename = os.path.basename(destination)
+                print(f"📤 Exported {filename} ({row_count:,} rows)")
+                logger.debug(f"Exported data to: {destination}")
             else:
                 # For tests without a real connector engine, simulate the export
                 # Create a mock file if it's a CSV export
@@ -385,7 +392,9 @@ class LocalExecutor(BaseExecutor):
                     and os.path.splitext(destination)[1].lower() == ".csv"
                 ):
                     self._create_mock_csv_file(destination, data_chunk)
-                    logger.info(f"Created export file: {destination}")
+                    filename = os.path.basename(destination)
+                    print(f"📤 Exported {filename} ({row_count:,} rows)")
+                    logger.debug(f"Created export file: {destination}")
 
             return {"status": "success"}
         except Exception as e:
@@ -412,7 +421,9 @@ class LocalExecutor(BaseExecutor):
 
             # Try to execute real SQL first
             if sql_query and self.duckdb_engine:
-                logger.info(f"Creating table: {table_name}")
+                # Print user-friendly message
+                print(f"🔄 Creating {table_name}")
+                logger.debug(f"Creating table: {table_name}")
                 return self._execute_sql_query(table_name, sql_query)
 
             # Fallback to mock data for tests without real SQL
@@ -532,48 +543,151 @@ class LocalExecutor(BaseExecutor):
         """
         try:
             logger.debug(
-                f"Executing LoadStep with mode {load_step.mode}: {load_step.table_name} FROM {load_step.source_name}"
+                f"Executing LoadStep with mode {getattr(load_step, 'mode', 'unknown')}: "
+                f"{getattr(load_step, 'table_name', 'unknown')} FROM {getattr(load_step, 'source_name', 'unknown')}"
             )
 
-            # Step 1: Get the SOURCE definition
-            source_definition = self._get_source_definition(load_step.source_name)
+            # Step 1: Load source data and get row count
+            rows_loaded = self._load_and_prepare_source_data(load_step)
 
-            # Check if we have a proper SOURCE definition
-            if source_definition:
-                # Use the proper SOURCE connector approach
-                return self._execute_load_with_source_connector(
-                    load_step, source_definition
-                )
-            else:
-                # Backward compatibility: Check if table is already registered in DuckDB
-                if self.duckdb_engine and self.duckdb_engine.table_exists(
-                    load_step.source_name
-                ):
-                    logger.warning(
-                        f"Using backward compatibility mode for '{load_step.source_name}' - "
-                        f"table is registered directly in DuckDB without SOURCE definition"
-                    )
-                    return self._execute_load_with_existing_table(load_step)
-                else:
-                    raise ValueError(
-                        f"SOURCE '{load_step.source_name}' is not defined and table does not exist in DuckDB"
-                    )
+            # Step 2: Validate merge keys if in MERGE mode
+            self._validate_merge_keys_if_needed(load_step)
+
+            # Step 3: Generate and execute load SQL
+            self._generate_and_execute_load_sql(load_step)
+
+            # Step 4: Return success with proper result format
+            return self._execute_load_common(load_step, rows_loaded)
 
         except Exception as e:
-            logger.error(f"Error executing LoadStep: {e}")
-            return {"status": "error", "message": str(e)}
+            error_msg = str(e)
+            logger.error(f"Error executing LoadStep: {error_msg}")
+            return {"status": "error", "message": error_msg}
 
-    def _execute_load_with_source_connector(
-        self, load_step, source_definition
-    ) -> Dict[str, Any]:
-        """Execute LoadStep using proper SOURCE connector.
+    def _load_and_prepare_source_data(self, load_step) -> int:
+        """Load and prepare source data, returning the number of rows loaded.
+
+        Args:
+            load_step: LoadStep object
+
+        Returns:
+            Number of rows loaded
+
+        Raises:
+            ValueError: If source definition is missing or invalid
+        """
+        source_definition = self._get_source_definition(
+            getattr(load_step, "source_name", "unknown")
+        )
+
+        if source_definition:
+            return self._load_source_data_into_duckdb(load_step, source_definition)
+        else:
+            return self._handle_backward_compatibility_source(load_step)
+
+    def _handle_backward_compatibility_source(self, load_step) -> int:
+        """Handle backward compatibility for sources without SOURCE definitions.
+
+        Args:
+            load_step: LoadStep object
+
+        Returns:
+            Number of rows in the existing table
+
+        Raises:
+            ValueError: If source table doesn't exist
+        """
+        source_name = str(getattr(load_step, "source_name", "unknown"))
+
+        if self.duckdb_engine and self.duckdb_engine.table_exists(source_name):
+            logger.warning(
+                f"Using backward compatibility mode for '{source_name}' - "
+                f"table is registered directly in DuckDB without SOURCE definition"
+            )
+            return self._get_table_row_count(source_name)
+        else:
+            raise ValueError(f"SOURCE '{source_name}' is not defined")
+
+    def _get_table_row_count(self, table_name: str) -> int:
+        """Get the row count for a table in DuckDB.
+
+        Args:
+            table_name: Name of the table
+
+        Returns:
+            Number of rows in the table
+        """
+        try:
+            if self.duckdb_engine:
+                result = self.duckdb_engine.execute_query(
+                    f"SELECT COUNT(*) FROM {table_name}"
+                )
+                return result.fetchone()[0]
+            else:
+                return 0
+        except Exception:
+            return 0
+
+    def _validate_merge_keys_if_needed(self, load_step) -> None:
+        """Validate merge keys for MERGE mode LoadSteps.
+
+        Args:
+            load_step: LoadStep object
+
+        Raises:
+            Exception: If merge key validation fails
+        """
+        if (
+            getattr(load_step, "mode", None) == "MERGE"
+            and self.duckdb_engine
+            and hasattr(self.duckdb_engine, "validate_merge_keys")
+        ):
+            try:
+                target_table = str(getattr(load_step, "table_name", "unknown"))
+                source_name = str(getattr(load_step, "source_name", "unknown"))
+                merge_keys = getattr(load_step, "merge_keys", [])
+
+                self.duckdb_engine.validate_merge_keys(
+                    target_table, source_name, merge_keys
+                )
+                logger.debug("Called validate_merge_keys on DuckDB engine")
+            except Exception as e:
+                error_msg = str(e)
+                logger.debug(f"validate_merge_keys call failed: {error_msg}")
+                raise
+
+    def _generate_and_execute_load_sql(self, load_step) -> None:
+        """Generate and execute load SQL for the LoadStep.
+
+        Args:
+            load_step: LoadStep object
+
+        Raises:
+            Exception: If SQL generation or execution fails
+        """
+        if self.duckdb_engine and hasattr(self.duckdb_engine, "generate_load_sql"):
+            try:
+                generated_sql = self.duckdb_engine.generate_load_sql(load_step)
+                logger.debug("Called generate_load_sql on DuckDB engine")
+
+                if generated_sql:
+                    self.duckdb_engine.execute_query(generated_sql)
+                    logger.debug(f"Executed generated SQL: {generated_sql}")
+
+            except Exception as e:
+                error_msg = str(e)
+                logger.debug(f"generate_load_sql call failed: {error_msg}")
+                raise
+
+    def _load_source_data_into_duckdb(self, load_step, source_definition) -> int:
+        """Load source data into DuckDB and return row count.
 
         Args:
             load_step: LoadStep object
             source_definition: SOURCE definition dict
 
         Returns:
-            Dict containing execution results
+            Number of rows loaded
         """
         # Step 2: Initialize ConnectorEngine if not already initialized
         if not hasattr(self, "connector_engine") or self.connector_engine is None:
@@ -627,74 +741,37 @@ class LocalExecutor(BaseExecutor):
                 f"Registered SOURCE data '{load_step.source_name}' with DuckDB"
             )
 
-        return self._execute_load_common(load_step, len(source_df))
-
-    def _execute_load_with_existing_table(self, load_step) -> Dict[str, Any]:
-        """Execute LoadStep using existing table in DuckDB (backward compatibility).
-
-        Args:
-            load_step: LoadStep object
-
-        Returns:
-            Dict containing execution results
-        """
-        # Get row count for reporting
-        try:
-            if self.duckdb_engine:
-                result = self.duckdb_engine.execute_query(
-                    f"SELECT COUNT(*) FROM {load_step.source_name}"
-                )
-                row_count = result.fetchone()[0]
-            else:
-                row_count = 0
-        except Exception:
-            row_count = 0  # Fallback if we can't get count
-
-        return self._execute_load_common(load_step, row_count)
+        return len(source_df)
 
     def _execute_load_common(self, load_step, rows_loaded: int) -> Dict[str, Any]:
-        """Common logic for executing LOAD operations after source data is available.
+        """Common load execution logic with result reporting.
 
         Args:
-            load_step: LoadStep object
-            rows_loaded: Number of rows loaded from source
+            load_step: Load step configuration
+            rows_loaded: Number of rows loaded
 
         Returns:
             Dict containing execution results
         """
-        if not self.duckdb_engine:
-            return {"status": "error", "message": "DuckDB engine not available"}
+        # Get table name for user feedback - access table_name attribute directly from LoadStep
+        table_name = getattr(load_step, "table_name", "data")
+        if table_name.startswith("transform_"):
+            table_name = table_name.replace("transform_", "")
 
-        # Step 6: If this is a MERGE operation, validate merge keys explicitly
-        if load_step.mode.upper() == "MERGE" and hasattr(
-            self.duckdb_engine, "validate_merge_keys"
-        ):
-            try:
-                self.duckdb_engine.validate_merge_keys(
-                    load_step.table_name,
-                    load_step.source_name,
-                    load_step.merge_keys,
-                )
-            except ValueError as e:
-                # Specific handling for merge key validation errors
-                logger.error(f"Merge key validation error: {e}")
-                return {"status": "error", "message": str(e)}
+        # Print user-friendly message
+        print(f"📥 Loaded {table_name} ({rows_loaded:,} rows)")
 
-        # Step 7: Generate the appropriate SQL for the load mode
-        sql = self.duckdb_engine.generate_load_sql(load_step)
-
-        # Step 8: Execute the SQL
-        self.duckdb_engine.execute_query(sql)
-
-        logger.info(
-            f"Successfully loaded {load_step.table_name} FROM {load_step.source_name} using {load_step.mode} mode"
+        logger.debug(
+            f"Loaded {rows_loaded} rows into table '{getattr(load_step, 'table_name', 'unknown')}'"
         )
 
         return {
             "status": "success",
-            "table": load_step.table_name,
-            "mode": load_step.mode,
+            "message": f"Loaded {rows_loaded} rows",
             "rows_loaded": rows_loaded,
+            "target_table": getattr(load_step, "table_name", None),
+            "table": getattr(load_step, "table_name", None),
+            "mode": getattr(load_step, "mode", None),
         }
 
     def _get_source_definition(self, source_name: str) -> Optional[Dict[str, Any]]:

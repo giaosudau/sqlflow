@@ -590,6 +590,17 @@ class ExecutionPlanBuilder:
         sql_lower = sql_query.lower()
         tables = []
 
+        # DuckDB built-in functions that are not table references
+        builtin_functions = {
+            "read_csv_auto",
+            "read_csv",
+            "read_parquet",
+            "read_json",
+            "information_schema",
+            "pg_catalog",
+            "main",
+        }
+
         # Handle standard SQL FROM clauses
         from_matches = re.finditer(
             r"from\s+([a-zA-Z0-9_]+(?:\s*,\s*[a-zA-Z0-9_]+)*)", sql_lower
@@ -598,14 +609,22 @@ class ExecutionPlanBuilder:
             table_list = match.group(1).split(",")
             for table in table_list:
                 table_name = table.strip()
-                if table_name and table_name not in tables:
+                if (
+                    table_name
+                    and table_name not in tables
+                    and table_name not in builtin_functions
+                ):
                     tables.append(table_name)
 
         # Handle standard SQL JOINs
         join_matches = re.finditer(r"join\s+([a-zA-Z0-9_]+)", sql_lower)
         for match in join_matches:
             table_name = match.group(1).strip()
-            if table_name and table_name not in tables:
+            if (
+                table_name
+                and table_name not in tables
+                and table_name not in builtin_functions
+            ):
                 tables.append(table_name)
 
         # Handle table UDF pattern: PYTHON_FUNC("module.function", table_name)
@@ -614,7 +633,11 @@ class ExecutionPlanBuilder:
         )
         for match in udf_table_matches:
             table_name = match.group(1).strip()
-            if table_name and table_name not in tables:
+            if (
+                table_name
+                and table_name not in tables
+                and table_name not in builtin_functions
+            ):
                 tables.append(table_name)
 
         return tables
@@ -631,9 +654,10 @@ class ExecutionPlanBuilder:
                     self._add_dependency(step, table_step)
             else:
                 undefined_tables.append(table_name)
-        if undefined_tables and hasattr(step, "line_number"):
+        if undefined_tables:
+            line_number = getattr(step, "line_number", "unknown")
             logger.warning(
-                f"Step at line {step.line_number} references tables that might not be defined: {', '.join(undefined_tables)}"
+                f"Step at line {line_number} references tables that might not be defined: {', '.join(undefined_tables)}"
             )
 
     # --- CYCLE DETECTION ---
