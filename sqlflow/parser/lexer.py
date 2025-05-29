@@ -82,6 +82,7 @@ class TokenType(Enum):
     RIGHT_BRACE = auto()
     LEFT_PAREN = auto()  # For optional parentheses around merge keys
     RIGHT_PAREN = auto()  # For optional parentheses around merge keys
+    COMMA = auto()  # For comma-separated lists
     DOT = auto()  # For SQL table.column references
 
     # SQL comparison operators
@@ -180,6 +181,7 @@ class Lexer:
             (TokenType.RIGHT_BRACE, re.compile(r"}")),
             (TokenType.LEFT_PAREN, re.compile(r"\(")),
             (TokenType.RIGHT_PAREN, re.compile(r"\)")),
+            (TokenType.COMMA, re.compile(r",")),
             (TokenType.SEMICOLON, re.compile(r";")),
             (TokenType.DOT, re.compile(r"\.")),
             # Handle ${var} or ${var|default} style variables
