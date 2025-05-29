@@ -36,6 +36,6 @@ class CSVWriter(WriterProtocol):
             sep=options.get("delimiter", ","),
             quoting=options.get("quoting", csv.QUOTE_MINIMAL),
             quotechar=options.get("quotechar", '"'),
-            line_terminator=options.get("line_terminator", "\n"),
+            lineterminator=options.get("line_terminator", "\n"),
             encoding=options.get("encoding", "utf-8"),
         )
