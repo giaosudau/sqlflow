@@ -3,7 +3,7 @@
 import pandas as pd
 import pytest
 
-from sqlflow.core.engines.duckdb_engine import DuckDBEngine
+from sqlflow.core.engines.duckdb import DuckDBEngine
 from sqlflow.core.executors.local_executor import LocalExecutor
 from sqlflow.parser.ast import LoadStep, Pipeline
 

@@ -320,7 +320,7 @@ This document tracks the implementation status of Conditional Execution, Python 
 
 **Subtasks:**
 1. Update SQLEngine interface with UDF methods
-2. Implement UDF registration in DuckDBEngine
+2. Implement UDF registration in DuckDBEngine (now in modular structure at `sqlflow/core/engines/duckdb/`)
 3. Implement query processing for UDF calls
 4. Update query execution to support UDFs
 
@@ -334,7 +334,7 @@ This document tracks the implementation status of Conditional Execution, Python 
 
 **Definition of Done:**
 - SQLEngine interface includes UDF methods
-- DuckDBEngine correctly registers Python UDFs
+- DuckDBEngine correctly registers Python UDFs (now in modular structure at `sqlflow/core/engines/duckdb/`)
 - Query processing correctly transforms UDF syntax
 - All tests passing with >90% coverage
 - Implementation follows project style guidelines
@@ -462,7 +462,7 @@ This document tracks the implementation status of Conditional Execution, Python 
 4. ✅ Implement robust error handling for registration failures with clear error messages.
 
 **Testing Requirements:**
-- ✅ Unit tests for `DuckDBEngine.register_python_udf` specifically for table UDFs:
+- ✅ Unit tests for `DuckDBEngine.register_python_udf (in modular structure)` specifically for table UDFs:
     - Successful registration of valid table UDFs.
     - Handling of UDFs with various keyword arguments.
     - Informative error messages for registration failures.
@@ -566,7 +566,7 @@ This document tracks the implementation status of Conditional Execution, Python 
 
 **Subtasks:**
 1. ✅ **Discovery:** In `PythonUDFManager.discover_udfs`, if a Python file in the `python_udfs` directory (or subdirectories) fails to import, log a clear warning detailing the problematic file path and the import error.
-2. ✅ **Registration:** Ensure `DuckDBEngine.register_python_udf` (as refined in Task 2.7) throws specific, helpful exceptions if DuckDB rejects a UDF (e.g., `UDFRegistrationError("Failed to register UDF 'my_udf': DuckDB error: ...")`).
+2. ✅ **Registration:** Ensure `DuckDBEngine.register_python_udf (in modular structure)` (as refined in Task 2.7) throws specific, helpful exceptions if DuckDB rejects a UDF (e.g., `UDFRegistrationError("Failed to register UDF 'my_udf': DuckDB error: ...")`).
 3. ✅ **Execution:** In `BaseExecutor` (and its implementations like `LocalExecutor`), when a UDF call within `execute_query` (via the engine) raises an exception, catch it and re-raise it or log it with additional context: the UDF name being executed and the original traceback from the UDF.
 4. ✅ Implement enhanced error context collection for UDF execution failures.
 5. ✅ Create improved error handling architecture with clearer error classification.

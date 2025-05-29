@@ -3,12 +3,12 @@
 import os
 import tempfile
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Generator
 
 import pandas as pd
 import pytest
 
-from sqlflow.core.engines.duckdb_engine import DuckDBEngine
+from sqlflow.core.engines.duckdb import DuckDBEngine
 from sqlflow.logging import get_logger
 from sqlflow.udfs.manager import PythonUDFManager
 
@@ -16,7 +16,7 @@ logger = get_logger(__name__)
 
 
 @pytest.fixture
-def error_handling_test_env() -> Dict[str, Any]:
+def error_handling_test_env() -> Generator[Dict[str, Any], None, None]:
     """Create a test environment with UDFs that demonstrate various error conditions."""
     with tempfile.TemporaryDirectory() as tmp_dir:
         # Set up directories
@@ -43,7 +43,7 @@ def error_handling_test_env() -> Dict[str, Any]:
 
 
 @pytest.fixture
-def production_test_env() -> Dict[str, Any]:
+def production_test_env() -> Generator[Dict[str, Any], None, None]:
     """Create a test environment for production-like error scenarios."""
     with tempfile.TemporaryDirectory() as tmp_dir:
         # Set up directories

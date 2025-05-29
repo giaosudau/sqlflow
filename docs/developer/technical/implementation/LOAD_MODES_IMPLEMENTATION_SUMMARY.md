@@ -14,7 +14,7 @@
 
 **Modified Files:**
 - `sqlflow/core/executors/local_executor.py` - Main implementation
-- `sqlflow/core/engines/duckdb_engine.py` - SQL generation fix
+- `sqlflow/core/engines/duckdb/` - Modular DuckDB engine implementation
 - `tests/integration/test_load_modes.py` - Comprehensive test coverage
 - `tests/unit/core/executors/test_load_step_execution.py` - Updated unit tests
 
@@ -51,7 +51,16 @@ def _execute_load_with_source_connector(self, load_step, source_definition):
     # 5. Apply LOAD mode (REPLACE/APPEND/MERGE)
 ```
 
-#### 2. Enhanced DuckDBEngine (`duckdb_engine.py`)
+#### 2. Enhanced DuckDBEngine (`sqlflow/core/engines/duckdb/`)
+
+The DuckDB engine has been refactored into a modular structure:
+
+- `engine.py` - Main DuckDBEngine class
+- `load/handlers.py` - Load mode handlers (REPLACE, APPEND, MERGE)  
+- `load/sql_generators.py` - SQL generation for different load modes
+- `constants.py` - Constants and SQL templates
+- `exceptions.py` - Custom exception hierarchy
+- `transaction_manager.py` - Transaction management
 
 **Fixed MERGE Mode:**
 - Updated `generate_load_sql()` to use UPDATE/INSERT pattern instead of MERGE INTO

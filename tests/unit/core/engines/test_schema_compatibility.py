@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from sqlflow.core.engines.duckdb_engine import DuckDBEngine
+from sqlflow.core.engines.duckdb import DuckDBEngine
 
 
 @pytest.fixture

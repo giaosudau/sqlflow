@@ -2,7 +2,7 @@
 
 # Import all engines
 from sqlflow.core.engines.base import SQLEngine
-from sqlflow.core.engines.duckdb_engine import DuckDBEngine
+from sqlflow.core.engines.duckdb import DuckDBEngine
 
 __all__ = ["SQLEngine", "DuckDBEngine", "get_engine"]
 
