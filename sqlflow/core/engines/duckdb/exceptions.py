@@ -1,6 +1,6 @@
 """Custom exceptions for DuckDB engine."""
 
-from typing import Optional
+from typing import List, Optional
 
 
 class DuckDBEngineError(Exception):
@@ -65,7 +65,7 @@ class SchemaValidationError(DuckDBEngineError):
 class InvalidLoadModeError(DuckDBEngineError):
     """Exception raised when an invalid load mode is specified."""
 
-    def __init__(self, mode: str, valid_modes: list[str]):
+    def __init__(self, mode: str, valid_modes: List[str]):
         """Initialize an invalid load mode error.
 
         Args:
@@ -85,7 +85,7 @@ class MergeKeyValidationError(DuckDBEngineError):
         self,
         message: str,
         table_name: Optional[str] = None,
-        merge_keys: Optional[list[str]] = None,
+        merge_keys: Optional[List[str]] = None,
     ):
         """Initialize a merge key validation error.
 
