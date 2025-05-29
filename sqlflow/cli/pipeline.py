@@ -447,6 +447,11 @@ def compile_pipeline(
     profile: str = typer.Option(
         "dev", "--profile", "-p", help="Profile to use (default: dev)"
     ),
+    no_validate: bool = typer.Option(
+        False,
+        "--no-validate",
+        help="Skip validation before compilation (for CI/CD performance)",
+    ),
     quiet: bool = typer.Option(
         False, "--quiet", "-q", help="Reduce output to essential information only"
     ),
@@ -457,6 +462,9 @@ def compile_pipeline(
     """Parse and validate pipeline(s), output execution plan(s).
     If pipeline_name is not provided, all pipelines in the project's pipeline directory are compiled.
     The execution plan is automatically saved to the project's target/compiled directory.
+
+    By default, validation is performed before compilation to catch errors early.
+    Use --no-validate to skip validation for CI/CD performance scenarios.
     """
     # Configure logging based on command-specific flags
     configure_logging(verbose=verbose, quiet=quiet)
@@ -465,13 +473,48 @@ def compile_pipeline(
         vars, profile
     )
 
+    # Helper function to validate a pipeline file
+    def validate_pipeline_file(pipeline_path: str, pipeline_display_name: str) -> bool:
+        """Validate a pipeline file and return True if valid, False otherwise."""
+        if no_validate:
+            return True
+
+        from sqlflow.cli.validation_helpers import validate_pipeline_with_caching
+
+        try:
+            errors = validate_pipeline_with_caching(pipeline_path)
+
+            if errors:
+                if not quiet:
+                    typer.echo(
+                        f"❌ Validation failed for {pipeline_display_name}:", err=True
+                    )
+                    for error in errors:
+                        typer.echo(f"  {error}", err=True)
+                return False
+            else:
+                if verbose:
+                    typer.echo(f"✅ Validation passed for {pipeline_display_name}")
+                return True
+
+        except Exception as e:
+            typer.echo(
+                f"❌ Validation error for {pipeline_display_name}: {str(e)}", err=True
+            )
+            return False
+
     if pipeline_name:
         if os.path.isfile(pipeline_name):  # User provided a full path
             _pipeline_path = pipeline_name
             _name_for_output = os.path.splitext(os.path.basename(_pipeline_path))[0]
             _auto_output_path = os.path.join(_target_dir, f"{_name_for_output}.json")
             _final_output_path = output or _auto_output_path
+
             try:
+                # Validate before compilation
+                if not validate_pipeline_file(_pipeline_path, pipeline_name):
+                    raise typer.Exit(code=1)
+
                 # Display compilation start with consistent formatting
                 typer.echo(f"📝 Compiling {pipeline_name}")
                 typer.echo(f"Pipeline: {_pipeline_path}")
@@ -506,6 +549,17 @@ def compile_pipeline(
                 raise typer.Exit(code=1)
 
         else:  # User provided a name to be resolved
+            # Validate before compilation
+            try:
+                from sqlflow.cli.utils import resolve_pipeline_name
+
+                resolved_path = resolve_pipeline_name(pipeline_name, _pipelines_dir)
+                if not validate_pipeline_file(resolved_path, pipeline_name):
+                    raise typer.Exit(code=1)
+            except FileNotFoundError:
+                # Let _do_compile_single_pipeline handle the file not found error
+                pass
+
             _do_compile_single_pipeline(
                 pipeline_name, output, _variables, _pipelines_dir, _target_dir
             )
@@ -514,6 +568,26 @@ def compile_pipeline(
             typer.echo(
                 "Warning: --output option is ignored when compiling all pipelines."
             )
+
+        # For multiple pipelines, validate each before compilation if not skipped
+        if not no_validate:
+            validation_failed = False
+            pipeline_files = [
+                f for f in os.listdir(_pipelines_dir) if f.endswith(".sf")
+            ]
+
+            for pipeline_file in pipeline_files:
+                pipeline_path = os.path.join(_pipelines_dir, pipeline_file)
+                if not validate_pipeline_file(pipeline_path, pipeline_file):
+                    validation_failed = True
+
+            if validation_failed:
+                typer.echo(
+                    "❌ Validation failed for one or more pipelines. Aborting compilation.",
+                    err=True,
+                )
+                raise typer.Exit(code=1)
+
         _do_compile_all_pipelines(_pipelines_dir, _target_dir, _variables)
 
 
@@ -1349,6 +1423,8 @@ def run_pipeline(
     """Execute a pipeline end-to-end using the selected profile.
     This command automatically compiles the pipeline before running it, unless
     --from-compiled is specified, in which case it uses the existing compiled plan.
+
+    Validation is always performed before execution to catch errors early.
     """
     # Configure logging based on command-specific flags
     configure_logging(verbose=verbose, quiet=quiet)
@@ -1361,6 +1437,30 @@ def run_pipeline(
         _pipeline_path,
         _compiled_plan_path,
     ) = _setup_run_environment(pipeline_name, vars, profile)
+
+    # Always validate pipeline before execution
+    from sqlflow.cli.validation_helpers import validate_pipeline_with_caching
+
+    try:
+        errors = validate_pipeline_with_caching(_pipeline_path)
+
+        if errors:
+            if not quiet:
+                typer.echo(
+                    "❌ Pipeline validation failed. Aborting execution.", err=True
+                )
+                for error in errors:
+                    typer.echo(f"  {error}", err=True)
+            raise typer.Exit(code=1)
+        else:
+            if not quiet:
+                logger.debug("✅ Pipeline validation passed")
+
+    except typer.Exit:
+        raise
+    except Exception as e:
+        typer.echo(f"❌ Validation error: {str(e)}", err=True)
+        raise typer.Exit(code=1)
 
     operations = _get_execution_operations(
         from_compiled,
