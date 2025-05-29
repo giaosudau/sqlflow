@@ -160,7 +160,10 @@ class TestValidationHelper:
     def test_validate_schema_and_merge_keys_schema_validation_failure(self):
         """Test schema validation failure wrapping."""
         mock_engine = Mock()
-        mock_engine.get_table_schema.return_value = {"id": "INTEGER"}
+        mock_engine.get_table_schema.side_effect = [
+            {"id": "INTEGER"},  # source schema
+            {"id": "VARCHAR"},  # target schema (called by SchemaValidator)
+        ]
         mock_engine.validate_schema_compatibility.side_effect = Exception(
             "Schema mismatch"
         )
@@ -225,14 +228,14 @@ class TestLoadHandlerOptimizations:
         # Mock the validation helper methods
         table_info = TableInfo(exists=True, schema={"id": "INTEGER"})
         handler.validation_helper.get_table_info = Mock(return_value=table_info)
-        handler.validation_helper.validate_schema_and_merge_keys = Mock(
+        handler.validation_helper.validate_for_load_mode = Mock(
             return_value={"id": "INTEGER", "name": "VARCHAR"}
         )
 
         sql = handler.generate_sql(load_step)
 
         # Should use shared validation instead of duplicated logic
-        handler.validation_helper.validate_schema_and_merge_keys.assert_called_once_with(
+        handler.validation_helper.validate_for_load_mode.assert_called_once_with(
             load_step, table_info
         )
         assert "INSERT INTO" in sql
@@ -246,7 +249,7 @@ class TestLoadHandlerOptimizations:
         # Mock the validation helper and SQL generator
         table_info = TableInfo(exists=True, schema={"id": "INTEGER"})
         handler.validation_helper.get_table_info = Mock(return_value=table_info)
-        handler.validation_helper.validate_schema_and_merge_keys = Mock(
+        handler.validation_helper.validate_for_load_mode = Mock(
             return_value={"id": "INTEGER", "name": "VARCHAR"}
         )
         handler.sql_generator.generate_merge_sql = Mock(return_value="MERGE SQL")
@@ -254,7 +257,7 @@ class TestLoadHandlerOptimizations:
         sql = handler.generate_sql(load_step)
 
         # Should use shared validation instead of duplicated logic
-        handler.validation_helper.validate_schema_and_merge_keys.assert_called_once_with(
+        handler.validation_helper.validate_for_load_mode.assert_called_once_with(
             load_step, table_info
         )
         handler.sql_generator.generate_merge_sql.assert_called_once_with(
