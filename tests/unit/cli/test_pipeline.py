@@ -90,7 +90,7 @@ def test_cli_run_profile_memory_mode(tmp_path, monkeypatch):
     # Patch LocalExecutor to avoid real execution
     monkeypatch.setattr(
         "sqlflow.cli.pipeline.LocalExecutor",
-        lambda profile_name: type(
+        lambda profile_name, project_dir=None: type(
             "E",
             (),
             {
@@ -125,7 +125,7 @@ def test_cli_run_profile_persistent_mode(tmp_path, monkeypatch):
     db_path = tmp_path / "prod.db"
     monkeypatch.setattr(
         "sqlflow.cli.pipeline.LocalExecutor",
-        lambda profile_name: type(
+        lambda profile_name, project_dir=None: type(
             "E",
             (),
             {

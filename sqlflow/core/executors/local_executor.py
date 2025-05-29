@@ -94,6 +94,7 @@ class LocalExecutor(BaseExecutor):
         # Discover UDFs if project directory is provided
         if project_dir:
             self.discover_udfs(project_dir)
+            self._register_udfs_with_engine()
 
     def _create_project(
         self, project_dir: Optional[str], profile_name: Optional[str]
@@ -332,7 +333,19 @@ class LocalExecutor(BaseExecutor):
         elif step_type == "transform":
             return self._execute_transform(step)
         elif step_type == "load":
-            return self._execute_load(step)
+            # Check if this is a proper load step with SOURCE definition
+            if "source_name" in step and "target_table" in step:
+                from sqlflow.parser.ast import LoadStep
+
+                load_step = LoadStep(
+                    table_name=step["target_table"],
+                    source_name=step["source_name"],
+                    mode=step.get("mode", "REPLACE"),
+                )
+                return self.execute_load_step(load_step)
+            else:
+                # Fallback to old method for legacy compatibility
+                return self._execute_load(step)
         elif step_type == "source_definition":
             return self._execute_source_definition(step)
         else:
@@ -447,6 +460,14 @@ class LocalExecutor(BaseExecutor):
                 full_sql = f"CREATE TABLE {table_name} AS {sql_query}"
             else:
                 full_sql = sql_query
+
+            # Process UDF calls in the query
+            if self.discovered_udfs:
+                processed_sql = self.duckdb_engine.process_query_for_udfs(
+                    full_sql, self.discovered_udfs
+                )
+                logger.debug(f"UDF processing: {full_sql} -> {processed_sql}")
+                full_sql = processed_sql
 
             self.duckdb_engine.execute_query(full_sql)
             logger.debug(f"Executed SQL: {full_sql}")
@@ -814,8 +835,12 @@ class LocalExecutor(BaseExecutor):
         # Store the source definition for later use by LOAD steps
         self.source_definitions[source_name] = {
             "name": source_name,
-            "connector_type": step.get("connector_type", step.get("type")),
-            "params": step.get("params", {}),
+            "connector_type": step.get(
+                "source_connector_type", step.get("connector_type", "CSV")
+            ),
+            "params": step.get(
+                "query", step.get("params", {})
+            ),  # Try 'query' first, then 'params'
             "is_from_profile": step.get("is_from_profile", False),
         }
 
@@ -1133,3 +1158,17 @@ class LocalExecutor(BaseExecutor):
             return self._execute_source_definition(step)
         # Add other step types as needed
         return {"status": "error", "message": f"Unknown step type: {step_type}"}
+
+    def _register_udfs_with_engine(self) -> None:
+        """Register discovered UDFs with the DuckDB engine."""
+        if not self.discovered_udfs or not self.duckdb_engine:
+            return
+
+        logger.info(f"Registering {len(self.discovered_udfs)} UDFs with DuckDB engine")
+
+        for udf_name, udf_function in self.discovered_udfs.items():
+            try:
+                self.duckdb_engine.register_python_udf(udf_name, udf_function)
+                logger.debug(f"Registered UDF: {udf_name}")
+            except Exception as e:
+                logger.warning(f"Failed to register UDF {udf_name}: {e}")

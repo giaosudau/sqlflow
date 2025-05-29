@@ -16,7 +16,7 @@ from .constants import DuckDBConstants, RegexPatterns, SQLTemplates
 from .exceptions import DuckDBConnectionError, UDFError, UDFRegistrationError
 from .load.handlers import LoadModeHandlerFactory
 from .transaction_manager import TransactionManager
-from .udf import UDFHandlerFactory, UDFQueryProcessor
+from .udf import AdvancedUDFQueryProcessor, UDFHandlerFactory
 
 logger = get_logger(__name__)
 
@@ -329,10 +329,70 @@ class DuckDBEngine(SQLEngine):
             udf_handler.register(flat_name, function, self.connection)
             self.registered_udfs[flat_name] = function
 
+            # Check if the function was registered in the custom table function registry
+            if self.connection and hasattr(self.connection, "_sqlflow_table_functions"):
+                logger.info(
+                    f"Table UDF {flat_name} registered in custom SQLFlow registry"
+                )
+                # Mark this as a table function for special handling
+                if not hasattr(function, "_udf_type"):
+                    setattr(function, "_udf_type", "table")
+
         except Exception as e:
             raise UDFRegistrationError(
                 f"Error registering Python UDF {flat_name}: {str(e)}"
             ) from e
+
+    def execute_table_udf(self, name: str, input_data: Any, **kwargs) -> Any:
+        """Execute a table UDF programmatically.
+
+        Args:
+            name: Name of the table UDF
+            input_data: Input data (typically a pandas DataFrame)
+            **kwargs: Additional arguments for the UDF
+
+        Returns:
+            Result of the UDF execution
+        """
+        if not self.connection:
+            raise DuckDBConnectionError("No database connection available")
+
+        # Check if it's in our custom table function registry
+        if hasattr(self.connection, "_sqlflow_table_functions"):
+            if name in self.connection._sqlflow_table_functions:
+                function = self.connection._sqlflow_table_functions[name]
+                logger.debug(f"Executing table UDF {name} from custom registry")
+
+                try:
+                    with UDFExecutionContext(self, name):
+                        result = function(input_data, **kwargs)
+                        logger.debug(f"Table UDF {name} executed successfully")
+                        return result
+                except Exception as e:
+                    logger.error(f"Error executing table UDF {name}: {e}")
+                    raise UDFRegistrationError(
+                        f"Table UDF execution failed for {name}: {e}"
+                    ) from e
+
+        # Check if it's in the regular UDF registry
+        if name in self.registered_udfs:
+            function = self.registered_udfs[name]
+            udf_type = getattr(function, "_udf_type", None)
+
+            if udf_type == "table":
+                logger.debug(f"Executing table UDF {name} from regular registry")
+                try:
+                    with UDFExecutionContext(self, name):
+                        result = function(input_data, **kwargs)
+                        logger.debug(f"Table UDF {name} executed successfully")
+                        return result
+                except Exception as e:
+                    logger.error(f"Error executing table UDF {name}: {e}")
+                    raise UDFRegistrationError(
+                        f"Table UDF execution failed for {name}: {e}"
+                    ) from e
+
+        raise UDFRegistrationError(f"Table UDF {name} not found in any registry")
 
     def process_query_for_udfs(self, query: str, udfs: Dict[str, Callable]) -> str:
         """Process a query to handle UDF references.
@@ -348,7 +408,7 @@ class DuckDBEngine(SQLEngine):
             logger.debug("No UDF replacements made in query")
             return query
 
-        processor = UDFQueryProcessor(self, udfs)
+        processor = AdvancedUDFQueryProcessor(self, udfs)
         return processor.process(query)
 
     def register_table(self, name: str, data: Any, manage_transaction: bool = True):
@@ -961,3 +1021,395 @@ class DuckDBEngine(SQLEngine):
             "Executing pipeline file: %s, compile_only: %s", file_path, compile_only
         )
         return {}
+
+    def batch_execute_table_udf(
+        self, udf_name: str, dataframes: List[pd.DataFrame], **kwargs
+    ) -> List[pd.DataFrame]:
+        """Batch execute table UDFs for performance.
+
+        Phase 3 enhancement for executing table UDFs across multiple DataFrames
+        with optimized batch processing and resource management.
+
+        Args:
+            udf_name: Name of the table UDF
+            dataframes: List of DataFrames to process
+            **kwargs: Additional arguments for the UDF
+
+        Returns:
+            List of processed DataFrames
+        """
+        if not self.connection:
+            raise DuckDBConnectionError("No database connection available")
+
+        if not dataframes:
+            logger.warning(f"No dataframes provided for batch execution of {udf_name}")
+            return []
+
+        logger.info(
+            f"Batch executing table UDF {udf_name} on {len(dataframes)} DataFrames"
+        )
+
+        results = []
+        successful_executions = 0
+        failed_executions = 0
+
+        for i, df in enumerate(dataframes):
+            try:
+                logger.debug(
+                    f"Processing batch {i+1}/{len(dataframes)} for UDF {udf_name}"
+                )
+                result = self.execute_table_udf(udf_name, df, **kwargs)
+                results.append(result)
+                successful_executions += 1
+
+            except Exception as e:
+                logger.error(f"Error in batch {i+1} for UDF {udf_name}: {e}")
+                failed_executions += 1
+                # Add empty DataFrame as placeholder
+                results.append(pd.DataFrame())
+
+        logger.info(
+            f"Batch execution complete: {successful_executions} successful, {failed_executions} failed"
+        )
+        return results
+
+    def validate_table_udf_schema_compatibility(
+        self, table_name: str, udf_schema: Dict[str, str]
+    ) -> bool:
+        """Validate UDF schema compatibility with existing tables.
+
+        Phase 3 enhancement for comprehensive schema validation between
+        table UDF outputs and target tables.
+
+        Args:
+            table_name: Name of the target table
+            udf_schema: Expected schema of the UDF output
+
+        Returns:
+            True if schemas are compatible
+        """
+        logger.debug(f"Validating UDF schema compatibility with table {table_name}")
+
+        if not self.table_exists(table_name):
+            logger.info(
+                f"Target table {table_name} doesn't exist - UDF schema is valid"
+            )
+            return True
+
+        try:
+            target_schema = self.get_table_schema(table_name)
+
+            # Validate each UDF output column
+            for col_name, col_type in udf_schema.items():
+                if col_name not in target_schema:
+                    logger.error(
+                        f"UDF output column '{col_name}' not found in target table {table_name}"
+                    )
+                    return False
+
+                # Check type compatibility
+                target_type = target_schema[col_name]
+                if not self._are_types_compatible(col_type, target_type):
+                    logger.error(
+                        f"Incompatible types for column '{col_name}': UDF={col_type}, Table={target_type}"
+                    )
+                    return False
+
+            logger.info(f"UDF schema is compatible with table {table_name}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error validating schema compatibility: {e}")
+            return False
+
+    def debug_table_udf_registration(self, udf_name: str) -> Dict[str, Any]:
+        """Comprehensive debugging information for table UDF registration.
+
+        Phase 3 enhancement providing detailed debugging information
+        for troubleshooting table UDF registration issues.
+
+        Args:
+            udf_name: Name of the UDF to debug
+
+        Returns:
+            Dictionary with comprehensive debugging information
+        """
+        debug_info = {
+            "udf_name": udf_name,
+            "timestamp": time.time(),
+            "engine_state": {},
+            "registration_status": {},
+            "metadata": {},
+            "recommendations": [],
+        }
+
+        # Engine state information
+        debug_info["engine_state"] = {
+            "connection_available": self.connection is not None,
+            "database_path": self.database_path,
+            "is_persistent": self.is_persistent,
+            "registered_udfs_count": len(self.registered_udfs),
+            "stats": self.get_stats(),
+        }
+
+        # Registration status
+        flat_name = udf_name.split(".")[-1]
+        debug_info["registration_status"] = {
+            "flat_name": flat_name,
+            "in_registered_udfs": flat_name in self.registered_udfs,
+            "in_custom_registry": False,
+            "registration_error": None,
+        }
+
+        # Check custom table function registry
+        if self.connection and hasattr(self.connection, "_sqlflow_table_functions"):
+            debug_info["registration_status"]["in_custom_registry"] = (
+                flat_name in self.connection._sqlflow_table_functions
+            )
+
+        # UDF metadata if available
+        if flat_name in self.registered_udfs:
+            udf_function = self.registered_udfs[flat_name]
+            debug_info["metadata"] = {
+                "udf_type": getattr(udf_function, "_udf_type", "unknown"),
+                "output_schema": getattr(udf_function, "_output_schema", None),
+                "infer_schema": getattr(udf_function, "_infer_schema", False),
+                "table_dependencies": getattr(
+                    udf_function, "_table_dependencies", None
+                ),
+                "vectorized": getattr(udf_function, "_vectorized", False),
+                "arrow_compatible": getattr(udf_function, "_arrow_compatible", False),
+                "enable_batch_processing": getattr(
+                    udf_function, "_enable_batch_processing", False
+                ),
+            }
+
+        # Generate recommendations
+        debug_info["recommendations"] = self._generate_udf_recommendations(
+            udf_name, debug_info
+        )
+
+        logger.debug(f"Generated debug information for UDF {udf_name}")
+        return debug_info
+
+    def _generate_udf_recommendations(
+        self, udf_name: str, debug_info: Dict[str, Any]
+    ) -> List[str]:
+        """Generate recommendations for UDF troubleshooting.
+
+        Args:
+            udf_name: Name of the UDF
+            debug_info: Current debug information
+
+        Returns:
+            List of recommendation strings
+        """
+        recommendations = []
+
+        # Check connection
+        if not debug_info["engine_state"]["connection_available"]:
+            recommendations.append(
+                "Establish database connection before registering UDFs"
+            )
+
+        # Check registration status
+        reg_status = debug_info["registration_status"]
+        if (
+            not reg_status["in_registered_udfs"]
+            and not reg_status["in_custom_registry"]
+        ):
+            recommendations.append(
+                f"UDF {udf_name} is not registered. Call register_python_udf() first"
+            )
+
+        # Check metadata
+        metadata = debug_info.get("metadata", {})
+        if metadata:
+            udf_type = metadata.get("udf_type", "unknown")
+
+            if udf_type == "table":
+                if not metadata.get("output_schema") and not metadata.get(
+                    "infer_schema"
+                ):
+                    recommendations.append(
+                        "Consider adding output_schema or infer_schema for better table UDF support"
+                    )
+
+                if not metadata.get("vectorized"):
+                    recommendations.append(
+                        "Consider enabling vectorization for large dataset processing"
+                    )
+
+                if not metadata.get("arrow_compatible"):
+                    recommendations.append(
+                        "Consider making UDF Arrow-compatible for better performance"
+                    )
+
+        # Check performance
+        stats = debug_info["engine_state"].get("stats", {})
+        if stats.get("udf_errors", 0) > 0:
+            recommendations.append(
+                "Review UDF implementation - recent execution errors detected"
+            )
+
+        return recommendations
+
+    def get_table_udf_performance_metrics(self) -> Dict[str, Any]:
+        """Get performance metrics specific to table UDF operations.
+
+        Phase 3 enhancement providing detailed performance tracking
+        for table UDF operations and optimization insights.
+
+        Returns:
+            Dictionary with table UDF performance metrics
+        """
+        base_stats = self.get_stats()
+
+        # Enhanced metrics for table UDFs
+        table_udf_metrics = {
+            "base_stats": base_stats,
+            "table_udf_specific": {
+                "total_table_udfs": 0,
+                "vectorized_udfs": 0,
+                "arrow_optimized_udfs": 0,
+                "batch_enabled_udfs": 0,
+            },
+            "performance_insights": [],
+            "optimization_opportunities": [],
+        }
+
+        # Analyze registered UDFs
+        for udf_name, udf_function in self.registered_udfs.items():
+            udf_type = getattr(udf_function, "_udf_type", "scalar")
+
+            if udf_type == "table":
+                table_udf_metrics["table_udf_specific"]["total_table_udfs"] += 1
+
+                if getattr(udf_function, "_vectorized", False):
+                    table_udf_metrics["table_udf_specific"]["vectorized_udfs"] += 1
+
+                if getattr(udf_function, "_arrow_compatible", False):
+                    table_udf_metrics["table_udf_specific"]["arrow_optimized_udfs"] += 1
+
+                if getattr(udf_function, "_enable_batch_processing", False):
+                    table_udf_metrics["table_udf_specific"]["batch_enabled_udfs"] += 1
+
+        # Generate performance insights
+        total_table_udfs = table_udf_metrics["table_udf_specific"]["total_table_udfs"]
+        if total_table_udfs > 0:
+            vectorized_pct = (
+                table_udf_metrics["table_udf_specific"]["vectorized_udfs"]
+                / total_table_udfs
+            ) * 100
+            arrow_pct = (
+                table_udf_metrics["table_udf_specific"]["arrow_optimized_udfs"]
+                / total_table_udfs
+            ) * 100
+
+            table_udf_metrics["performance_insights"] = [
+                f"Table UDF vectorization coverage: {vectorized_pct:.1f}%",
+                f"Arrow optimization coverage: {arrow_pct:.1f}%",
+                f"Average query time: {base_stats.get('avg_query_time', 0):.4f}s",
+            ]
+
+            # Optimization opportunities
+            if vectorized_pct < 50:
+                table_udf_metrics["optimization_opportunities"].append(
+                    "Consider enabling vectorization for more table UDFs to improve performance"
+                )
+
+            if arrow_pct < 50:
+                table_udf_metrics["optimization_opportunities"].append(
+                    "Consider making more table UDFs Arrow-compatible for zero-copy performance"
+                )
+
+        return table_udf_metrics
+
+    def optimize_table_udf_for_performance(self, udf_name: str) -> Dict[str, Any]:
+        """Optimize a table UDF for performance using available enhancement strategies.
+
+        Phase 3 enhancement automatically applying performance optimizations
+        to registered table UDFs based on their characteristics.
+
+        Args:
+            udf_name: Name of the table UDF to optimize
+
+        Returns:
+            Dictionary with optimization results and recommendations
+        """
+        flat_name = udf_name.split(".")[-1]
+
+        if flat_name not in self.registered_udfs:
+            return {
+                "error": f"UDF {udf_name} not found in registered UDFs",
+                "optimizations_applied": [],
+                "recommendations": [f"Register UDF {udf_name} first"],
+            }
+
+        udf_function = self.registered_udfs[flat_name]
+        udf_type = getattr(udf_function, "_udf_type", "scalar")
+
+        if udf_type != "table":
+            return {
+                "error": f"UDF {udf_name} is not a table UDF",
+                "optimizations_applied": [],
+                "recommendations": [
+                    "Only table UDFs can be optimized with this method"
+                ],
+            }
+
+        optimization_results = {
+            "udf_name": udf_name,
+            "optimizations_applied": [],
+            "recommendations": [],
+            "performance_impact": "unknown",
+        }
+
+        # Apply available optimizations
+        from .udf.performance import ArrowPerformanceOptimizer
+
+        optimizer = ArrowPerformanceOptimizer()
+
+        # Get recommended optimizations
+        recommendations = optimizer.get_recommended_optimizations(udf_function)
+
+        for optimization in recommendations:
+            if optimization == "serialization_optimization":
+                optimized_function = optimizer.minimize_serialization_overhead(
+                    udf_function
+                )
+                self.registered_udfs[flat_name] = optimized_function
+                optimization_results["optimizations_applied"].append(
+                    "serialization_optimization"
+                )
+
+            elif optimization == "vectorization":
+                vectorized_function = optimizer.enable_vectorized_processing(
+                    udf_function
+                )
+                self.registered_udfs[flat_name] = vectorized_function
+                optimization_results["optimizations_applied"].append("vectorization")
+
+            elif optimization == "arrow_optimization":
+                # Mark as Arrow-compatible if not already
+                if not getattr(udf_function, "_arrow_compatible", False):
+                    setattr(udf_function, "_arrow_compatible", True)
+                    optimization_results["optimizations_applied"].append(
+                        "arrow_compatibility"
+                    )
+
+        # Generate additional recommendations
+        if not optimization_results["optimizations_applied"]:
+            optimization_results["recommendations"].append(
+                "UDF already optimized or no optimizations available"
+            )
+        else:
+            optimization_results["performance_impact"] = "improved"
+            optimization_results["recommendations"].append(
+                "Monitor performance metrics to validate optimization impact"
+            )
+
+        logger.info(
+            f"Applied {len(optimization_results['optimizations_applied'])} optimizations to UDF {udf_name}"
+        )
+        return optimization_results

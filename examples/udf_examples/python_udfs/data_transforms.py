@@ -13,12 +13,12 @@ logger = logging.getLogger(__name__)
 
 
 @python_scalar_udf
-def calculate_tax(price: float, tax_rate: float = 0.1) -> float:
+def calculate_tax(price: float, tax_rate: float) -> float:
     """Calculate the price with tax added.
 
     Args:
         price: Original price
-        tax_rate: Tax rate, default is 0.1 (10%)
+        tax_rate: Tax rate (e.g., 0.1 for 10%)
 
     Returns:
         Price with tax added
@@ -57,8 +57,19 @@ def calculate_tax_default(price: float) -> float:
 
 @python_table_udf(
     output_schema={
-        "price": "DOUBLE",
+        # Input columns that get passed through
+        "id": "INTEGER",
+        "customer_id": "INTEGER",
+        "product": "VARCHAR",
+        "original_price": "DOUBLE",
+        "price_with_tax": "DOUBLE",
+        "price_with_custom_tax": "DOUBLE",
+        "discounted_price": "DOUBLE",
         "quantity": "INTEGER",
+        "date": "VARCHAR",
+        # Also include the price column that gets created/renamed
+        "price": "DOUBLE",
+        # New calculated columns
         "total": "DOUBLE",
         "tax": "DOUBLE",
         "final_price": "DOUBLE",
@@ -108,10 +119,14 @@ def add_sales_metrics(df: pd.DataFrame) -> pd.DataFrame:
 
 @python_table_udf(
     output_schema={
-        # Input columns preserved in output
+        # Input columns from raw_sales that get passed through
+        "id": "INTEGER",
+        "customer_id": "INTEGER",
+        "product": "VARCHAR",
         "price": "DOUBLE",
         "quantity": "INTEGER",
-        # Output columns with their types
+        "date": "VARCHAR",
+        # New calculated outlier detection columns
         "z_score": "DOUBLE",
         "is_outlier": "BOOLEAN",
         "percentile": "DOUBLE",

@@ -68,18 +68,20 @@ def duckdb_compatible_udf(func: F) -> F:
     return func
 
 
-@python_scalar_udf
-@duckdb_compatible_udf
-def calculate_tax(price: float, tax_rate: float = 0.1) -> float:
-    """Calculate the price with tax added.
-
-    Args:
-        price: Original price
-        tax_rate: Tax rate, default is 0.1 (10%)
-
-    Returns:
-        Price with tax added
-    """
-    if price is None:
-        return None
-    return price * (1 + tax_rate)
+# NOTE: This function is commented out to avoid conflicts with the calculate_tax
+# function in data_transforms.py which creates duplicate UDF names
+# @python_scalar_udf
+# @duckdb_compatible_udf
+# def calculate_tax(price: float, tax_rate: float = 0.1) -> float:
+#     """Calculate the price with tax added.
+#
+#     Args:
+#         price: Original price
+#         tax_rate: Tax rate, default is 0.1 (10%)
+#
+#     Returns:
+#         Price with tax added
+#     """
+#     if price is None:
+#         return None
+#     return price * (1 + tax_rate)

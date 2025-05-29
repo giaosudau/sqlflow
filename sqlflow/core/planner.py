@@ -48,6 +48,7 @@ class ExecutionPlanBuilder:
         self.dependency_resolver = DependencyResolver()
         self.step_id_map: Dict[int, str] = {}
         self.step_dependencies: Dict[str, List[str]] = {}
+        self._source_definitions: Dict[str, Dict[str, Any]] = {}
         logger.debug("ExecutionPlanBuilder initialized")
 
     # --- PIPELINE VALIDATION ---
@@ -841,6 +842,20 @@ class ExecutionPlanBuilder:
             logger.debug(
                 f"Found {len(source_steps)} source steps and {len(load_steps)} load steps"
             )
+
+            # Build source definitions mapping for use in load step building
+            self._source_definitions = {}
+            for source_name, source_step in source_steps.items():
+                self._source_definitions[source_name] = {
+                    "name": source_name,
+                    "connector_type": source_step.connector_type,
+                    "params": source_step.params,
+                    "is_from_profile": getattr(source_step, "is_from_profile", False),
+                }
+            logger.debug(
+                f"Built source definitions mapping with {len(self._source_definitions)} sources"
+            )
+
             self._add_load_dependencies(source_steps, load_steps)
 
             # Generate unique IDs for each step
@@ -1122,25 +1137,52 @@ class ExecutionPlanBuilder:
                 self._add_dependency(load_step, source_step)
 
     def _generate_step_ids(self, pipeline: Pipeline) -> None:
+        """Generate step IDs for all pipeline steps and create clean dependency mapping."""
+        # First pass: Generate all step IDs
+        self._create_step_id_mapping(pipeline)
+
+        # Second pass: Create step dependencies using the new IDs
+        self._create_clean_dependencies()
+
+    def _create_step_id_mapping(self, pipeline: Pipeline) -> None:
+        """Create mapping from object IDs to step IDs."""
         for i, step in enumerate(pipeline.steps):
             step_id = self._generate_step_id(step, i)
             self.step_id_map[id(step)] = step_id
-            old_id = str(id(step))
-            for (
-                dependent_id,
-                dependencies,
-            ) in self.dependency_resolver.dependencies.items():
-                if old_id in dependencies:
-                    dependencies.remove(old_id)
-                    dependencies.append(step_id)
-            for (
-                dependent_id,
-                dependencies,
-            ) in self.dependency_resolver.dependencies.items():
-                if dependent_id == old_id:
-                    self.step_dependencies[step_id] = dependencies
-                    self.dependency_resolver.dependencies.pop(dependent_id, None)
-                    break
+
+    def _create_clean_dependencies(self) -> None:
+        """Create clean step dependencies using the new IDs."""
+        # Reset step_dependencies to ensure clean state
+        self.step_dependencies = {}
+
+        # Convert dependency_resolver dependencies to step IDs
+        for str_object_id, dependencies in list(
+            self.dependency_resolver.dependencies.items()
+        ):
+            # Convert string object ID back to integer for lookup
+            try:
+                object_id = int(str_object_id)
+            except ValueError:
+                continue
+
+            step_id = self.step_id_map.get(object_id)
+            if not step_id:
+                continue
+
+            # Convert dependency object IDs to step IDs
+            step_dependencies = []
+            for dep_str_object_id in dependencies:
+                try:
+                    dep_object_id = int(dep_str_object_id)
+                except ValueError:
+                    continue
+
+                dep_step_id = self.step_id_map.get(dep_object_id)
+                if dep_step_id:
+                    step_dependencies.append(dep_step_id)
+
+            if step_dependencies:
+                self.step_dependencies[step_id] = step_dependencies
 
     def _generate_step_id(self, step: PipelineStep, index: int) -> str:
         if isinstance(step, SourceDefinitionStep):
@@ -1243,7 +1285,7 @@ class ExecutionPlanBuilder:
             self._generate_step_ids(pipeline)
 
         # Create mapping for faster lookup
-        step_id_to_pipeline_step = self._create_step_id_mapping(pipeline)
+        step_id_to_pipeline_step = self._create_step_lookup_mapping(pipeline)
 
         # Process steps in execution order
         execution_steps = self._process_steps_in_execution_order(
@@ -1258,7 +1300,9 @@ class ExecutionPlanBuilder:
         logger.info(f"Built execution plan with {len(execution_steps)} steps")
         return execution_steps
 
-    def _create_step_id_mapping(self, pipeline: Pipeline) -> Dict[str, PipelineStep]:
+    def _create_step_lookup_mapping(
+        self, pipeline: Pipeline
+    ) -> Dict[str, PipelineStep]:
         """Create mapping from step_id to pipeline_step for faster lookup."""
         step_id_to_pipeline_step = {}
         for pipeline_step in pipeline.steps:
@@ -1386,17 +1430,17 @@ class ExecutionPlanBuilder:
                 "is_from_profile": True,
                 "profile_connector_name": step.profile_connector_name,
                 "query": step.params,  # These are the OPTIONS for the source
-                "depends_on": self.step_dependencies.get(step_id, []),
+                "depends_on": [],
             }
         else:
-            # Handle traditional TYPE PARAMS syntax
+            # Handle standard SOURCE syntax
             return {
                 "id": step_id,
                 "type": "source_definition",
                 "name": step.name,
-                "source_connector_type": step.connector_type,
+                "source_connector_type": step.connector_type,  # Use source_connector_type for backward compatibility
                 "query": step.params,
-                "depends_on": self.step_dependencies.get(step_id, []),
+                "depends_on": [],
             }
 
     def _build_load_step(
@@ -1404,18 +1448,28 @@ class ExecutionPlanBuilder:
     ) -> Dict[str, Any]:
         """Build an execution step for a load step."""
         source_name = step.source_name
-        source_connector_type = "CSV"  # Default, could be determined from source
 
-        # Check if we're actually using the source dependency
-        source_step_id = f"source_{source_name}"
-        if source_step_id in depends_on:
-            pass  # Placeholder for any additional logic
+        # Try to find the SOURCE definition to get the real connector type
+        source_connector_type = "CSV"  # Default fallback
+
+        # Look for the source definition in the source_definitions mapping
+        # This mapping is built during the build_plan process
+        if (
+            hasattr(self, "_source_definitions")
+            and source_name in self._source_definitions
+        ):
+            source_def = self._source_definitions[source_name]
+            source_connector_type = source_def.get("connector_type", "CSV")
 
         return {
             "id": step_id,
             "type": "load",
             "name": step.table_name,
+            "source_name": step.source_name,  # Top-level for executor compatibility
+            "target_table": step.table_name,  # Top-level for executor compatibility
             "source_connector_type": source_connector_type,
+            "mode": getattr(step, "mode", "REPLACE"),  # Include load mode
+            "merge_keys": getattr(step, "merge_keys", []),  # Include merge keys if any
             "query": {
                 "source_name": step.source_name,
                 "table_name": step.table_name,

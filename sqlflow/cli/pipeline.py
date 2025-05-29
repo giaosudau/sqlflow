@@ -1338,8 +1338,9 @@ def _initialize_executor(
     Returns:
         Configured LocalExecutor instance
     """
-    # Initialize executor
-    executor = LocalExecutor(profile_name=profile_name)
+    # Initialize executor with project directory for UDF discovery
+    project_dir = os.getcwd()
+    executor = LocalExecutor(profile_name=profile_name, project_dir=project_dir)
     # Note: execution_id and artifact_manager are passed as parameters where needed
     # rather than assigned as attributes since they're not part of the LocalExecutor interface
 

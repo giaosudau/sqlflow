@@ -89,3 +89,6 @@ class RegexPatterns:
 
     # UDF detection
     UDF_PYTHON_FUNC = r"PYTHON_FUNC\s*\(\s*[\'\"]([a-zA-Z0-9_\.]+)[\'\"]\s*,\s*(.*?)\)"
+
+    # Table UDF detection
+    TABLE_UDF_FROM_PATTERN = r"SELECT\s+\*\s+FROM\s+(\w+)\s*\(\s*([^)]*)\s*\)"
