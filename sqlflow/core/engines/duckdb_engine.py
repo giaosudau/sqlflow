@@ -2083,7 +2083,6 @@ class DuckDBEngine(SQLEngine):
         elif mode == "APPEND":
             if table_exists:
                 # Validate schema compatibility for APPEND mode
-                self.get_table_schema(table_name)
                 self.validate_schema_compatibility(table_name, source_schema)
                 # Use INSERT INTO for existing tables
                 sql = f"INSERT INTO {table_name} SELECT * FROM {source_name}"
@@ -2099,7 +2098,6 @@ class DuckDBEngine(SQLEngine):
 
             if table_exists:
                 # Validate schema compatibility for MERGE mode
-                self.get_table_schema(table_name)
                 self.validate_schema_compatibility(table_name, source_schema)
 
                 # Validate merge keys
@@ -2109,7 +2107,13 @@ class DuckDBEngine(SQLEngine):
                 on_clauses = []
                 for key in merge_keys:
                     on_clauses.append(f"target.{key} = source.{key}")
-                on_clause = " AND ".join(on_clauses)
+                " AND ".join(on_clauses)
+
+                # Build WHERE clause for UPDATE with table name prefix
+                update_where_clauses = []
+                for key in merge_keys:
+                    update_where_clauses.append(f"{table_name}.{key} = source.{key}")
+                update_where_clause = " AND ".join(update_where_clauses)
 
                 # For compatibility with all DuckDB versions, use UPDATE + INSERT pattern
                 # instead of MERGE INTO which may not be supported
@@ -2138,7 +2142,7 @@ class DuckDBEngine(SQLEngine):
                 UPDATE {table_name} 
                 SET {set_clause}
                 FROM temp_source AS source
-                WHERE {on_clause.replace('target.', f'{table_name}.')};
+                WHERE {update_where_clause};
                 
                 -- Insert new records
                 INSERT INTO {table_name} ({', '.join(source_schema.keys())})

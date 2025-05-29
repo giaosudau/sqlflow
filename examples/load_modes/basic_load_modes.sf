@@ -34,11 +34,11 @@ LOAD users_table FROM new_users MODE APPEND;
 
 -- Load updates with MERGE mode using user_id as the merge key
 -- This will update existing records that match on user_id and insert new records
-LOAD users_table FROM users_updates MODE MERGE MERGE_KEYS user_id;
+LOAD users_table FROM users_updates MODE MERGE MERGE_KEYS (user_id);
 
 -- Example with multiple merge keys (composite key)
 -- This will update inventory records that match on both product_id AND warehouse_id
-LOAD inventory_table FROM inventory_updates MODE MERGE MERGE_KEYS product_id, warehouse_id;
+LOAD inventory_table FROM inventory_updates MODE MERGE MERGE_KEYS (product_id, warehouse_id);
 
 -- Create a merged users table with all data
 CREATE TABLE all_users AS 

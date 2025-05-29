@@ -560,23 +560,21 @@ class Parser:
             merge_keys.append(key_token.value)
 
             # Check if there's a comma after the key
-            if self._check(TokenType.IDENTIFIER) and self._peek().value == ",":
+            if self._check(TokenType.COMMA):
                 self._advance()  # Consume comma
             elif not self._check(TokenType.SEMICOLON) and not (
                 has_parentheses and self._check(TokenType.RIGHT_PAREN)
             ):
                 # If we don't see a semicolon or closing paren, we expect a comma
                 token = self._peek()
-                if token.value != ",":
-                    expected_tokens = "comma between merge keys"
-                    if has_parentheses:
-                        expected_tokens += " or ')'"
-                    raise ParserError(
-                        f"Expected {expected_tokens}",
-                        token.line,
-                        token.column,
-                    )
-                self._advance()  # Consume comma
+                expected_tokens = "comma between merge keys"
+                if has_parentheses:
+                    expected_tokens += " or ')'"
+                raise ParserError(
+                    f"Expected {expected_tokens}",
+                    token.line,
+                    token.column,
+                )
 
         # If we started with a parenthesis, we must close it
         if has_parentheses:
