@@ -1466,3 +1466,139 @@ def _print_step_success(
         typer.echo(f"{emoji} {verb} {step_name} ({row_count:,} rows)")
     else:
         typer.echo(f"{emoji} {verb} {step_name}")
+
+
+@pipeline_app.command("validate")
+def validate_pipeline_command(
+    pipeline_name: Optional[str] = typer.Argument(
+        None, help="Name of the pipeline (omit .sf extension, or provide full path)"
+    ),
+    profile: str = typer.Option(
+        "dev", "--profile", "-p", help="Profile to use (default: dev)"
+    ),
+    quiet: bool = typer.Option(
+        False, "--quiet", "-q", help="Reduce output to essential information only"
+    ),
+    verbose: bool = typer.Option(
+        False, "--verbose", "-v", help="Enable verbose output with technical details"
+    ),
+    clear_cache: bool = typer.Option(
+        False, "--clear-cache", help="Clear validation cache before validating"
+    ),
+):
+    """Validate pipeline(s) without executing them.
+
+    Validates pipeline syntax, connector configurations, and cross-references.
+    Uses smart caching for improved performance on unchanged files.
+    """
+    from sqlflow.cli.validation_cache import ValidationCache
+    from sqlflow.cli.validation_helpers import (
+        print_validation_summary,
+        validate_pipeline_with_caching,
+    )
+
+    # Configure logging
+    configure_logging(verbose=verbose, quiet=quiet)
+
+    # Clear cache if requested
+    if clear_cache:
+        cache = ValidationCache(".")
+        cache.clear_cache()
+        if not quiet:
+            typer.echo("🗑️  Validation cache cleared")
+
+    if pipeline_name:
+        # Validate single pipeline
+        try:
+            # Get project and resolve pipeline path
+            project = Project(os.getcwd(), profile_name=profile)
+            pipeline_path = _resolve_pipeline_path(project, pipeline_name)
+
+            if not os.path.exists(pipeline_path):
+                typer.echo(f"❌ Pipeline {pipeline_name} not found at {pipeline_path}")
+                raise typer.Exit(code=1)
+
+            # Validate with caching
+            errors = validate_pipeline_with_caching(pipeline_path)
+
+            # Print results
+            print_validation_summary(errors, pipeline_name, quiet=quiet)
+
+            # Exit with error code if validation failed
+            if errors:
+                raise typer.Exit(code=1)
+
+        except typer.Exit:
+            raise
+        except Exception as e:
+            typer.echo(f"❌ Validation failed: {str(e)}", err=True)
+            raise typer.Exit(code=1)
+    else:
+        # Validate all pipelines in the project
+        try:
+            project = Project(os.getcwd(), profile_name=profile)
+            pipelines_dir = os.path.join(project.project_dir, "pipelines")
+
+            if not os.path.exists(pipelines_dir):
+                typer.echo(f"❌ Pipelines directory not found: {pipelines_dir}")
+                raise typer.Exit(code=1)
+
+            # Find all pipeline files
+            pipeline_files = []
+            for file in os.listdir(pipelines_dir):
+                if file.endswith(".sf"):
+                    pipeline_files.append(file)
+
+            if not pipeline_files:
+                typer.echo(f"❌ No pipeline files found in {pipelines_dir}")
+                raise typer.Exit(code=1)
+
+            # Validate each pipeline
+            total_errors = 0
+            failed_pipelines = []
+
+            for pipeline_file in sorted(pipeline_files):
+                pipeline_path = os.path.join(pipelines_dir, pipeline_file)
+                current_pipeline_name = os.path.splitext(pipeline_file)[0]
+
+                try:
+                    errors = validate_pipeline_with_caching(pipeline_path)
+
+                    if errors:
+                        total_errors += len(errors)
+                        failed_pipelines.append(current_pipeline_name)
+                        if not quiet:
+                            typer.echo(f"\n📋 Pipeline: {current_pipeline_name}")
+                            print_validation_summary(
+                                errors, current_pipeline_name, quiet=True
+                            )
+                    else:
+                        if not quiet:
+                            typer.echo(f"✅ {current_pipeline_name}")
+
+                except Exception as e:
+                    total_errors += 1
+                    failed_pipelines.append(current_pipeline_name)
+                    typer.echo(f"❌ {current_pipeline_name}: {str(e)}", err=True)
+
+            # Print summary
+            if not quiet:
+                typer.echo(f"\n📊 Validation Summary:")
+                typer.echo(f"  Total pipelines: {len(pipeline_files)}")
+                typer.echo(f"  Passed: {len(pipeline_files) - len(failed_pipelines)}")
+                typer.echo(f"  Failed: {len(failed_pipelines)}")
+                typer.echo(f"  Total errors: {total_errors}")
+
+            if failed_pipelines:
+                if not quiet:
+                    typer.echo(f"\n❌ Failed pipelines: {', '.join(failed_pipelines)}")
+                raise typer.Exit(code=1)
+            else:
+                if not quiet:
+                    typer.echo(f"\n✅ All pipelines passed validation!")
+
+        except typer.Exit:
+            raise
+        except Exception as e:
+            typer.echo(f"❌ Validation failed: {str(e)}", err=True)
+            raise typer.Exit(code=1)
