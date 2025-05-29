@@ -341,6 +341,7 @@ class LocalExecutor(BaseExecutor):
                     table_name=step["target_table"],
                     source_name=step["source_name"],
                     mode=step.get("mode", "REPLACE"),
+                    merge_keys=step.get("merge_keys", []),
                 )
                 return self.execute_load_step(load_step)
             else:

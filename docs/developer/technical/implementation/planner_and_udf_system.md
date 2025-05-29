@@ -1,5 +1,17 @@
 # SQLFlow Planner and UDF System: Technical Deep Dive
 
+⚠️ **Important Note**: This document describes the technical architecture for table UDF SQL integration. However, due to DuckDB Python API limitations, table UDFs cannot currently be called directly in SQL FROM clauses. The dependency detection and planning logic described here is implemented but not functional for table UDFs in production. Scalar UDFs work as described.
+
+**Current Status:**
+- ✅ **Scalar UDFs**: Fully functional as described in this document
+- ❌ **Table UDFs in SQL**: Architecture implemented but not functional due to DuckDB limitations
+- ✅ **Table UDFs (Programmatic)**: Work when called directly from Python
+- ✅ **External Processing**: Recommended alternative for complex transformations
+
+For current working approaches, see `docs/user/reference/python_udfs.md`.
+
+---
+
 ## 1. Introduction
 
 This document provides an in-depth technical explanation of the SQLFlow planner and User-Defined Function (UDF) systems. It covers how the planner builds execution plans, how it detects dependencies between operations, and how Python UDFs (both scalar and table UDFs) are integrated into the execution flow.
@@ -96,6 +108,7 @@ def _extract_referenced_tables(self, sql_query: str) -> List[str]:
             tables.append(table_name)
             
     # Handle table UDF pattern: PYTHON_FUNC("module.function", table_name)
+    # Note: This pattern is detected but doesn't work in practice due to DuckDB limitations
     udf_table_matches = re.finditer(
         r"python_func\s*\(\s*['\"][\w\.]+['\"]\s*,\s*([a-zA-Z0-9_]+)", sql_lower
     )
@@ -110,7 +123,7 @@ def _extract_referenced_tables(self, sql_query: str) -> List[str]:
 This method uses regular expressions to identify:
 1. Tables in `FROM` clauses
 2. Tables in `JOIN` operations
-3. Tables referenced as parameters to Python table UDFs
+3. Tables referenced as parameters to Python table UDFs (architecture present but non-functional)
 
 ### 3.2 Building the Dependency Graph
 

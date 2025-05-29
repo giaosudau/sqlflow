@@ -248,36 +248,67 @@ SQLFlow supports standard SQL syntax within `CREATE TABLE` statements and `EXPOR
 
 SQLFlow supports calling Python user-defined functions (UDFs) from SQL statements.
 
+⚠️ **Important Limitation**: Table UDFs cannot be called directly in SQL FROM clauses due to DuckDB Python API limitations.
+
+### **Scalar UDFs (Fully Supported)**
+Scalar UDFs process data row-by-row and work seamlessly in SQL:
+
 **Syntax:**
 ```sql
--- Scalar UDF (returns a single value)
 SELECT PYTHON_FUNC("module.function_name", arg1, arg2) FROM table;
-
--- Table UDF (returns a result set)
-SELECT * FROM PYTHON_FUNC("module.function_name", arg1, arg2);
-CREATE TABLE result_table AS 
-SELECT * FROM PYTHON_FUNC("module.function_name", sub_query);
 ```
 
 **Example:**
 ```sql
 -- Include Python module
-INCLUDE "examples/python_udfs/example_udf.py";
+INCLUDE "examples/python_udfs/text_utils.py";
 
--- Use scalar UDF
-CREATE TABLE discounted_products AS
+-- Use scalar UDF in SQL
+CREATE TABLE processed_customers AS
 SELECT
-  product_id,
-  name,
-  price,
-  PYTHON_FUNC("example_udf.calculate_discount", price) AS discount_amount
-FROM products_table;
+  customer_id,
+  PYTHON_FUNC("text_utils.capitalize_words", name) AS formatted_name,
+  PYTHON_FUNC("text_utils.extract_domain", email) AS email_domain,
+  PYTHON_FUNC("text_utils.count_words", notes) AS note_word_count
+FROM customers_table;
+```
 
--- Use table UDF with a subquery
-CREATE TABLE sales_summary AS
-SELECT * FROM PYTHON_FUNC("example_udf.sales_summary", 
-  SELECT product_id, category, price, quantity FROM products_table
-);
+### **Table UDFs (Programmatic Only)**
+Table UDFs work when called directly from Python but not in SQL FROM clauses:
+
+```python
+# ✅ Works: Direct Python call
+from python_udfs.data_transforms import add_sales_metrics
+processed_data = add_sales_metrics(sales_df)
+
+# ❌ Doesn't work: SQL FROM clause
+# SELECT * FROM PYTHON_FUNC("module.table_function", sub_query);
+```
+
+### **Alternative Approaches for Complex Transformations**
+
+For table-like transformations, use these recommended approaches:
+
+**1. External Processing:**
+```python
+# Fetch data → Process with pandas → Register back
+sales_df = engine.execute_query("SELECT * FROM sales").fetchdf()
+processed_df = add_sales_metrics_external(sales_df)
+engine.connection.register("processed_sales", processed_df)
+```
+
+**2. Scalar UDF Chains:**
+```sql
+-- Break complex operations into scalar UDF steps
+CREATE TABLE sales_with_totals AS
+SELECT *, 
+  PYTHON_FUNC("table_udf_alternatives.calculate_sales_total", price, quantity) AS total
+FROM raw_sales;
+
+CREATE TABLE sales_with_tax AS
+SELECT *, 
+  PYTHON_FUNC("table_udf_alternatives.calculate_sales_tax", total) AS tax
+FROM sales_with_totals;
 ```
 
 ## Examples

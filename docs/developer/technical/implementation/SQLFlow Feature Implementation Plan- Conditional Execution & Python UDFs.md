@@ -1,5 +1,18 @@
 # SQLFlow Implementation Plan: Conditional Execution & Python UDFs
 
+⚠️ **Implementation Status Update**: This document describes the original implementation plan for conditional execution and Python UDFs. 
+
+**Current Status:**
+- ✅ **Conditional Execution (IF/ELSE)**: Fully implemented and functional
+- ✅ **Scalar UDFs**: Fully implemented and functional  
+- ❌ **Table UDFs in SQL FROM clauses**: Architecture implemented but not functional due to DuckDB Python API limitations
+- ✅ **Table UDFs (Programmatic)**: Work when called directly from Python
+- ✅ **External Processing**: Alternative approach for complex transformations
+
+For current working approaches, see `docs/user/reference/python_udfs.md`.
+
+---
+
 ## Epic 1: Conditional Execution (IF/ELSE)
 
 **Goal:** Implement SQL-native conditional block execution where branches are evaluated and selected at planning time based on variable context.
@@ -1296,9 +1309,28 @@ FROM customers;
 
 ### Using Table UDFs
 
+⚠️ **Current Limitation**: Table UDFs cannot be called directly in SQL FROM clauses due to DuckDB Python API limitations.
+
 ```sql
+-- ❌ This doesn't work (original plan):
+-- CREATE TABLE sales_with_metrics AS
+-- SELECT * FROM PYTHON_FUNC("data_processors.add_sales_metrics", sales);
+
+-- ✅ Alternative 1: External Processing
+-- 1. sales_df = engine.execute_query("SELECT * FROM sales").fetchdf()
+-- 2. processed_df = add_sales_metrics_external(sales_df)
+-- 3. engine.connection.register("sales_with_metrics", processed_df)
+
+-- ✅ Alternative 2: Scalar UDF Chain
+CREATE TABLE sales_with_totals AS
+SELECT *, 
+  PYTHON_FUNC("data_processors.calculate_total", amount, tax_rate) AS total
+FROM sales;
+
 CREATE TABLE sales_with_metrics AS
-SELECT * FROM PYTHON_FUNC("data_processors.add_sales_metrics", sales);
+SELECT *, 
+  PYTHON_FUNC("data_processors.calculate_tax", total) AS tax
+FROM sales_with_totals;
 ```
 
 ## Listing Available UDFs
@@ -1382,8 +1414,22 @@ SELECT
 FROM products_table;
 
 -- Use table UDF to add multiple discount calculations
+-- ❌ This doesn't work (original plan):
+-- CREATE TABLE product_pricing AS
+-- SELECT * FROM PYTHON_FUNC("example_udf.add_discounted_prices", products_table);
+
+-- ✅ Alternative: Use scalar UDFs for multiple calculations
 CREATE TABLE product_pricing AS
-SELECT * FROM PYTHON_FUNC("example_udf.add_discounted_prices", products_table);
+SELECT 
+  product_id,
+  name,
+  category,
+  price,
+  PYTHON_FUNC("example_udf.calculate_discount", price, 0.1) AS discount_10,
+  PYTHON_FUNC("example_udf.calculate_discount", price, 0.2) AS discount_20,
+  price - PYTHON_FUNC("example_udf.calculate_discount", price, 0.1) AS final_price_10,
+  price - PYTHON_FUNC("example_udf.calculate_discount", price, 0.2) AS final_price_20
+FROM products_table;
 
 -- Export results
 EXPORT

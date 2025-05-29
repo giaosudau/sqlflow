@@ -148,6 +148,24 @@ def enhance_udf_manager(manager: Any) -> None:
         # Update the manager's UDFs dictionary
         manager.udfs = enhanced_udfs
 
+        # Also create UDF info for the specialized UDFs
+        for udf_name, func in enhanced_udfs.items():
+            if udf_name not in manager.udf_info and udf_name not in udfs:
+                # This is a specialized UDF, create info for it
+                try:
+                    # Extract metadata for the specialized UDF
+                    specialized_info = manager._extract_udf_metadata(
+                        func,
+                        ".".join(udf_name.split(".")[:-1]),  # module name
+                        udf_name.split(".")[-1],  # function name
+                        "generated",  # file path placeholder
+                    )
+                    manager.udf_info[udf_name] = specialized_info
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to create info for specialized UDF {udf_name}: {e}"
+                    )
+
         return enhanced_udfs
 
     # Replace the discover_udfs method

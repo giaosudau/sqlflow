@@ -93,6 +93,8 @@ def list_udfs(
 ):
     """List available Python UDFs."""
     try:
+        # Use regular UDF manager without enhancement for CLI operations
+        # CLI should only show actual UDFs, not auto-generated specialized versions
         manager = PythonUDFManager(project_dir=project_dir)
         manager.discover_udfs()
         udfs = manager.list_udfs()

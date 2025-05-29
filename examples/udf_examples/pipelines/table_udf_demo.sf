@@ -1,0 +1,24 @@
+-- Table UDF Demonstration Pipeline
+-- This pipeline demonstrates actual table UDF functions (not scalar alternatives)
+-- using the @python_table_udf decorated functions
+
+-- Load raw sales data
+SOURCE sales_data TYPE CSV PARAMS {
+  "path": "data/sales.csv", 
+  "has_header": true
+};
+
+-- Step 1: Use table UDF to add sales metrics
+-- This demonstrates a real table UDF that processes an entire DataFrame
+CREATE TABLE sales_with_metrics AS 
+SELECT * FROM PYTHON_FUNC("data_transforms.add_sales_metrics", sales_data);
+
+-- Step 2: Use table UDF to detect outliers
+-- This demonstrates another table UDF that adds outlier detection columns
+CREATE TABLE sales_with_outliers AS
+SELECT * FROM PYTHON_FUNC("data_transforms.detect_outliers", sales_with_metrics);
+
+-- Step 3: Export the final results to show table UDF transformations
+EXPORT SELECT * FROM sales_with_outliers
+TO "output/table_udf_demo_result.csv"
+TYPE CSV OPTIONS { "header": true }; 

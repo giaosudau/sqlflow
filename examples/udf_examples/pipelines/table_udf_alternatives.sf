@@ -1,0 +1,218 @@
+-- Table UDF Alternatives Pipeline
+-- Demonstrates alternative approaches to table UDFs that work with DuckDB limitations
+
+-- Source sales data
+SOURCE sales TYPE CSV PARAMS {
+  "path": "data/sales.csv",
+  "has_header": true
+};
+
+-- Source customer data
+SOURCE customers TYPE CSV PARAMS {
+  "path": "data/customers.csv",
+  "has_header": true
+};
+
+-- Load data
+LOAD raw_sales FROM sales;
+LOAD raw_customers FROM customers;
+
+-- ===== APPROACH 1: SCALAR UDF CHAIN =====
+-- Use multiple scalar UDFs to build up calculated columns
+
+-- Step 1: Calculate basic sales totals first
+CREATE TABLE sales_with_totals AS
+SELECT
+  id,
+  customer_id,
+  product,
+  price,
+  quantity,
+  date,
+  -- Use scalar UDF to calculate total first
+  PYTHON_FUNC("python_udfs.table_udf_alternatives.calculate_sales_total", price, quantity) AS total
+FROM raw_sales;
+
+-- Step 2: Add tax calculation using the total column
+CREATE TABLE sales_with_tax AS
+SELECT
+  id,
+  customer_id,
+  product,
+  price,
+  quantity,
+  date,
+  total,
+  -- Use the pre-calculated total for tax
+  PYTHON_FUNC("python_udfs.table_udf_alternatives.calculate_sales_tax", total) AS tax
+FROM sales_with_totals;
+
+-- Step 3: Add final price calculation
+CREATE TABLE sales_with_scalar_metrics AS
+SELECT
+  id,
+  customer_id,
+  product,
+  price,
+  quantity,
+  date,
+  total,
+  tax,
+  -- Use pre-calculated total and tax for final price
+  PYTHON_FUNC("python_udfs.table_udf_alternatives.calculate_final_price", total, tax) AS final_price
+FROM sales_with_tax;
+
+-- Step 4: Calculate statistics for outlier detection
+CREATE TABLE price_statistics AS
+SELECT
+  AVG(price) AS mean_price,
+  STDDEV(price) AS std_price,
+  COUNT(*) AS total_count
+FROM raw_sales;
+
+-- Step 5: Add Z-score calculation
+CREATE TABLE sales_with_zscore AS
+SELECT
+  s.*,
+  -- Calculate Z-score using statistics
+  PYTHON_FUNC("python_udfs.table_udf_alternatives.calculate_z_score", s.price, stat.mean_price, stat.std_price) AS z_score
+FROM sales_with_scalar_metrics s
+CROSS JOIN price_statistics stat;
+
+-- Step 6: Add outlier detection and percentile
+CREATE TABLE sales_with_outlier_detection AS
+SELECT
+  s.*,
+  -- Use pre-calculated Z-score for outlier detection
+  PYTHON_FUNC("python_udfs.table_udf_alternatives.is_outlier", s.z_score) AS is_outlier,
+  -- Calculate percentile rank using ROW_NUMBER and COUNT
+  PYTHON_FUNC("python_udfs.table_udf_alternatives.calculate_percentile_rank",
+    s.price,
+    stat.total_count,
+    ROW_NUMBER() OVER (ORDER BY s.price)
+  ) AS percentile
+FROM sales_with_zscore s
+CROSS JOIN price_statistics stat;
+
+-- ===== APPROACH 2: DATA QUALITY ANALYSIS =====
+-- Use scalar UDFs for data quality checks
+
+-- Step 1: Add email validation
+CREATE TABLE customer_with_email_validation AS
+SELECT
+  id,
+  name,
+  email,
+  -- Data quality checks using scalar UDFs
+  PYTHON_FUNC("python_udfs.table_udf_alternatives.validate_email_format", email) AS email_valid,
+  (name IS NOT NULL AND LENGTH(TRIM(name)) > 0) AS name_not_null
+FROM raw_customers;
+
+-- Step 2: Calculate overall data quality score using pre-calculated values
+CREATE TABLE customer_data_quality AS
+SELECT
+  id,
+  name,
+  email,
+  email_valid,
+  name_not_null,
+  -- Calculate overall data quality score using pre-calculated values
+  PYTHON_FUNC("python_udfs.table_udf_alternatives.calculate_data_quality_score",
+    email_valid,
+    true,  -- Price validation not applicable for customers
+    name_not_null
+  ) AS data_quality_score
+FROM customer_with_email_validation;
+
+-- ===== APPROACH 3: ADVANCED ANALYTICS =====
+-- Use window functions with scalar UDFs for time series analysis
+
+CREATE TABLE sales_time_series AS
+SELECT
+  s.*,
+  -- Running totals using window functions
+  SUM(s.total) OVER (ORDER BY s.date, s.id ROWS UNBOUNDED PRECEDING) AS running_total,
+  -- Moving averages (3-day window)
+  AVG(s.total) OVER (ORDER BY s.date ROWS 2 PRECEDING) AS moving_avg_3day,
+  -- Growth rate calculation (compared to previous sale)
+  PYTHON_FUNC("python_udfs.table_udf_alternatives.calculate_growth_rate",
+    s.total,
+    LAG(s.total) OVER (ORDER BY s.date, s.id)
+  ) AS growth_rate
+FROM sales_with_scalar_metrics s
+ORDER BY s.date, s.id;
+
+-- ===== JOIN WITH CUSTOMER DATA =====
+-- Combine sales analysis with customer data quality
+
+CREATE TABLE comprehensive_sales_analysis AS
+SELECT
+  s.id AS sale_id,
+  c.name AS customer_name,
+  c.email,
+  c.data_quality_score,
+  s.product,
+  s.price,
+  s.quantity,
+  s.total,
+  s.tax,
+  s.final_price,
+  s.z_score,
+  s.is_outlier,
+  s.percentile,
+  s.date,
+  st.running_total,
+  st.moving_avg_3day,
+  st.growth_rate
+FROM sales_with_outlier_detection s
+JOIN customer_data_quality c ON s.customer_id = c.id
+JOIN sales_time_series st ON s.id = st.id;
+
+-- ===== SUMMARY ANALYTICS =====
+-- Create summary tables using aggregation with UDFs
+
+CREATE TABLE customer_summary_advanced AS
+SELECT
+  customer_name,
+  COUNT(*) AS num_purchases,
+  SUM(total) AS total_spent,
+  AVG(total) AS avg_purchase,
+  MIN(date) AS first_purchase,
+  MAX(date) AS last_purchase,
+  -- Data quality metrics
+  MAX(data_quality_score) AS customer_data_quality,
+  -- Outlier analysis
+  SUM(CASE WHEN is_outlier THEN 1 ELSE 0 END) AS outlier_purchases,
+  COUNT(*) - SUM(CASE WHEN is_outlier THEN 1 ELSE 0 END) AS normal_purchases
+FROM comprehensive_sales_analysis
+GROUP BY customer_name
+ORDER BY total_spent DESC;
+
+-- Export results
+EXPORT
+  SELECT * FROM comprehensive_sales_analysis
+TO "${output_dir}/comprehensive_analysis_${run_id}.csv"
+TYPE CSV
+OPTIONS { "header": true };
+
+EXPORT
+  SELECT * FROM customer_summary_advanced
+TO "${output_dir}/customer_summary_advanced_${run_id}.csv"
+TYPE CSV
+OPTIONS { "header": true };
+
+-- Export outlier analysis
+EXPORT
+  SELECT 
+    customer_name,
+    product,
+    price,
+    total,
+    z_score,
+    percentile,
+    'High price outlier' AS outlier_type
+  FROM comprehensive_sales_analysis
+  WHERE is_outlier = true
+TO "${output_dir}/outliers_analysis_${run_id}.csv"
+TYPE CSV
+OPTIONS { "header": true }; 
