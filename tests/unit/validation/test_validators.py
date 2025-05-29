@@ -17,7 +17,7 @@ class TestConnectorValidation:
         source = SourceDefinitionStep(
             name="users",
             connector_type="CSV",
-            params={"file": "users.csv"},
+            params={"path": "users.csv"},
             line_number=1,
         )
         pipeline.add_step(source)
@@ -49,7 +49,7 @@ class TestConnectorValidation:
         source = SourceDefinitionStep(
             name="users",
             connector_type="CSV",
-            params={"file": "users.txt", "invalid_param": "value"},
+            params={"path": "users.txt", "invalid_param": "value"},
             line_number=3,
         )
         pipeline.add_step(source)
@@ -114,7 +114,7 @@ class TestReferenceValidation:
         source = SourceDefinitionStep(
             name="users",
             connector_type="CSV",
-            params={"file": "users.csv"},
+            params={"path": "users.csv"},
             line_number=1,
         )
         pipeline.add_step(source)
@@ -152,7 +152,7 @@ class TestReferenceValidation:
         source1 = SourceDefinitionStep(
             name="users",
             connector_type="CSV",
-            params={"file": "users1.csv"},
+            params={"path": "users1.csv"},
             line_number=1,
         )
         pipeline.add_step(source1)
@@ -160,7 +160,7 @@ class TestReferenceValidation:
         source2 = SourceDefinitionStep(
             name="users",
             connector_type="CSV",
-            params={"file": "users2.csv"},
+            params={"path": "users2.csv"},
             line_number=3,
         )
         pipeline.add_step(source2)
@@ -179,7 +179,7 @@ class TestReferenceValidation:
         source1 = SourceDefinitionStep(
             name="users",
             connector_type="CSV",
-            params={"file": "users.csv"},
+            params={"path": "users.csv"},
             line_number=1,
         )
         pipeline.add_step(source1)
@@ -187,7 +187,7 @@ class TestReferenceValidation:
         source2 = SourceDefinitionStep(
             name="orders",
             connector_type="CSV",
-            params={"file": "orders.csv"},
+            params={"path": "orders.csv"},
             line_number=2,
         )
         pipeline.add_step(source2)
@@ -215,7 +215,7 @@ class TestPipelineValidation:
         source = SourceDefinitionStep(
             name="users",
             connector_type="CSV",
-            params={"file": "users.csv"},
+            params={"path": "users.csv"},
             line_number=1,
         )
         pipeline.add_step(source)
@@ -243,7 +243,7 @@ class TestPipelineValidation:
         source2 = SourceDefinitionStep(
             name="orders",
             connector_type="CSV",
-            params={"file": "orders.csv"},
+            params={"path": "orders.csv"},
             line_number=2,
         )
         pipeline.add_step(source2)
@@ -271,7 +271,7 @@ class TestPipelineValidation:
         source = SourceDefinitionStep(
             name="",  # Empty name should cause validation error
             connector_type="CSV",
-            params={"file": "users.csv"},
+            params={"path": "users.csv"},
             line_number=1,
         )
         pipeline.add_step(source)

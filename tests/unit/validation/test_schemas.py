@@ -170,9 +170,9 @@ class TestBuiltInSchemas:
     def test_csv_schema_valid_params(self):
         """Test CSV schema with valid parameters."""
         params = {
-            "file": "data.csv",
+            "path": "data.csv",
             "delimiter": ",",
-            "header": True,
+            "has_header": True,
             "encoding": "utf-8",
         }
 
@@ -181,14 +181,14 @@ class TestBuiltInSchemas:
 
     def test_csv_schema_minimal_params(self):
         """Test CSV schema with minimal required parameters."""
-        params = {"file": "data.csv"}
+        params = {"path": "data.csv"}
 
         errors = CSV_SCHEMA.validate(params)
         assert len(errors) == 0
 
     def test_csv_schema_invalid_file_extension(self):
         """Test CSV schema with invalid file extension."""
-        params = {"file": "data.txt"}
+        params = {"path": "data.txt"}
 
         errors = CSV_SCHEMA.validate(params)
         assert len(errors) == 1
@@ -196,7 +196,7 @@ class TestBuiltInSchemas:
 
     def test_csv_schema_invalid_delimiter(self):
         """Test CSV schema with invalid delimiter."""
-        params = {"file": "data.csv", "delimiter": "invalid"}
+        params = {"path": "data.csv", "delimiter": "invalid"}
 
         errors = CSV_SCHEMA.validate(params)
         assert len(errors) == 1

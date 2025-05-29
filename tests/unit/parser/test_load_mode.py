@@ -9,7 +9,7 @@ from sqlflow.parser.parser import Parser, ParserError
 def test_load_default_mode():
     """Test default mode (REPLACE) is used when MODE is not specified."""
     parser = Parser("LOAD users FROM users_source;")
-    pipeline = parser.parse()
+    pipeline = parser.parse(validate=False)
 
     assert len(pipeline.steps) == 1
     assert isinstance(pipeline.steps[0], LoadStep)
@@ -22,7 +22,7 @@ def test_load_default_mode():
 def test_load_with_replace_mode():
     """Test LOAD with MODE REPLACE."""
     parser = Parser("LOAD users FROM users_source MODE REPLACE;")
-    pipeline = parser.parse()
+    pipeline = parser.parse(validate=False)
 
     assert len(pipeline.steps) == 1
     assert isinstance(pipeline.steps[0], LoadStep)
@@ -35,7 +35,7 @@ def test_load_with_replace_mode():
 def test_load_with_append_mode():
     """Test LOAD with MODE APPEND."""
     parser = Parser("LOAD users FROM users_source MODE APPEND;")
-    pipeline = parser.parse()
+    pipeline = parser.parse(validate=False)
 
     assert len(pipeline.steps) == 1
     assert isinstance(pipeline.steps[0], LoadStep)
@@ -48,7 +48,7 @@ def test_load_with_append_mode():
 def test_load_with_merge_mode():
     """Test LOAD with MODE MERGE and MERGE_KEYS."""
     parser = Parser("LOAD users FROM users_source MODE MERGE MERGE_KEYS user_id;")
-    pipeline = parser.parse()
+    pipeline = parser.parse(validate=False)
 
     assert len(pipeline.steps) == 1
     assert isinstance(pipeline.steps[0], LoadStep)
@@ -63,7 +63,7 @@ def test_load_with_merge_mode_multiple_keys():
     parser = Parser(
         "LOAD users FROM users_source MODE MERGE MERGE_KEYS user_id, email;"
     )
-    pipeline = parser.parse()
+    pipeline = parser.parse(validate=False)
 
     assert len(pipeline.steps) == 1
     assert isinstance(pipeline.steps[0], LoadStep)
@@ -78,7 +78,7 @@ def test_load_with_merge_mode_without_keys():
     parser = Parser("LOAD users FROM users_source MODE MERGE;")
 
     with pytest.raises(ParserError) as excinfo:
-        parser.parse()
+        parser.parse(validate=False)
 
     assert "Expected 'MERGE_KEYS' after 'MERGE'" in str(excinfo.value)
 
@@ -88,7 +88,7 @@ def test_load_with_invalid_mode():
     parser = Parser("LOAD users FROM users_source MODE UPDATE;")
 
     with pytest.raises(ParserError) as excinfo:
-        parser.parse()
+        parser.parse(validate=False)
 
     assert "Expected 'REPLACE', 'APPEND', or 'MERGE' after 'MODE'" in str(excinfo.value)
 
@@ -112,7 +112,7 @@ def test_load_with_merge_mode_validation():
 def test_load_with_merge_mode_parentheses():
     """Test LOAD with MODE MERGE and MERGE_KEYS with parentheses."""
     parser = Parser("LOAD users FROM users_source MODE MERGE MERGE_KEYS (user_id);")
-    pipeline = parser.parse()
+    pipeline = parser.parse(validate=False)
 
     assert len(pipeline.steps) == 1
     assert isinstance(pipeline.steps[0], LoadStep)
@@ -127,7 +127,7 @@ def test_load_with_merge_mode_multiple_keys_parentheses():
     parser = Parser(
         "LOAD users FROM users_source MODE MERGE MERGE_KEYS (user_id, email);"
     )
-    pipeline = parser.parse()
+    pipeline = parser.parse(validate=False)
 
     assert len(pipeline.steps) == 1
     assert isinstance(pipeline.steps[0], LoadStep)
@@ -142,6 +142,6 @@ def test_load_with_merge_mode_missing_closing_paren():
     parser = Parser("LOAD users FROM users_source MODE MERGE MERGE_KEYS (user_id;")
 
     with pytest.raises(ParserError) as excinfo:
-        parser.parse()
+        parser.parse(validate=False)
 
     assert "Expected ')' to close merge keys list" in str(excinfo.value)
