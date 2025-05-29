@@ -3,6 +3,9 @@
 from abc import ABC, abstractmethod
 from typing import Any
 
+import pandas as pd
+import pyarrow as pa
+
 from sqlflow.logging import get_logger
 
 logger = get_logger(__name__)
@@ -64,12 +67,18 @@ class DataHandlerFactory:
 
         Returns:
             Appropriate data handler
+
+        Raises:
+            TypeError: If data type is not supported
         """
         # Check data type and return appropriate handler
-        if hasattr(data, "dtypes"):  # Pandas DataFrame
+        if isinstance(data, pd.DataFrame):
             return PandasDataHandler()
-        elif hasattr(data, "schema"):  # Arrow table
+        elif isinstance(data, pa.Table):
             return ArrowDataHandler()
         else:
-            # Default to pandas handler
-            return PandasDataHandler()
+            # Raise an error for unsupported data types
+            raise TypeError(
+                f"Unsupported data type: {type(data)}. "
+                f"Supported types are pandas.DataFrame and pyarrow.Table."
+            )
