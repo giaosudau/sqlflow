@@ -4,7 +4,7 @@ import json
 import re
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import Any, Dict, List, Pattern, Tuple
+from typing import Any, Dict, List, Optional, Pattern, Tuple
 
 # Regex patterns for JSON parsing
 WHITESPACE = re.compile(r"[ \t\n\r]+")
@@ -13,7 +13,7 @@ VARIABLE_PATTERN = re.compile(r"\${[^}]+}")
 
 
 def replace_variables_for_validation(
-    text: str, dummy_values: Dict[str, Any] = None
+    text: str, dummy_values: Optional[Dict[str, Any]] = None
 ) -> str:
     """Replace ${var} style variables with dummy values for JSON validation."""
     if dummy_values is None:
@@ -112,6 +112,7 @@ class Token:
     value: str
     line: int = 1
     column: int = 1
+    char_position: int = 0  # Absolute character position for error reporting
 
 
 class Lexer:
@@ -203,18 +204,30 @@ class Lexer:
         while self.pos < len(self.text):
             self._tokenize_next()
 
-        self.tokens.append(Token(TokenType.EOF, "", self.line, self.column))
+        self.tokens.append(Token(TokenType.EOF, "", self.line, self.column, self.pos))
         return self.tokens
 
     def _tokenize_next(self) -> None:
         """Tokenize the next token in the input text."""
         # Check for JSON object first
         if self.text[self.pos] == "{":
+            # Capture position before extraction
+            start_line = self.line
+            start_column = self.column
+            start_pos = self.pos
+
             json_value, success = self._extract_json_object()
             if success:
                 self.tokens.append(
-                    Token(TokenType.JSON_OBJECT, json_value, self.line, self.column)
+                    Token(
+                        TokenType.JSON_OBJECT,
+                        json_value,
+                        start_line,
+                        start_column,
+                        start_pos,
+                    )
                 )
+                # Now advance position based on the extracted JSON
                 for char in json_value:
                     if char == "\n":
                         self.line += 1
@@ -224,13 +237,20 @@ class Lexer:
                 self.pos += len(json_value)
                 return
 
+        # Capture position before pattern matching
+        start_line = self.line
+        start_column = self.column
+        start_pos = self.pos
+
         for token_type, pattern in self.patterns:
             match = pattern.match(self.text[self.pos :])
             if match:
                 value = match.group(0)
 
                 if token_type not in (TokenType.WHITESPACE, TokenType.COMMENT):
-                    self.tokens.append(Token(token_type, value, self.line, self.column))
+                    self.tokens.append(
+                        Token(token_type, value, start_line, start_column, start_pos)
+                    )
 
                 for char in value:
                     if char == "\n":
@@ -243,7 +263,13 @@ class Lexer:
                 return
 
         self.tokens.append(
-            Token(TokenType.ERROR, self.text[self.pos], self.line, self.column)
+            Token(
+                TokenType.ERROR,
+                self.text[self.pos],
+                start_line,
+                start_column,
+                start_pos,
+            )
         )
         self.column += 1
         self.pos += 1
@@ -352,8 +378,7 @@ class Lexer:
 
                 # Validate JSON structure
                 if self._check_json_validity(json_text):
-                    self.line = current_line
-                    self.column = current_col + 1
+                    # Don't update position here - that will be done in _tokenize_next
                     return json_text, True
                 else:
                     # Keep searching if invalid to find potential multi-line JSON
