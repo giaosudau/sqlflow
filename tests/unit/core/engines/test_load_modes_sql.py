@@ -5,6 +5,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from sqlflow.core.engines.duckdb import DuckDBEngine
+from sqlflow.core.engines.duckdb.exceptions import InvalidLoadModeError
 from sqlflow.parser.ast import LoadStep
 
 
@@ -202,5 +203,5 @@ def test_invalid_mode_raises_error(duckdb_engine):
         line_number=1,
     )
 
-    with pytest.raises(ValueError, match="Invalid load mode"):
+    with pytest.raises(InvalidLoadModeError, match="Invalid load mode"):
         duckdb_engine.generate_load_sql(load_step)
