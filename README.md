@@ -172,6 +172,58 @@ CREATE TABLE enriched_orders AS
 SELECT * FROM PYTHON_FUNC("python_udfs.metrics.add_metrics", orders);
 ```
 
+## 🔍 Built-in Validation & Error Prevention
+
+SQLFlow includes intelligent validation that catches errors before execution, saving you time and preventing pipeline failures.
+
+### Catch Errors Early
+
+```bash
+# Validate any pipeline without running it
+sqlflow pipeline validate customer_analytics
+
+# Validate all pipelines in your project  
+sqlflow pipeline validate
+```
+
+### Helpful Error Messages & Suggestions
+
+When validation finds issues, you get clear, actionable feedback:
+
+```bash
+❌ Validation failed for my_pipeline.sf
+
+📋 Pipeline: my_pipeline
+❌ SOURCE missing_path: Missing required parameter 'path'
+💡 Suggestion: Add "path": "your_file.csv" to the PARAMS
+
+❌ SOURCE invalid_type: Unknown connector type 'unknown_connector'  
+💡 Suggestion: Use one of: csv, postgresql, s3, bigquery
+
+📊 Summary: 2 errors found
+```
+
+### Automatic Safety Checks
+
+Validation runs automatically when you compile or run pipelines:
+
+```bash
+# These commands validate first, preventing bad deployments
+sqlflow pipeline run my_pipeline    # ✅ Validates, then runs
+sqlflow pipeline compile my_pipeline # ✅ Validates, then compiles
+```
+
+### What Gets Validated
+
+- ✅ **Connector Types**: Ensures you're using valid connector types
+- ✅ **Required Parameters**: Checks all required parameters are provided  
+- ✅ **File Extensions**: Validates file extensions match connector types
+- ✅ **Reference Integrity**: Ensures SOURCE references exist in LOAD statements
+- ✅ **Schema Compliance**: Validates against connector schemas
+- ✅ **Syntax Checking**: Catches SQL and SQLFlow syntax errors
+
+**Result**: Catch configuration errors in seconds, not after long execution times.
+
 ## 📊 Feature Comparison
 
 | Feature | SQLFlow | dbt | SQLMesh | Airflow |
@@ -181,6 +233,7 @@ SELECT * FROM PYTHON_FUNC("python_udfs.metrics.add_metrics", orders);
 | **SQL-based pipelines** | ✅ Complete | ✅ Transform only | ✅ Models | ❌ Python DAGs |
 | **Source connectors** | ✅ Built-in | ❌ No | ❌ Limited | ❌ No |
 | **Export destinations** | ✅ Built-in | ❌ No | ❌ Limited | ❌ No |
+| **Pipeline validation** | ✅ Built-in with suggestions | ❌ Basic syntax | ❌ Limited | ❌ Runtime only |
 | **Python integration** | ✅ UDFs | ✅ Limited | ✅ Limited | ✅ Python-first |
 | **Environment mgmt** | ✅ Profiles | ✅ Limited | ✅ Environments | ✅ Complex |
 | **Learning curve** | ⭐ Low (SQL+) | ⭐⭐ Medium | ⭐⭐ Medium | ⭐⭐⭐ High |
@@ -298,6 +351,9 @@ A: dbt focuses on transformation within your warehouse. SQLFlow provides end-to-
 **Q: Do I need a data warehouse to use SQLFlow?**  
 A: No! SQLFlow uses DuckDB as its engine, working entirely local-first. You can connect to warehouses when needed, but it's not required.
 
+**Q: How does SQLFlow prevent pipeline errors?**  
+A: SQLFlow includes built-in validation that checks your pipelines before execution. It validates connector types, required parameters, file extensions, and more - catching errors in seconds instead of after long runs. Use `sqlflow pipeline validate` to check any pipeline.
+
 **Q: Can SQLFlow handle large datasets?**  
 A: Yes. DuckDB uses out-of-core algorithms for datasets larger than RAM, spilling to disk as needed. Performance scales well with proper indexing and partitioning.
 
@@ -308,7 +364,7 @@ A: Use profiles: `sqlflow pipeline run my_pipeline --profile prod`. Each profile
 A: Yes. All tables are persisted to disk, making debugging and data examination easier.
 
 **Q: Can I use SQLFlow in CI/CD?**  
-A: Absolutely. SQLFlow is a CLI tool designed for automation. Use `sqlflow pipeline run` in your CI/CD scripts for automated testing and deployment.
+A: Absolutely. SQLFlow is a CLI tool designed for automation. Use `sqlflow pipeline validate` and `sqlflow pipeline run` in your CI/CD scripts for automated testing and deployment.
 
 ---
 

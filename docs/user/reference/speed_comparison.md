@@ -4,12 +4,12 @@
 
 ## Speed Comparison Table
 
-| Framework | Setup Time | First Results | Learning Curve | Sample Data | Working Examples |
-|-----------|------------|---------------|----------------|-------------|------------------|
-| **SQLFlow** | **30 seconds** | **1 minute** | **Low** - Pure SQL | ✅ Auto-generated | ✅ Multiple ready-to-run |
-| dbt | 5 minutes | 15-20 minutes | Medium - Models + Jinja | ❌ Manual setup | ❌ Must create own |
-| SQLMesh | 10 minutes | 20-30 minutes | Medium - New concepts | ❌ Manual setup | ❌ Must create own |
-| Airflow | 30 minutes | 30-60 minutes | High - DAGs + Python | ❌ Manual setup | ❌ Must create own |
+| Framework | Setup Time | First Results | Learning Curve | Sample Data | Working Examples | Built-in Validation |
+|-----------|------------|---------------|----------------|-------------|------------------|---------------------|
+| **SQLFlow** | **30 seconds** | **1 minute** | **Low** - Pure SQL | ✅ Auto-generated | ✅ Multiple ready-to-run | ✅ **With helpful suggestions** |
+| dbt | 5 minutes | 15-20 minutes | Medium - Models + Jinja | ❌ Manual setup | ❌ Must create own | ❌ Basic syntax only |
+| SQLMesh | 10 minutes | 20-30 minutes | Medium - New concepts | ❌ Manual setup | ❌ Must create own | ❌ Limited validation |
+| Airflow | 30 minutes | 30-60 minutes | High - DAGs + Python | ❌ Manual setup | ❌ Must create own | ❌ Runtime errors only |
 
 ## SQLFlow's Speed Advantages
 
@@ -37,6 +37,12 @@ Three working pipelines created automatically:
 - No templating language required
 - Standard SQL with minor extensions
 - Familiar to all data professionals
+
+### 5. **Built-in Validation**
+- Catches errors before execution (not after long runs)
+- Provides helpful suggestions for fixes
+- Validates connector types and parameters
+- Prevents configuration mistakes early
 
 ## Real-World Timing Tests
 
@@ -160,6 +166,7 @@ Bob Smith,bob@example.com,gold,UK,19,2891.43
 3. **Realistic Data**: No time spent finding/creating datasets  
 4. **Pure SQL**: No learning curve for new syntax
 5. **Smart Defaults**: Everything configured for immediate use
+6. **Early Error Detection**: Built-in validation prevents wasted execution time
 
 ## Getting Started in 30 Seconds
 

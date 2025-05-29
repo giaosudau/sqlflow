@@ -287,13 +287,86 @@ This will use the plan from `target/compiled/example.json` instead of recompilin
 
 ### Pipeline Validation
 
-Validate a pipeline without executing it:
+Validate pipeline syntax and configuration without executing them. This helps catch errors early and ensures your pipelines are correctly configured.
+
+#### Validate a Single Pipeline
 
 ```bash
+# Validate a specific pipeline
 sqlflow pipeline validate example
+
+# Validate with detailed error information
+sqlflow pipeline validate example --verbose
+
+# Validate with minimal output
+sqlflow pipeline validate example --quiet
 ```
 
-> **Note:** Like the other commands, always use just the pipeline name without path or file extension.
+#### Validate All Pipelines
+
+```bash
+# Validate all pipelines in the project
+sqlflow pipeline validate
+
+# Validate all with summary report
+sqlflow pipeline validate --verbose
+
+# Quick validation check
+sqlflow pipeline validate --quiet
+```
+
+#### Clear Validation Cache
+
+```bash
+# Clear validation cache and re-validate
+sqlflow pipeline validate example --clear-cache
+```
+
+#### Validation Output Examples
+
+**Successful Validation:**
+```
+✅ customer_analytics
+✅ example  
+✅ data_quality
+
+📊 Summary: 3 pipelines validated successfully
+```
+
+**Failed Validation:**
+```
+❌ Validation failed for broken_pipeline.sf
+
+📋 Pipeline: broken_pipeline
+❌ SOURCE missing_path: Missing required parameter 'path'
+💡 Suggestion: Add "path": "your_file.csv" to the PARAMS
+
+❌ SOURCE invalid_type: Unknown connector type 'unknown_connector'  
+💡 Suggestion: Use one of: csv, postgresql, s3, bigquery
+
+📊 Summary: 2 errors found
+```
+
+**Mixed Results (Bulk Validation):**
+```
+✅ customer_analytics
+✅ example
+❌ broken_pipeline
+✅ data_quality
+
+📊 Summary: 3 passed, 1 failed
+❌ Failed pipelines: broken_pipeline
+```
+
+#### Validation Features
+
+- **Type Safety**: Validates connector types and required parameters
+- **Reference Checking**: Ensures SOURCE references exist in LOAD statements
+- **Parameter Validation**: Checks required and optional parameters for each connector
+- **File Extension Validation**: Verifies file extensions match connector types
+- **Helpful Suggestions**: Provides specific suggestions for fixing errors
+- **Caching**: Caches validation results for faster subsequent checks
+- **Batch Processing**: Validates multiple pipelines efficiently
 
 ### Command Options
 
@@ -304,6 +377,33 @@ sqlflow pipeline validate example
 | `--dry-run` | Validate and compile without executing          |
 | `--output`  | (compile only) Specify output file for the plan |
 | `--from-compiled` | (run only) Use existing compiled plan       |
+| `--no-validate` | (compile only) Skip validation step          |
+| `--clear-cache` | (validate only) Clear validation cache       |
+| `--verbose` | Enable detailed output with technical information |
+| `--quiet`   | Reduce output to essential information only      |
+
+### Automatic Validation Integration
+
+Validation is automatically integrated into other pipeline commands:
+
+#### Run Command with Validation
+```bash
+# Automatically validates before execution
+sqlflow pipeline run customer_analytics
+
+# If validation fails, execution is prevented:
+# ❌ Validation failed - stopping execution
+# Use 'sqlflow pipeline validate customer_analytics' for details
+```
+
+#### Compile Command with Validation
+```bash
+# Automatically validates before compilation
+sqlflow pipeline compile customer_analytics
+
+# Skip validation for CI/CD speed (advanced users only)
+sqlflow pipeline compile customer_analytics --no-validate
+```
 
 ---
 
