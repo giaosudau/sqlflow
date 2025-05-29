@@ -39,7 +39,18 @@ class ScalarUDFHandler(UDFHandler):
         """
         logger.info("Registering scalar UDF: {}".format(name))
 
-        actual_function = getattr(function, "__wrapped__", function)
+        # Only unwrap if it's not already a bound method
+        # Bound methods should be used as-is to preserve their binding
+        if inspect.ismethod(function):
+            actual_function = function
+        else:
+            actual_function = getattr(function, "__wrapped__", function)
+
+        # Debug logging for the registration process
+        logger.debug(f"Function type: {type(actual_function)}")
+        logger.debug(f"Is method: {inspect.ismethod(actual_function)}")
+        logger.debug(f"Function signature: {inspect.signature(actual_function)}")
+
         registration_function = self._prepare_function_for_registration(actual_function)
 
         return_type = self._get_return_type(actual_function)
@@ -57,7 +68,7 @@ class ScalarUDFHandler(UDFHandler):
             self._register_with_fallback(name, registration_function, connection)
 
     def _prepare_function_for_registration(self, function: Callable) -> Callable:
-        """Prepare function for registration by handling default parameters.
+        """Prepare function for registration by handling default parameters and instance methods.
 
         Args:
             function: Function to prepare
@@ -65,32 +76,198 @@ class ScalarUDFHandler(UDFHandler):
         Returns:
             Function ready for registration
         """
+        base_function = self._handle_instance_method_wrapper(function)
+        return self._handle_default_parameters(base_function)
+
+    def _handle_instance_method_wrapper(self, function: Callable) -> Callable:
+        """Handle instance method wrapping to exclude 'self' parameter.
+
+        Args:
+            function: Function to check and possibly wrap
+
+        Returns:
+            Function ready for registration (with or without wrapper)
+        """
+        # Check if this is already a bound method
+        is_bound_method = inspect.ismethod(function)
+
+        if is_bound_method:
+            logger.debug("Function is a bound method, using directly")
+            return function
+
+        # Check if this looks like an unbound instance method
         sig = inspect.signature(function)
+        params = list(sig.parameters.values())
+        is_instance_method = self._is_instance_method(params)
+
+        if is_instance_method:
+            logger.debug(
+                "Function appears to be an unbound instance method - this may cause issues"
+            )
+            # For unbound instance methods, we can't easily create a working wrapper
+            # since we don't have access to the instance. The caller should pass a bound method.
+            logger.warning(
+                f"Function {function.__name__} appears to be an unbound instance method. "
+                "Consider passing a bound method (e.g., instance.method) instead."
+            )
+            return function
+        else:
+            logger.debug("Function is a regular function, using as-is")
+            return function
+
+    def _is_instance_method(self, params: list) -> bool:
+        """Check if function signature indicates an instance method.
+
+        Args:
+            params: List of function parameters
+
+        Returns:
+            True if function appears to be an instance method
+        """
+        return (
+            len(params) > 0
+            and params[0].name == "self"
+            and params[0].kind == inspect.Parameter.POSITIONAL_OR_KEYWORD
+        )
+
+    def _create_instance_method_wrapper(
+        self, function: Callable, params: list
+    ) -> Callable:
+        """Create a wrapper for instance methods that handles 'self' parameter correctly.
+
+        Args:
+            function: Original instance method
+            params: Function parameters
+
+        Returns:
+            Wrapped function with proper instance handling
+        """
+        logger.debug(
+            "Function is an unbound instance method, creating wrapper to exclude 'self'"
+        )
+
+        # Create new signature without the 'self' parameter
+        new_params = params[1:]  # Skip the 'self' parameter
+
+        if new_params:
+            return self._create_parameterized_wrapper(function, new_params)
+        else:
+            return self._create_simple_wrapper(function)
+
+    def _create_parameterized_wrapper(
+        self, function: Callable, new_params: list
+    ) -> Callable:
+        """Create wrapper for instance methods with parameters.
+
+        Args:
+            function: Original function
+            new_params: Parameters excluding 'self'
+
+        Returns:
+            Wrapper function
+        """
+        # For instance methods, we need to create a wrapper that calls the function
+        # with the proper instance. Since this is an unbound method, we need to
+        # ensure the function has access to its instance when called.
+
+        def instance_method_wrapper(*args):
+            # The function should have been properly bound before we get here
+            # If not, we need to handle it gracefully
+            if hasattr(function, "__self__"):
+                # This is actually a bound method, use it directly
+                return function(*args)
+            else:
+                # This is an unbound method - we need to find the instance
+                # In our case, we expect the function to have been registered
+                # with its instance context preserved
+                raise RuntimeError(
+                    f"Cannot call unbound instance method {function.__name__} - "
+                    "function must be bound to an instance before registration"
+                )
+
+        return self._copy_function_attributes(function, instance_method_wrapper)
+
+    def _create_simple_wrapper(self, function: Callable) -> Callable:
+        """Create wrapper for instance methods with no parameters.
+
+        Args:
+            function: Original function
+
+        Returns:
+            Simple wrapper function
+        """
+
+        def instance_method_wrapper():
+            # Same logic as parameterized wrapper
+            if hasattr(function, "__self__"):
+                return function()
+            else:
+                raise RuntimeError(
+                    f"Cannot call unbound instance method {function.__name__} - "
+                    "function must be bound to an instance before registration"
+                )
+
+        return self._copy_function_attributes(function, instance_method_wrapper)
+
+    def _copy_function_attributes(self, source: Callable, target: Callable) -> Callable:
+        """Copy relevant attributes from source function to target function.
+
+        Args:
+            source: Source function
+            target: Target function
+
+        Returns:
+            Target function with copied attributes
+        """
+        for attr in dir(source):
+            if attr.startswith("_") and not attr.startswith("__"):
+                try:
+                    setattr(target, attr, getattr(source, attr))
+                except (AttributeError, TypeError):
+                    pass
+        return target
+
+    def _handle_default_parameters(self, base_function: Callable) -> Callable:
+        """Handle functions with default parameters.
+
+        Args:
+            base_function: Function to check for default parameters
+
+        Returns:
+            Function with default parameter handling (wrapped if needed)
+        """
+        current_sig = inspect.signature(base_function)
         has_default_params = any(
-            p.default is not inspect.Parameter.empty for p in sig.parameters.values()
+            p.default is not inspect.Parameter.empty
+            for p in current_sig.parameters.values()
         )
 
         if has_default_params:
             logger.debug("Function has parameters with default values")
-
-            def udf_wrapper(*args):
-                """Wrapper that handles missing default parameters."""
-                bound_args = sig.bind_partial(*args)
-                bound_args.apply_defaults()
-                return function(*bound_args.args, **bound_args.kwargs)
-
-            # Copy over relevant attributes from the original function
-            for attr in dir(function):
-                if attr.startswith("_") and not attr.startswith("__"):
-                    try:
-                        setattr(udf_wrapper, attr, getattr(function, attr))
-                    except (AttributeError, TypeError):
-                        # Some attributes can't be set, ignore them
-                        pass
-
-            return udf_wrapper
+            return self._create_default_parameter_wrapper(base_function, current_sig)
         else:
-            return function
+            return base_function
+
+    def _create_default_parameter_wrapper(
+        self, base_function: Callable, current_sig: inspect.Signature
+    ) -> Callable:
+        """Create wrapper that handles missing default parameters.
+
+        Args:
+            base_function: Function to wrap
+            current_sig: Function signature
+
+        Returns:
+            Wrapper function with default parameter handling
+        """
+
+        def udf_wrapper(*args):
+            """Wrapper that handles missing default parameters."""
+            bound_args = current_sig.bind_partial(*args)
+            bound_args.apply_defaults()
+            return base_function(*bound_args.args, **bound_args.kwargs)
+
+        return self._copy_function_attributes(base_function, udf_wrapper)
 
     def _get_return_type(self, function: Callable) -> str | None:
         """Get the DuckDB return type for a function.
