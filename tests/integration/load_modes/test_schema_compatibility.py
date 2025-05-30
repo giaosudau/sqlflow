@@ -20,7 +20,11 @@ class TestSchemaCompatibility:
             {
                 "id": [1, 2, 3],
                 "name": ["Alice", "Bob", "Charlie"],
-                "email": ["alice@example.com", "bob@example.com", "charlie@example.com"],
+                "email": [
+                    "alice@example.com",
+                    "bob@example.com",
+                    "charlie@example.com",
+                ],
             }
         )
         duckdb_engine.register_table("source_table", source_df)
@@ -51,7 +55,11 @@ class TestSchemaCompatibility:
             {
                 "id": [1, 2, 3],
                 "name": ["Alice", "Bob", "Charlie"],
-                "email": ["alice@example.com", "bob@example.com", "charlie@example.com"],
+                "email": [
+                    "alice@example.com",
+                    "bob@example.com",
+                    "charlie@example.com",
+                ],
                 "age": [25, 30, 35],  # Extra column
             }
         )
@@ -69,7 +77,7 @@ class TestSchemaCompatibility:
 
         # Get source schema and validate compatibility
         source_schema = duckdb_engine.get_table_schema("source_table")
-        
+
         # Should fail because source has extra column not in target
         with pytest.raises(ValueError, match="does not exist in target"):
             duckdb_engine.validate_schema_compatibility("target_table", source_schema)
@@ -99,7 +107,7 @@ class TestSchemaCompatibility:
 
         # Get source schema and validate compatibility
         source_schema = duckdb_engine.get_table_schema("source_table")
-        
+
         # Should be compatible (source is subset of target - missing columns can have defaults)
         is_compatible = duckdb_engine.validate_schema_compatibility(
             "target_table", source_schema
@@ -171,7 +179,7 @@ class TestSchemaCompatibility:
 
         # Get source schema and validate compatibility
         source_schema = duckdb_engine.get_table_schema("source_table")
-        
+
         # Should not be compatible (type mismatch for 'id')
         with pytest.raises(ValueError, match="incompatible types"):
             duckdb_engine.validate_schema_compatibility("target_table", source_schema)
@@ -210,7 +218,7 @@ class TestSchemaCompatibility:
 
         # Get source schema and validate compatibility
         source_schema = duckdb_engine.get_table_schema("source_table")
-        
+
         # Should fail because source has extra columns not in target
         with pytest.raises(ValueError, match="does not exist in target"):
             duckdb_engine.validate_schema_compatibility("target_table", source_schema)
@@ -222,18 +230,20 @@ class TestSchemaCompatibility:
         assert duckdb_engine._are_types_compatible("VARCHAR", "VARCHAR") is True
         assert duckdb_engine._are_types_compatible("DOUBLE", "DOUBLE") is True
         assert duckdb_engine._are_types_compatible("BOOLEAN", "BOOLEAN") is True
-        
+
         # Test some type promotion cases (if implemented)
         # These may be compatible depending on implementation
         # assert duckdb_engine._are_types_compatible("INTEGER", "BIGINT") is True
         # assert duckdb_engine._are_types_compatible("FLOAT", "DOUBLE") is True
-        
+
         # Test incompatible type pairs
         assert duckdb_engine._are_types_compatible("INTEGER", "VARCHAR") is False
         assert duckdb_engine._are_types_compatible("BOOLEAN", "DOUBLE") is False
         assert duckdb_engine._are_types_compatible("VARCHAR", "INTEGER") is False
 
-    def test_validate_schema_compatibility_empty_source(self, duckdb_engine: DuckDBEngine):
+    def test_validate_schema_compatibility_empty_source(
+        self, duckdb_engine: DuckDBEngine
+    ):
         """Test schema compatibility validation with empty source table."""
         # Create non-empty target
         target_df = pd.DataFrame(
@@ -268,22 +278,28 @@ class TestSchemaCompatibility:
                 '2023-01-01 12:00:00'::TIMESTAMP AS timestamp_col
         """
         )
-        
+
         # Test some basic compatible pairs
         # INTEGER to INTEGER
         duckdb_engine.execute_query(
             "CREATE TABLE target_int AS SELECT 1::INTEGER AS int_col"
         )
         source_schema = {"int_col": "INTEGER"}
-        assert duckdb_engine.validate_schema_compatibility("target_int", source_schema) is True
-        
+        assert (
+            duckdb_engine.validate_schema_compatibility("target_int", source_schema)
+            is True
+        )
+
         # VARCHAR to VARCHAR
         duckdb_engine.execute_query(
             "CREATE TABLE target_varchar AS SELECT 'text' AS varchar_col"
         )
         source_schema = {"varchar_col": "VARCHAR"}
-        assert duckdb_engine.validate_schema_compatibility("target_varchar", source_schema) is True
-        
+        assert (
+            duckdb_engine.validate_schema_compatibility("target_varchar", source_schema)
+            is True
+        )
+
         # Test some incompatible pairs
         # INTEGER to VARCHAR should fail
         duckdb_engine.execute_query(
@@ -291,4 +307,6 @@ class TestSchemaCompatibility:
         )
         source_schema = {"int_col": "INTEGER"}
         with pytest.raises(ValueError, match="incompatible types"):
-            duckdb_engine.validate_schema_compatibility("target_varchar_mismatch", source_schema) 
+            duckdb_engine.validate_schema_compatibility(
+                "target_varchar_mismatch", source_schema
+            )
