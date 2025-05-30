@@ -9,11 +9,10 @@ tests/integration/
 ├── conftest.py                 # Central shared fixtures
 ├── udf/                        # User-Defined Function tests
 │   ├── conftest.py            # UDF-specific fixtures
-│   ├── test_table_udf_edge_cases.py
-│   ├── test_table_udf_performance.py
-│   ├── test_udf_data_types.py
-│   ├── test_udf_error_handling.py
-│   └── test_udf_parameters.py
+│   ├── test_udf_core_functionality.py     # Core UDF functionality (Task 1)
+│   ├── test_udf_error_handling.py         # Error handling & edge cases (Task 2)
+│   ├── test_udf_performance.py            # Performance & optimization (Task 3)
+│   └── test_udf_integration.py            # End-to-end integration (Task 4)
 ├── load_modes/                 # Load mode tests (APPEND, REPLACE, MERGE)
 │   ├── conftest.py            # Load mode fixtures
 │   ├── test_load_modes.py
@@ -26,6 +25,41 @@ tests/integration/
 └── test_connectors/           # Connector-specific tests
     └── (various connector tests)
 ```
+
+## UDF Test Organization
+
+The UDF tests have been consolidated into 4 comprehensive test files following the project refactoring:
+
+### **test_udf_core_functionality.py** (14 tests)
+Core UDF functionality and basic operations:
+- UDF discovery and registration
+- Scalar UDF execution with various data types
+- Table UDF execution and data processing
+- SQL query processing with UDFs
+- Namespace isolation and conflict resolution
+
+### **test_udf_error_handling.py** (19 tests)  
+Comprehensive error handling and edge cases:
+- Runtime error handling in UDFs
+- Table UDF error scenarios
+- Data validation and type errors
+- NULL handling and edge cases
+- Error propagation in complex workflows
+
+### **test_udf_performance.py** (13 tests)
+Performance benchmarking and optimization:
+- Performance benchmarks across dataset sizes (micro/small/medium/large)
+- Memory efficiency validation and chunked processing
+- Vectorized vs iterative processing comparisons
+- Scalability testing and regression detection
+
+### **test_udf_integration.py** (12 tests)
+End-to-end integration and workflow testing:
+- Complete pipeline execution with UDFs
+- Multi-step workflow integration
+- Production-like scenarios with large datasets
+- Batch processing and error recovery workflows
+- Regression testing for critical UDF flows
 
 ## Testing Standards Followed
 
@@ -83,7 +117,7 @@ pytest tests/integration/udf/ -v
 pytest tests/integration/load_modes/ -v
 
 # Run specific test categories
-pytest tests/integration/udf/test_table_udf_performance.py -v
+pytest tests/integration/udf/test_udf_performance.py -v
 ```
 
 ### Running Tests in Parallel
