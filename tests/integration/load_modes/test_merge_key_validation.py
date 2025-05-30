@@ -84,7 +84,9 @@ class TestMergeKeyValidation:
 
         # Should fail because 'user_id' doesn't exist in source
         with pytest.raises(ValueError, match="does not exist in source"):
-            duckdb_engine.validate_merge_keys("target_table", "source_table", ["user_id"])
+            duckdb_engine.validate_merge_keys(
+                "target_table", "source_table", ["user_id"]
+            )
 
     def test_merge_key_validation_incompatible_types(self, duckdb_engine: DuckDBEngine):
         """Test merge key validation with incompatible key types."""
