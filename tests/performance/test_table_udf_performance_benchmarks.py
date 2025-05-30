@@ -9,14 +9,14 @@ advanced table UDF system, including:
 - Performance regression detection
 """
 
+import logging
 import time
 from dataclasses import dataclass
 from typing import cast
-import pytest
-import logging
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from sqlflow.core.engines.duckdb import DuckDBEngine
 from sqlflow.core.engines.duckdb.udf.performance import ArrowPerformanceOptimizer
