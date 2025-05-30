@@ -30,6 +30,24 @@ PURPLE='\033[0;35m'
 CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
+# Script configuration - consistent SQLFlow path detection
+SQLFLOW_PATH=""
+
+# Try different locations for SQLFlow
+POSSIBLE_PATHS=(
+    "../../.venv/bin/sqlflow"        # Local development with venv
+    "$(which sqlflow 2>/dev/null)"  # System PATH (CI environments)
+    "/usr/local/bin/sqlflow"         # Common system location
+    "$HOME/.local/bin/sqlflow"       # User-local installation
+)
+
+for path in "${POSSIBLE_PATHS[@]}"; do
+    if [ -n "$path" ] && [ -f "$path" ] && [ -x "$path" ]; then
+        SQLFLOW_PATH="$path"
+        break
+    fi
+done
+
 # Enhanced printing functions
 print_header() {
     echo ""
@@ -115,16 +133,22 @@ mkdir -p output/
 print_success "Environment prepared"
 
 print_step "Validating SQLFlow installation..."
-if command -v sqlflow &> /dev/null; then
-    print_success "SQLFlow CLI is available"
-else
-    echo -e "${RED}❌ SQLFlow CLI not found. Please install SQLFlow first.${NC}"
+if [ -z "$SQLFLOW_PATH" ]; then
+    echo -e "${RED}❌ SQLFlow executable not found in any of the following locations:${NC}"
+    for path in "${POSSIBLE_PATHS[@]}"; do
+        if [ -n "$path" ]; then
+            echo "  - $path"
+        fi
+    done
+    echo -e "${RED}Please ensure SQLFlow is installed and accessible${NC}"
+    echo -e "${RED}Try: pip install -e .[dev]${NC}"
     exit 1
 fi
+print_success "SQLFlow CLI is available at $SQLFLOW_PATH"
 
 print_step "Checking Python UDF system..."
-if test_feature "UDF Discovery" "sqlflow udf list" "UDF system is operational"; then
-    udf_count=$(sqlflow udf list | grep -c "python_udfs\." || echo "0")
+if test_feature "UDF Discovery" "$SQLFLOW_PATH udf list" "UDF system is operational"; then
+    udf_count=$($SQLFLOW_PATH udf list | grep -c "python_udfs\." || echo "0")
     print_info "Found $udf_count Python UDFs available"
 fi
 
@@ -140,10 +164,10 @@ echo ""
 print_section "Text Processing Pipeline"
 
 print_step "Validating customer text processing pipeline..."
-test_feature "Pipeline Validation" "sqlflow pipeline validate customer_text_processing" "Validation passed"
+test_feature "Pipeline Validation" "$SQLFLOW_PATH pipeline validate customer_text_processing" "Validation passed"
 
 print_step "Running text processing with scalar UDFs..."
-if sqlflow pipeline run customer_text_processing --vars '{"run_id": "showcase", "output_dir": "output"}' > /dev/null 2>&1; then
+if $SQLFLOW_PATH pipeline run customer_text_processing --vars '{"run_id": "showcase", "output_dir": "output"}' > /dev/null 2>&1; then
     print_success "Text processing completed"
     
     # Show results
@@ -161,7 +185,7 @@ fi
 print_section "Data Quality Analysis"
 
 print_step "Running data quality checks with scalar UDFs..."
-if sqlflow pipeline run data_quality_check --vars '{"run_id": "showcase", "output_dir": "output"}' > /dev/null 2>&1; then
+if $SQLFLOW_PATH pipeline run data_quality_check --vars '{"run_id": "showcase", "output_dir": "output"}' > /dev/null 2>&1; then
     print_success "Data quality analysis completed"
     
     show_results "output/validated_customers_showcase.csv" "Customer Data Quality Report" 3
@@ -186,10 +210,10 @@ echo ""
 print_section "SQLFlow Pipeline Approach (Scalar UDF Chains)"
 
 print_step "Validating table UDF alternatives pipeline..."
-test_feature "Advanced Pipeline Validation" "sqlflow pipeline validate table_udf_alternatives" "Advanced validation passed"
+test_feature "Advanced Pipeline Validation" "$SQLFLOW_PATH pipeline validate table_udf_alternatives" "Advanced validation passed"
 
 print_step "Running advanced analytics with scalar UDF chains..."
-if sqlflow pipeline run table_udf_alternatives --vars '{"run_id": "showcase", "output_dir": "output"}' > /dev/null 2>&1; then
+if $SQLFLOW_PATH pipeline run table_udf_alternatives --vars '{"run_id": "showcase", "output_dir": "output"}' > /dev/null 2>&1; then
     print_success "Advanced analytics completed"
     
     # Show comprehensive results
@@ -267,7 +291,7 @@ TO "output/table_udf_test.csv"
 TYPE CSV OPTIONS { "header": true };
 EOF
 
-if sqlflow pipeline run test_table_udf --profile dev > temp_output.log 2>&1; then
+if $SQLFLOW_PATH pipeline run test_table_udf --profile dev > temp_output.log 2>&1; then
     # Check if we got the expected limitation message
     if grep -q "cannot be used in FROM clause" temp_output.log; then
         print_info "✅ Confirmed: Table UDF limitation detected as expected"
@@ -484,9 +508,9 @@ echo "• 🧪 Experiment with external processing for complex needs"
 echo "• 📚 Read the comprehensive documentation"
 echo ""
 echo "• 💻 Try these commands:"
-echo "   sqlflow udf list                    # See all available UDFs"
-echo "   sqlflow pipeline validate <name>    # Validate your pipelines"
-echo "   sqlflow pipeline run <name>         # Execute your transformations"
+echo "   $SQLFLOW_PATH udf list                    # See all available UDFs"
+echo "   $SQLFLOW_PATH pipeline validate <name>    # Validate your pipelines"
+echo "   $SQLFLOW_PATH pipeline run <name>         # Execute your transformations"
 echo ""
 
 print_result "Showcase Status: $WORKING_FEATURES/$TOTAL_FEATURES features working perfectly"

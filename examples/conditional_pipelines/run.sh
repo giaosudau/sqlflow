@@ -15,8 +15,23 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Script configuration
-SQLFLOW_PATH="../../.venv/bin/sqlflow"
+SQLFLOW_PATH=""
 PROFILE="dev"
+
+# Try different locations for SQLFlow
+POSSIBLE_PATHS=(
+    "../../.venv/bin/sqlflow"        # Local development with venv
+    "$(which sqlflow 2>/dev/null)"  # System PATH (CI environments)
+    "/usr/local/bin/sqlflow"         # Common system location
+    "$HOME/.local/bin/sqlflow"       # User-local installation
+)
+
+for path in "${POSSIBLE_PATHS[@]}"; do
+    if [ -n "$path" ] && [ -f "$path" ] && [ -x "$path" ]; then
+        SQLFLOW_PATH="$path"
+        break
+    fi
+done
 
 # All pipeline files in pipelines directory (using just the name without path)
 PIPELINES=(
@@ -51,9 +66,15 @@ print_warning() {
 # Function to check if sqlflow is available
 check_sqlflow() {
     print_status "Checking SQLFlow availability..."
-    if [ ! -f "$SQLFLOW_PATH" ]; then
-        print_error "SQLFlow not found at $SQLFLOW_PATH"
-        print_error "Please ensure SQLFlow is installed and the path is correct"
+    if [ -z "$SQLFLOW_PATH" ]; then
+        print_error "SQLFlow executable not found in any of the following locations:"
+        for path in "${POSSIBLE_PATHS[@]}"; do
+            if [ -n "$path" ]; then
+                echo "  - $path"
+            fi
+        done
+        print_error "Please ensure SQLFlow is installed and accessible"
+        print_error "Try: pip install -e .[dev]"
         exit 1
     fi
     print_success "SQLFlow found at $SQLFLOW_PATH"
