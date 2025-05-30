@@ -16,64 +16,74 @@ class TestMergeKeyValidation:
     def test_merge_key_validation_single_key(self, duckdb_engine: DuckDBEngine):
         """Test merge key validation with a single key."""
         # Create source and target tables with compatible single key
-        source_df = pd.DataFrame({
-            "user_id": [1, 2, 3],
-            "name": ["Alice", "Bob", "Charlie"],
-            "email": ["alice@example.com", "bob@example.com", "charlie@example.com"]
-        })
-        target_df = pd.DataFrame({
-            "user_id": [4, 5],
-            "name": ["David", "Eve"],
-            "email": ["david@example.com", "eve@example.com"]
-        })
-        
+        source_df = pd.DataFrame(
+            {
+                "user_id": [1, 2, 3],
+                "name": ["Alice", "Bob", "Charlie"],
+                "email": [
+                    "alice@example.com",
+                    "bob@example.com",
+                    "charlie@example.com",
+                ],
+            }
+        )
+        target_df = pd.DataFrame(
+            {
+                "user_id": [4, 5],
+                "name": ["David", "Eve"],
+                "email": ["david@example.com", "eve@example.com"],
+            }
+        )
+
         duckdb_engine.register_table("source_table", source_df)
         duckdb_engine.register_table("target_table", target_df)
-        
+
         # Should validate successfully with single merge key
-        result = duckdb_engine.validate_merge_keys("target_table", "source_table", ["user_id"])
+        result = duckdb_engine.validate_merge_keys(
+            "target_table", "source_table", ["user_id"]
+        )
         assert result is True
 
     def test_merge_key_validation_composite_keys(self, duckdb_engine: DuckDBEngine):
         """Test merge key validation with composite (multiple) keys."""
         # Create source and target tables with composite keys
-        source_df = pd.DataFrame({
-            "tenant_id": [1, 1, 2],
-            "user_id": [101, 102, 101],
-            "name": ["Alice", "Bob", "Charlie"],
-            "score": [85.5, 90.0, 78.5]
-        })
-        target_df = pd.DataFrame({
-            "tenant_id": [1, 2],
-            "user_id": [103, 102],
-            "name": ["David", "Eve"],
-            "score": [92.0, 88.5]
-        })
-        
+        source_df = pd.DataFrame(
+            {
+                "tenant_id": [1, 1, 2],
+                "user_id": [101, 102, 101],
+                "name": ["Alice", "Bob", "Charlie"],
+                "score": [85.5, 90.0, 78.5],
+            }
+        )
+        target_df = pd.DataFrame(
+            {
+                "tenant_id": [1, 2],
+                "user_id": [103, 102],
+                "name": ["David", "Eve"],
+                "score": [92.0, 88.5],
+            }
+        )
+
         duckdb_engine.register_table("source_table", source_df)
         duckdb_engine.register_table("target_table", target_df)
-        
+
         # Should validate successfully with composite merge keys
-        result = duckdb_engine.validate_merge_keys("target_table", "source_table", ["tenant_id", "user_id"])
+        result = duckdb_engine.validate_merge_keys(
+            "target_table", "source_table", ["tenant_id", "user_id"]
+        )
         assert result is True
 
     def test_merge_key_validation_nonexistent_key(self, duckdb_engine: DuckDBEngine):
         """Test merge key validation with nonexistent key in source."""
         # Create source without the merge key
-        source_df = pd.DataFrame({
-            "id": [1, 2, 3],
-            "name": ["Alice", "Bob", "Charlie"]
-        })
-        target_df = pd.DataFrame({
-            "user_id": [4, 5],
-            "name": ["David", "Eve"]
-        })
-        
-        duckdb_engine.register_table("source_table", source_df) 
+        source_df = pd.DataFrame({"id": [1, 2, 3], "name": ["Alice", "Bob", "Charlie"]})
+        target_df = pd.DataFrame({"user_id": [4, 5], "name": ["David", "Eve"]})
+
+        duckdb_engine.register_table("source_table", source_df)
         duckdb_engine.register_table("target_table", target_df)
-        
+
         # Should fail because 'user_id' doesn't exist in source
-        with pytest.raises(ValueError, match="Merge key 'user_id' not found in source"):
+        with pytest.raises(ValueError, match="does not exist in source"):
             duckdb_engine.validate_merge_keys("target_table", "source_table", ["user_id"])
 
     def test_merge_key_validation_incompatible_types(self, duckdb_engine: DuckDBEngine):
@@ -87,7 +97,7 @@ class TestMergeKeyValidation:
                 'Alice' AS name
         """
         )
-        
+
         duckdb_engine.execute_query(
             """
             CREATE TABLE target_table AS
@@ -96,20 +106,22 @@ class TestMergeKeyValidation:
                 'David' AS name
         """
         )
-        
+
         # Should fail because VARCHAR and INTEGER are incompatible for merge keys
         with pytest.raises(ValueError, match="incompatible types"):
-            duckdb_engine.validate_merge_keys("target_table", "source_table", ["user_id"])
+            duckdb_engine.validate_merge_keys(
+                "target_table", "source_table", ["user_id"]
+            )
 
     def test_merge_key_validation_empty_keys(self, duckdb_engine: DuckDBEngine):
         """Test merge key validation with empty keys list."""
         # Create tables (content doesn't matter for this test)
         source_df = pd.DataFrame({"id": [1, 2], "name": ["Alice", "Bob"]})
         target_df = pd.DataFrame({"id": [3, 4], "name": ["Charlie", "David"]})
-        
+
         duckdb_engine.register_table("source_table", source_df)
         duckdb_engine.register_table("target_table", target_df)
-        
+
         # Should fail with empty merge keys
         with pytest.raises(ValueError, match="at least one merge key"):
             duckdb_engine.validate_merge_keys("target_table", "source_table", [])
@@ -117,22 +129,25 @@ class TestMergeKeyValidation:
     def test_merge_key_validation_missing_in_target(self, duckdb_engine: DuckDBEngine):
         """Test merge key validation when key exists in source but not target."""
         # Create source with merge key
-        source_df = pd.DataFrame({
-            "user_id": [1, 2, 3],
-            "name": ["Alice", "Bob", "Charlie"]
-        })
+        source_df = pd.DataFrame(
+            {"user_id": [1, 2, 3], "name": ["Alice", "Bob", "Charlie"]}
+        )
         # Create target without merge key
-        target_df = pd.DataFrame({
-            "id": [4, 5],  # Different column name
-            "name": ["David", "Eve"]
-        })
-        
+        target_df = pd.DataFrame(
+            {
+                "id": [4, 5],  # Different column name
+                "name": ["David", "Eve"],
+            }
+        )
+
         duckdb_engine.register_table("source_table", source_df)
         duckdb_engine.register_table("target_table", target_df)
-        
+
         # Should fail because 'user_id' doesn't exist in target
-        with pytest.raises(ValueError, match="Merge key 'user_id' not found in target"):
-            duckdb_engine.validate_merge_keys("target_table", "source_table", ["user_id"])
+        with pytest.raises(ValueError, match="does not exist in target"):
+            duckdb_engine.validate_merge_keys(
+                "target_table", "source_table", ["user_id"]
+            )
 
     def test_merge_key_validation_case_sensitivity(self, duckdb_engine: DuckDBEngine):
         """Test merge key validation with case sensitivity considerations."""
@@ -145,7 +160,7 @@ class TestMergeKeyValidation:
                 'Alice' AS name
         """
         )
-        
+
         duckdb_engine.execute_query(
             """
             CREATE TABLE target_table AS
@@ -154,15 +169,17 @@ class TestMergeKeyValidation:
                 'David' AS name
         """
         )
-        
+
         # DuckDB typically normalizes column names to lowercase
         # So this should work if both are normalized to 'user_id'
         try:
-            result = duckdb_engine.validate_merge_keys("target_table", "source_table", ["user_id"])
+            result = duckdb_engine.validate_merge_keys(
+                "target_table", "source_table", ["user_id"]
+            )
             assert result is True
         except ValueError as e:
             # If it fails due to case sensitivity, that's acceptable behavior
-            assert "not found" in str(e)
+            assert "does not exist" in str(e)
 
     def test_merge_key_validation_with_nulls(self, duckdb_engine: DuckDBEngine):
         """Test merge key validation with NULL values in key columns."""
@@ -180,7 +197,7 @@ class TestMergeKeyValidation:
             ) AS t(id, name)
         """
         )
-        
+
         duckdb_engine.execute_query(
             """
             CREATE TABLE target_table AS
@@ -189,36 +206,42 @@ class TestMergeKeyValidation:
                 'David' AS name
         """
         )
-        
+
         # Validation should still work (NULL handling is a runtime concern)
-        result = duckdb_engine.validate_merge_keys("target_table", "source_table", ["user_id"])
+        result = duckdb_engine.validate_merge_keys(
+            "target_table", "source_table", ["user_id"]
+        )
         assert result is True
 
-    def test_merge_key_validation_performance_with_large_keys(self, duckdb_engine: DuckDBEngine):
+    def test_merge_key_validation_performance_with_large_keys(
+        self, duckdb_engine: DuckDBEngine
+    ):
         """Test merge key validation performance with multiple composite keys."""
         # Create tables with many columns for composite key testing
-        source_df = pd.DataFrame({
-            "key1": [1, 2, 3],
-            "key2": ["A", "B", "C"],
-            "key3": [10.1, 20.2, 30.3],
-            "key4": [True, False, True],
-            "data": ["data1", "data2", "data3"]
-        })
-        target_df = pd.DataFrame({
-            "key1": [4, 5],
-            "key2": ["D", "E"],
-            "key3": [40.4, 50.5],
-            "key4": [False, True],
-            "data": ["data4", "data5"]
-        })
-        
+        source_df = pd.DataFrame(
+            {
+                "key1": [1, 2, 3],
+                "key2": ["A", "B", "C"],
+                "key3": [10.1, 20.2, 30.3],
+                "key4": [True, False, True],
+                "data": ["data1", "data2", "data3"],
+            }
+        )
+        target_df = pd.DataFrame(
+            {
+                "key1": [4, 5],
+                "key2": ["D", "E"],
+                "key3": [40.4, 50.5],
+                "key4": [False, True],
+                "data": ["data4", "data5"],
+            }
+        )
+
         duckdb_engine.register_table("source_table", source_df)
         duckdb_engine.register_table("target_table", target_df)
-        
+
         # Should handle composite keys with multiple types efficiently
         result = duckdb_engine.validate_merge_keys(
-            "target_table", 
-            "source_table", 
-            ["key1", "key2", "key3", "key4"]
+            "target_table", "source_table", ["key1", "key2", "key3", "key4"]
         )
-        assert result is True 
+        assert result is True
