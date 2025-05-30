@@ -468,9 +468,9 @@ def test_schema_compatibility_validation(engine, executor, sample_data):
         # The validation should pass because we skip the extra column
         assert True
     except ValueError as e:
-        assert (
-            False
-        ), f"Schema validation should not fail for extra columns in source: {str(e)}"
+        assert False, (
+            f"Schema validation should not fail for extra columns in source: {str(e)}"
+        )
 
     # Now try the reverse - create a target with extra column
     engine.register_table("users_target_with_extra", sample_data["users_incompatible"])
@@ -802,9 +802,9 @@ def test_schema_compatibility_column_subset_selection(engine, executor):
     # Verify that the full source schema is incompatible with the target
     try:
         engine.validate_schema_compatibility("narrow_target", source_schema)
-        assert (
-            False
-        ), "Should have failed because wide_source has columns not in narrow_target"
+        assert False, (
+            "Should have failed because wide_source has columns not in narrow_target"
+        )
     except ValueError as e:
         # This should fail because source has columns that don't exist in target
         assert "Column" in str(e) and "does not exist in target" in str(e)
@@ -873,8 +873,10 @@ def test_schema_compatibility_column_subset_selection(engine, executor):
 def temp_csv_file() -> Generator[str, None, None]:
     """Create a temporary CSV file for testing.
 
-    Yields:
+    Yields
+    ------
         Path to the temporary CSV file
+
     """
     # Create sample data
     data = pd.DataFrame(
@@ -902,10 +904,13 @@ def executor_with_source(temp_csv_file) -> LocalExecutor:
     """Create a LocalExecutor with a SOURCE definition.
 
     Args:
+    ----
         temp_csv_file: Path to temporary CSV file
 
     Returns:
+    -------
         Configured LocalExecutor
+
     """
     executor = LocalExecutor()
 
@@ -927,7 +932,6 @@ def executor_with_source(temp_csv_file) -> LocalExecutor:
 
 def test_load_replace_mode_with_source(executor_with_source):
     """Test LOAD with REPLACE mode using SOURCE connector."""
-
     # Create a LoadStep with REPLACE mode
     load_step = LoadStep(table_name="users_table", source_name="users", mode="REPLACE")
 
@@ -952,7 +956,6 @@ def test_load_replace_mode_with_source(executor_with_source):
 
 def test_load_append_mode_with_source(executor_with_source):
     """Test LOAD with APPEND mode using SOURCE connector."""
-
     # First, create the target table with REPLACE
     load_step_1 = LoadStep(
         table_name="users_table", source_name="users", mode="REPLACE"
@@ -977,7 +980,6 @@ def test_load_append_mode_with_source(executor_with_source):
 
 def test_load_merge_mode_with_source(executor_with_source):
     """Test LOAD with MERGE mode using SOURCE connector."""
-
     # First, create the target table with some initial data
     load_step_1 = LoadStep(
         table_name="users_table", source_name="users", mode="REPLACE"
@@ -1004,7 +1006,6 @@ def test_load_merge_mode_with_source(executor_with_source):
 
 def test_load_with_missing_source():
     """Test LOAD step fails when SOURCE is not defined."""
-
     executor = LocalExecutor()
 
     load_step = LoadStep(
@@ -1019,7 +1020,6 @@ def test_load_with_missing_source():
 
 def test_load_merge_without_keys(executor_with_source):
     """Test LOAD with MERGE mode fails when merge keys are not specified."""
-
     load_step = LoadStep(
         table_name="users_table",
         source_name="users",
@@ -1034,7 +1034,6 @@ def test_load_merge_without_keys(executor_with_source):
 
 def test_source_connector_registration(temp_csv_file):
     """Test that SOURCE definitions are properly stored and can be retrieved."""
-
     executor = LocalExecutor()
 
     # Register a SOURCE definition
@@ -1060,7 +1059,6 @@ def test_source_connector_registration(temp_csv_file):
 
 def test_load_with_invalid_connector_type():
     """Test LOAD step fails when SOURCE has invalid connector type."""
-
     executor = LocalExecutor()
 
     # Register a SOURCE definition with invalid connector type
@@ -1088,7 +1086,6 @@ def test_load_with_invalid_connector_type():
 
 def test_load_with_empty_source_params():
     """Test LOAD step handles SOURCE with empty parameters."""
-
     executor = LocalExecutor()
 
     # Register a SOURCE definition with empty params
@@ -1115,7 +1112,6 @@ def test_load_with_empty_source_params():
 
 def test_load_mode_case_insensitive():
     """Test that LOAD modes work with different case variations."""
-
     executor = LocalExecutor()
 
     # Register a SOURCE definition
@@ -1151,7 +1147,6 @@ def test_load_mode_case_insensitive():
 
 def test_source_definition_retrieval():
     """Test comprehensive SOURCE definition storage and retrieval."""
-
     executor = LocalExecutor()
 
     # Test multiple SOURCE definitions
@@ -1205,7 +1200,6 @@ def test_source_definition_retrieval():
 
 def test_load_with_profile_based_source():
     """Test LOAD step with profile-based SOURCE definition."""
-
     executor = LocalExecutor()
 
     # Register a profile-based SOURCE definition

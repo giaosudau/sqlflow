@@ -9,14 +9,18 @@ def resolve_pipeline_name(pipeline_name: str, pipelines_dir: str) -> str:
     """Resolve a pipeline name to a full path.
 
     Args:
+    ----
         pipeline_name: Name of the pipeline, with or without .sf extension
         pipelines_dir: Directory containing pipeline files
 
     Returns:
+    -------
         Full path to the pipeline file
 
     Raises:
+    ------
         FileNotFoundError: If the pipeline file cannot be found
+
     """
     if pipeline_name.endswith(".sf"):
         base_name = pipeline_name[:-3]
@@ -41,13 +45,17 @@ def parse_vars(vars_input: Optional[str]) -> Dict[str, Any]:
     Supports both JSON format and key=value pairs.
 
     Args:
+    ----
         vars_input: String containing variables in JSON or key=value format
 
     Returns:
+    -------
         Dict of parsed variables
 
     Raises:
+    ------
         ValueError: If the input cannot be parsed
+
     """
     if not vars_input:
         return {}

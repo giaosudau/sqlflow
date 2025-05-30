@@ -1,5 +1,4 @@
-"""
-Real integration tests that verify actual functionality.
+"""Real integration tests that verify actual functionality.
 
 These tests use real data and verify that the system actually works,
 rather than just testing that methods exist or return success.

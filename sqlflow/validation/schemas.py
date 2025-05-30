@@ -19,10 +19,13 @@ class FieldSchema:
         """Validate a field value against this schema.
 
         Args:
+        ----
             value: The value to validate
 
         Returns:
+        -------
             List of validation error messages, empty if valid
+
         """
         errors = []
 
@@ -79,10 +82,13 @@ class ConnectorSchema:
         """Validate connector parameters against this schema.
 
         Args:
+        ----
             params: Dictionary of connector parameters
 
         Returns:
+        -------
             List of validation error messages, empty if valid
+
         """
         errors = []
         provided_fields = set(params.keys())

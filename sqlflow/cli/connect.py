@@ -18,11 +18,14 @@ def _get_profile_and_params(
     """Get profile configuration and connection parameters.
 
     Args:
+    ----
         project: Project instance
         profile_name: Name of the connection profile
 
     Returns:
+    -------
         Tuple of (profile_dict, connection_params)
+
     """
     try:
         profile_dict = project.get_profile()
@@ -40,10 +43,13 @@ def _get_connectors(profile_dict: Dict) -> Dict:
     """Get connectors from profile dictionary.
 
     Args:
+    ----
         profile_dict: Profile configuration dictionary
 
     Returns:
+    -------
         Dictionary of connectors
+
     """
     # For backward compatibility with tests, if there's no "connectors" section
     # treat the entire profile as a connector map
@@ -54,11 +60,14 @@ def _get_connector_status(name: str, params: Dict) -> Tuple[str, str, str]:
     """Get connector type, parameters, and status.
 
     Args:
+    ----
         name: Name of the connector
         params: Connector parameters
 
     Returns:
+    -------
         Tuple of (connector_type, readable_status)
+
     """
     # Handle both old and new format
     if "type" in params:
@@ -85,7 +94,9 @@ def _print_connectors_table(connectors_info: List[Tuple[str, str, str]]) -> None
     """Print connectors table.
 
     Args:
+    ----
         connectors_info: List of tuples of (name, type, status)
+
     """
     # Print header
     typer.echo("-" * 40)
@@ -98,15 +109,18 @@ def _print_connectors_table(connectors_info: List[Tuple[str, str, str]]) -> None
 
 @app.command("list")
 def connect_list(
-    profile: str = typer.Option("dev", help="Profile to use (default: dev)")
+    profile: str = typer.Option("dev", help="Profile to use (default: dev)"),
 ) -> None:
     """List all available connection profiles in the selected profile.
 
     Args:
+    ----
         profile: Name of the profile to use (default: dev)
 
     Raises:
+    ------
         typer.Exit: With appropriate exit code
+
     """
     try:
         project = Project(os.getcwd(), profile_name=profile)
@@ -152,16 +166,20 @@ def _validate_profile_and_connection(
     """Validate profile and connection exist and are correctly formatted.
 
     Args:
+    ----
         profile_dict: Profile configuration dictionary
         params: Connection parameters dictionary
         profile: Profile name
         profile_name: Connection profile name
 
     Returns:
+    -------
         Connection parameters if validation passes
 
     Raises:
+    ------
         typer.Exit: With appropriate exit code if validation fails
+
     """
     if not profile_dict:
         typer.echo(f"Profile '{profile}' not found or empty.")
@@ -195,13 +213,17 @@ def _get_connector_class(connector_type: str) -> type[Connector]:
     """Get connector class for the specified type.
 
     Args:
+    ----
         connector_type: Type of connector to get
 
     Returns:
+    -------
         Connector class
 
     Raises:
+    ------
         typer.Exit: With appropriate exit code if connector not found
+
     """
     try:
         return get_connector_class(connector_type)
@@ -221,6 +243,7 @@ def _test_connection(
     """Test a connection using the provided connector class and parameters.
 
     Args:
+    ----
         connector_class: Connector class to use
         params: Connection parameters
         profile_name: Name of the connection profile
@@ -228,7 +251,9 @@ def _test_connection(
         verbose: Whether to show detailed information
 
     Raises:
+    ------
         typer.Exit: With appropriate exit code if connection fails
+
     """
     try:
         connector: Connector = connector_class()
@@ -265,9 +290,11 @@ def _print_connection_details(
     """Print detailed connection information.
 
     Args:
+    ----
         profile_name: Name of the connection profile
         connector_type: Type of connector
         params: Connection parameters
+
     """
     typer.echo(f"\nTesting connection '{profile_name}':")
     typer.echo(f"Type: {connector_type}")
@@ -289,12 +316,15 @@ def connect_test(
     """Test a connection profile in the selected profile file.
 
     Args:
+    ----
         profile_name: Name of the connection to test
         profile: Name of the profile to use (default: dev)
         verbose: Show detailed connection information
 
     Raises:
+    ------
         typer.Exit: With appropriate exit code (1 for error, 2 for connection failure)
+
     """
     try:
         project = Project(os.getcwd(), profile_name=profile)

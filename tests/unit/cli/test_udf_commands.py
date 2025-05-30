@@ -39,11 +39,12 @@ def test_list_udfs_empty():
 
 def test_list_udfs():
     """Test listing UDFs with mock data."""
-    with mock.patch(
-        "sqlflow.udfs.manager.PythonUDFManager.list_udfs"
-    ) as mock_list_udfs, mock.patch(
-        "sqlflow.udfs.manager.PythonUDFManager.discover_udfs"
-    ) as mock_discover:
+    with (
+        mock.patch("sqlflow.udfs.manager.PythonUDFManager.list_udfs") as mock_list_udfs,
+        mock.patch(
+            "sqlflow.udfs.manager.PythonUDFManager.discover_udfs"
+        ) as mock_discover,
+    ):
         # Mock the list_udfs method to return a list with our test UDFs
         mock_list_udfs.return_value = [
             {
@@ -79,11 +80,14 @@ def test_list_udfs():
 
 def test_udf_info_not_found():
     """Test getting info for a UDF that doesn't exist."""
-    with mock.patch(
-        "sqlflow.udfs.manager.PythonUDFManager.get_udf_info"
-    ) as mock_get_info, mock.patch(
-        "sqlflow.udfs.manager.PythonUDFManager.discover_udfs"
-    ) as mock_discover:
+    with (
+        mock.patch(
+            "sqlflow.udfs.manager.PythonUDFManager.get_udf_info"
+        ) as mock_get_info,
+        mock.patch(
+            "sqlflow.udfs.manager.PythonUDFManager.discover_udfs"
+        ) as mock_discover,
+    ):
         # Mock the get_udf_info method to return None
         mock_get_info.return_value = None
 
@@ -97,13 +101,17 @@ def test_udf_info_not_found():
 
 def test_udf_info():
     """Test getting detailed info for a specific UDF."""
-    with mock.patch(
-        "sqlflow.udfs.manager.PythonUDFManager.get_udf_info"
-    ) as mock_get_info, mock.patch(
-        "sqlflow.udfs.manager.PythonUDFManager.validate_udf_metadata"
-    ) as mock_validate, mock.patch(
-        "sqlflow.udfs.manager.PythonUDFManager.discover_udfs"
-    ) as mock_discover:
+    with (
+        mock.patch(
+            "sqlflow.udfs.manager.PythonUDFManager.get_udf_info"
+        ) as mock_get_info,
+        mock.patch(
+            "sqlflow.udfs.manager.PythonUDFManager.validate_udf_metadata"
+        ) as mock_validate,
+        mock.patch(
+            "sqlflow.udfs.manager.PythonUDFManager.discover_udfs"
+        ) as mock_discover,
+    ):
         # Mock the get_udf_info method to return our test UDF info
         mock_get_info.return_value = {
             "name": "sample_double",

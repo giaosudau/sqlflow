@@ -18,8 +18,10 @@ from sqlflow.core.errors import ConnectorError
 def sample_parquet_file() -> Generator[str, None, None]:
     """Create a sample Parquet file for testing.
 
-    Yields:
+    Yields
+    ------
         Path to the sample Parquet file
+
     """
     data = {
         "id": [1, 2, 3],

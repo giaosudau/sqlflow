@@ -20,9 +20,11 @@ class UDFHandler(ABC):
         """Register a UDF with the database connection.
 
         Args:
+        ----
             name: Name to register the UDF as
             function: Python function to register
             connection: Database connection
+
         """
 
 
@@ -33,9 +35,11 @@ class ScalarUDFHandler(UDFHandler):
         """Register a scalar UDF with DuckDB.
 
         Args:
+        ----
             name: Name to register the UDF as
             function: Python function to register
             connection: DuckDB connection
+
         """
         logger.info("Registering scalar UDF: {}".format(name))
 
@@ -71,10 +75,13 @@ class ScalarUDFHandler(UDFHandler):
         """Prepare function for registration by handling default parameters and instance methods.
 
         Args:
+        ----
             function: Function to prepare
 
         Returns:
+        -------
             Function ready for registration
+
         """
         base_function = self._handle_instance_method_wrapper(function)
         return self._handle_default_parameters(base_function)
@@ -83,10 +90,13 @@ class ScalarUDFHandler(UDFHandler):
         """Handle instance method wrapping to exclude 'self' parameter.
 
         Args:
+        ----
             function: Function to check and possibly wrap
 
         Returns:
+        -------
             Function ready for registration (with or without wrapper)
+
         """
         # Check if this is already a bound method
         is_bound_method = inspect.ismethod(function)
@@ -119,10 +129,13 @@ class ScalarUDFHandler(UDFHandler):
         """Check if function signature indicates an instance method.
 
         Args:
+        ----
             params: List of function parameters
 
         Returns:
+        -------
             True if function appears to be an instance method
+
         """
         return (
             len(params) > 0
@@ -136,11 +149,14 @@ class ScalarUDFHandler(UDFHandler):
         """Create a wrapper for instance methods that handles 'self' parameter correctly.
 
         Args:
+        ----
             function: Original instance method
             params: Function parameters
 
         Returns:
+        -------
             Wrapped function with proper instance handling
+
         """
         logger.debug(
             "Function is an unbound instance method, creating wrapper to exclude 'self'"
@@ -160,11 +176,14 @@ class ScalarUDFHandler(UDFHandler):
         """Create wrapper for instance methods with parameters.
 
         Args:
+        ----
             function: Original function
             new_params: Parameters excluding 'self'
 
         Returns:
+        -------
             Wrapper function
+
         """
         # For instance methods, we need to create a wrapper that calls the function
         # with the proper instance. Since this is an unbound method, we need to
@@ -191,10 +210,13 @@ class ScalarUDFHandler(UDFHandler):
         """Create wrapper for instance methods with no parameters.
 
         Args:
+        ----
             function: Original function
 
         Returns:
+        -------
             Simple wrapper function
+
         """
 
         def instance_method_wrapper():
@@ -213,11 +235,14 @@ class ScalarUDFHandler(UDFHandler):
         """Copy relevant attributes from source function to target function.
 
         Args:
+        ----
             source: Source function
             target: Target function
 
         Returns:
+        -------
             Target function with copied attributes
+
         """
         for attr in dir(source):
             if attr.startswith("_") and not attr.startswith("__"):
@@ -231,10 +256,13 @@ class ScalarUDFHandler(UDFHandler):
         """Handle functions with default parameters.
 
         Args:
+        ----
             base_function: Function to check for default parameters
 
         Returns:
+        -------
             Function with default parameter handling (wrapped if needed)
+
         """
         current_sig = inspect.signature(base_function)
         has_default_params = any(
@@ -254,11 +282,14 @@ class ScalarUDFHandler(UDFHandler):
         """Create wrapper that handles missing default parameters.
 
         Args:
+        ----
             base_function: Function to wrap
             current_sig: Function signature
 
         Returns:
+        -------
             Wrapper function with default parameter handling
+
         """
 
         def udf_wrapper(*args):
@@ -273,10 +304,13 @@ class ScalarUDFHandler(UDFHandler):
         """Get the DuckDB return type for a function.
 
         Args:
+        ----
             function: Function to analyze
 
         Returns:
+        -------
             DuckDB type string or None if not determinable
+
         """
         annotations = getattr(function, "__annotations__", {})
         return_type = annotations.get("return", None)
@@ -292,9 +326,11 @@ class ScalarUDFHandler(UDFHandler):
         """Register UDF with fallback strategies.
 
         Args:
+        ----
             name: Name to register the UDF as
             function: Function to register
             connection: DuckDB connection
+
         """
         try:
             connection.create_function(name, function)
@@ -318,9 +354,11 @@ class TableUDFHandler(UDFHandler):
         """Register a table UDF with DuckDB.
 
         Args:
+        ----
             name: Name to register the UDF as
             function: Python function to register
             connection: DuckDB connection
+
         """
         logger.info("Registering table UDF: {}".format(name))
 
@@ -339,13 +377,17 @@ class UDFHandlerFactory:
         """Create appropriate UDF handler based on function type.
 
         Args:
+        ----
             function: Function to create handler for
 
         Returns:
+        -------
             Appropriate UDF handler
 
         Raises:
+        ------
             UDFRegistrationError: If UDF type is unknown
+
         """
         udf_type = getattr(function, "_udf_type", DuckDBConstants.UDF_TYPE_SCALAR)
 

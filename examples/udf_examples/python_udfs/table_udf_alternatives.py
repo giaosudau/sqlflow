@@ -102,10 +102,13 @@ def add_sales_metrics_external(df: pd.DataFrame) -> pd.DataFrame:
     This function can be called before registering the DataFrame with DuckDB.
 
     Args:
+    ----
         df: Input DataFrame with 'price' and 'quantity' columns
 
     Returns:
+    -------
         DataFrame with calculated metrics
+
     """
     result = df.copy()
 
@@ -139,11 +142,14 @@ def detect_outliers_external(
     """Detect outliers using external processing.
 
     Args:
+    ----
         df: Input DataFrame
         column_name: Column to check for outliers
 
     Returns:
+    -------
         DataFrame with outlier detection columns
+
     """
     result = df.copy()
 

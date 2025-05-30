@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-Connector test script for SQLFlow ecommerce demo.
+"""Connector test script for SQLFlow ecommerce demo.
 This script tests all connectors in the demo environment.
 """
 

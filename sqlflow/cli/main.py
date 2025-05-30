@@ -226,7 +226,6 @@ def generate_sample_data(data_dir: str):
 
 def create_enhanced_pipelines(pipelines_dir: str):
     """Create multiple working pipelines with sample data."""
-
     # Basic example pipeline (updated)
     example_pipeline_path = os.path.join(pipelines_dir, "example.sf")
     with open(example_pipeline_path, "w") as f:

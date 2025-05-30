@@ -14,10 +14,7 @@ from sqlflow.connectors.base import (
     Schema,
 )
 from sqlflow.connectors.data_chunk import DataChunk
-from sqlflow.connectors.registry import (
-    register_connector,
-    register_export_connector,
-)
+from sqlflow.connectors.registry import register_connector, register_export_connector
 from sqlflow.core.errors import ConnectorError
 
 
@@ -36,10 +33,13 @@ class ParquetConnector(Connector, ExportConnector):
         """Configure the connector with parameters.
 
         Args:
+        ----
             params: Configuration parameters
 
         Raises:
+        ------
             ConnectorError: If configuration fails
+
         """
         try:
             self.path = params.get("path")
@@ -58,8 +58,10 @@ class ParquetConnector(Connector, ExportConnector):
     def _check_existing_file(self) -> ConnectionTestResult:
         """Check if the file exists and is readable.
 
-        Returns:
+        Returns
+        -------
             ConnectionTestResult: Result of the check
+
         """
         try:
             pq.ParquetFile(self.path)
@@ -74,8 +76,10 @@ class ParquetConnector(Connector, ExportConnector):
     def _check_directory(self) -> ConnectionTestResult:
         """Check if the directory exists and is writable.
 
-        Returns:
+        Returns
+        -------
             ConnectionTestResult: Result of the check
+
         """
         if self.path is None:
             self.state = ConnectorState.ERROR
@@ -99,8 +103,10 @@ class ParquetConnector(Connector, ExportConnector):
     def test_connection(self) -> ConnectionTestResult:
         """Test if the Parquet file exists and is readable, or if the directory is writable.
 
-        Returns:
+        Returns
+        -------
             Result of the connection test
+
         """
         self.validate_state(ConnectorState.CONFIGURED)
 
@@ -121,11 +127,14 @@ class ParquetConnector(Connector, ExportConnector):
 
         For Parquet, this returns a single object representing the file.
 
-        Returns:
+        Returns
+        -------
             List with a single object name
 
-        Raises:
+        Raises
+        ------
             ConnectorError: If discovery fails
+
         """
         self.validate_state(ConnectorState.CONFIGURED)
 
@@ -148,13 +157,17 @@ class ParquetConnector(Connector, ExportConnector):
         """Get schema for the Parquet file.
 
         Args:
+        ----
             object_name: Name of the object (ignored for Parquet)
 
         Returns:
+        -------
             Schema for the Parquet file
 
         Raises:
+        ------
             ConnectorError: If schema retrieval fails
+
         """
         self.validate_state(ConnectorState.CONFIGURED)
 
@@ -180,10 +193,13 @@ class ParquetConnector(Connector, ExportConnector):
         """Convert SQLFlow filter format to PyArrow filter format.
 
         Args:
+        ----
             filters: SQLFlow filters
 
         Returns:
+        -------
             PyArrow filters in the format expected by pyarrow.parquet.read_table
+
         """
         parquet_filters = []
 
@@ -215,16 +231,20 @@ class ParquetConnector(Connector, ExportConnector):
         """Read data from the Parquet file in chunks.
 
         Args:
+        ----
             object_name: Name of the object (ignored for Parquet)
             columns: Optional list of columns to read
             filters: Optional filters to apply
             batch_size: Number of rows per batch
 
         Yields:
+        ------
             DataChunk objects
 
         Raises:
+        ------
             ConnectorError: If reading fails
+
         """
         self.validate_state(ConnectorState.CONFIGURED)
 
@@ -271,12 +291,15 @@ class ParquetConnector(Connector, ExportConnector):
         """Write data to a Parquet file.
 
         Args:
+        ----
             object_name: Name of the object (used to create filename if path not set)
             data_chunk: Data to write
             mode: Write mode (append or overwrite)
 
         Raises:
+        ------
             ConnectorError: If writing fails
+
         """
         self.validate_state(ConnectorState.CONFIGURED)
 

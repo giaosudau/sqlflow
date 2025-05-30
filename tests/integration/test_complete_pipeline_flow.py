@@ -1,5 +1,4 @@
-"""
-Integration tests for complete pipeline flow.
+"""Integration tests for complete pipeline flow.
 
 These tests verify the end-to-end functionality of the LocalExecutor
 and DuckDBEngine working together to execute complete pipelines.

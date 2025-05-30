@@ -31,12 +31,15 @@ def _get_pipeline_info(
     """Get project, pipeline path, and target path for a pipeline.
 
     Args:
+    ----
         pipeline_name: Name of the pipeline
         profile: Profile to use
         variables: Variables for the pipeline
 
     Returns:
+    -------
         Tuple of (project, pipeline_path, target_path)
+
     """
     project = Project(os.getcwd(), profile_name=profile)
     pipeline_path = _resolve_pipeline_path(project, pipeline_name)
@@ -55,10 +58,13 @@ def _read_pipeline_file(pipeline_path: str) -> str:
     """Read and return the contents of a pipeline file.
 
     Args:
+    ----
         pipeline_path: Path to the pipeline file
 
     Returns:
+    -------
         Contents of the pipeline file
+
     """
     with open(pipeline_path, "r") as f:
         return f.read()
@@ -68,11 +74,14 @@ def _apply_variable_substitution(pipeline_text: str, variables: Dict[str, Any]) 
     """Apply variable substitution to pipeline text.
 
     Args:
+    ----
         pipeline_text: Pipeline text with variables
         variables: Dictionary of variable values
 
     Returns:
+    -------
         Pipeline text with variables substituted
+
     """
     from sqlflow.core.variables import VariableContext, VariableSubstitutor
 
@@ -97,11 +106,14 @@ def _is_test_pipeline(pipeline_path: str, pipeline_text: str) -> bool:
     """Check if this is a test pipeline.
 
     Args:
+    ----
         pipeline_path: Path to the pipeline file
         pipeline_text: Contents of the pipeline file
 
     Returns:
+    -------
         True if this is a test pipeline, False otherwise
+
     """
     # TODO: Implement test pipeline detection logic
     return False
@@ -110,8 +122,10 @@ def _is_test_pipeline(pipeline_path: str, pipeline_text: str) -> bool:
 def _get_test_plan() -> List[Dict[str, Any]]:
     """Get the execution plan for a test pipeline.
 
-    Returns:
+    Returns
+    -------
         List of operations for the test pipeline
+
     """
     # TODO: Implement test plan generation
     return []
@@ -121,7 +135,9 @@ def _handle_source_error(error: Exception) -> None:
     """Handle and format SOURCE directive errors.
 
     Args:
+    ----
         error: The exception to handle
+
     """
     if hasattr(error, "message") and "SOURCE" in str(error):
         error_lines = str(error).split("\n")
@@ -161,13 +177,16 @@ def _compile_pipeline_to_plan(
     """Compile a pipeline file to an execution plan.
 
     Args:
+    ----
         pipeline_path: Path to the pipeline file
         target_path: Path to save the execution plan
         variables: Variables to substitute in the pipeline
         save_plan: Whether to save the plan to disk
 
     Returns:
+    -------
         The execution plan as a list of operations
+
     """
     from sqlflow.core.planner import Planner
     from sqlflow.project import Project
@@ -212,10 +231,13 @@ def _build_execution_graph(operations: List[Dict[str, Any]]) -> Dict[str, List[s
     """Build a simple execution graph from operations.
 
     Args:
+    ----
         operations: List of operations
 
     Returns:
+    -------
         Dict mapping step IDs to lists of dependent step IDs
+
     """
     graph = {}
     for op in operations:
@@ -308,8 +330,10 @@ def _print_compilation_summary(
     """Print a user-friendly compilation summary.
 
     Args:
+    ----
         operations: List of operations in the compiled plan
         output_path: Path where the execution plan was saved
+
     """
     # Count operations by type
     operation_counts = {}
@@ -318,7 +342,7 @@ def _print_compilation_summary(
         operation_counts[op_type] = operation_counts.get(op_type, 0) + 1
 
     # Print summary header
-    typer.echo(f"\n✅ Compilation successful!")
+    typer.echo("\n✅ Compilation successful!")
     typer.echo(f"📄 Execution plan: {output_path}")
     typer.echo(f"🔢 Total operations: {len(operations)}")
 
@@ -388,7 +412,7 @@ def _do_compile_all_pipelines(
         except typer.Exit:
             # Exit was already handled in _compile_pipeline_to_plan
             # Just count it as an error and continue with other pipelines
-            typer.echo(f"      ❌ Failed")
+            typer.echo("      ❌ Failed")
             error_count += 1
         except Exception as e:
             error_count += 1
@@ -404,7 +428,7 @@ def _do_compile_all_pipelines(
     # Print final summary
     typer.echo()
     if error_count > 0:
-        typer.echo(f"⚠️  Compilation completed with errors:")
+        typer.echo("⚠️  Compilation completed with errors:")
         typer.echo(f"   ✅ {compiled_count} succeeded")
         typer.echo(f"   ❌ {error_count} failed")
         if compiled_count > 0:
@@ -417,7 +441,7 @@ def _do_compile_all_pipelines(
         typer.echo(f"   💾 Plans saved to: {target_dir}")
         raise typer.Exit(code=1)  # Exit with error if any compilation failed
     else:
-        typer.echo(f"✅ All pipelines compiled successfully!")
+        typer.echo("✅ All pipelines compiled successfully!")
         typer.echo(
             f"   📊 {compiled_count} pipelines, {total_operations} total operations"
         )
@@ -595,11 +619,14 @@ def _parse_pipeline(pipeline_text: str, pipeline_path: str):
     """Parse a pipeline file using the SQLFlow parser.
 
     Args:
+    ----
         pipeline_text: Text of the pipeline file
         pipeline_path: Path to the pipeline file
 
     Returns:
+    -------
         Parsed pipeline object
+
     """
     try:
         parser = Parser()
@@ -614,8 +641,10 @@ def _print_plan_summary(operations: List[Dict[str, Any]], pipeline_name: str):
     """Print a summary of an execution plan.
 
     Args:
+    ----
         operations: List of operations in the plan
         pipeline_name: Name of the pipeline
+
     """
     step_types = {}
     for op in operations:
@@ -643,8 +672,10 @@ def _write_execution_plan(plan_data: Dict[str, Any], target_path: str) -> None:
     """Write the execution plan to a file.
 
     Args:
+    ----
         plan_data: The execution plan data
         target_path: Path to save the plan to
+
     """
     # Add metadata to the plan
     full_plan = {
@@ -702,11 +733,14 @@ def _read_and_substitute_pipeline(pipeline_path: str, variables: dict) -> str:
     """Read a pipeline file and substitute variables.
 
     Args:
+    ----
         pipeline_path: Path to the pipeline file
         variables: Dictionary of variable values
 
     Returns:
+    -------
         Pipeline text with variables substituted
+
     """
     from sqlflow.core.variables import VariableContext, VariableSubstitutor
 
@@ -751,10 +785,13 @@ def _find_entry_points(plan: List[Dict[str, Any]]) -> List[str]:
     Entry points are steps that are not dependent on other steps.
 
     Args:
+    ----
         plan: The pipeline plan
 
     Returns:
+    -------
         List of entry point step IDs
+
     """
     # Find all steps that don't have any dependencies
     entry_points = []
@@ -795,11 +832,14 @@ def _resolve_execution_order(
     """Resolve the execution order using the dependency resolver.
 
     Args:
+    ----
         dependency_resolver: The dependency resolver to use
         plan: The execution plan
 
     Returns:
+    -------
         List of step IDs in execution order
+
     """
     # Get all step IDs from the plan
     all_step_ids = [step["id"] for step in plan]
@@ -871,7 +911,9 @@ def _print_status_by_step_type(by_type: dict) -> None:
         status_color = (
             success_color
             if success == total
-            else warning_color if success > 0 else error_color
+            else warning_color
+            if success > 0
+            else error_color
         )
         typer.echo(
             f"  {typer.style(step_type, fg=info_color)}: {typer.style(f'{success}/{total}', fg=status_color)} completed successfully"
@@ -924,8 +966,10 @@ def _report_pipeline_results(operations: List[Dict[str, Any]], results: Dict[str
     """Report the results of pipeline execution.
 
     Args:
+    ----
         operations: List of operations in the plan
         results: Results of execution
+
     """
     summary = results.get("summary", {})
     if summary:
@@ -959,13 +1003,17 @@ def _load_execution_plan(plan_path: str) -> List[Dict[str, Any]]:
     """Load execution plan from a JSON file.
 
     Args:
+    ----
         plan_path: Path to the execution plan JSON file
 
     Returns:
+    -------
         Execution plan as a list of operations
 
     Raises:
+    ------
         typer.Exit: If the plan cannot be loaded
+
     """
     try:
         with open(plan_path, "r") as f:
@@ -1040,6 +1088,7 @@ def _get_execution_operations(
     """Loads a compiled plan or compiles the pipeline to get operations.
 
     Args:
+    ----
         from_compiled_arg: Whether to use a pre-compiled plan
         compiled_plan_path: Path to the compiled plan if from_compiled_arg is True
         pipeline_path: Path to the pipeline file
@@ -1048,7 +1097,9 @@ def _get_execution_operations(
         profile_name: Name of the profile to use
 
     Returns:
+    -------
         List of operations for execution
+
     """
     if from_compiled_arg and os.path.exists(compiled_plan_path):
         logger.info(f"Using compiled plan: {compiled_plan_path}")
@@ -1107,10 +1158,13 @@ def _extract_set_variables_from_operations(
     """Extract SET variables with default values from operations.
 
     Args:
+    ----
         operations: List of operation steps
 
     Returns:
+    -------
         Dictionary of variable names to default values
+
     """
     set_variables = {}
     for op in operations:
@@ -1155,12 +1209,15 @@ def _build_effective_variables(
     """Build effective variables by applying priority rules.
 
     Args:
+    ----
         set_variables: Variables from SET statements (lowest priority)
         executor_profile: Executor profile for profile variables (medium priority)
         cli_variables: Variables from CLI (highest priority)
 
     Returns:
+    -------
         Combined dictionary of variables
+
     """
     # 1. Start with SET variables (lowest priority)
     effective_variables = set_variables.copy() if set_variables else {}
@@ -1188,7 +1245,9 @@ def _check_duckdb_engine(executor) -> None:
     """Check if DuckDB engine is initialized and log its status.
 
     Args:
+    ----
         executor: Executor instance with DuckDB engine
+
     """
     logger = get_logger(__name__)
     if hasattr(executor, "duckdb_engine") and executor.duckdb_engine:
@@ -1204,7 +1263,9 @@ def _verify_duckdb_tables(executor) -> None:
     """Verify DuckDB tables after execution.
 
     Args:
+    ----
         executor: Executor instance with DuckDB engine
+
     """
     logger = get_logger(__name__)
     if (
@@ -1233,6 +1294,7 @@ def _execute_and_handle_result(
     """Execute operations and handle the execution result.
 
     Args:
+    ----
         executor: Executor instance
         operations: List of operations to execute
         variables: Variables for execution
@@ -1241,7 +1303,9 @@ def _execute_and_handle_result(
         start_time: Start time of execution
 
     Returns:
+    -------
         True if execution succeeded, False otherwise
+
     """
     # Get logger - ensure it's available in scope
     logger = get_logger(__name__)
@@ -1297,11 +1361,13 @@ def _log_pipeline_execution_details(
     """Log pipeline execution details for debugging.
 
     Args:
+    ----
         operations: List of operations in the pipeline
         pipeline_name: Name of the pipeline
         profile_name: Name of the profile to use
         variables: Dictionary of variables for the pipeline
         execution_id: Execution ID for tracking
+
     """
     logger.debug(f"Initializing executor with profile {profile_name}")
     logger.debug(f"Executing pipeline {pipeline_name} with profile {profile_name}")
@@ -1329,6 +1395,7 @@ def _initialize_executor(
     """Initialize the executor with proper configuration.
 
     Args:
+    ----
         profile_name: Name of the profile to use
         execution_id: Execution ID for tracking
         artifact_manager: Artifact manager for tracking
@@ -1336,7 +1403,9 @@ def _initialize_executor(
         variables: Dictionary of variables for the pipeline
 
     Returns:
+    -------
         Configured LocalExecutor instance
+
     """
     # Initialize executor with project directory for UDF discovery
     project_dir = os.getcwd()
@@ -1368,6 +1437,7 @@ def _execute_pipeline_operations_and_report(
     """Execute a pipeline with the given operations.
 
     Args:
+    ----
         operations: List of operations in the pipeline
         pipeline_name: Name of the pipeline
         profile_name: Name of the profile to use
@@ -1376,7 +1446,9 @@ def _execute_pipeline_operations_and_report(
         execution_id: Execution ID for tracking
 
     Returns:
+    -------
         True if execution succeeded, False otherwise
+
     """
     # Log execution details
     _log_pipeline_execution_details(
@@ -1541,9 +1613,11 @@ def _print_step_success(
     """Print a clean success message for a completed step.
 
     Args:
+    ----
         step_type: Type of step (load, transform, export)
         step_name: Name/identifier of the step
         row_count: Optional row count for data operations
+
     """
     emoji_map = {
         "load": "📥",
@@ -1684,7 +1758,7 @@ def validate_pipeline_command(
 
             # Print summary
             if not quiet:
-                typer.echo(f"\n📊 Validation Summary:")
+                typer.echo("\n📊 Validation Summary:")
                 typer.echo(f"  Total pipelines: {len(pipeline_files)}")
                 typer.echo(f"  Passed: {len(pipeline_files) - len(failed_pipelines)}")
                 typer.echo(f"  Failed: {len(failed_pipelines)}")
@@ -1696,7 +1770,7 @@ def validate_pipeline_command(
                 raise typer.Exit(code=1)
             else:
                 if not quiet:
-                    typer.echo(f"\n✅ All pipelines passed validation!")
+                    typer.echo("\n✅ All pipelines passed validation!")
 
         except typer.Exit:
             raise

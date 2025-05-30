@@ -20,9 +20,11 @@ class UDFError(DuckDBEngineError):
         """Initialize a UDF error.
 
         Args:
+        ----
             message: Error message
             udf_name: Optional name of the UDF that caused the error
             query: Optional query where the error occurred
+
         """
         self.udf_name = udf_name
         self.query = query
@@ -53,9 +55,11 @@ class SchemaValidationError(DuckDBEngineError):
         """Initialize a schema validation error.
 
         Args:
+        ----
             message: Error message
             source_schema: Optional source schema that caused the error
             target_schema: Optional target schema that caused the error
+
         """
         self.source_schema = source_schema
         self.target_schema = target_schema
@@ -69,8 +73,10 @@ class InvalidLoadModeError(DuckDBEngineError):
         """Initialize an invalid load mode error.
 
         Args:
+        ----
             mode: The invalid mode that was specified
             valid_modes: List of valid load modes
+
         """
         self.mode = mode
         self.valid_modes = valid_modes
@@ -90,9 +96,11 @@ class MergeKeyValidationError(DuckDBEngineError):
         """Initialize a merge key validation error.
 
         Args:
+        ----
             message: Error message
             table_name: Optional table name where the error occurred
             merge_keys: Optional merge keys that caused the error
+
         """
         self.table_name = table_name
         self.merge_keys = merge_keys
@@ -106,8 +114,10 @@ class DataRegistrationError(DuckDBEngineError):
         """Initialize a data registration error.
 
         Args:
+        ----
             message: Error message
             data_name: Optional name of the data that caused the error
+
         """
         self.data_name = data_name
         super().__init__(message)

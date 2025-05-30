@@ -1,5 +1,4 @@
-"""
-Comprehensive Table UDF Validation Test Suite
+"""Comprehensive Table UDF Validation Test Suite
 
 This test suite provides exhaustive validation of the advanced table UDF
 system, including:
@@ -72,7 +71,9 @@ class TestTableUDFComprehensiveValidation:
                 lambda x: (
                     "premium"
                     if x > threshold * 1.2
-                    else "standard" if x > threshold else "basic"
+                    else "standard"
+                    if x > threshold
+                    else "basic"
                 )
             )
 
@@ -167,9 +168,9 @@ class TestTableUDFComprehensiveValidation:
 
         # Validate performance
         assert len(result) == size
-        assert (
-            execution_time_ms < target_time_ms
-        ), f"Performance target missed: {execution_time_ms:.2f}ms > {target_time_ms}ms"
+        assert execution_time_ms < target_time_ms, (
+            f"Performance target missed: {execution_time_ms:.2f}ms > {target_time_ms}ms"
+        )
 
         logger.info(
             f"✅ Small dataset performance: {execution_time_ms:.2f}ms (target: {target_time_ms}ms)"
@@ -220,9 +221,9 @@ class TestTableUDFComprehensiveValidation:
 
         # Validate performance
         assert len(result) == size
-        assert (
-            execution_time_ms < target_time_ms
-        ), f"Performance target missed: {execution_time_ms:.2f}ms > {target_time_ms}ms"
+        assert execution_time_ms < target_time_ms, (
+            f"Performance target missed: {execution_time_ms:.2f}ms > {target_time_ms}ms"
+        )
 
         logger.info(
             f"✅ Medium dataset performance: {execution_time_ms:.2f}ms (target: {target_time_ms}ms)"
@@ -608,9 +609,9 @@ class TestTableUDFComprehensiveValidation:
         try:
             # Step 1: Clean data
             cleaned_data = data_cleaner(raw_data, min_amount=1.0)
-            assert len(cleaned_data) < len(
-                raw_data
-            ), "Data cleaning should remove invalid records"
+            assert len(cleaned_data) < len(raw_data), (
+                "Data cleaning should remove invalid records"
+            )
 
             # Safe boolean evaluation
             valid_check = cleaned_data["is_valid"]
@@ -704,9 +705,9 @@ class TestTableUDFAdvancedValidation:
 
             # Basic performance assertion (should scale reasonably)
             expected_max_time = size * 0.1  # Relaxed to 0.1ms per row maximum
-            assert (
-                execution_time < expected_max_time
-            ), f"Performance regression detected: {execution_time:.2f}ms > {expected_max_time:.2f}ms for {size} rows"
+            assert execution_time < expected_max_time, (
+                f"Performance regression detected: {execution_time:.2f}ms > {expected_max_time:.2f}ms for {size} rows"
+            )
 
         logger.info(f"✅ Performance regression test passed: {execution_times}")
 
@@ -748,9 +749,9 @@ class TestTableUDFAdvancedValidation:
             memory_growth = current_memory - initial_memory
             max_allowed_growth = (size / 10000) * 100  # 100MB per 10k rows
 
-            assert (
-                memory_growth < max_allowed_growth
-            ), f"Excessive memory growth: {memory_growth:.2f}MB > {max_allowed_growth:.2f}MB"
+            assert memory_growth < max_allowed_growth, (
+                f"Excessive memory growth: {memory_growth:.2f}MB > {max_allowed_growth:.2f}MB"
+            )
 
         logger.info(f"✅ Memory efficiency validated: {memory_growth:.2f}MB growth")
 

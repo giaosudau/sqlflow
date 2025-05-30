@@ -20,8 +20,10 @@ class SQLEngine(ABC):
         """Configure the engine with settings from the profile.
 
         Args:
+        ----
             config: Engine configuration from the profile
             profile_variables: Variables defined in the profile
+
         """
 
     @abstractmethod
@@ -29,10 +31,13 @@ class SQLEngine(ABC):
         """Execute a SQL query.
 
         Args:
+        ----
             query: SQL query to execute
 
         Returns:
+        -------
             Query result object (engine-specific)
+
         """
 
     @abstractmethod
@@ -40,8 +45,10 @@ class SQLEngine(ABC):
         """Create a temporary table with the given data.
 
         Args:
+        ----
             name: Name of the temporary table
             data: Data to insert into the table
+
         """
 
     @abstractmethod
@@ -49,8 +56,10 @@ class SQLEngine(ABC):
         """Register an Arrow table with the engine.
 
         Args:
+        ----
             table_name: Name to register the table as
             arrow_table: PyArrow table to register
+
         """
 
     @abstractmethod
@@ -58,8 +67,10 @@ class SQLEngine(ABC):
         """Register a Python UDF with the engine.
 
         Args:
+        ----
             name: Name to register the UDF as
             function: Python function to register
+
         """
 
     @abstractmethod
@@ -67,11 +78,14 @@ class SQLEngine(ABC):
         """Process a query to replace UDF references with engine-specific syntax.
 
         Args:
+        ----
             query: Original SQL query with UDF references
             udfs: Dictionary of UDF names to functions
 
         Returns:
+        -------
             Processed query with engine-specific UDF references
+
         """
 
     @abstractmethod
@@ -79,10 +93,13 @@ class SQLEngine(ABC):
         """Check if the engine supports a specific feature.
 
         Args:
+        ----
             feature: Feature to check for support
 
         Returns:
+        -------
             True if the feature is supported, False otherwise
+
         """
 
     @abstractmethod
@@ -90,10 +107,13 @@ class SQLEngine(ABC):
         """Check if a table exists.
 
         Args:
+        ----
             table_name: Name of the table to check
 
         Returns:
+        -------
             True if the table exists, False otherwise
+
         """
 
     @abstractmethod
@@ -101,10 +121,13 @@ class SQLEngine(ABC):
         """Get the schema of a table.
 
         Args:
+        ----
             table_name: Name of the table
 
         Returns:
+        -------
             Dict mapping column names to their types
+
         """
 
     @abstractmethod

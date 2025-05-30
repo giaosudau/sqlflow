@@ -316,9 +316,9 @@ def test_type_error_handling(error_handling_test_env: Dict[str, Any]) -> None:
     # Check NULL value handling
     null_rows = result[result["text"].isna()]
     assert len(null_rows) == 1
-    assert pd.isna(
-        null_rows["result"].values[0]
-    ), "NULL input should result in NULL output"
+    assert pd.isna(null_rows["result"].values[0]), (
+        "NULL input should result in NULL output"
+    )
 
 
 def test_table_udf_error_handling(error_handling_test_env: Dict[str, Any]) -> None:
@@ -750,9 +750,9 @@ def customer_segmentation(df: pd.DataFrame) -> pd.DataFrame:
             )
         )
 
-        assert (
-            has_relevant_info
-        ), f"Error message didn't contain expected information: {error_message}"
+        assert has_relevant_info, (
+            f"Error message didn't contain expected information: {error_message}"
+        )
 
     # Test 4: Test error in multi-step SQL pipeline with UDFs
     with pytest.raises(Exception) as excinfo:

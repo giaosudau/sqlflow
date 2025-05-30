@@ -15,9 +15,7 @@ from sqlflow.connectors.base import (
     Schema,
 )
 from sqlflow.connectors.data_chunk import DataChunk
-from sqlflow.connectors.registry import (
-    register_bidirectional_connector,
-)
+from sqlflow.connectors.registry import register_bidirectional_connector
 from sqlflow.core.errors import ConnectorError
 
 
@@ -46,10 +44,13 @@ class GoogleSheetsConnector(BidirectionalConnector):
         """Configure the connector with parameters.
 
         Args:
+        ----
             params: Configuration parameters
 
         Raises:
+        ------
             ConnectorError: If configuration fails
+
         """
         try:
             self.credentials_file = params.get("credentials_file")
@@ -96,8 +97,10 @@ class GoogleSheetsConnector(BidirectionalConnector):
     def test_connection(self) -> ConnectionTestResult:
         """Test the connection to Google Sheets.
 
-        Returns:
+        Returns
+        -------
             Result of the connection test
+
         """
         try:
             if self.service is None:
@@ -115,11 +118,14 @@ class GoogleSheetsConnector(BidirectionalConnector):
     def discover(self) -> List[str]:
         """Discover available sheets in the spreadsheet.
 
-        Returns:
+        Returns
+        -------
             List of sheet names
 
-        Raises:
+        Raises
+        ------
             ConnectorError: If discovery fails
+
         """
         self.validate_state(ConnectorState.CONFIGURED)
 
@@ -149,13 +155,17 @@ class GoogleSheetsConnector(BidirectionalConnector):
         """Get schema for a sheet.
 
         Args:
+        ----
             object_name: Sheet name
 
         Returns:
+        -------
             Schema for the sheet
 
         Raises:
+        ------
             ConnectorError: If schema retrieval fails
+
         """
         self.validate_state(ConnectorState.CONFIGURED)
 
@@ -212,16 +222,20 @@ class GoogleSheetsConnector(BidirectionalConnector):
         """Read data from a Google Sheet.
 
         Args:
+        ----
             object_name: Sheet name
             columns: Optional list of columns to read
             filters: Optional filters to apply (not supported)
             batch_size: Number of rows per batch
 
         Yields:
+        ------
             DataChunk objects
 
         Raises:
+        ------
             ConnectorError: If reading fails
+
         """
         self.validate_state(ConnectorState.CONFIGURED)
 
@@ -283,12 +297,15 @@ class GoogleSheetsConnector(BidirectionalConnector):
         """Write data to a Google Sheet.
 
         Args:
+        ----
             object_name: Sheet name
             data_chunk: Data to write
             mode: Write mode (ignored for Google Sheets)
 
         Raises:
+        ------
             ConnectorError: If writing fails
+
         """
         self.validate_state(ConnectorState.CONFIGURED)
 

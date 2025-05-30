@@ -16,7 +16,9 @@ class DataRegistrationManager:
         """Initialize the data registration manager.
 
         Args:
+        ----
             connection: DuckDB connection
+
         """
         self.connection = connection
         self.registered_data: Dict[str, Any] = {}
@@ -25,8 +27,10 @@ class DataRegistrationManager:
         """Register data with the engine.
 
         Args:
+        ----
             name: Name to register the data as
             data: Data to register
+
         """
         logger.debug(f"Registering data: {name}")
 
@@ -40,7 +44,9 @@ class DataRegistrationManager:
         """Unregister data from the engine.
 
         Args:
+        ----
             name: Name of the data to unregister
+
         """
         if name in self.registered_data:
             del self.registered_data[name]
@@ -50,17 +56,22 @@ class DataRegistrationManager:
         """Check if data is registered.
 
         Args:
+        ----
             name: Name of the data
 
         Returns:
+        -------
             True if data is registered
+
         """
         return name in self.registered_data
 
     def get_registered_names(self) -> list[str]:
         """Get names of all registered data.
 
-        Returns:
+        Returns
+        -------
             List of registered data names
+
         """
         return list(self.registered_data.keys())

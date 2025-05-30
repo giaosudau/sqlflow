@@ -42,10 +42,13 @@ class PostgresPlaceholderConnector(Connector):
         """Configure the connector with parameters.
 
         Args:
+        ----
             params: Configuration parameters
 
         Raises:
+        ------
             ConnectorError: Always raised because this is a placeholder
+
         """
         raise ConnectorError(
             "POSTGRES",
@@ -55,8 +58,10 @@ class PostgresPlaceholderConnector(Connector):
     def test_connection(self) -> ConnectionTestResult:
         """Test the connection to the PostgreSQL database.
 
-        Returns:
+        Returns
+        -------
             Result of the connection test (always failure)
+
         """
         return ConnectionTestResult(
             False,
@@ -66,11 +71,14 @@ class PostgresPlaceholderConnector(Connector):
     def discover(self) -> List[str]:
         """Discover available tables in the PostgreSQL database.
 
-        Returns:
+        Returns
+        -------
             List of table names
 
-        Raises:
+        Raises
+        ------
             ConnectorError: Always raised because this is a placeholder
+
         """
         raise ConnectorError(
             "POSTGRES",
@@ -81,13 +89,17 @@ class PostgresPlaceholderConnector(Connector):
         """Get schema for a PostgreSQL table.
 
         Args:
+        ----
             object_name: Table name
 
         Returns:
+        -------
             Schema for the table
 
         Raises:
+        ------
             ConnectorError: Always raised because this is a placeholder
+
         """
         raise ConnectorError(
             "POSTGRES",
@@ -104,16 +116,20 @@ class PostgresPlaceholderConnector(Connector):
         """Read data from a PostgreSQL table.
 
         Args:
+        ----
             object_name: Table name
             columns: Optional list of columns to read
             filters: Optional filters to apply
             batch_size: Number of rows per batch
 
         Yields:
+        ------
             DataChunk objects
 
         Raises:
+        ------
             ConnectorError: Always raised because this is a placeholder
+
         """
         raise ConnectorError(
             "POSTGRES",

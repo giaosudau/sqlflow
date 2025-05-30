@@ -1,5 +1,4 @@
-"""
-Integration tests for load modes demonstration regression prevention.
+"""Integration tests for load modes demonstration regression prevention.
 
 These tests ensure that the load modes examples functionality doesn't regress.
 This covers the basic load modes, multiple merge keys, and schema compatibility
@@ -93,17 +92,17 @@ class TestLoadModesRegression:
         pipeline_sql = f"""
         -- Define data sources
         SOURCE users_csv TYPE CSV PARAMS {{
-            "path": "{data['users_path']}", 
+            "path": "{data["users_path"]}", 
             "has_header": true
         }};
         
         SOURCE new_users_csv TYPE CSV PARAMS {{
-            "path": "{data['new_users_path']}", 
+            "path": "{data["new_users_path"]}", 
             "has_header": true
         }};
         
         SOURCE users_updates_csv TYPE CSV PARAMS {{
-            "path": "{data['users_updates_path']}", 
+            "path": "{data["users_updates_path"]}", 
             "has_header": true
         }};
         
@@ -118,7 +117,7 @@ class TestLoadModesRegression:
         
         -- Export final results
         EXPORT SELECT * FROM users_table ORDER BY user_id
-        TO "{os.path.join(data['temp_dir'], 'basic_load_result.csv')}"
+        TO "{os.path.join(data["temp_dir"], "basic_load_result.csv")}"
         TYPE CSV OPTIONS {{ "header": true }};
         """
 
@@ -132,9 +131,9 @@ class TestLoadModesRegression:
         result = executor.execute(execution_plan)
 
         # Verify execution succeeded
-        assert (
-            result["status"] == "success"
-        ), f"Basic load modes pipeline failed: {result.get('error')}"
+        assert result["status"] == "success", (
+            f"Basic load modes pipeline failed: {result.get('error')}"
+        )
 
         # Verify result file was created
         result_file = os.path.join(data["temp_dir"], "basic_load_result.csv")
@@ -150,9 +149,9 @@ class TestLoadModesRegression:
         # Check that Diana and Eve were updated (MERGE)
         diana_row = result_df[result_df["user_id"] == 4].iloc[0]
         assert diana_row["name"] == "Diana Updated", "Diana should be updated via MERGE"
-        assert (
-            diana_row["email"] == "diana.new@example.com"
-        ), "Diana's email should be updated"
+        assert diana_row["email"] == "diana.new@example.com", (
+            "Diana's email should be updated"
+        )
 
         eve_row = result_df[result_df["user_id"] == 5].iloc[0]
         assert eve_row["name"] == "Eve Updated", "Eve should be updated via MERGE"
@@ -211,7 +210,7 @@ class TestLoadModesRegression:
         LOAD sales_table FROM sales_updates_csv MODE MERGE MERGE_KEYS (user_id, product_id);
         
         EXPORT SELECT * FROM sales_table ORDER BY user_id, product_id
-        TO "{os.path.join(data['temp_dir'], 'multiple_keys_result.csv')}"
+        TO "{os.path.join(data["temp_dir"], "multiple_keys_result.csv")}"
         TYPE CSV OPTIONS {{ "header": true }};
         """
 
@@ -225,9 +224,9 @@ class TestLoadModesRegression:
         result = executor.execute(execution_plan)
 
         # Verify execution succeeded
-        assert (
-            result["status"] == "success"
-        ), f"Multiple merge keys pipeline failed: {result.get('error')}"
+        assert result["status"] == "success", (
+            f"Multiple merge keys pipeline failed: {result.get('error')}"
+        )
 
         # Verify results
         result_file = os.path.join(data["temp_dir"], "multiple_keys_result.csv")
@@ -240,25 +239,25 @@ class TestLoadModesRegression:
         user1_productA = result_df[
             (result_df["user_id"] == 1) & (result_df["product_id"] == "A")
         ].iloc[0]
-        assert (
-            user1_productA["quantity"] == 15
-        ), "User 1 Product A quantity should be updated"
-        assert (
-            user1_productA["price"] == 110.0
-        ), "User 1 Product A price should be updated"
+        assert user1_productA["quantity"] == 15, (
+            "User 1 Product A quantity should be updated"
+        )
+        assert user1_productA["price"] == 110.0, (
+            "User 1 Product A price should be updated"
+        )
 
         user2_productB = result_df[
             (result_df["user_id"] == 2) & (result_df["product_id"] == "B")
         ].iloc[0]
-        assert (
-            user2_productB["quantity"] == 30
-        ), "User 2 Product B quantity should be updated"
+        assert user2_productB["quantity"] == 30, (
+            "User 2 Product B quantity should be updated"
+        )
 
         # Check that no new record was added (user 4 product A doesn't exist in original)
         user4_records = result_df[result_df["user_id"] == 4]
-        assert (
-            len(user4_records) == 0
-        ), "User 4 should not be added since composite key doesn't exist"
+        assert len(user4_records) == 0, (
+            "User 4 should not be added since composite key doesn't exist"
+        )
 
     def test_schema_compatibility_load_mode(self, setup_load_modes_data):
         """Test load mode with schema compatibility."""
@@ -279,7 +278,7 @@ class TestLoadModesRegression:
 
         pipeline_sql = f"""
         SOURCE users_csv TYPE CSV PARAMS {{
-            "path": "{data['users_path']}", 
+            "path": "{data["users_path"]}", 
             "has_header": true
         }};
         
@@ -295,7 +294,7 @@ class TestLoadModesRegression:
         LOAD users_table FROM extended_users_csv MODE APPEND;
         
         EXPORT SELECT user_id, name, email, status FROM users_table ORDER BY user_id
-        TO "{os.path.join(data['temp_dir'], 'schema_compatible_result.csv')}"
+        TO "{os.path.join(data["temp_dir"], "schema_compatible_result.csv")}"
         TYPE CSV OPTIONS {{ "header": true }};
         """
 
@@ -309,9 +308,9 @@ class TestLoadModesRegression:
         result = executor.execute(execution_plan)
 
         # Verify execution succeeded
-        assert (
-            result["status"] == "success"
-        ), f"Schema compatibility pipeline failed: {result.get('error')}"
+        assert result["status"] == "success", (
+            f"Schema compatibility pipeline failed: {result.get('error')}"
+        )
 
         # Verify results
         result_file = os.path.join(data["temp_dir"], "schema_compatible_result.csv")
@@ -333,7 +332,7 @@ class TestLoadModesRegression:
 
         pipeline_sql = f"""
         SOURCE users_csv TYPE CSV PARAMS {{
-            "path": "{data['users_path']}", 
+            "path": "{data["users_path"]}", 
             "has_header": true
         }};
         
@@ -373,7 +372,7 @@ class TestLoadModesRegression:
         # Test MERGE without merge keys (should fail at planning stage)
         pipeline_sql = f"""
         SOURCE users_csv TYPE CSV PARAMS {{
-            "path": "{data['users_path']}", 
+            "path": "{data["users_path"]}", 
             "has_header": true
         }};
         
@@ -399,17 +398,17 @@ class TestLoadModesRegression:
         # This replicates the exact scenario from the examples/load_modes demo
         pipeline_sql = f"""
         SOURCE users_csv TYPE CSV PARAMS {{
-            "path": "{data['users_path']}", 
+            "path": "{data["users_path"]}", 
             "has_header": true
         }};
         
         SOURCE new_users_csv TYPE CSV PARAMS {{
-            "path": "{data['new_users_path']}", 
+            "path": "{data["new_users_path"]}", 
             "has_header": true
         }};
         
         SOURCE users_updates_csv TYPE CSV PARAMS {{
-            "path": "{data['users_updates_path']}", 
+            "path": "{data["users_updates_path"]}", 
             "has_header": true
         }};
         
@@ -428,7 +427,7 @@ class TestLoadModesRegression:
         GROUP BY status;
         
         EXPORT SELECT * FROM user_summary ORDER BY status
-        TO "{os.path.join(data['temp_dir'], 'comprehensive_result.csv')}"
+        TO "{os.path.join(data["temp_dir"], "comprehensive_result.csv")}"
         TYPE CSV OPTIONS {{ "header": true }};
         """
 
@@ -442,9 +441,9 @@ class TestLoadModesRegression:
         result = executor.execute(execution_plan)
 
         # This is the key regression test - comprehensive pipeline should work
-        assert (
-            result["status"] == "success"
-        ), f"Comprehensive load modes scenario failed: {result.get('error')}"
+        assert result["status"] == "success", (
+            f"Comprehensive load modes scenario failed: {result.get('error')}"
+        )
 
         # Verify analytics results
         result_file = os.path.join(data["temp_dir"], "comprehensive_result.csv")

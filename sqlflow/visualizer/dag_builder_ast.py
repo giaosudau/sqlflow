@@ -22,10 +22,13 @@ class ASTDAGBuilder(DAGBuilder):
         """Build a DAG from a pipeline AST.
 
         Args:
+        ----
             pipeline: Pipeline AST
 
         Returns:
+        -------
             PipelineDAG
+
         """
         dag = PipelineDAG()
 
@@ -42,11 +45,14 @@ class ASTDAGBuilder(DAGBuilder):
         """Get node attributes for a pipeline step.
 
         Args:
+        ----
             step: Pipeline step
             index: Step index
 
         Returns:
+        -------
             Node attributes
+
         """
         attrs = {
             "label": f"Step {index}",
@@ -78,10 +84,13 @@ class ASTDAGBuilder(DAGBuilder):
         """Build a map of source names to node IDs.
 
         Args:
+        ----
             pipeline: Pipeline AST
 
         Returns:
+        -------
             Map of source names to node IDs
+
         """
         source_map = {}
         for i, step in enumerate(pipeline.steps):
@@ -93,10 +102,13 @@ class ASTDAGBuilder(DAGBuilder):
         """Build a map of table names to node IDs.
 
         Args:
+        ----
             pipeline: Pipeline AST
 
         Returns:
+        -------
             Map of table names to node IDs
+
         """
         table_map = {}
         for i, step in enumerate(pipeline.steps):
@@ -110,10 +122,12 @@ class ASTDAGBuilder(DAGBuilder):
         """Add dependencies for LOAD steps.
 
         Args:
+        ----
             dag: PipelineDAG
             node_id: Node ID
             step: Pipeline step
             source_map: Map of source names to node IDs
+
         """
         source_name = step.source_name
         if source_name in source_map:
@@ -125,10 +139,12 @@ class ASTDAGBuilder(DAGBuilder):
         """Add dependencies for SQL-based steps.
 
         Args:
+        ----
             dag: PipelineDAG
             node_id: Node ID
             sql_query: SQL query
             table_map: Map of table names to node IDs
+
         """
         for table_name in table_map:
             if table_name in sql_query:
@@ -138,8 +154,10 @@ class ASTDAGBuilder(DAGBuilder):
         """Add dependencies between pipeline steps.
 
         Args:
+        ----
             dag: PipelineDAG
             pipeline: Pipeline AST
+
         """
         source_map = self._build_source_map(pipeline)
         table_map = self._build_table_map(pipeline)

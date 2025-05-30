@@ -107,7 +107,6 @@ def test_register_export_connector():
 
 def test_register_bidirectional_connector():
     """Test register_bidirectional_connector decorator."""
-
     # Create and register the test connector
     test_connector_cls = _create_test_bidirectional_connector()
 

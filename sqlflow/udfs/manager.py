@@ -37,9 +37,11 @@ class UDFExecutionError(Exception):
         """Initialize UDFExecutionError.
 
         Args:
+        ----
             udf_name: Name of the UDF that raised the error
             original_error: Original exception from the UDF execution
             sql_context: Optional SQL context where the UDF was called
+
         """
         self.udf_name = udf_name
         self.original_error = original_error
@@ -72,7 +74,9 @@ class PythonUDFManager:
         """Initialize a PythonUDFManager.
 
         Args:
+        ----
             project_dir: Path to project directory (default: current working directory)
+
         """
         self.project_dir = project_dir or os.getcwd()
         self.udfs: Dict[str, Callable] = {}
@@ -88,11 +92,14 @@ class PythonUDFManager:
         Handles files in subdirectories to create appropriate namespacing.
 
         Args:
+        ----
             py_file: Path to Python file
             python_udfs_dir: Base UDFs directory
 
         Returns:
+        -------
             Properly formatted module name
+
         """
         # Get path relative to python_udfs_dir
         full_udfs_dir = os.path.join(self.project_dir, python_udfs_dir)
@@ -109,10 +116,13 @@ class PythonUDFManager:
         """Extract detailed parameter information from a function.
 
         Args:
+        ----
             func: Function to analyze
 
         Returns:
+        -------
             Dictionary of parameter details
+
         """
         # Check if parameter details were already captured by the decorator
         if hasattr(func, "_param_info"):
@@ -173,11 +183,14 @@ class PythonUDFManager:
         """Format a single parameter for the signature string.
 
         Args:
+        ----
             name: Parameter name
             param: Parameter object
 
         Returns:
+        -------
             Formatted parameter string
+
         """
         # Handle parameter annotations
         annotation = ""
@@ -206,10 +219,13 @@ class PythonUDFManager:
         """Format a function signature in a user-friendly way.
 
         Args:
+        ----
             func: Function to format signature for
 
         Returns:
+        -------
             Formatted signature string
+
         """
         try:
             sig = inspect.signature(func)
@@ -243,13 +259,16 @@ class PythonUDFManager:
         """Extract comprehensive metadata for a UDF.
 
         Args:
+        ----
             func: UDF function
             module_name: Name of the module
             original_name: Original function name
             file_path: Path to the file
 
         Returns:
+        -------
             Dictionary of UDF metadata
+
         """
         try:
             # Get custom UDF name if specified, otherwise use function name
@@ -310,10 +329,12 @@ class PythonUDFManager:
         """Process a Python module to discover UDFs.
 
         Args:
+        ----
             module_name: Name of the module
             py_file: Path to Python file
             udfs: Dictionary to store discovered UDFs
             import_time: Timestamp for discovery time
+
         """
         try:
             # Load the module
@@ -352,11 +373,14 @@ class PythonUDFManager:
         """Load a Python module from a file.
 
         Args:
+        ----
             module_name: Name of the module
             py_file: Path to Python file
 
         Returns:
+        -------
             Loaded module or None if loading failed
+
         """
         try:
             spec = importlib.util.spec_from_file_location(module_name, py_file)
@@ -397,12 +421,14 @@ class PythonUDFManager:
         """Process a single UDF function.
 
         Args:
+        ----
             func: UDF function
             module_name: Name of the module
             name: Function name
             py_file: Path to Python file
             udfs: Dictionary to store discovered UDFs
             import_time: Timestamp for discovery time
+
         """
         try:
             # Extract metadata
@@ -442,14 +468,18 @@ class PythonUDFManager:
         """Discover Python UDFs in the project.
 
         Args:
+        ----
             python_udfs_dir: Directory name where UDFs are located (default: 'python_udfs')
             strict: If True, raise an error for missing directories or import errors
 
         Returns:
+        -------
             Dict mapping UDF qualified names to function objects
 
         Raises:
+        ------
             UDFDiscoveryError: If there are discovery errors and strict=True
+
         """
         # Create a dictionary to hold discovered UDFs
         udfs = {}
@@ -503,9 +533,11 @@ class PythonUDFManager:
         """Discover UDFs in a specific directory.
 
         Args:
+        ----
             dir_path: Full path to the directory to scan
             module_prefix: Module name prefix to use (e.g., 'python_udfs')
             udfs: Dictionary to populate with discovered UDFs
+
         """
         import_time = datetime.now().isoformat()
         # Find all Python files in the directory and subdirectories
@@ -535,10 +567,13 @@ class PythonUDFManager:
         """Validate the completeness and integrity of UDF metadata.
 
         Args:
+        ----
             udf_name: Name of the UDF to validate
 
         Returns:
+        -------
             List of validation warnings (empty if valid)
+
         """
         warnings = []
         if udf_name not in self.udf_info:
@@ -576,10 +611,13 @@ class PythonUDFManager:
         """Get a UDF by name.
 
         Args:
+        ----
             udf_name: Name of the UDF (module.function)
 
         Returns:
+        -------
             UDF function or None if not found
+
         """
         return self.udfs.get(udf_name)
 
@@ -587,26 +625,33 @@ class PythonUDFManager:
         """Get information about a UDF.
 
         Args:
+        ----
             udf_name: Name of the UDF (module.function)
 
         Returns:
+        -------
             Dictionary of UDF information or None if not found
+
         """
         return self.udf_info.get(udf_name)
 
     def list_udfs(self) -> List[Dict[str, Any]]:
         """List all discovered UDFs with their information.
 
-        Returns:
+        Returns
+        -------
             List of UDF information dictionaries
+
         """
         return [{"name": udf_name, **self.udf_info[udf_name]} for udf_name in self.udfs]
 
     def get_discovery_errors(self) -> Dict[str, str]:
         """Get errors encountered during UDF discovery.
 
-        Returns:
+        Returns
+        -------
             Dictionary of file paths to error messages
+
         """
         return self.discovery_errors
 
@@ -617,10 +662,13 @@ class PythonUDFManager:
         UDF name references.
 
         Args:
+        ----
             sql: SQL query text
 
         Returns:
+        -------
             Set of UDF names referenced in the query
+
         """
         # Match PYTHON_FUNC("module.function", ...)
         udf_pattern = r"PYTHON_FUNC\s*\(\s*[\'\"]([a-zA-Z0-9_\.]+)[\'\"]"
@@ -635,12 +683,15 @@ class PythonUDFManager:
         """Register UDFs with a SQLEngine.
 
         Args:
+        ----
             engine: SQLEngine instance to register UDFs with
             udf_names: Optional list of UDF names to register (defaults to all discovered UDFs)
 
         Raises:
+        ------
             KeyError: If a specified UDF name is not found
             AttributeError: If the engine doesn't support register_python_udf
+
         """
         if not hasattr(engine, "register_python_udf"):
             logger.warning(
@@ -698,10 +749,13 @@ class PythonUDFManager:
         """Get UDFs referenced in a query.
 
         Args:
+        ----
             sql: SQL query text
 
         Returns:
+        -------
             Dictionary of UDF names to functions for UDFs referenced in the query
+
         """
         udf_refs = self.extract_udf_references(sql)
         logger.debug(f"UDF references extracted from query: {udf_refs}")

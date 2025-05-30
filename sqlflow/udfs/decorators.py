@@ -21,16 +21,20 @@ def python_scalar_udf(
     A scalar UDF processes one row at a time and returns a single value.
 
     Args:
+    ----
         func: Python function to register as a UDF
         name: Optional name for the UDF (defaults to the function name)
 
     Returns:
+    -------
         The decorated function
 
     Example:
+    -------
         @python_scalar_udf
         def add_tax(price: float, tax_rate: float = 0.1) -> float:
             return price * (1 + tax_rate)
+
     """
 
     def decorator(f: FuncType) -> FuncType:
@@ -57,11 +61,14 @@ def _validate_table_udf_signature(
     """Validate the signature of a table UDF function.
 
     Args:
+    ----
         func: The function to validate
         params: List of function parameters
 
     Raises:
+    ------
         ValueError: If the signature is invalid
+
     """
     if not params:
         raise ValueError(
@@ -97,12 +104,15 @@ def _validate_table_udf_input(
     """Validate the input to a table UDF function.
 
     Args:
+    ----
         func: The UDF function
         df: The input DataFrame
         required_columns: Optional list of required column names
 
     Raises:
+    ------
         ValueError: If the input is invalid
+
     """
     if not isinstance(df, pd.DataFrame):
         raise ValueError(
@@ -125,12 +135,15 @@ def _validate_table_udf_output(
     """Validate the output of a table UDF function.
 
     Args:
+    ----
         func: The UDF function
         result: The function result to validate
         output_schema: Expected output schema
 
     Raises:
+    ------
         ValueError: If the output is invalid
+
     """
     if not isinstance(result, pd.DataFrame):
         raise ValueError(
@@ -187,10 +200,13 @@ def _create_param_info(
     """Create parameter information dictionary for UDF metadata.
 
     Args:
+    ----
         params: Dictionary of parameter names to Parameter objects
 
     Returns:
+    -------
         Dictionary containing parameter metadata
+
     """
     return {
         name: {
@@ -212,10 +228,13 @@ def _infer_output_schema(df: pd.DataFrame) -> Dict[str, str]:
     """Infer output schema from a pandas DataFrame.
 
     Args:
+    ----
         df: DataFrame to infer schema from
 
     Returns:
+    -------
         Dictionary of column names to inferred types
+
     """
     # Map pandas dtypes to SQL-like type names
     dtype_to_sql = {
@@ -258,6 +277,7 @@ def python_table_udf(
     keyword arguments.
 
     Args:
+    ----
         func: Python function that takes a DataFrame and returns a DataFrame
         name: Optional name for the UDF (defaults to the function name)
         required_columns: Optional list of column names that must be present in input DataFrame
@@ -267,9 +287,11 @@ def python_table_udf(
               Note: This should only be used for development or quick prototypes
 
     Returns:
+    -------
         The decorated function
 
     Example:
+    -------
         @python_table_udf(
             required_columns=["price", "quantity"],
             output_schema={"price": "DOUBLE", "quantity": "INTEGER", "total": "DOUBLE"}
@@ -281,8 +303,10 @@ def python_table_udf(
             return result
 
     Raises:
+    ------
         ValueError: If the function signature is invalid, required columns are missing,
                    or output schema validation fails
+
     """
 
     def decorator(f: FuncType) -> FuncType:

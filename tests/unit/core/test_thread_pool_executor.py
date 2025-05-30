@@ -322,6 +322,6 @@ class TestThreadPoolTaskExecutor:
                     assert log_data["old_state"] == "PENDING"
                     assert log_data["new_state"] == "RUNNING"
                     assert "timestamp" in log_data
-        assert (
-            found
-        ), "No task_state_transition log record found from thread_pool_executor"
+        assert found, (
+            "No task_state_transition log record found from thread_pool_executor"
+        )

@@ -14,7 +14,9 @@ class VariableHandler:
         """Initialize the variable handler.
 
         Args:
+        ----
             variables: Dictionary of variable name-value pairs
+
         """
         self.variables = variables or {}
         self.var_pattern = re.compile(r"\$\{([^}|]+)(?:\|([^}]+))?\}")
@@ -23,10 +25,13 @@ class VariableHandler:
         """Substitute variables in the text.
 
         Args:
+        ----
             text: Text containing variables in ${var} or ${var|default} format
 
         Returns:
+        -------
             Text with variables substituted
+
         """
 
         def replace(match: re.Match) -> str:
@@ -53,10 +58,13 @@ class VariableHandler:
         """Parse a variable expression into name and default value.
 
         Args:
+        ----
             expr: Variable expression like ${var} or ${var|default}
 
         Returns:
+        -------
             Tuple of (variable_name, default_value)
+
         """
         match = self.var_pattern.match(expr)
         if not match:
@@ -71,10 +79,13 @@ class VariableHandler:
         """Validate that all required variables are provided.
 
         Args:
+        ----
             text: Text containing variables
 
         Returns:
+        -------
             True if all required variables are available or have defaults
+
         """
         missing_vars = []
         for match in self.var_pattern.finditer(text):

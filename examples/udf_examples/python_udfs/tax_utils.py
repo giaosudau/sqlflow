@@ -1,5 +1,4 @@
-"""
-Enhanced UDFs for SQLFlow demo.
+"""Enhanced UDFs for SQLFlow demo.
 
 This module contains UDFs with special handling for default parameters
 to work around the DuckDB limitation with optional parameters.
@@ -16,10 +15,13 @@ def calculate_tax_default(price: float) -> float:
     the default tax rate of 10% without requiring the parameter.
 
     Args:
+    ----
         price: Original price
 
     Returns:
+    -------
         Price with default tax (10%) added
+
     """
     if price is None:
         return None

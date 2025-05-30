@@ -1,5 +1,4 @@
-"""
-Integration tests for UDF complete flow.
+"""Integration tests for UDF complete flow.
 
 These tests verify the end-to-end functionality of UDF discovery,
 registration, and execution within the SQLFlow pipeline system.

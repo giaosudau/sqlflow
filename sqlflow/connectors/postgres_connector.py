@@ -49,10 +49,13 @@ class PostgresConnector(Connector):
         """Configure the connector with parameters.
 
         Args:
+        ----
             params: Configuration parameters including host, port, dbname, user, password
 
         Raises:
+        ------
             ConnectorError: If configuration fails
+
         """
         try:
             self.params = PostgresConnectionParams(
@@ -83,8 +86,10 @@ class PostgresConnector(Connector):
     def _create_connection_pool(self) -> None:
         """Create a connection pool.
 
-        Raises:
+        Raises
+        ------
             ConnectorError: If connection pool creation fails
+
         """
         if self.params is None:
             raise ConnectorError(
@@ -112,8 +117,10 @@ class PostgresConnector(Connector):
     def test_connection(self) -> ConnectionTestResult:
         """Test the connection to the PostgreSQL database.
 
-        Returns:
+        Returns
+        -------
             Result of the connection test
+
         """
         self.validate_state(ConnectorState.CONFIGURED)
 
@@ -146,11 +153,14 @@ class PostgresConnector(Connector):
     def discover(self) -> List[str]:
         """Discover available tables in the database.
 
-        Returns:
+        Returns
+        -------
             List of table names
 
-        Raises:
+        Raises
+        ------
             ConnectorError: If discovery fails
+
         """
         self.validate_state(ConnectorState.CONFIGURED)
 
@@ -189,10 +199,13 @@ class PostgresConnector(Connector):
         """Convert PostgreSQL type to Arrow type.
 
         Args:
+        ----
             pg_type: PostgreSQL data type
 
         Returns:
+        -------
             Arrow data type
+
         """
         if pg_type in ("integer", "bigint", "smallint"):
             return pa.int64()
@@ -211,14 +224,18 @@ class PostgresConnector(Connector):
         """Fetch column information for a table.
 
         Args:
+        ----
             conn: Database connection
             object_name: Table name
 
         Returns:
+        -------
             List of (column_name, data_type) tuples
 
         Raises:
+        ------
             ValueError: If table not found
+
         """
         cursor = conn.cursor()
         try:
@@ -250,13 +267,17 @@ class PostgresConnector(Connector):
         """Get schema for a table.
 
         Args:
+        ----
             object_name: Table name
 
         Returns:
+        -------
             Schema for the table
 
         Raises:
+        ------
             ConnectorError: If schema retrieval fails
+
         """
         self.validate_state(ConnectorState.CONFIGURED)
 
@@ -297,12 +318,15 @@ class PostgresConnector(Connector):
         """Build a SQL query with filters.
 
         Args:
+        ----
             object_name: Table name
             columns: Optional list of columns to read
             filters: Optional filters to apply
 
         Returns:
+        -------
             Tuple of (query, params)
+
         """
         column_str = "*"
         if columns:
@@ -332,11 +356,14 @@ class PostgresConnector(Connector):
         """Fetch data from cursor in batches.
 
         Args:
+        ----
             cursor: Database cursor
             batch_size: Number of rows per batch
 
         Yields:
+        ------
             DataChunk objects
+
         """
         while True:
             batch = cursor.fetchmany(batch_size)
@@ -356,16 +383,20 @@ class PostgresConnector(Connector):
         """Read data from a PostgreSQL table in chunks.
 
         Args:
+        ----
             object_name: Table name
             columns: Optional list of columns to read
             filters: Optional filters to apply
             batch_size: Number of rows per batch
 
         Yields:
+        ------
             DataChunk objects
 
         Raises:
+        ------
             ConnectorError: If reading fails
+
         """
         self.validate_state(ConnectorState.CONFIGURED)
 

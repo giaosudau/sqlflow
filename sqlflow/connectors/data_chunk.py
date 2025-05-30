@@ -23,12 +23,14 @@ class DataChunk:
         """Initialize a DataChunk.
 
         Args:
+        ----
             data: The data for this chunk, either as PyArrow Table, PyArrow RecordBatch,
                 pandas DataFrame, or list of dictionaries.
             schema: Optional schema for the data. If not provided and
                 data is not a PyArrow Table, schema will be inferred.
             original_column_names: Optional list of original column names, used to preserve
                 column names from source data (e.g., CSV headers).
+
         """
         self._arrow_table: Optional[pa.Table] = None
         self._pandas_df: Optional[pd.DataFrame] = None
@@ -51,8 +53,10 @@ class DataChunk:
     def arrow_table(self) -> pa.Table:
         """Get data as PyArrow Table.
 
-        Returns:
+        Returns
+        -------
             PyArrow Table representation of the data.
+
         """
         if self._arrow_table is None:
             assert self._pandas_df is not None
@@ -63,8 +67,10 @@ class DataChunk:
     def pandas_df(self) -> pd.DataFrame:
         """Get data as pandas DataFrame.
 
-        Returns:
+        Returns
+        -------
             pandas DataFrame representation of the data.
+
         """
         if self._pandas_df is None:
             assert self._arrow_table is not None
@@ -75,8 +81,10 @@ class DataChunk:
     def schema(self) -> pa.Schema:
         """Get the schema of the data.
 
-        Returns:
+        Returns
+        -------
             PyArrow Schema for the data.
+
         """
         if self._schema is not None:
             return self._schema
@@ -86,16 +94,20 @@ class DataChunk:
     def original_column_names(self) -> Optional[List[str]]:
         """Get the original column names if available.
 
-        Returns:
+        Returns
+        -------
             List of original column names or None if not available.
+
         """
         return self._original_column_names
 
     def __len__(self) -> int:
         """Get the number of rows in this chunk.
 
-        Returns:
+        Returns
+        -------
             Row count.
+
         """
         if self._arrow_table is not None:
             return len(self._arrow_table)

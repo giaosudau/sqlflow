@@ -458,14 +458,10 @@ def test_discount_calculation(ecommerce_test_env: Dict[str, Any]) -> None:
     # Silver tier with different order values
     assert results.loc[results["order_id"] == 103, "discount_rate"].iloc[
         0
-    ] == pytest.approx(
-        0.03 * 1.2
-    )  # Above $100
+    ] == pytest.approx(0.03 * 1.2)  # Above $100
     assert results.loc[results["order_id"] == 104, "discount_rate"].iloc[
         0
-    ] == pytest.approx(
-        0.05 * 1.2
-    )  # Above $200
+    ] == pytest.approx(0.05 * 1.2)  # Above $200
 
     # Verify discount amount calculation
     order_106 = results.loc[results["order_id"] == 106]

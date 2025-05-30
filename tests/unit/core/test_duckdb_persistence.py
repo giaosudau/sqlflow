@@ -6,9 +6,7 @@ import unittest
 
 import pandas as pd
 
-from sqlflow.core.engines.duckdb import (
-    DuckDBEngine,
-)
+from sqlflow.core.engines.duckdb import DuckDBEngine
 
 
 class TestDuckDBPersistence(unittest.TestCase):

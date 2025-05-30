@@ -1,5 +1,4 @@
-"""
-Integration tests for advanced table UDF functionality.
+"""Integration tests for advanced table UDF functionality.
 
 This test suite validates the sophisticated table UDF registration
 strategies and capabilities including schema management, fallback

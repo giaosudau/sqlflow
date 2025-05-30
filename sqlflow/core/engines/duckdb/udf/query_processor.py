@@ -33,8 +33,10 @@ class AdvancedUDFQueryProcessor:
         """Initialize the advanced UDF query processor.
 
         Args:
+        ----
             engine: DuckDB engine instance
             udfs: Dictionary of UDFs to process
+
         """
         self.engine = engine
         self.udfs = udfs
@@ -55,10 +57,13 @@ class AdvancedUDFQueryProcessor:
         - Arrow integration hints
 
         Args:
+        ----
             query: SQL query with UDF references
 
         Returns:
+        -------
             Optimized and processed query
+
         """
         if not self.udfs:
             logger.debug("No UDF replacements made in query")
@@ -98,10 +103,13 @@ class AdvancedUDFQueryProcessor:
         table UDF invocation patterns in SQL queries.
 
         Args:
+        ----
             query: SQL query to analyze
 
         Returns:
+        -------
             List of detected table function references
+
         """
         references = []
 
@@ -171,10 +179,13 @@ class AdvancedUDFQueryProcessor:
         for automatic execution order resolution.
 
         Args:
+        ----
             query: SQL query to analyze
 
         Returns:
+        -------
             Dictionary mapping UDFs to their table dependencies
+
         """
         dependencies = {}
 
@@ -210,10 +221,13 @@ class AdvancedUDFQueryProcessor:
         data exchange between Python UDFs and DuckDB.
 
         Args:
+        ----
             query: Query to optimize
 
         Returns:
+        -------
             Optimized query with Arrow performance hints
+
         """
         optimized_query = query
 
@@ -250,10 +264,13 @@ class AdvancedUDFQueryProcessor:
         """Check if a function name corresponds to a registered table UDF.
 
         Args:
+        ----
             func_name: Function name to check
 
         Returns:
+        -------
             True if it's a registered table UDF
+
         """
         if func_name in self.engine.registered_udfs:
             udf_function = self.engine.registered_udfs[func_name]
@@ -270,10 +287,13 @@ class AdvancedUDFQueryProcessor:
         """Extract table names from UDF arguments.
 
         Args:
+        ----
             args: UDF arguments string
 
         Returns:
+        -------
             List of table names found in arguments
+
         """
         tables = []
 
@@ -292,11 +312,14 @@ class AdvancedUDFQueryProcessor:
         """Extract additional dependencies from query context around UDF call.
 
         Args:
+        ----
             query: Full query
             position: Position of UDF call
 
         Returns:
+        -------
             List of additional table dependencies
+
         """
         # Extract a window around the UDF call to analyze context
         window_start = max(0, position - 100)
@@ -317,10 +340,13 @@ class AdvancedUDFQueryProcessor:
         """Check for circular dependencies in the UDF dependency graph.
 
         Args:
+        ----
             dependencies: Dependency graph
 
         Returns:
+        -------
             True if cycles are detected
+
         """
         # Simple cycle detection using DFS
         visited = set()
@@ -352,10 +378,13 @@ class AdvancedUDFQueryProcessor:
         """Determine if a UDF should use batch processing optimization.
 
         Args:
+        ----
             udf_name: Name of the UDF
 
         Returns:
+        -------
             True if batch processing should be used
+
         """
         # Check UDF metadata for batch processing hints
         if udf_name in self.engine.registered_udfs:
@@ -368,10 +397,13 @@ class AdvancedUDFQueryProcessor:
         """Check if a UDF supports zero-copy Arrow optimization.
 
         Args:
+        ----
             udf_name: Name of the UDF
 
         Returns:
+        -------
             True if zero-copy optimization is supported
+
         """
         # Check for Arrow-compatible UDF metadata
         if udf_name in self.engine.registered_udfs:
@@ -384,10 +416,13 @@ class AdvancedUDFQueryProcessor:
         """Check if a UDF supports vectorized processing.
 
         Args:
+        ----
             udf_name: Name of the UDF
 
         Returns:
+        -------
             True if vectorization is supported
+
         """
         # Check for vectorization support in UDF metadata
         if udf_name in self.engine.registered_udfs:
@@ -402,8 +437,10 @@ class AdvancedUDFQueryProcessor:
         """Log comprehensive transformation details.
 
         Args:
+        ----
             original_query: Original query
             processed_query: Processed query
+
         """
         if processed_query != original_query:
             logger.info("Advanced query processing complete:")
@@ -447,8 +484,10 @@ class AdvancedUDFQueryProcessor:
     def _identify_udfs_to_register(self) -> Dict[str, Callable]:
         """Identify UDFs that need to be registered.
 
-        Returns:
+        Returns
+        -------
             Dictionary of UDFs that need registration
+
         """
         udfs_to_register = {}
 
@@ -478,11 +517,14 @@ class AdvancedUDFQueryProcessor:
         """Check if a UDF should be registered.
 
         Args:
+        ----
             flat_name: Flat name of the UDF
             udf_function: UDF function
 
         Returns:
+        -------
             True if UDF should be registered
+
         """
         if flat_name not in self.engine.registered_udfs:
             return True
@@ -507,10 +549,13 @@ class AdvancedUDFQueryProcessor:
         """Replace UDF references in the query.
 
         Args:
+        ----
             query: Original query
 
         Returns:
+        -------
             Query with UDF references replaced
+
         """
         return re.sub(
             RegexPatterns.UDF_PYTHON_FUNC,
@@ -523,10 +568,13 @@ class AdvancedUDFQueryProcessor:
         """Replace a single UDF call match.
 
         Args:
+        ----
             match: Regex match object
 
         Returns:
+        -------
             Replacement string
+
         """
         udf_name = match.group(1)  # Full UDF name like python_udfs.module.function
         udf_args = match.group(2)  # Arguments passed to UDF
@@ -564,12 +612,15 @@ class AdvancedUDFQueryProcessor:
         """Handle replacement for table UDFs.
 
         Args:
+        ----
             match: Regex match object
             flat_name: Flat name of the UDF
             udf_args: UDF arguments
 
         Returns:
+        -------
             Replacement string
+
         """
         # For table UDFs in DuckDB, we need special handling
         # Check if this is a SELECT * FROM PYTHON_FUNC pattern or a scalar call pattern
@@ -595,10 +646,13 @@ class AdvancedUDFQueryProcessor:
         transform SELECT * FROM table_udf() into a workaround.
 
         Args:
+        ----
             query: Query that may contain table UDF patterns
 
         Returns:
+        -------
             Transformed query
+
         """
 
         # Look for SELECT * FROM function_name() patterns
@@ -645,8 +699,10 @@ class AdvancedUDFQueryProcessor:
         """Log the query transformation.
 
         Args:
+        ----
             original_query: Original query
             processed_query: Processed query
+
         """
         if processed_query != original_query:
             logger.debug("UDFs discovered in query: %s", self.discovered_udfs)

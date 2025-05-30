@@ -16,11 +16,14 @@ def get_engine(engine_type: str = "duckdb", **kwargs) -> SQLEngine:
     """Get an engine instance based on type.
 
     Args:
+    ----
         engine_type: Type of engine to get (duckdb, etc.)
         **kwargs: Arguments to pass to the engine constructor
 
     Returns:
+    -------
         Engine instance
+
     """
     logger.info(f"Initializing engine: {engine_type}")
     logger.debug(f"Initializing engine: {engine_type} with kwargs: {kwargs}")

@@ -26,7 +26,9 @@ class TableUDFDependencyResolver:
         """Initialize the dependency resolver.
 
         Args:
+        ----
             udfs: Dictionary of available UDFs
+
         """
         self.udfs = udfs
         self.dependency_cache: Dict[str, List[str]] = {}
@@ -44,10 +46,13 @@ class TableUDFDependencyResolver:
         - CTEs and temporary table dependencies
 
         Args:
+        ----
             sql_query: SQL query to analyze
 
         Returns:
+        -------
             List of table names that the query depends on
+
         """
         dependencies = []
 
@@ -83,10 +88,13 @@ class TableUDFDependencyResolver:
         """Validate UDF dependency graph for cycles and consistency.
 
         Args:
+        ----
             dependencies: Dictionary mapping UDF names to their dependencies
 
         Returns:
+        -------
             True if dependency graph is valid, False if cycles detected
+
         """
         logger.debug(f"Validating dependency graph with {len(dependencies)} nodes")
 
@@ -114,10 +122,13 @@ class TableUDFDependencyResolver:
         - Performance optimization considerations
 
         Args:
+        ----
             udfs: Dictionary of UDFs to order
 
         Returns:
+        -------
             List of UDF names in optimal execution order
+
         """
         logger.info(f"Resolving execution order for {len(udfs)} UDFs")
 
@@ -145,10 +156,13 @@ class TableUDFDependencyResolver:
         """Extract table names from FROM clauses.
 
         Args:
+        ----
             sql_query: SQL query to analyze
 
         Returns:
+        -------
             List of table names from FROM clauses
+
         """
         tables = []
 
@@ -167,10 +181,13 @@ class TableUDFDependencyResolver:
         """Extract table names from JOIN clauses.
 
         Args:
+        ----
             sql_query: SQL query to analyze
 
         Returns:
+        -------
             List of table names from JOIN clauses
+
         """
         tables = []
 
@@ -189,10 +206,13 @@ class TableUDFDependencyResolver:
         """Extract table names from UDF parameters.
 
         Args:
+        ----
             sql_query: SQL query to analyze
 
         Returns:
+        -------
             List of table names referenced in UDF parameters
+
         """
         tables = []
 
@@ -225,10 +245,13 @@ class TableUDFDependencyResolver:
         """Extract table names from subqueries.
 
         Args:
+        ----
             sql_query: SQL query to analyze
 
         Returns:
+        -------
             List of table names from subqueries
+
         """
         tables = []
 
@@ -249,10 +272,13 @@ class TableUDFDependencyResolver:
         """Extract table names from Common Table Expressions (CTEs).
 
         Args:
+        ----
             sql_query: SQL query to analyze
 
         Returns:
+        -------
             List of table names from CTEs
+
         """
         tables = []
 
@@ -271,10 +297,13 @@ class TableUDFDependencyResolver:
         """Filter out built-in functions and deduplicate dependencies.
 
         Args:
+        ----
             dependencies: Raw list of dependencies
 
         Returns:
+        -------
             Filtered and deduplicated list
+
         """
         # DuckDB built-in functions that are not table references
         builtin_functions = {
@@ -307,10 +336,13 @@ class TableUDFDependencyResolver:
         """Check for cycles in dependency graph using DFS.
 
         Args:
+        ----
             dependencies: Dependency graph
 
         Returns:
+        -------
             True if cycles are detected
+
         """
         # Colors: 0=white (unvisited), 1=gray (visiting), 2=black (visited)
         colors = {node: 0 for node in dependencies}
@@ -342,7 +374,9 @@ class TableUDFDependencyResolver:
         """Log detailed information about detected cycles.
 
         Args:
+        ----
             dependencies: Dependency graph with cycles
+
         """
         logger.error("Dependency cycle details:")
         for udf_name, deps in dependencies.items():
@@ -355,10 +389,13 @@ class TableUDFDependencyResolver:
         """Find dependencies that are referenced but not defined.
 
         Args:
+        ----
             dependencies: Dependency graph
 
         Returns:
+        -------
             Set of missing dependency names
+
         """
         defined_udfs = set(dependencies.keys())
         referenced_deps = set()
@@ -383,11 +420,14 @@ class TableUDFDependencyResolver:
         """Get dependencies for a specific UDF.
 
         Args:
+        ----
             udf_name: Name of the UDF
             udf_function: UDF function object
 
         Returns:
+        -------
             List of dependencies for this UDF
+
         """
         # Check cache first
         if udf_name in self.dependency_cache:
@@ -412,10 +452,13 @@ class TableUDFDependencyResolver:
         """Extract dependencies from UDF docstring.
 
         Args:
+        ----
             udf_function: UDF function
 
         Returns:
+        -------
             List of dependencies found in docstring
+
         """
         if not hasattr(udf_function, "__doc__") or not udf_function.__doc__:
             return []
@@ -473,10 +516,13 @@ class TableUDFDependencyResolver:
         """Perform topological sort on dependency graph.
 
         Args:
+        ----
             dependencies: Dependency graph
 
         Returns:
+        -------
             Topologically sorted list of UDF names
+
         """
         # Calculate in-degrees
         in_degree = self._calculate_in_degrees(dependencies)
@@ -506,8 +552,10 @@ class TableUDFDependencyResolver:
     def get_dependency_statistics(self) -> Dict[str, Any]:
         """Get statistics about the dependency resolver.
 
-        Returns:
+        Returns
+        -------
             Dictionary with dependency resolver statistics
+
         """
         return {
             "total_udfs": len(self.udfs),

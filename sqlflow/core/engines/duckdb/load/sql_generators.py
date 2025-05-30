@@ -18,13 +18,16 @@ class SQLGenerator:
         """Generate SQL for MERGE operation.
 
         Args:
+        ----
             table_name: Target table name
             source_name: Source table/view name
             merge_keys: List of columns to use as merge keys
             source_schema: Schema of the source table
 
         Returns:
+        -------
             Complete MERGE SQL statement
+
         """
         # Build WHERE clause for UPDATE with table name prefix
         update_where_clause = self._build_update_where_clause(table_name, merge_keys)
@@ -43,18 +46,20 @@ class SQLGenerator:
 {SQLTemplates.MERGE_CREATE_TEMP_VIEW.format(source_name=source_name)}
 
 -- Update existing records
-{SQLTemplates.MERGE_UPDATE.format(
-    table_name=table_name,
-    set_clause=set_clause,
-    where_clause=update_where_clause
-)}
+{
+            SQLTemplates.MERGE_UPDATE.format(
+                table_name=table_name,
+                set_clause=set_clause,
+                where_clause=update_where_clause,
+            )
+        }
 
 -- Insert new records
-{SQLTemplates.MERGE_INSERT.format(
-    table_name=table_name,
-    columns=columns,
-    where_clause=insert_where_clause
-)}
+{
+            SQLTemplates.MERGE_INSERT.format(
+                table_name=table_name, columns=columns, where_clause=insert_where_clause
+            )
+        }
 
 {SQLTemplates.MERGE_DROP_TEMP_VIEW}
 """.strip()
@@ -63,11 +68,14 @@ class SQLGenerator:
         """Build WHERE clause for UPDATE operation.
 
         Args:
+        ----
             table_name: Target table name
             merge_keys: List of merge key columns
 
         Returns:
+        -------
             WHERE clause string
+
         """
         update_where_clauses = []
         for key in merge_keys:
@@ -80,11 +88,14 @@ class SQLGenerator:
         """Build SET clause for UPDATE operation.
 
         Args:
+        ----
             source_schema: Schema of the source table
             merge_keys: List of merge key columns
 
         Returns:
+        -------
             SET clause string
+
         """
         set_clauses = []
         for col in source_schema.keys():
@@ -98,11 +109,14 @@ class SQLGenerator:
         """Build WHERE clause for INSERT operation.
 
         Args:
+        ----
             table_name: Target table name
             merge_keys: List of merge key columns
 
         Returns:
+        -------
             WHERE clause string
+
         """
         where_clauses = []
         for key in merge_keys:

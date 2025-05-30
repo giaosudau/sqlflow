@@ -33,7 +33,9 @@ def sample_config(request):
     """Sample configuration for testing.
 
     Args:
+    ----
         request: Pytest request object to get format parameter
+
     """
     format_type = getattr(request, "param", "csv")
     compression = None

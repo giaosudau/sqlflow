@@ -22,14 +22,18 @@ class TableUDFSignatureValidator:
         """Validate a table UDF's signature.
 
         Args:
+        ----
             name: Name of the UDF
             function: The UDF function
 
         Returns:
+        -------
             Tuple of (signature, parameter info)
 
         Raises:
+        ------
             UDFRegistrationError: If the signature is invalid
+
         """
         try:
             sig = inspect.signature(function)
@@ -47,11 +51,14 @@ class TableUDFSignatureValidator:
         """Validate UDF parameters.
 
         Args:
+        ----
             name: Name of the UDF
             sig: Function signature
 
         Raises:
+        ------
             UDFRegistrationError: If parameters are invalid
+
         """
         params = list(sig.parameters.values())
 
@@ -99,8 +106,10 @@ class TableUDFSignatureValidator:
         """Validate UDF return type.
 
         Args:
+        ----
             name: Name of the UDF
             sig: Function signature
+
         """
         # Relaxed return type checking for testing
         # Return type must be DataFrame
@@ -120,10 +129,13 @@ class TableUDFSignatureValidator:
         """Extract parameter information for registration.
 
         Args:
+        ----
             sig: Function signature
 
         Returns:
+        -------
             Parameter information dictionary
+
         """
         return {
             name: {
@@ -149,15 +161,19 @@ class TypeValidator:
         """Map a Python type to its corresponding DuckDB SQL type string.
 
         Args:
+        ----
             py_type: Python type to map
             udf_name: Name of the UDF
             param_name: Name of the parameter
 
         Returns:
+        -------
             Corresponding DuckDB SQL type string
 
         Raises:
+        ------
             ValueError: If the type is not supported
+
         """
         if py_type in DuckDBConstants.PYTHON_TO_DUCKDB_TYPES:
             return DuckDBConstants.PYTHON_TO_DUCKDB_TYPES[py_type]

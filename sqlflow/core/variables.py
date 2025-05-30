@@ -34,9 +34,11 @@ class VariableContext:
         """Initialize a variable context with variables from different sources.
 
         Args:
+        ----
             cli_variables: Variables from CLI arguments (highest priority)
             profile_variables: Variables from profile configuration (medium priority)
             set_variables: Variables from SET statements in pipeline (lowest priority)
+
         """
         self._cli_variables = cli_variables or {}
         self._profile_variables = profile_variables or {}
@@ -53,8 +55,10 @@ class VariableContext:
     def _resolve_variables(self) -> Dict[str, Any]:
         """Resolve variables according to priority order.
 
-        Returns:
+        Returns
+        -------
             Dictionary of resolved variables with proper priority applied
+
         """
         # Start with lowest priority (SET variables)
         effective_vars = self._set_variables.copy()
@@ -73,11 +77,14 @@ class VariableContext:
         """Get a variable value by name.
 
         Args:
+        ----
             name: Name of the variable to retrieve
             default: Default value to return if variable doesn't exist
 
         Returns:
+        -------
             The variable value or default if not found
+
         """
         return self._effective_variables.get(name, default)
 
@@ -85,18 +92,23 @@ class VariableContext:
         """Check if a variable exists.
 
         Args:
+        ----
             name: Name of the variable to check
 
         Returns:
+        -------
             True if the variable exists, False otherwise
+
         """
         return name in self._effective_variables
 
     def get_all_variables(self) -> Dict[str, Any]:
         """Get all effective variables.
 
-        Returns:
+        Returns
+        -------
             Dictionary of all variables with priority resolution applied
+
         """
         return self._effective_variables.copy()
 
@@ -104,23 +116,29 @@ class VariableContext:
         """Add a variable to the unresolved set.
 
         Args:
+        ----
             name: Name of the unresolved variable
+
         """
         self._unresolved_variables.add(name)
 
     def get_unresolved_variables(self) -> Set[str]:
         """Get all unresolved variables.
 
-        Returns:
+        Returns
+        -------
             Set of unresolved variable names
+
         """
         return self._unresolved_variables.copy()
 
     def has_unresolved_variables(self) -> bool:
         """Check if there are any unresolved variables.
 
-        Returns:
+        Returns
+        -------
             True if there are unresolved variables, False otherwise
+
         """
         return len(self._unresolved_variables) > 0
 
@@ -128,10 +146,13 @@ class VariableContext:
         """Check if a variable exists using the 'in' operator.
 
         Args:
+        ----
             name: Name of the variable to check
 
         Returns:
+        -------
             True if the variable exists, False otherwise
+
         """
         return self.has_variable(name)
 
@@ -139,13 +160,17 @@ class VariableContext:
         """Get a variable value using dictionary-like access.
 
         Args:
+        ----
             name: Name of the variable to retrieve
 
         Returns:
+        -------
             The variable value
 
         Raises:
+        ------
             KeyError: If the variable doesn't exist
+
         """
         if name not in self._effective_variables:
             raise KeyError(f"Variable '{name}' not found")
@@ -157,10 +182,13 @@ class VariableContext:
         Variables from the other context take precedence.
 
         Args:
+        ----
             other: Another VariableContext to merge with
 
         Returns:
+        -------
             A new VariableContext with merged variables
+
         """
         new_cli = self._cli_variables.copy()
         new_cli.update(other._cli_variables)
@@ -187,7 +215,9 @@ class VariableSubstitutor:
         """Initialize a variable substitutor with a variable context.
 
         Args:
+        ----
             context: The variable context to use for substitution
+
         """
         self.context = context
         self._regex_pattern = re.compile(r"\$\{([^}]+)\}")
@@ -198,10 +228,13 @@ class VariableSubstitutor:
         Variables can be in the format ${var} or ${var|default}.
 
         Args:
+        ----
             text: String with variables to substitute
 
         Returns:
+        -------
             String with variables substituted
+
         """
         if not isinstance(text, str):
             return text
@@ -215,10 +248,13 @@ class VariableSubstitutor:
         """Replace a variable match with its value.
 
         Args:
+        ----
             match: Regex match object
 
         Returns:
+        -------
             Replacement string
+
         """
         var_expr = match.group(1)
 
@@ -262,10 +298,13 @@ class VariableSubstitutor:
         """Substitute variables in a list.
 
         Args:
+        ----
             data_list: List with items that may contain variables
 
         Returns:
+        -------
             List with variables substituted
+
         """
         return [
             (
@@ -274,7 +313,9 @@ class VariableSubstitutor:
                 else (
                     self.substitute_list(item)
                     if isinstance(item, list)
-                    else self.substitute_string(item) if isinstance(item, str) else item
+                    else self.substitute_string(item)
+                    if isinstance(item, str)
+                    else item
                 )
             )
             for item in data_list
@@ -284,10 +325,13 @@ class VariableSubstitutor:
         """Substitute variables in a dictionary.
 
         Args:
+        ----
             data_dict: Dictionary with values that may contain variables
 
         Returns:
+        -------
             Dictionary with variables substituted
+
         """
         if not isinstance(data_dict, dict):
             return data_dict
@@ -308,10 +352,13 @@ class VariableSubstitutor:
         """Substitute variables in any data structure.
 
         Args:
+        ----
             data: Data structure that may contain variables
 
         Returns:
+        -------
             Data structure with variables substituted
+
         """
         if isinstance(data, dict):
             return self.substitute_dict(data)

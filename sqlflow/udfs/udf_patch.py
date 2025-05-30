@@ -1,5 +1,4 @@
-"""
-Integration point for the enhanced UDF manager.
+"""Integration point for the enhanced UDF manager.
 
 This module provides a function to patch the PythonUDFManager at runtime
 to handle default parameters in UDFs when working with DuckDB.
@@ -13,8 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 def patch_udf_manager():
-    """
-    Patch the PythonUDFManager to handle default parameters.
+    """Patch the PythonUDFManager to handle default parameters.
 
     This function should be called during SQLFlow initialization
     to enhance the UDF manager with default parameter handling.

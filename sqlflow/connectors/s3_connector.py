@@ -17,10 +17,7 @@ from sqlflow.connectors.base import (
     Schema,
 )
 from sqlflow.connectors.data_chunk import DataChunk
-from sqlflow.connectors.registry import (
-    register_connector,
-    register_export_connector,
-)
+from sqlflow.connectors.registry import register_connector, register_export_connector
 from sqlflow.core.errors import ConnectorError
 
 logger = logging.getLogger(__name__)
@@ -54,10 +51,13 @@ class S3Connector(Connector, ExportConnector):
         """Validate bucket configuration.
 
         Args:
+        ----
             params: Configuration parameters
 
         Raises:
+        ------
             ValueError: If bucket is not provided
+
         """
         self.bucket = params.get("bucket")
         if not self.bucket:
@@ -67,7 +67,9 @@ class S3Connector(Connector, ExportConnector):
         """Configure connection parameters.
 
         Args:
+        ----
             params: Configuration parameters
+
         """
         self.prefix = params.get("prefix", "")
         self.region = params.get("region")
@@ -80,15 +82,18 @@ class S3Connector(Connector, ExportConnector):
         """Validate and set format and compression.
 
         Args:
+        ----
             params: Configuration parameters
 
         Raises:
+        ------
             ValueError: If format or compression is invalid
+
         """
         self.format = params.get("format", "csv").lower()
         if self.format not in ["csv", "parquet", "json"]:
             raise ValueError(
-                f"Invalid format: {self.format}. " "Must be one of: csv, parquet, json"
+                f"Invalid format: {self.format}. Must be one of: csv, parquet, json"
             )
 
         self.compression = params.get("compression")
@@ -98,8 +103,7 @@ class S3Connector(Connector, ExportConnector):
             and self.compression not in ["gzip"]
         ):
             raise ValueError(
-                f"Invalid compression for CSV: {self.compression}. "
-                "Must be one of: gzip"
+                f"Invalid compression for CSV: {self.compression}. Must be one of: gzip"
             )
         if (
             self.compression
@@ -115,7 +119,9 @@ class S3Connector(Connector, ExportConnector):
         """Configure upload parameters.
 
         Args:
+        ----
             params: Configuration parameters
+
         """
         self.part_size = int(params.get("part_size", 5 * 1024 * 1024))
         self.max_retries = int(params.get("max_retries", 3))
@@ -128,7 +134,9 @@ class S3Connector(Connector, ExportConnector):
         """Set content type based on format.
 
         Args:
+        ----
             params: Configuration parameters
+
         """
         if self.format == "csv":
             self.content_type = "text/csv"
@@ -144,11 +152,14 @@ class S3Connector(Connector, ExportConnector):
         """Configure the connector with parameters.
 
         Args:
+        ----
             params: Configuration parameters including bucket, prefix, region,
                    access_key, secret_key, format, compression, etc.
 
         Raises:
+        ------
             ConnectorError: If configuration fails
+
         """
         try:
             # Check for mock mode for testing
@@ -173,8 +184,10 @@ class S3Connector(Connector, ExportConnector):
     def _initialize_s3_client(self) -> None:
         """Initialize the S3 client.
 
-        Raises:
+        Raises
+        ------
             ConnectorError: If client initialization fails
+
         """
         try:
             session_kwargs = {}
@@ -202,8 +215,10 @@ class S3Connector(Connector, ExportConnector):
     def test_connection(self) -> ConnectionTestResult:
         """Test the connection to S3.
 
-        Returns:
+        Returns
+        -------
             Connection test result
+
         """
         # Allow testing in mock mode
         if getattr(self, "mock_mode", False):
@@ -232,11 +247,14 @@ class S3Connector(Connector, ExportConnector):
     def discover(self) -> List[str]:
         """Discover available objects in the S3 bucket.
 
-        Returns:
+        Returns
+        -------
             List of object names
 
-        Raises:
+        Raises
+        ------
             ConnectorError: If discovery fails
+
         """
         self.validate_state(ConnectorState.CONFIGURED)
 
@@ -264,13 +282,17 @@ class S3Connector(Connector, ExportConnector):
         """Get schema for an S3 object.
 
         Args:
+        ----
             object_name: S3 object key
 
         Returns:
+        -------
             Schema for the object
 
         Raises:
+        ------
             ConnectorError: If schema retrieval fails
+
         """
         self.validate_state(ConnectorState.CONFIGURED)
 
@@ -315,12 +337,15 @@ class S3Connector(Connector, ExportConnector):
         """Read data from a Parquet buffer.
 
         Args:
+        ----
             buffer: BytesIO buffer containing Parquet data
             columns: Optional list of columns to read
             batch_size: Number of rows per batch
 
         Yields:
+        ------
             DataChunk objects
+
         """
         table = pq.read_table(buffer)
         if columns:
@@ -339,16 +364,20 @@ class S3Connector(Connector, ExportConnector):
         """Read data from CSV or JSON format using pandas.
 
         Args:
+        ----
             buffer: BytesIO buffer containing data
             file_format: Format of the data ('csv' or 'json')
             columns: Optional list of columns to read
             batch_size: Number of rows per batch
 
         Yields:
+        ------
             DataChunk objects
 
         Raises:
+        ------
             ValueError: If file_format is not supported
+
         """
         import pandas as pd
 
@@ -376,16 +405,20 @@ class S3Connector(Connector, ExportConnector):
         """Read data from an S3 object.
 
         Args:
+        ----
             object_name: S3 object key
             columns: Optional list of columns to read
             filters: Optional filters to apply
             batch_size: Number of rows per batch
 
         Yields:
+        ------
             DataChunk objects
 
         Raises:
+        ------
             ConnectorError: If reading fails
+
         """
         self.validate_state(ConnectorState.CONFIGURED)
 
@@ -418,10 +451,13 @@ class S3Connector(Connector, ExportConnector):
         """Generate a key for the S3 object.
 
         Args:
+        ----
             uuid: Unique identifier for the file
 
         Returns:
+        -------
             S3 object key
+
         """
         return self.filename_template.format(
             prefix=self.prefix, uuid=uuid, format=self.format
@@ -431,11 +467,14 @@ class S3Connector(Connector, ExportConnector):
         """Export data as CSV to S3.
 
         Args:
+        ----
             data: DataChunk to export
             key: S3 object key
 
         Raises:
+        ------
             ConnectorError: If export fails
+
         """
         try:
             df = data.pandas_df
@@ -466,11 +505,14 @@ class S3Connector(Connector, ExportConnector):
         """Export data as Parquet to S3.
 
         Args:
+        ----
             data: DataChunk to export
             key: S3 object key
 
         Raises:
+        ------
             ConnectorError: If export fails
+
         """
         try:
             table = data.arrow_table
@@ -497,11 +539,14 @@ class S3Connector(Connector, ExportConnector):
         """Export data as JSON to S3.
 
         Args:
+        ----
             data: DataChunk to export
             key: S3 object key
 
         Raises:
+        ------
             ConnectorError: If export fails
+
         """
         try:
             df = data.pandas_df
@@ -528,8 +573,10 @@ class S3Connector(Connector, ExportConnector):
     def _prepare_upload_args(self) -> Dict[str, str]:
         """Prepare extra arguments for S3 upload.
 
-        Returns:
+        Returns
+        -------
             Dictionary of extra arguments for S3 upload
+
         """
         extra_args = {}
         if self.content_type:
@@ -543,8 +590,10 @@ class S3Connector(Connector, ExportConnector):
     def _ensure_s3_client(self) -> None:
         """Ensure S3 client is initialized.
 
-        Raises:
+        Raises
+        ------
             ConnectorError: If client initialization fails
+
         """
         if self.s3_client is None:
             self._initialize_s3_client()
@@ -557,11 +606,14 @@ class S3Connector(Connector, ExportConnector):
         """Upload data to S3 in a single request.
 
         Args:
+        ----
             buffer: Data buffer
             key: S3 object key
 
         Raises:
+        ------
             ConnectorError: If upload fails
+
         """
         try:
             self._ensure_s3_client()
@@ -584,13 +636,17 @@ class S3Connector(Connector, ExportConnector):
         """Start a multipart upload.
 
         Args:
+        ----
             key: S3 object key
 
         Returns:
+        -------
             Upload ID for the multipart upload
 
         Raises:
+        ------
             ConnectorError: If starting the upload fails
+
         """
         extra_args = self._prepare_upload_args()
         response = self.s3_client.create_multipart_upload(
@@ -604,16 +660,20 @@ class S3Connector(Connector, ExportConnector):
         """Upload a part with retry logic.
 
         Args:
+        ----
             key: S3 object key
             part_number: Part number
             upload_id: Upload ID
             data: Part data
 
         Returns:
+        -------
             Part information including ETag
 
         Raises:
+        ------
             Exception: If upload fails after all retries
+
         """
         for attempt in range(self.max_retries):
             try:
@@ -635,9 +695,11 @@ class S3Connector(Connector, ExportConnector):
         """Complete a multipart upload.
 
         Args:
+        ----
             key: S3 object key
             upload_id: Upload ID
             parts: List of parts information
+
         """
         if self.s3_client is not None:
             self.s3_client.complete_multipart_upload(
@@ -651,11 +713,14 @@ class S3Connector(Connector, ExportConnector):
         """Upload data to S3 using multipart upload.
 
         Args:
+        ----
             buffer: Data buffer
             key: S3 object key
 
         Raises:
+        ------
             ConnectorError: If upload fails
+
         """
         try:
             self._ensure_s3_client()
@@ -691,10 +756,13 @@ class S3Connector(Connector, ExportConnector):
         """Parse S3 URI and extract bucket and key.
 
         Args:
+        ----
             object_name: S3 URI or key
 
         Returns:
+        -------
             Tuple of (bucket_name, key)
+
         """
         if object_name.startswith("s3://"):
             parts = object_name.replace("s3://", "").split("/", 1)
@@ -708,11 +776,14 @@ class S3Connector(Connector, ExportConnector):
         """Generate a complete file key from a directory path or pattern.
 
         Args:
+        ----
             key: Directory path or pattern
             file_uuid: UUID for the file
 
         Returns:
+        -------
             Complete S3 key for the file
+
         """
         if "/*." in key:
             dir_path, file_pattern = key.split("/*.", 1)
@@ -723,11 +794,14 @@ class S3Connector(Connector, ExportConnector):
         """Export data to S3 in the configured format.
 
         Args:
+        ----
             data_chunk: DataChunk to export
             key: S3 object key
 
         Raises:
+        ------
             ValueError: If format is not supported
+
         """
         if self.format == "csv":
             self._export_csv(data_chunk, key)
@@ -744,13 +818,16 @@ class S3Connector(Connector, ExportConnector):
         """Write data to a specific S3 bucket.
 
         Args:
+        ----
             data_chunk: DataChunk to write
             bucket_name: S3 bucket name
             key: S3 object key
             file_uuid: UUID for the file
 
         Raises:
+        ------
             ConnectorError: If writing fails
+
         """
         original_bucket = self.bucket
         try:
@@ -775,12 +852,15 @@ class S3Connector(Connector, ExportConnector):
         """Write data to S3.
 
         Args:
+        ----
             object_name: Name of the object to write to (used as part of the S3 key)
             data_chunk: Data to write
             mode: Write mode (ignored for S3)
 
         Raises:
+        ------
             ConnectorError: If write fails
+
         """
         self.validate_state(ConnectorState.CONFIGURED)
 

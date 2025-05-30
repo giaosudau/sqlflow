@@ -10,8 +10,10 @@ from sqlflow.parser.ast import LoadStep
 def sample_users_updates() -> pd.DataFrame:
     """Create sample user update data for merge testing.
 
-    Returns:
+    Returns
+    -------
         DataFrame with user updates for testing merge operations
+
     """
     return pd.DataFrame(
         {
@@ -33,8 +35,10 @@ def sample_users_updates() -> pd.DataFrame:
 def sample_orders_updates() -> pd.DataFrame:
     """Create sample order update data for merge testing.
 
-    Returns:
+    Returns
+    -------
         DataFrame with order updates for testing merge operations
+
     """
     return pd.DataFrame(
         {
@@ -52,8 +56,10 @@ def sample_orders_updates() -> pd.DataFrame:
 def load_step_replace() -> LoadStep:
     """Create a REPLACE load step for testing.
 
-    Returns:
+    Returns
+    -------
         LoadStep configured for REPLACE mode
+
     """
     return LoadStep(
         table_name="target_table",
@@ -66,8 +72,10 @@ def load_step_replace() -> LoadStep:
 def load_step_append() -> LoadStep:
     """Create an APPEND load step for testing.
 
-    Returns:
+    Returns
+    -------
         LoadStep configured for APPEND mode
+
     """
     return LoadStep(
         table_name="target_table",
@@ -80,8 +88,10 @@ def load_step_append() -> LoadStep:
 def load_step_merge() -> LoadStep:
     """Create a MERGE load step for testing.
 
-    Returns:
+    Returns
+    -------
         LoadStep configured for MERGE mode with user_id as merge key
+
     """
     return LoadStep(
         table_name="target_table",

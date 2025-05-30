@@ -33,10 +33,13 @@ class CSVExportConnector(ExportConnector):
         """Configure the connector with parameters.
 
         Args:
+        ----
             params: Configuration parameters
 
         Raises:
+        ------
             ConnectorError: If configuration fails
+
         """
         try:
             self.delimiter = params.get("delimiter", ",")
@@ -53,8 +56,10 @@ class CSVExportConnector(ExportConnector):
     def test_connection(self) -> ConnectionTestResult:
         """Test if the CSV export is possible.
 
-        Returns:
+        Returns
+        -------
             Result of the connection test
+
         """
         self.state = ConnectorState.READY
         return ConnectionTestResult(True)
@@ -63,11 +68,14 @@ class CSVExportConnector(ExportConnector):
         """Write data to a CSV file.
 
         Args:
+        ----
             destination: Destination file path
             data: Data to write
 
         Raises:
+        ------
             ConnectorError: If writing fails
+
         """
         self.validate_state(ConnectorState.CONFIGURED)
 

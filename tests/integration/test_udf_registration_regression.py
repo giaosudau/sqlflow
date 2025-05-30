@@ -1,5 +1,4 @@
-"""
-Integration tests for UDF registration regression prevention.
+"""Integration tests for UDF registration regression prevention.
 
 These tests ensure that the fix for UDF registration bound method handling
 doesn't regress. Specifically, they test that bound methods maintain their
@@ -58,7 +57,6 @@ class TestUDFRegistrationRegression:
 
     def test_scalar_udf_registration_bound_methods(self):
         """Test that scalar UDFs with bound methods register correctly."""
-
         # This test focuses on the core regression: bound method signature preservation
         # We test the registration logic without requiring a full pipeline execution
 
@@ -99,7 +97,6 @@ class TestUDFRegistrationRegression:
 
     def test_udf_handler_method_complexity_regression(self):
         """Test that the refactored UDF handler methods work correctly."""
-
         handler = ScalarUDFHandler()
 
         # Test the refactored methods exist and work
@@ -124,7 +121,6 @@ class TestUDFRegistrationRegression:
 
     def test_real_udf_execution_pipeline(self):
         """Test UDF registration logic without requiring full pipeline execution."""
-
         # This test focuses on the core regression: UDF registration process
         # We test the registration logic without requiring actual UDF execution
 
@@ -153,12 +149,12 @@ class TestUDFRegistrationRegression:
             )
 
             # Verify both functions are callable
-            assert callable(
-                prepared_price_func
-            ), "Price validation function should be callable"
-            assert callable(
-                prepared_text_func
-            ), "Text processing function should be callable"
+            assert callable(prepared_price_func), (
+                "Price validation function should be callable"
+            )
+            assert callable(prepared_text_func), (
+                "Text processing function should be callable"
+            )
 
             # Test that they work correctly
             price_result = prepared_price_func(1.50, 0.5, 5.0)
@@ -204,25 +200,24 @@ class TestUDFRegistrationRegression:
 
         # The signature should NOT include 'self' (that was the bug)
         param_names = list(sig.parameters.keys())
-        assert (
-            "self" not in param_names
-        ), "Bound method signature should not include 'self'"
+        assert "self" not in param_names, (
+            "Bound method signature should not include 'self'"
+        )
         assert param_names == ["value"], f"Expected ['value'], got {param_names}"
 
         # Verify parameter types are preserved
         value_param = sig.parameters["value"]
-        assert (
-            value_param.annotation == float
-        ), "Parameter type annotation should be preserved"
+        assert value_param.annotation == float, (
+            "Parameter type annotation should be preserved"
+        )
 
         # Verify return type is preserved
-        assert (
-            sig.return_annotation == float
-        ), "Return type annotation should be preserved"
+        assert sig.return_annotation == float, (
+            "Return type annotation should be preserved"
+        )
 
     def test_prepare_function_complexity_refactor(self):
         """Test that the complexity refactor of _prepare_function_for_registration works."""
-
         # This tests that the method complexity was reduced and still works
         handler = ScalarUDFHandler()
 
@@ -247,15 +242,15 @@ class TestUDFRegistrationRegression:
             # Test with basic call
             result = prepared_function(5.0, 3.0, 2.0)
             expected = (5.0 * 3.0) + 2.0
-            assert (
-                result == expected
-            ), f"Function should compute correctly: expected {expected}, got {result}"
+            assert result == expected, (
+                f"Function should compute correctly: expected {expected}, got {result}"
+            )
 
             success = True
         except Exception as e:
             success = False
             error_msg = str(e)
 
-        assert (
-            success
-        ), f"Function preparation should succeed after complexity refactor: {error_msg}"
+        assert success, (
+            f"Function preparation should succeed after complexity refactor: {error_msg}"
+        )

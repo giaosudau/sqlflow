@@ -36,7 +36,9 @@ class ExecutionStats:
         """Record a query execution.
 
         Args:
+        ----
             duration: Query execution time in seconds
+
         """
         self.query_count += 1
         self.query_times.append(duration)
@@ -45,8 +47,10 @@ class ExecutionStats:
         """Record a UDF execution.
 
         Args:
+        ----
             success: Whether the execution was successful
             error: Optional error if the execution failed
+
         """
         self.udf_executions += 1
         if not success:
@@ -56,8 +60,10 @@ class ExecutionStats:
     def get_avg_query_time(self) -> float:
         """Get the average query execution time.
 
-        Returns:
+        Returns
+        -------
             Average query execution time in seconds
+
         """
         if not self.query_times:
             return 0.0
@@ -66,8 +72,10 @@ class ExecutionStats:
     def get_summary(self) -> Dict[str, Any]:
         """Get a summary of execution statistics.
 
-        Returns:
+        Returns
+        -------
             Dictionary with execution statistics
+
         """
         return {
             "query_count": self.query_count,
@@ -85,8 +93,10 @@ class UDFExecutionContext:
         """Initialize an execution context.
 
         Args:
+        ----
             engine: DuckDB engine instance
             udf_name: Name of the UDF
+
         """
         self.engine = engine
         self.udf_name = udf_name
@@ -103,12 +113,15 @@ class UDFExecutionContext:
         """Exit the execution context.
 
         Args:
+        ----
             exc_type: Exception type if an exception was raised
             exc_val: Exception value if an exception was raised
             exc_tb: Exception traceback if an exception was raised
 
         Returns:
+        -------
             True if the exception was handled, False otherwise
+
         """
         end_time = time.time()
         duration = end_time - self.start_time
@@ -133,7 +146,9 @@ class DuckDBEngine(SQLEngine):
         """Initialize DuckDB engine.
 
         Args:
+        ----
             database_path: Path to DuckDB database file, or ":memory:" for in-memory database
+
         """
         self._initialize_state()
         self._setup_database_connection(database_path)
@@ -155,7 +170,9 @@ class DuckDBEngine(SQLEngine):
         """Set up the database connection.
 
         Args:
+        ----
             database_path: Path to the database file
+
         """
         self.database_path = self._setup_database_path(database_path)
         self.is_persistent = self.database_path != DuckDBConstants.MEMORY_DATABASE
@@ -175,10 +192,13 @@ class DuckDBEngine(SQLEngine):
         """Set up the database path based on input.
 
         Args:
+        ----
             database_path: Path to the DuckDB database file, or None
 
         Returns:
+        -------
             The resolved database path
+
         """
         if database_path == DuckDBConstants.MEMORY_DATABASE:
             logger.debug("Using true in-memory database")
@@ -267,8 +287,10 @@ class DuckDBEngine(SQLEngine):
     def _verify_connection(self) -> None:
         """Verify the connection is working.
 
-        Raises:
+        Raises
+        ------
             DuckDBConnectionError: If test query fails
+
         """
         if not self.connection:
             raise DuckDBConnectionError("No database connection available")
@@ -284,13 +306,17 @@ class DuckDBEngine(SQLEngine):
         """Execute SQL query.
 
         Args:
+        ----
             query: SQL query to execute
 
         Returns:
+        -------
             DuckDB query result
 
         Raises:
+        ------
             Exception: If query execution fails
+
         """
         if not self.connection:
             raise DuckDBConnectionError("No database connection available")
@@ -313,8 +339,10 @@ class DuckDBEngine(SQLEngine):
         """Register a Python UDF with the engine.
 
         Args:
+        ----
             name: Name to register the UDF as
             function: Python function to register
+
         """
         if not self.connection:
             raise DuckDBConnectionError("No database connection available")
@@ -347,12 +375,15 @@ class DuckDBEngine(SQLEngine):
         """Execute a table UDF programmatically.
 
         Args:
+        ----
             name: Name of the table UDF
             input_data: Input data (typically a pandas DataFrame)
             **kwargs: Additional arguments for the UDF
 
         Returns:
+        -------
             Result of the UDF execution
+
         """
         if not self.connection:
             raise DuckDBConnectionError("No database connection available")
@@ -398,11 +429,14 @@ class DuckDBEngine(SQLEngine):
         """Process a query to handle UDF references.
 
         Args:
+        ----
             query: SQL query
             udfs: Dictionary of UDFs to consider for the query
 
         Returns:
+        -------
             Processed query
+
         """
         if not udfs:
             logger.debug("No UDF replacements made in query")
@@ -415,9 +449,11 @@ class DuckDBEngine(SQLEngine):
         """Register a table in DuckDB.
 
         Args:
+        ----
             name: Name of the table
             data: Data to register (pandas DataFrame or similar)
             manage_transaction: Whether this method should handle transaction
+
         """
         if not self.connection:
             raise DuckDBConnectionError("No database connection available")
@@ -435,8 +471,10 @@ class DuckDBEngine(SQLEngine):
         """Internal table registration logic.
 
         Args:
+        ----
             name: Name of the table
             data: Data to register
+
         """
         if not self.connection:
             raise DuckDBConnectionError("No database connection available")
@@ -453,8 +491,10 @@ class DuckDBEngine(SQLEngine):
         """Create a persistent table from registered data.
 
         Args:
+        ----
             name: Name of the table
             data: Data to persist
+
         """
         if not self.connection:
             raise DuckDBConnectionError("No database connection available")
@@ -499,10 +539,13 @@ class DuckDBEngine(SQLEngine):
         """Get the schema of a table.
 
         Args:
+        ----
             table_name: Name of the table
 
         Returns:
+        -------
             Dict mapping column names to their types
+
         """
         if not self.connection:
             raise DuckDBConnectionError("No database connection available")
@@ -541,10 +584,13 @@ class DuckDBEngine(SQLEngine):
         """Check if a table exists.
 
         Args:
+        ----
             table_name: Name of the table to check
 
         Returns:
+        -------
             True if the table exists, False otherwise
+
         """
         if not self.connection:
             logger.warning(
@@ -584,10 +630,13 @@ class DuckDBEngine(SQLEngine):
         """Generate SQL for a LOAD step based on its mode.
 
         Args:
+        ----
             load_step: The LoadStep containing table_name, source_name, mode, and merge_keys
 
         Returns:
+        -------
             SQL string for executing the LOAD operation
+
         """
         # Convert parser LoadStep to our internal format if needed
         from .load.handlers import LoadStep as InternalLoadStep
@@ -613,10 +662,13 @@ class DuckDBEngine(SQLEngine):
         """Substitute variables in a template.
 
         Args:
+        ----
             template: Template string with variables in the form ${var_name}
 
         Returns:
+        -------
             Template with variables substituted
+
         """
         # Replace variables
         result = re.sub(
@@ -686,8 +738,10 @@ class DuckDBEngine(SQLEngine):
         """Register a variable for use in queries.
 
         Args:
+        ----
             name: Variable name
             value: Variable value
+
         """
         self.variables[name] = value
 
@@ -695,10 +749,13 @@ class DuckDBEngine(SQLEngine):
         """Get the value of a variable.
 
         Args:
+        ----
             name: Variable name
 
         Returns:
+        -------
             Variable value
+
         """
         return self.variables.get(name)
 
@@ -708,8 +765,10 @@ class DuckDBEngine(SQLEngine):
         """Configure the engine with settings from the profile.
 
         Args:
+        ----
             config: Engine configuration from the profile
             profile_variables: Variables defined in the profile
+
         """
         logger.info("Configuring DuckDB engine")
 
@@ -752,16 +811,20 @@ class DuckDBEngine(SQLEngine):
         """Execute a UDF with proper error handling and context.
 
         Args:
+        ----
             udf_name: Name of the UDF to execute
             udf_func: UDF function
             *args: Positional arguments for the UDF
             **kwargs: Keyword arguments for the UDF
 
         Returns:
+        -------
             Result of UDF execution
 
         Raises:
+        ------
             UDFError: If UDF execution fails
+
         """
         with UDFExecutionContext(self, udf_name) as ctx:
             try:
@@ -777,8 +840,10 @@ class DuckDBEngine(SQLEngine):
     def get_stats(self) -> Dict[str, Any]:
         """Get current execution statistics.
 
-        Returns:
+        Returns
+        -------
             Dictionary with execution statistics
+
         """
         return self.stats.get_summary()
 
@@ -790,10 +855,13 @@ class DuckDBEngine(SQLEngine):
         """Check if the engine supports a specific feature.
 
         Args:
+        ----
             feature: Feature to check for support
 
         Returns:
+        -------
             True if the feature is supported, False otherwise
+
         """
         # List of supported features
         supported_features = {
@@ -814,14 +882,18 @@ class DuckDBEngine(SQLEngine):
         """Validate schema compatibility between source and target tables.
 
         Args:
+        ----
             target_table: Name of the target table
             source_schema: Schema of the source table
 
         Returns:
+        -------
             True if schemas are compatible
 
         Raises:
+        ------
             ValueError: If schemas are incompatible
+
         """
         logger.debug(
             f"Validating schema compatibility between source and target {target_table}"
@@ -861,11 +933,14 @@ class DuckDBEngine(SQLEngine):
         """Check if two SQL types are compatible.
 
         Args:
+        ----
             source_type: Source column type
             target_type: Target column type
 
         Returns:
+        -------
             True if types are compatible, False otherwise
+
         """
 
         def normalize_type(type_str):
@@ -907,15 +982,19 @@ class DuckDBEngine(SQLEngine):
         """Validate that merge keys exist in both source and target tables.
 
         Args:
+        ----
             target_table: Name of the target table
             source_name: Name of the source table/view
             merge_keys: List of column names to be used as merge keys
 
         Returns:
+        -------
             True if merge keys are valid
 
         Raises:
+        ------
             ValueError: If merge keys are invalid
+
         """
         if not merge_keys:
             raise ValueError("MERGE operation requires at least one merge key")
@@ -1031,12 +1110,15 @@ class DuckDBEngine(SQLEngine):
         with optimized batch processing and resource management.
 
         Args:
+        ----
             udf_name: Name of the table UDF
             dataframes: List of DataFrames to process
             **kwargs: Additional arguments for the UDF
 
         Returns:
+        -------
             List of processed DataFrames
+
         """
         if not self.connection:
             raise DuckDBConnectionError("No database connection available")
@@ -1056,14 +1138,14 @@ class DuckDBEngine(SQLEngine):
         for i, df in enumerate(dataframes):
             try:
                 logger.debug(
-                    f"Processing batch {i+1}/{len(dataframes)} for UDF {udf_name}"
+                    f"Processing batch {i + 1}/{len(dataframes)} for UDF {udf_name}"
                 )
                 result = self.execute_table_udf(udf_name, df, **kwargs)
                 results.append(result)
                 successful_executions += 1
 
             except Exception as e:
-                logger.error(f"Error in batch {i+1} for UDF {udf_name}: {e}")
+                logger.error(f"Error in batch {i + 1} for UDF {udf_name}: {e}")
                 failed_executions += 1
                 # Add empty DataFrame as placeholder
                 results.append(pd.DataFrame())
@@ -1082,11 +1164,14 @@ class DuckDBEngine(SQLEngine):
         table UDF outputs and target tables.
 
         Args:
+        ----
             table_name: Name of the target table
             udf_schema: Expected schema of the UDF output
 
         Returns:
+        -------
             True if schemas are compatible
+
         """
         logger.debug(f"Validating UDF schema compatibility with table {table_name}")
 
@@ -1129,10 +1214,13 @@ class DuckDBEngine(SQLEngine):
         for troubleshooting table UDF registration issues.
 
         Args:
+        ----
             udf_name: Name of the UDF to debug
 
         Returns:
+        -------
             Dictionary with comprehensive debugging information
+
         """
         debug_info = {
             "udf_name": udf_name,
@@ -1198,11 +1286,14 @@ class DuckDBEngine(SQLEngine):
         """Generate recommendations for UDF troubleshooting.
 
         Args:
+        ----
             udf_name: Name of the UDF
             debug_info: Current debug information
 
         Returns:
+        -------
             List of recommendation strings
+
         """
         recommendations = []
 
@@ -1260,8 +1351,10 @@ class DuckDBEngine(SQLEngine):
         Phase 3 enhancement providing detailed performance tracking
         for table UDF operations and optimization insights.
 
-        Returns:
+        Returns
+        -------
             Dictionary with table UDF performance metrics
+
         """
         base_stats = self.get_stats()
 
@@ -1332,10 +1425,13 @@ class DuckDBEngine(SQLEngine):
         to registered table UDFs based on their characteristics.
 
         Args:
+        ----
             udf_name: Name of the table UDF to optimize
 
         Returns:
+        -------
             Dictionary with optimization results and recommendations
+
         """
         flat_name = udf_name.split(".")[-1]
 

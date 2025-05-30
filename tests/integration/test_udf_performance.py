@@ -241,9 +241,9 @@ def test_scalar_udf_performance(
     # Note: For very small datasets, this might not always be true due to
     # other overheads, so we'll skip the assertion for small datasets
     if size != "small":
-        assert (
-            complex_time > simple_time
-        ), "Complex UDF should take longer than simple UDF"
+        assert complex_time > simple_time, (
+            "Complex UDF should take longer than simple UDF"
+        )
 
 
 @pytest.mark.parametrize("size", ["small", "medium"])
@@ -306,15 +306,15 @@ def test_table_udf_optimization(
     if size == "medium":
         # For medium datasets, there can be variance, so we'll use a tolerance
         # Accept if vectorized is within 10% of non-optimized, as test environments can vary
-        assert (
-            avg_optimized < avg_non_optimized * 1.1
-        ), "Vectorized UDF should be close to or faster than row-by-row UDF for medium dataset"
+        assert avg_optimized < avg_non_optimized * 1.1, (
+            "Vectorized UDF should be close to or faster than row-by-row UDF for medium dataset"
+        )
         logger.info("Performance difference within acceptable range for medium dataset")
     else:
         # For large datasets, vectorized should be significantly faster
-        assert (
-            avg_optimized < avg_non_optimized
-        ), "Vectorized UDF should be faster than row-by-row UDF for large dataset"
+        assert avg_optimized < avg_non_optimized, (
+            "Vectorized UDF should be faster than row-by-row UDF for large dataset"
+        )
 
 
 @pytest.mark.parametrize("size", ["small", "medium"])

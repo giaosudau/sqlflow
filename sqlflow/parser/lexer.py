@@ -125,7 +125,9 @@ class Lexer:
         """Initialize the lexer with input text.
 
         Args:
+        ----
             text: The input text to tokenize
+
         """
         self.text = text
         self.pos = 0
@@ -198,8 +200,10 @@ class Lexer:
     def tokenize(self) -> List[Token]:
         """Tokenize the input text.
 
-        Returns:
+        Returns
+        -------
             List of tokens
+
         """
         while self.pos < len(self.text):
             self._tokenize_next()
@@ -280,12 +284,15 @@ class Lexer:
         """Determine if we're inside a string and handle escape sequences.
 
         Args:
+        ----
             in_string: Whether we're currently inside a string
             escape_next: Whether the next character should be escaped
             char: The current character
 
         Returns:
+        -------
             Tuple of (new in_string status, new escape_next status)
+
         """
         if escape_next:
             return in_string, False
@@ -302,12 +309,15 @@ class Lexer:
         """Update JSON nesting depth based on braces when not in a string.
 
         Args:
+        ----
             char: Current character
             in_string: Whether we're inside a string
             depth: Current depth
 
         Returns:
+        -------
             New depth value
+
         """
         if in_string:
             return depth
@@ -323,10 +333,13 @@ class Lexer:
         """Check if the JSON is valid, with variable replacement handling.
 
         Args:
+        ----
             json_text: JSON text to validate
 
         Returns:
+        -------
             True if valid, False otherwise
+
         """
         try:
             # Replace variables for validation
@@ -343,8 +356,10 @@ class Lexer:
         Handles both single-line and multi-line JSON objects, preserving formatting.
         Properly handles nested objects, arrays, and quoted strings.
 
-        Returns:
+        Returns
+        -------
             Tuple of (json_text, success)
+
         """
         if self.text[self.pos] != "{":
             return "", False

@@ -20,10 +20,13 @@ def register_connector(connector_type: str) -> Callable[[Type[T]], Type[T]]:
     """Register a connector class.
 
     Args:
+    ----
         connector_type: Type name for the connector
 
     Returns:
+    -------
         Decorator function
+
     """
 
     def decorator(cls: Type[T]) -> Type[T]:
@@ -39,10 +42,13 @@ def register_export_connector(connector_type: str) -> Callable[[Type[E]], Type[E
     """Register an export connector class.
 
     Args:
+    ----
         connector_type: Type name for the export connector
 
     Returns:
+    -------
         Decorator function
+
     """
 
     def decorator(cls: Type[E]) -> Type[E]:
@@ -65,14 +71,18 @@ def register_bidirectional_connector(
     for backward compatibility.
 
     Args:
+    ----
         connector_type: Type name for the bidirectional connector
 
     Returns:
+    -------
         Decorator function
 
     Raises:
+    ------
         ValueError: If connector type is already registered or if the class
                    does not properly implement required methods
+
     """
 
     def decorator(cls: Type[B]) -> Type[B]:
@@ -122,13 +132,17 @@ def get_connector_class(connector_type: str) -> Type[Connector]:
     """Get a connector class by type.
 
     Args:
+    ----
         connector_type: Type name for the connector
 
     Returns:
+    -------
         Connector class
 
     Raises:
+    ------
         ValueError: If connector type is not registered
+
     """
     if connector_type not in CONNECTOR_REGISTRY:
         raise ValueError(f"Unknown connector type: {connector_type}")
@@ -139,13 +153,17 @@ def get_export_connector_class(connector_type: str) -> Type[ExportConnector]:
     """Get an export connector class by type.
 
     Args:
+    ----
         connector_type: Type name for the export connector
 
     Returns:
+    -------
         ExportConnector class
 
     Raises:
+    ------
         ValueError: If export connector type is not registered
+
     """
     if connector_type not in EXPORT_CONNECTOR_REGISTRY:
         raise ValueError(f"Unknown export connector type: {connector_type}")
@@ -158,13 +176,17 @@ def get_bidirectional_connector_class(
     """Get a bidirectional connector class by type.
 
     Args:
+    ----
         connector_type: Type name for the bidirectional connector
 
     Returns:
+    -------
         BidirectionalConnector class
 
     Raises:
+    ------
         ValueError: If bidirectional connector type is not registered
+
     """
     if connector_type not in BIDIRECTIONAL_CONNECTOR_REGISTRY:
         raise ValueError(f"Unknown bidirectional connector type: {connector_type}")
@@ -177,7 +199,9 @@ def discover_connectors(package_name: str = "sqlflow.connectors") -> None:
     """Discover and register connectors from submodules.
 
     Args:
+    ----
         package_name: Package to scan for connectors
+
     """
     package = importlib.import_module(package_name)
     for _, name, is_pkg in pkgutil.iter_modules(package.__path__):

@@ -15,9 +15,7 @@ from sqlflow.connectors.base import (
 )
 from sqlflow.connectors.connector_engine import ConnectorEngine
 from sqlflow.connectors.data_chunk import DataChunk
-from sqlflow.connectors.registry import (
-    EXPORT_CONNECTOR_REGISTRY,
-)
+from sqlflow.connectors.registry import EXPORT_CONNECTOR_REGISTRY
 from sqlflow.core.errors import ConnectorError
 
 

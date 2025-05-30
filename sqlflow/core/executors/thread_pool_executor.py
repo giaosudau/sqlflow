@@ -31,6 +31,7 @@ class ThreadPoolTaskExecutor(BaseExecutor):
         """Initialize a ThreadPoolTaskExecutor.
 
         Args:
+        ----
             max_workers: Maximum number of worker threads to use.
                          Defaults to os.cpu_count().
             state_backend: Optional state backend for persistence.
@@ -39,6 +40,7 @@ class ThreadPoolTaskExecutor(BaseExecutor):
             max_retries: Maximum number of retries for failed tasks.
             retry_delay: Delay in seconds between retries.
             project_dir: Project directory for UDF discovery.
+
         """
         # Initialize base executor (UDF manager)
         super().__init__()
@@ -70,13 +72,16 @@ class ThreadPoolTaskExecutor(BaseExecutor):
         """Execute a pipeline plan concurrently.
 
         Args:
+        ----
             plan: List of operations to execute
             dependency_resolver: Optional DependencyResolver to cross-check execution order
             resume: Whether to resume from a previous execution
             project_dir: Project directory for UDF discovery
 
         Returns:
+        -------
             Dict containing execution results
+
         """
         self.results = {}
         self.dependency_resolver = dependency_resolver
@@ -102,8 +107,10 @@ class ThreadPoolTaskExecutor(BaseExecutor):
         """Check if the execution order matches the resolved order.
 
         Args:
+        ----
             plan: List of operations to execute
             dependency_resolver: Optional DependencyResolver to cross-check execution order
+
         """
         if (
             dependency_resolver is not None
@@ -124,8 +131,10 @@ class ThreadPoolTaskExecutor(BaseExecutor):
         """Initialize the execution state.
 
         Args:
+        ----
             plan: List of operations to execute
             resume: Whether to resume from a previous execution
+
         """
         if self.state_backend is not None:
             if not resume:
@@ -150,11 +159,14 @@ class ThreadPoolTaskExecutor(BaseExecutor):
         """Execute the plan with a thread pool.
 
         Args:
+        ----
             executor: ThreadPoolExecutor to use
             plan: List of operations to execute
 
         Returns:
+        -------
             Dict containing execution results
+
         """
         futures = {}
         completed_tasks = set()
@@ -193,9 +205,11 @@ class ThreadPoolTaskExecutor(BaseExecutor):
         """Submit eligible tasks to the executor.
 
         Args:
+        ----
             executor: ThreadPoolExecutor to use
             plan: List of operations to execute
             futures: Dict of futures to update
+
         """
         eligible_tasks = self._get_eligible_tasks()
 
@@ -214,12 +228,15 @@ class ThreadPoolTaskExecutor(BaseExecutor):
         """Process completed futures.
 
         Args:
+        ----
             plan: List of operations to execute
             futures: Dict of futures to process
             completed_tasks: Set of completed tasks to update
 
         Returns:
+        -------
             Dict containing execution results if execution should stop, None otherwise
+
         """
         for task_id, future in list(futures.items()):
             if future.done():
@@ -252,12 +269,15 @@ class ThreadPoolTaskExecutor(BaseExecutor):
         """Handle a task failure.
 
         Args:
+        ----
             task_id: ID of the failed task
             plan: List of operations to execute
             error_msg: Error message
 
         Returns:
+        -------
             Dict containing execution results if execution should stop, None otherwise
+
         """
         self.results["error"] = error_msg
         self.results["failed_step"] = task_id
@@ -297,12 +317,15 @@ class ThreadPoolTaskExecutor(BaseExecutor):
         """Check for deadlock in the execution plan.
 
         Args:
+        ----
             plan: List of operations to execute
             futures: Dict of futures
             completed_tasks: Set of completed tasks
 
         Returns:
+        -------
             True if deadlock detected, False otherwise
+
         """
         if (
             not self._get_eligible_tasks()
@@ -332,10 +355,13 @@ class ThreadPoolTaskExecutor(BaseExecutor):
         """Execute a single step in the pipeline.
 
         Args:
+        ----
             step: Operation to execute
 
         Returns:
+        -------
             Dict containing execution results
+
         """
         step_id = step.get("id", "unknown")
         step_type = step.get("type", "unknown")
@@ -373,16 +399,20 @@ class ThreadPoolTaskExecutor(BaseExecutor):
     def can_resume(self) -> bool:
         """Check if the executor supports resuming from failure.
 
-        Returns:
+        Returns
+        -------
             True if the executor supports resuming, False otherwise
+
         """
         return self.failed_step is not None
 
     def _resume_from_state_backend(self) -> Dict[str, Any]:
         """Resume execution from state backend.
 
-        Returns:
+        Returns
+        -------
             Dict containing execution results
+
         """
         if self.state_backend is None:
             logger.warning("No state backend configured")
@@ -398,8 +428,10 @@ class ThreadPoolTaskExecutor(BaseExecutor):
     def _get_plan_for_resume(self) -> List[Dict[str, Any]]:
         """Get the plan for resuming execution.
 
-        Returns:
+        Returns
+        -------
             List of operations to execute
+
         """
         if self.original_plan:
             return self.original_plan
@@ -417,7 +449,9 @@ class ThreadPoolTaskExecutor(BaseExecutor):
         """Execute a failed step.
 
         Args:
+        ----
             failed_step: Failed step to execute
+
         """
         logger.info(f"Resuming execution of failed step: {failed_step['id']}")
         step_result = self.execute_step(failed_step)
@@ -430,11 +464,14 @@ class ThreadPoolTaskExecutor(BaseExecutor):
         """Resume execution from the last failure.
 
         Args:
+        ----
             run_id: Optional run ID to resume from. If not provided,
                    uses the current run_id.
 
         Returns:
+        -------
             Dict containing execution results
+
         """
         if run_id is not None:
             self.run_id = run_id
@@ -475,7 +512,9 @@ class ThreadPoolTaskExecutor(BaseExecutor):
         """Initialize task statuses for all steps in the plan.
 
         Args:
+        ----
             plan: List of operations to execute
+
         """
         dependency_map = {}
         for step in plan:
@@ -504,8 +543,10 @@ class ThreadPoolTaskExecutor(BaseExecutor):
     def _get_eligible_tasks(self) -> List[str]:
         """Get tasks that are eligible for execution.
 
-        Returns:
+        Returns
+        -------
             List of task IDs that are eligible for execution
+
         """
         return [
             task_id
@@ -519,9 +560,11 @@ class ThreadPoolTaskExecutor(BaseExecutor):
         """Update the state of a task.
 
         Args:
+        ----
             task_id: ID of the task to update
             state: New state of the task
             error: Error message if the task failed
+
         """
         with self.lock:
             if task_id not in self.task_statuses:
@@ -545,7 +588,9 @@ class ThreadPoolTaskExecutor(BaseExecutor):
         """Update tasks that depend on a completed task.
 
         Args:
+        ----
             completed_task_id: ID of the completed task
+
         """
         eligible_tasks = []
 
@@ -568,9 +613,11 @@ class ThreadPoolTaskExecutor(BaseExecutor):
         """Log a task state transition.
 
         Args:
+        ----
             task_id: ID of the task
             old_state: Previous state of the task
             new_state: New state of the task
+
         """
         status = self.task_statuses.get(task_id)
         if status:

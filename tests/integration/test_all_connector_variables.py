@@ -53,9 +53,9 @@ class TestAllConnectorVariableSubstitution:
         expected_path = "output/us-east/2023-10-25_report.csv"
         mock_executor.connector_engine.export_data.assert_called_once()
         args, kwargs = mock_executor.connector_engine.export_data.call_args
-        assert (
-            kwargs["destination"] == expected_path
-        ), f"Expected {expected_path}, got {kwargs['destination']}"
+        assert kwargs["destination"] == expected_path, (
+            f"Expected {expected_path}, got {kwargs['destination']}"
+        )
         assert result["status"] == "success"
 
     def test_s3_connector(self, mock_executor, test_data_chunk):
@@ -78,9 +78,9 @@ class TestAllConnectorVariableSubstitution:
         expected_path = "s3://mybucket/test/us-east/2023-10-25/data.parquet"
         mock_executor.connector_engine.export_data.assert_called_once()
         args, kwargs = mock_executor.connector_engine.export_data.call_args
-        assert (
-            kwargs["destination"] == expected_path
-        ), f"Expected {expected_path}, got {kwargs['destination']}"
+        assert kwargs["destination"] == expected_path, (
+            f"Expected {expected_path}, got {kwargs['destination']}"
+        )
         assert result["status"] == "success"
 
     def test_postgres_connector(self, mock_executor, test_data_chunk):
@@ -103,9 +103,9 @@ class TestAllConnectorVariableSubstitution:
         expected_path = "postgres://user:pass@host/test_us-east_2023-10-25"
         mock_executor.connector_engine.export_data.assert_called_once()
         args, kwargs = mock_executor.connector_engine.export_data.call_args
-        assert (
-            kwargs["destination"] == expected_path
-        ), f"Expected {expected_path}, got {kwargs['destination']}"
+        assert kwargs["destination"] == expected_path, (
+            f"Expected {expected_path}, got {kwargs['destination']}"
+        )
 
         # Verify that options are also properly substituted
         expected_options = {"schema": "public", "table": "data_2023-10-25"}
@@ -184,7 +184,7 @@ class TestRealConnectorIntegration:
         # Create a simple pipeline definition
         pipeline_text = f"""
         SOURCE test_source TYPE CSV PARAMS {{
-            "path": "{test_environment['data_file']}",
+            "path": "{test_environment["data_file"]}",
             "has_header": true
         }};
         
@@ -199,7 +199,7 @@ class TestRealConnectorIntegration:
         FROM data;
         
         EXPORT SELECT * FROM enriched_data
-        TO "{test_environment['output_dir']}/${{region|global}}/${{date|today}}_report.csv"
+        TO "{test_environment["output_dir"]}/${{region|global}}/${{date|today}}_report.csv"
         TYPE CSV
         OPTIONS {{
             "header": true
@@ -246,9 +246,9 @@ class TestRealConnectorIntegration:
         expected_file = os.path.join(
             test_environment["output_dir"], "test-region/2023-11-15_report.csv"
         )
-        assert os.path.exists(
-            expected_file
-        ), f"Expected file not found: {expected_file}"
+        assert os.path.exists(expected_file), (
+            f"Expected file not found: {expected_file}"
+        )
 
         # Verify file content
         with open(expected_file, "r") as f:

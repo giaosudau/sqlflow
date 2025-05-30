@@ -226,12 +226,15 @@ class ExecutionPlanBuilder:
         """Verify that all variable values are valid (non-empty, type-compatible, etc.)
 
         Args:
+        ----
             referenced_vars: Set of referenced variable names
             variables: Dictionary of variable values
             pipeline: The pipeline AST
 
         Raises:
+        ------
             PlanningError: If any variable values are invalid
+
         """
         logger.debug("Verifying all variable values")
         invalid_vars = []
@@ -310,11 +313,14 @@ class ExecutionPlanBuilder:
         """Check if a variable has a default value in any step of the pipeline.
 
         Args:
+        ----
             var_name: The name of the variable to check
             pipeline: The pipeline to search in
 
         Returns:
+        -------
             True if the variable has a default value, False otherwise
+
         """
         var_with_default_pattern = rf"\$\{{[ ]*{re.escape(var_name)}[ ]*\|[^{{}}]*\}}"
 
@@ -327,11 +333,14 @@ class ExecutionPlanBuilder:
         """Check if a step contains a variable with a default value.
 
         Args:
+        ----
             step: The pipeline step to check
             pattern: The regex pattern to search for
 
         Returns:
+        -------
             True if the step contains the pattern, False otherwise
+
         """
         if isinstance(step, ExportStep):
             return self._export_step_has_default(step, pattern)
@@ -384,10 +393,13 @@ class ExecutionPlanBuilder:
         """Extract variables defined by SET statements in the pipeline.
 
         Args:
+        ----
             pipeline: The pipeline to analyze
 
         Returns:
+        -------
             A dictionary of variable names to values
+
         """
         from sqlflow.parser.ast import SetStep
 
@@ -410,11 +422,14 @@ class ExecutionPlanBuilder:
         Handles references with defaults and type conversion.
 
         Args:
+        ----
             var_name: The name of the variable
             var_value: The raw value of the variable
 
         Returns:
+        -------
             The processed value
+
         """
         # If the value is itself a variable reference with default, extract it
         var_ref_match = re.match(r"\$\{([^|{}]+)\|([^{}]*)\}", var_value)
@@ -434,10 +449,13 @@ class ExecutionPlanBuilder:
         """Convert a string value to an appropriate type.
 
         Args:
+        ----
             value: The string value to convert
 
         Returns:
+        -------
             The converted value
+
         """
         # Handle boolean values
         if value.lower() == "true":
@@ -458,10 +476,13 @@ class ExecutionPlanBuilder:
         """Remove quotes from a string if they're present.
 
         Args:
+        ----
             value: The string to process
 
         Returns:
+        -------
             The string with outer quotes removed if present
+
         """
         if (value.startswith("'") and value.endswith("'")) or (
             value.startswith('"') and value.endswith('"')
@@ -475,11 +496,14 @@ class ExecutionPlanBuilder:
         """Find all locations where a variable is referenced in the pipeline.
 
         Args:
+        ----
             var_name: The name of the variable to find
             pipeline: The pipeline to analyze
 
         Returns:
+        -------
             A list of location descriptions
+
         """
         locations = []
         var_pattern = rf"\$\{{[ ]*{re.escape(var_name)}[ ]*(?:\|[^{{}}]*)?\}}"
@@ -498,10 +522,12 @@ class ExecutionPlanBuilder:
         """Check a specific step for variable references and add locations to the list.
 
         Args:
+        ----
             step: The pipeline step to check
             var_pattern: The regex pattern to search for
             line_info: Line information string for error reporting
             locations: List to add location information to
+
         """
         if isinstance(step, ConditionalBlockStep):
             self._check_conditional_step_for_references(
@@ -725,7 +751,7 @@ class ExecutionPlanBuilder:
                 else:
                     readable_cycle.append(step_id)
             cycle_str = " → ".join(readable_cycle)
-            lines.append(f"Cycle {i+1}: {cycle_str}")
+            lines.append(f"Cycle {i + 1}: {cycle_str}")
         return "\n".join(lines)
 
     # --- SQL SYNTAX VALIDATION ---
@@ -790,14 +816,18 @@ class ExecutionPlanBuilder:
         """Build an execution plan from a pipeline.
 
         Args:
+        ----
             pipeline: The validated pipeline to build a plan for
             variables: Variables for variable substitution
 
         Returns:
+        -------
             A list of execution steps in topological order
 
         Raises:
+        ------
             PlanningError: If the plan cannot be built
+
         """
         logger.info("Building execution plan")
         if not pipeline.steps:
@@ -902,11 +932,14 @@ class ExecutionPlanBuilder:
         """Process conditional blocks based on variable evaluation.
 
         Args:
+        ----
             pipeline: Pipeline with conditional blocks
             variables: Variables for condition evaluation
 
         Returns:
+        -------
             Flattened pipeline with only steps from true conditions
+
         """
         # Get pipeline-defined variables including those with defaults
         defined_vars = self._extract_set_defined_variables(pipeline)
@@ -1025,7 +1058,9 @@ class ExecutionPlanBuilder:
         for determining the correct execution order.
 
         Args:
+        ----
             pipeline: The pipeline to analyze
+
         """
         # Initialize step dependencies dict
         self.step_dependencies = {}
@@ -1073,8 +1108,10 @@ class ExecutionPlanBuilder:
         """Analyze dependencies for an export step.
 
         Args:
+        ----
             step: Export step to analyze
             table_to_step: Mapping of table names to steps
+
         """
         # First handle exports with SQL queries
         if hasattr(step, "sql_query") and step.sql_query:
@@ -1272,11 +1309,14 @@ class ExecutionPlanBuilder:
         """Build execution steps from the execution order.
 
         Args:
+        ----
             pipeline: The pipeline to build steps for
             execution_order: The order of steps to execute
 
         Returns:
+        -------
             List of executable steps
+
         """
         execution_steps = []
 
@@ -1382,11 +1422,14 @@ class ExecutionPlanBuilder:
         """Build a single execution step from a pipeline step.
 
         Args:
+        ----
             pipeline_step: The pipeline step to convert
 
         Returns:
+        -------
             An execution step dictionary or None for steps like SET that don't
             correspond to executable steps
+
         """
         step_id = self._get_step_id(pipeline_step)
         depends_on = self.step_dependencies.get(step_id, [])
@@ -1586,11 +1629,13 @@ class Planner:
         """Create an execution plan from a pipeline.
 
         Args:
+        ----
             pipeline: The pipeline to build a plan for
             variables: Variables to substitute in the plan (CLI variables - highest priority)
             profile_variables: Profile variables (medium priority)
 
         Returns:
+        -------
             The execution plan as a list of operation dictionaries
 
         Priority order for variable substitution:
@@ -1598,6 +1643,7 @@ class Planner:
         2. Profile variables (medium priority)
         3. CLI variables (highest priority)
         4. Default values in ${var|default} expressions (only used when no other value is found)
+
         """
         # First extract SET variables including default values from the pipeline
         set_variables = self.builder._extract_set_defined_variables(pipeline)

@@ -1,5 +1,4 @@
-"""
-Table UDF Performance Benchmarking Suite
+"""Table UDF Performance Benchmarking Suite
 
 This module provides comprehensive performance benchmarking for SQLFlow's
 advanced table UDF system, including:
@@ -171,12 +170,16 @@ class TableUDFPerformanceBenchmarks:
         assert (
             results["simple_registration"]["p95_time_ms"]
             < results["simple_registration"]["target_ms"]
-        ), f"Simple registration P95 exceeds target: {results['simple_registration']['p95_time_ms']:.2f}ms > {results['simple_registration']['target_ms']}ms"
+        ), (
+            f"Simple registration P95 exceeds target: {results['simple_registration']['p95_time_ms']:.2f}ms > {results['simple_registration']['target_ms']}ms"
+        )
 
         assert (
             results["complex_registration"]["p95_time_ms"]
             < results["complex_registration"]["target_ms"]
-        ), f"Complex registration P95 exceeds target: {results['complex_registration']['p95_time_ms']:.2f}ms > {results['complex_registration']['target_ms']}ms"
+        ), (
+            f"Complex registration P95 exceeds target: {results['complex_registration']['p95_time_ms']:.2f}ms > {results['complex_registration']['target_ms']}ms"
+        )
 
         logger.info("✅ Registration Performance Benchmarks:")
         logger.info(
@@ -289,9 +292,9 @@ class TableUDFPerformanceBenchmarks:
             }
 
             # Validate results
-            assert (
-                len(result) == target.dataset_size
-            ), f"Result size mismatch for {target_name}"
+            assert len(result) == target.dataset_size, (
+                f"Result size mismatch for {target_name}"
+            )
             assert all(
                 col in result.columns
                 for col in ["id", "processed_value", "category", "confidence"]
@@ -414,9 +417,9 @@ class TableUDFPerformanceBenchmarks:
             }
 
             # Memory efficiency target: <1KB per row
-            assert (
-                memory_per_row < 1024
-            ), f"Memory usage too high: {memory_per_row:.2f} bytes/row > 1024 bytes/row for {size} rows"
+            assert memory_per_row < 1024, (
+                f"Memory usage too high: {memory_per_row:.2f} bytes/row > 1024 bytes/row for {size} rows"
+            )
 
             logger.info(f"✅ Memory efficiency for {size:,} rows:")
             logger.info(f"   Memory used: {memory_used:.2f}MB")
@@ -489,9 +492,9 @@ class TableUDFPerformanceBenchmarks:
         avg_size_ratio = np.mean(size_ratios)
         scalability_factor = avg_time_ratio / avg_size_ratio
 
-        assert (
-            scalability_factor <= 2.0
-        ), f"Poor scalability detected: time grows {scalability_factor:.2f}x faster than data size"
+        assert scalability_factor <= 2.0, (
+            f"Poor scalability detected: time grows {scalability_factor:.2f}x faster than data size"
+        )
 
         logger.info("✅ Scalability analysis:")
         logger.info(f"   Time growth factor: {avg_time_ratio:.2f}x")
@@ -507,7 +510,6 @@ class TableUDFPerformanceBenchmarks:
 
     def test_competitive_performance_analysis(self):
         """Analyze performance against competitive benchmarks."""
-
         # Simulate competitive performance (based on industry research)
         competitive_benchmarks = {
             "dbt_python_models": {
@@ -586,18 +588,18 @@ class TableUDFPerformanceBenchmarks:
 
         # Validate competitive advantage
         for competitor, analysis in competitive_analysis.items():
-            assert (
-                analysis["overall_advantage_score"] > 0
-            ), f"SQLFlow should outperform {competitor} overall"
-            assert (
-                analysis["registration_improvement_pct"] > 0
-            ), f"SQLFlow should have faster registration than {competitor}"
-            assert (
-                analysis["throughput_improvement_pct"] > 0
-            ), f"SQLFlow should have higher throughput than {competitor}"
-            assert (
-                analysis["memory_improvement_pct"] > 0
-            ), f"SQLFlow should be more memory efficient than {competitor}"
+            assert analysis["overall_advantage_score"] > 0, (
+                f"SQLFlow should outperform {competitor} overall"
+            )
+            assert analysis["registration_improvement_pct"] > 0, (
+                f"SQLFlow should have faster registration than {competitor}"
+            )
+            assert analysis["throughput_improvement_pct"] > 0, (
+                f"SQLFlow should have higher throughput than {competitor}"
+            )
+            assert analysis["memory_improvement_pct"] > 0, (
+                f"SQLFlow should be more memory efficient than {competitor}"
+            )
 
         return competitive_analysis
 

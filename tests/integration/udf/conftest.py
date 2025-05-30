@@ -15,10 +15,13 @@ def udf_test_environment(
     """Create a comprehensive UDF test environment.
 
     Args:
+    ----
         temp_udf_directory: Temporary directory fixture from parent conftest
 
     Yields:
+    ------
         Dictionary with UDF test environment paths and manager
+
     """
     udf_manager = PythonUDFManager(project_dir=temp_udf_directory["project_dir"])
 
@@ -33,10 +36,13 @@ def error_prone_udf_file(temp_udf_directory: Dict[str, Any]) -> Path:
     """Create a UDF file with functions that demonstrate various error conditions.
 
     Args:
+    ----
         temp_udf_directory: Temporary directory fixture
 
     Returns:
+    -------
         Path to created error-prone UDF file
+
     """
     udf_file = Path(temp_udf_directory["udf_dir"]) / "error_prone_udfs.py"
     with open(udf_file, "w") as f:
@@ -82,10 +88,13 @@ def performance_udf_file(temp_udf_directory: Dict[str, Any]) -> Path:
     """Create a UDF file with performance test functions.
 
     Args:
+    ----
         temp_udf_directory: Temporary directory fixture
 
     Returns:
+    -------
         Path to created performance UDF file
+
     """
     udf_file = Path(temp_udf_directory["udf_dir"]) / "performance_udfs.py"
     with open(udf_file, "w") as f:

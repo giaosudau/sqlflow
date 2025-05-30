@@ -146,9 +146,9 @@ class TestPlannerRegression:
 
                 # Should reference an existing step
                 dependency_exists = any(s.get("id") == dependency_id for s in plan)
-                assert (
-                    dependency_exists
-                ), f"Dependency {dependency_id} not found in plan"
+                assert dependency_exists, (
+                    f"Dependency {dependency_id} not found in plan"
+                )
 
     def test_load_step_mode_and_merge_keys_preserved(self):
         """Test that load step mode and merge keys are preserved.

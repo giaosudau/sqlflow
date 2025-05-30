@@ -13,8 +13,10 @@ class PipelineStep(ABC):
     def validate(self) -> List[str]:
         """Validate the pipeline step.
 
-        Returns:
+        Returns
+        -------
             List of validation error messages, empty if valid
+
         """
 
 
@@ -42,8 +44,10 @@ class SourceDefinitionStep(PipelineStep):
     def validate(self) -> List[str]:
         """Validate the SOURCE directive.
 
-        Returns:
+        Returns
+        -------
             List of validation error messages, empty if valid
+
         """
         errors = []
         if not self.name:
@@ -100,6 +104,7 @@ class LoadStep(PipelineStep):
     """Represents a LOAD directive in the pipeline.
 
     Example:
+    -------
         LOAD users_table FROM users_source;
 
     Example with MODE:
@@ -107,6 +112,7 @@ class LoadStep(PipelineStep):
 
     Example with MERGE and MERGE_KEYS:
         LOAD users_table FROM users_source MODE MERGE MERGE_KEYS user_id;
+
     """
 
     table_name: str
@@ -118,8 +124,10 @@ class LoadStep(PipelineStep):
     def validate(self) -> List[str]:
         """Validate the LOAD directive.
 
-        Returns:
+        Returns
+        -------
             List of validation error messages, empty if valid
+
         """
         errors = []
         if not self.table_name:
@@ -146,6 +154,7 @@ class ExportStep(PipelineStep):
     """Represents an EXPORT directive in the pipeline.
 
     Example:
+    -------
         EXPORT
           SELECT * FROM users
         TO "s3://bucket/users.csv"
@@ -154,6 +163,7 @@ class ExportStep(PipelineStep):
             "delimiter": ",",
             "header": true
         };
+
     """
 
     sql_query: str
@@ -165,8 +175,10 @@ class ExportStep(PipelineStep):
     def validate(self) -> List[str]:
         """Validate the EXPORT directive.
 
-        Returns:
+        Returns
+        -------
             List of validation error messages, empty if valid
+
         """
         errors = []
         if not self.sql_query:
@@ -185,7 +197,9 @@ class IncludeStep(PipelineStep):
     """Represents an INCLUDE directive in the pipeline.
 
     Example:
+    -------
         INCLUDE "common/utils.sf" AS utils;
+
     """
 
     file_path: str
@@ -195,8 +209,10 @@ class IncludeStep(PipelineStep):
     def validate(self) -> List[str]:
         """Validate the INCLUDE directive.
 
-        Returns:
+        Returns
+        -------
             List of validation error messages, empty if valid
+
         """
         errors = []
         if not self.file_path:
@@ -216,7 +232,9 @@ class SetStep(PipelineStep):
     """Represents a SET directive in the pipeline.
 
     Example:
+    -------
         SET table_name = "users";
+
     """
 
     variable_name: str
@@ -226,8 +244,10 @@ class SetStep(PipelineStep):
     def validate(self) -> List[str]:
         """Validate the SET directive.
 
-        Returns:
+        Returns
+        -------
             List of validation error messages, empty if valid
+
         """
         errors = []
         if not self.variable_name:
@@ -247,11 +267,13 @@ class SQLBlockStep(PipelineStep):
     """Represents a SQL block in the pipeline, such as CREATE TABLE.
 
     Example:
+    -------
         CREATE TABLE customer_ltv AS
         SELECT
           customer_id,
           PYTHON_FUNC("helpers.calculate_ltv", raw_sales, 0.08) AS ltv
         FROM raw_sales;
+
     """
 
     table_name: str
@@ -261,8 +283,10 @@ class SQLBlockStep(PipelineStep):
     def validate(self) -> List[str]:
         """Validate the SQL block.
 
-        Returns:
+        Returns
+        -------
             List of validation error messages, empty if valid
+
         """
         errors = []
         if not self.table_name:
@@ -283,8 +307,10 @@ class ConditionalBranchStep(PipelineStep):
     def validate(self) -> List[str]:
         """Validate the conditional branch.
 
-        Returns:
+        Returns
+        -------
             List of validation error messages, empty if valid
+
         """
         errors = []
         if not self.condition:
@@ -310,8 +336,10 @@ class ConditionalBlockStep(PipelineStep):
     def validate(self) -> List[str]:
         """Validate the conditional block.
 
-        Returns:
+        Returns
+        -------
             List of validation error messages, empty if valid
+
         """
         errors = []
         if not self.branches:
@@ -348,15 +376,19 @@ class Pipeline:
         """Add a step to the pipeline.
 
         Args:
+        ----
             step: The pipeline step to add
+
         """
         self.steps.append(step)
 
     def validate(self) -> List[str]:
         """Validate the entire pipeline.
 
-        Returns:
+        Returns
+        -------
             List of validation error messages, empty if valid
+
         """
         errors = []
         for i, step in enumerate(self.steps):

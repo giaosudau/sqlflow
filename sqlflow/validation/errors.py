@@ -22,8 +22,10 @@ class ValidationError(Exception):
     def __str__(self) -> str:
         """Simple, clear error formatting for MVP.
 
-        Returns:
+        Returns
+        -------
             Formatted error string with suggestions and help URL if available
+
         """
         result = f"❌ {self.error_type} at line {self.line}"
         if self.column > 0:
@@ -45,10 +47,13 @@ class ValidationError(Exception):
         """Convert parser errors to validation errors.
 
         Args:
+        ----
             parse_error: Exception from parser with optional line/column info
 
         Returns:
+        -------
             ValidationError instance with extracted position information
+
         """
         # Extract line/column info if available
         line = getattr(parse_error, "line", 1)
@@ -97,8 +102,10 @@ class AggregatedValidationError(Exception):
     def _group_errors_by_type(self) -> dict:
         """Group validation errors by type and sort by line number.
 
-        Returns:
+        Returns
+        -------
             Dictionary mapping error types to sorted lists of errors
+
         """
         error_groups = {}
         for error in self.errors:
@@ -117,10 +124,13 @@ class AggregatedValidationError(Exception):
         """Format the main error line with location information.
 
         Args:
+        ----
             error: ValidationError to format
 
         Returns:
+        -------
             Formatted error line string
+
         """
         error_line = f"  Line {error.line}"
         if error.column > 0:
@@ -132,10 +142,13 @@ class AggregatedValidationError(Exception):
         """Format suggestion lines for an error.
 
         Args:
+        ----
             error: ValidationError with suggestions
 
         Returns:
+        -------
             List of formatted suggestion lines
+
         """
         suggestion_lines = []
         if error.suggestions:
@@ -153,11 +166,14 @@ class AggregatedValidationError(Exception):
         """Format a group of errors of the same type.
 
         Args:
+        ----
             error_type: Type of errors in this group
             type_errors: List of errors of this type
 
         Returns:
+        -------
             List of formatted lines for this error group
+
         """
         lines = []
         if len(type_errors) > 0:
@@ -178,8 +194,10 @@ class AggregatedValidationError(Exception):
     def __str__(self) -> str:
         """Format all validation errors for display.
 
-        Returns:
+        Returns
+        -------
             Formatted string containing all validation errors
+
         """
         if not self.errors:
             return "No validation errors found"
@@ -206,7 +224,9 @@ class AggregatedValidationError(Exception):
     def first_error(self) -> Optional[ValidationError]:
         """Get the first error for backward compatibility.
 
-        Returns:
+        Returns
+        -------
             The first ValidationError in the list, or None if empty
+
         """
         return self.errors[0] if self.errors else None

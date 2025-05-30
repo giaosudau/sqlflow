@@ -2,11 +2,7 @@
 
 import pytest
 
-from sqlflow.parser.ast import (
-    ExportStep,
-    LoadStep,
-    SourceDefinitionStep,
-)
+from sqlflow.parser.ast import ExportStep, LoadStep, SourceDefinitionStep
 from sqlflow.parser.lexer import Lexer, TokenType
 from sqlflow.parser.parser import Parser, ParserError
 

@@ -22,10 +22,13 @@ class BaseExecutor(ExecutorProtocol, ABC):
         """Discover UDFs in the project.
 
         Args:
+        ----
             project_dir: Project directory (default: use UDFManager's default)
 
         Returns:
+        -------
             Dictionary of UDF names to functions
+
         """
         if project_dir:
             self.udf_manager.project_dir = project_dir
@@ -37,10 +40,13 @@ class BaseExecutor(ExecutorProtocol, ABC):
         """Get UDFs referenced in a query.
 
         Args:
+        ----
             query: SQL query
 
         Returns:
+        -------
             Dictionary of UDF names to functions
+
         """
         if not self.discovered_udfs:
             self.discover_udfs()
@@ -59,11 +65,14 @@ class BaseExecutor(ExecutorProtocol, ABC):
         """Execute a pipeline plan.
 
         Args:
+        ----
             plan: List of operations to execute
             variables: Optional dictionary of variables for substitution
 
         Returns:
+        -------
             Dict containing execution results
+
         """
 
     @abstractmethod
@@ -71,24 +80,31 @@ class BaseExecutor(ExecutorProtocol, ABC):
         """Execute a single step in the pipeline.
 
         Args:
+        ----
             step: Operation to execute
 
         Returns:
+        -------
             Dict containing execution results
+
         """
 
     @abstractmethod
     def can_resume(self) -> bool:
         """Check if the executor supports resuming from failure.
 
-        Returns:
+        Returns
+        -------
             True if the executor supports resuming, False otherwise
+
         """
 
     @abstractmethod
     def resume(self) -> Dict[str, Any]:
         """Resume execution from the last failure.
 
-        Returns:
+        Returns
+        -------
             Dict containing execution results
+
         """
