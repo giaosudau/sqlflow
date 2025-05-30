@@ -16,8 +16,10 @@ from sqlflow.core.executors.local_executor import LocalExecutor
 def temp_db() -> Generator[str, None, None]:
     """Create a temporary database file for testing.
 
-    Yields:
+    Yields
+    ------
         Path to temporary database file
+
     """
     with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
         db_path = f.name
@@ -35,8 +37,10 @@ def temp_db() -> Generator[str, None, None]:
 def duckdb_engine() -> Generator[DuckDBEngine, None, None]:
     """Create a DuckDBEngine with an in-memory database.
 
-    Yields:
+    Yields
+    ------
         Configured DuckDBEngine instance
+
     """
     engine = DuckDBEngine(database_path=":memory:")
     yield engine
@@ -48,10 +52,13 @@ def local_executor(duckdb_engine: DuckDBEngine) -> LocalExecutor:
     """Create a LocalExecutor with a configured DuckDBEngine.
 
     Args:
+    ----
         duckdb_engine: DuckDB engine fixture
 
     Returns:
+    -------
         Configured LocalExecutor instance
+
     """
     executor = LocalExecutor()
     executor.duckdb_engine = duckdb_engine
@@ -62,8 +69,10 @@ def local_executor(duckdb_engine: DuckDBEngine) -> LocalExecutor:
 def sample_users_data() -> pd.DataFrame:
     """Create sample user data for testing.
 
-    Returns:
+    Returns
+    -------
         DataFrame with sample user records
+
     """
     return pd.DataFrame(
         {
@@ -99,8 +108,10 @@ def sample_users_data() -> pd.DataFrame:
 def sample_orders_data() -> pd.DataFrame:
     """Create sample order data for testing.
 
-    Returns:
+    Returns
+    -------
         DataFrame with sample order records
+
     """
     return pd.DataFrame(
         {
@@ -124,8 +135,10 @@ def sample_orders_data() -> pd.DataFrame:
 def temp_udf_directory() -> Generator[Dict[str, Any], None, None]:
     """Create a temporary directory structure for UDF testing.
 
-    Yields:
+    Yields
+    ------
         Dictionary with project directory paths
+
     """
     with tempfile.TemporaryDirectory() as tmp_dir:
         # Set up directories
@@ -153,10 +166,13 @@ def basic_udf_file(temp_udf_directory: Dict[str, Any]) -> Path:
     """Create a basic UDF file for testing.
 
     Args:
+    ----
         temp_udf_directory: Temporary directory fixture
 
     Returns:
+    -------
         Path to created UDF file
+
     """
     udf_file = Path(temp_udf_directory["udf_dir"]) / "basic_udfs.py"
     with open(udf_file, "w") as f:
@@ -203,8 +219,10 @@ def calculate_user_stats(df: pd.DataFrame) -> pd.DataFrame:
 def large_dataset() -> pd.DataFrame:
     """Create a large dataset for performance testing.
 
-    Returns:
+    Returns
+    -------
         DataFrame with 10,000 records for performance tests
+
     """
     import numpy as np
 

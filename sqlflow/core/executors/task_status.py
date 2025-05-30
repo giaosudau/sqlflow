@@ -32,7 +32,9 @@ class TaskStatus:
     def to_json(self) -> str:
         """Convert task status to JSON string.
 
-        Returns:
+        Returns
+        -------
             JSON string representation of task status
+
         """
         return json.dumps(asdict(self))

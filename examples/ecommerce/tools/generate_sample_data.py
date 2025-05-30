@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-Sample data generator for SQLFlow ecommerce demo.
+"""Sample data generator for SQLFlow ecommerce demo.
 This script generates sample data for testing and demonstrating SQLFlow connectors.
 """
 

@@ -24,8 +24,10 @@ class DependencyResolver:
         """Add a dependency between pipelines.
 
         Args:
+        ----
             pipeline: Pipeline that depends on another
             depends_on: Pipeline that is depended on
+
         """
         if pipeline not in self.dependencies:
             self.dependencies[pipeline] = []
@@ -37,10 +39,13 @@ class DependencyResolver:
         """Extract dependencies from a pipeline file.
 
         Args:
+        ----
             pipeline_path: Path to the pipeline file
 
         Returns:
+        -------
             List of dependencies
+
         """
         return []
 
@@ -48,13 +53,17 @@ class DependencyResolver:
         """Resolve all dependencies in execution order.
 
         Args:
+        ----
             start_pipeline: Starting pipeline
 
         Returns:
+        -------
             List of pipelines in execution order
 
         Raises:
+        ------
             CircularDependencyError: If a circular dependency is detected
+
         """
         logger.debug("Resolving dependencies starting from %s", start_pipeline)
         logger.debug("Current dependency graph: %s", self.dependencies)
@@ -73,10 +82,13 @@ class DependencyResolver:
         """Validate that a pipeline has no circular dependencies.
 
         Args:
+        ----
             pipeline: Pipeline to validate
 
         Raises:
+        ------
             CircularDependencyError: If a circular dependency is detected
+
         """
         # This will raise CircularDependencyError if a cycle is detected
         self.resolve_dependencies(pipeline)
@@ -85,10 +97,13 @@ class DependencyResolver:
         """Visit a pipeline and its dependencies.
 
         Args:
+        ----
             pipeline: Pipeline to visit
 
         Raises:
+        ------
             CircularDependencyError: If a circular dependency is detected
+
         """
         logger.debug("Visiting %s", pipeline)
         logger.debug("temp_visited=%s, visited=%s", self.temp_visited, self.visited)
@@ -117,10 +132,13 @@ class DependencyResolver:
         """Find a cycle in the dependency graph.
 
         Args:
+        ----
             start: Starting pipeline
 
         Returns:
+        -------
             List of pipelines forming a cycle
+
         """
         cycle = [start]
         current = start

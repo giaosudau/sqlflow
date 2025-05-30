@@ -129,9 +129,9 @@ def test_persistent_tables_in_production_mode():
 
                 # Verify the expected value
                 assert len(query_result) == 1, "Expected 1 row in my_transform table"
-                assert (
-                    query_result[0][0] == 77
-                ), "Expected value 77 in my_transform table"
+                assert query_result[0][0] == 77, (
+                    "Expected value 77 in my_transform table"
+                )
 
                 # Close the connection when done
                 db_conn_for_assert.close()
@@ -143,9 +143,9 @@ def test_persistent_tables_in_production_mode():
 
                 # Instead of verifying by connecting, we'll check if the file exists and has a reasonable size
                 assert os.path.exists(db_path), "Database file does not exist"
-                assert (
-                    os.path.getsize(db_path) > 10000
-                ), "Database file is too small to be valid"
+                assert os.path.getsize(db_path) > 10000, (
+                    "Database file is too small to be valid"
+                )
                 print(
                     "DEBUG TEST: Alternative verification passed (file exists and has proper size)"
                 )

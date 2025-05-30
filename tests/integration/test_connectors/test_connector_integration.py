@@ -20,8 +20,10 @@ from sqlflow.connectors.parquet_connector import ParquetConnector
 def sample_data() -> pa.Table:
     """Create sample data for testing.
 
-    Returns:
+    Returns
+    -------
         PyArrow Table with sample data
+
     """
     data = {
         "id": [1, 2, 3, 4, 5],
@@ -36,8 +38,10 @@ def sample_data() -> pa.Table:
 def sample_csv_file(sample_data) -> Generator[str, None, None]:
     """Create a sample CSV file for testing.
 
-    Yields:
+    Yields
+    ------
         Path to the sample CSV file
+
     """
     with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as f:
         csv_arrow.write_csv(sample_data, f.name)
@@ -51,8 +55,10 @@ def sample_csv_file(sample_data) -> Generator[str, None, None]:
 def sample_parquet_file(sample_data) -> Generator[str, None, None]:
     """Create a sample Parquet file for testing.
 
-    Yields:
+    Yields
+    ------
         Path to the sample Parquet file
+
     """
     with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as f:
         pq.write_table(sample_data, f.name)

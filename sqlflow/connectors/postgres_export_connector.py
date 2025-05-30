@@ -37,11 +37,14 @@ class PostgresExportConnector(ExportConnector):
         """Configure the connector with parameters.
 
         Args:
+        ----
             params: Configuration parameters including host, port, dbname, user, password,
                    batch_size, write_mode, upsert_keys, target_table
 
         Raises:
+        ------
             ConnectorError: If configuration fails
+
         """
         try:
             self.params = PostgresConnectionParams(
@@ -90,8 +93,10 @@ class PostgresExportConnector(ExportConnector):
     def _create_connection_pool(self) -> None:
         """Create a connection pool.
 
-        Raises:
+        Raises
+        ------
             ConnectorError: If connection pool creation fails
+
         """
         if self.params is None:
             raise ConnectorError(
@@ -120,8 +125,10 @@ class PostgresExportConnector(ExportConnector):
     def test_connection(self) -> ConnectionTestResult:
         """Test the connection to the PostgreSQL database.
 
-        Returns:
+        Returns
+        -------
             Result of the connection test
+
         """
         self.validate_state(ConnectorState.CONFIGURED)
 
@@ -155,10 +162,13 @@ class PostgresExportConnector(ExportConnector):
         """Convert Arrow type to PostgreSQL type.
 
         Args:
+        ----
             arrow_type: Arrow data type
 
         Returns:
+        -------
             PostgreSQL data type
+
         """
         if pa.types.is_integer(arrow_type):
             return "BIGINT"
@@ -181,11 +191,14 @@ class PostgresExportConnector(ExportConnector):
         """Create table if it doesn't exist.
 
         Args:
+        ----
             conn: Database connection
             schema: Arrow schema
 
         Raises:
+        ------
             ConnectorError: If table creation fails
+
         """
         if self.target_table is None:
             raise ConnectorError(
@@ -215,7 +228,7 @@ class PostgresExportConnector(ExportConnector):
 
                 if self.write_mode == "upsert" and self.upsert_keys:
                     quoted_keys = [f'"{k}"' for k in self.upsert_keys]
-                    pk_constraint = f', PRIMARY KEY ({", ".join(quoted_keys)})'
+                    pk_constraint = f", PRIMARY KEY ({', '.join(quoted_keys)})"
                 else:
                     pk_constraint = ""
 
@@ -238,10 +251,13 @@ class PostgresExportConnector(ExportConnector):
         """Truncate the target table.
 
         Args:
+        ----
             conn: Database connection
 
         Raises:
+        ------
             ConnectorError: If truncation fails
+
         """
         if self.target_table is None:
             raise ConnectorError(
@@ -265,12 +281,15 @@ class PostgresExportConnector(ExportConnector):
         """Write DataFrame to table using COPY.
 
         Args:
+        ----
             conn: Database connection
             df: DataFrame to write
             temp_table: Whether to write to a temporary table
 
         Raises:
+        ------
             ConnectorError: If write fails
+
         """
         if self.target_table is None:
             raise ConnectorError(
@@ -306,11 +325,14 @@ class PostgresExportConnector(ExportConnector):
         """Handle upsert operation using a temporary table.
 
         Args:
+        ----
             conn: Database connection
             df: DataFrame to upsert
 
         Raises:
+        ------
             ConnectorError: If upsert fails
+
         """
         if self.target_table is None or self.upsert_keys is None:
             raise ConnectorError(
@@ -357,11 +379,14 @@ class PostgresExportConnector(ExportConnector):
     def _prepare_connection(self) -> psycopg2.extensions.connection:
         """Prepare database connection.
 
-        Returns:
+        Returns
+        -------
             Database connection
 
-        Raises:
+        Raises
+        ------
             ConnectorError: If connection preparation fails
+
         """
         if self.connection_pool is None:
             self._create_connection_pool()
@@ -383,12 +408,15 @@ class PostgresExportConnector(ExportConnector):
         """Process data chunks according to write mode.
 
         Args:
+        ----
             conn: Database connection
             data_chunks: List of DataChunks to process
             schema: Arrow schema
 
         Raises:
+        ------
             ConnectorError: If processing fails
+
         """
         self._create_table_if_not_exists(conn, schema)
 
@@ -407,10 +435,13 @@ class PostgresExportConnector(ExportConnector):
         """Write data to PostgreSQL table.
 
         Args:
+        ----
             data: DataChunk or list of DataChunks to write
 
         Raises:
+        ------
             ConnectorError: If write fails
+
         """
         self.validate_state(ConnectorState.CONFIGURED)
 

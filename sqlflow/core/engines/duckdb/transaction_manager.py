@@ -16,7 +16,9 @@ class TransactionManager:
         """Initialize transaction manager.
 
         Args:
+        ----
             engine: DuckDB engine instance
+
         """
         self.engine = engine
         self.in_transaction = False
@@ -31,9 +33,11 @@ class TransactionManager:
         """Exit transaction context.
 
         Args:
+        ----
             exc_type: Exception type if raised
             exc_val: Exception value if raised
             exc_tb: Exception traceback if raised
+
         """
         if exc_type is None:
             logger.debug("Transaction completed successfully")

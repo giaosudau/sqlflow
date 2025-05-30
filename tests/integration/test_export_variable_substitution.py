@@ -219,7 +219,7 @@ def test_nested_directory_variable_substitution(test_environment):
             f"""
 -- Test pipeline for variable substitution in nested directory paths
 SOURCE test_source TYPE CSV PARAMS {{
-    "path": "{test_environment['data_file']}",
+    "path": "{test_environment["data_file"]}",
     "has_header": true
 }};
 
@@ -227,7 +227,7 @@ LOAD data FROM test_source;
 
 -- Export with variables in nested directory path
 EXPORT SELECT * FROM data
-TO "{test_environment['output_dir']}/${{env|prod}}/${{region|default}}/${{date|2023-10-30}}_report.csv"
+TO "{test_environment["output_dir"]}/${{env|prod}}/${{region|default}}/${{date|2023-10-30}}_report.csv"
 TYPE CSV
 OPTIONS {{
     "header": true

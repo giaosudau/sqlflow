@@ -21,13 +21,17 @@ def _read_pipeline_file(pipeline_path: str) -> str:
     """Read pipeline file content with error handling.
 
     Args:
+    ----
         pipeline_path: Path to the pipeline file
 
     Returns:
+    -------
         Pipeline file content
 
     Raises:
+    ------
         typer.Exit: If file cannot be read
+
     """
     pipeline_file = Path(pipeline_path)
     if not pipeline_file.exists():
@@ -48,11 +52,14 @@ def _parse_and_validate_pipeline(
     """Parse and validate pipeline text.
 
     Args:
+    ----
         pipeline_text: Pipeline content to parse
         pipeline_path: Path for logging purposes
 
     Returns:
+    -------
         List of validation errors
+
     """
     parser = Parser()
     errors = []
@@ -105,14 +112,18 @@ def validate_pipeline_with_caching(
     """Validate a pipeline file with smart caching.
 
     Args:
+    ----
         pipeline_path: Path to the pipeline file
         project_dir: Project directory (defaults to current directory)
 
     Returns:
+    -------
         List of validation errors (empty if valid)
 
     Raises:
+    ------
         typer.Exit: If pipeline file cannot be read
+
     """
     try:
         # Initialize cache
@@ -152,10 +163,13 @@ def _group_errors_by_type(errors: List[ValidationError]) -> dict:
     """Group validation errors by type.
 
     Args:
+    ----
         errors: List of validation errors
 
     Returns:
+    -------
         Dictionary mapping error types to lists of errors
+
     """
     error_groups = {}
     for error in errors:
@@ -170,11 +184,14 @@ def _format_single_error(error: ValidationError, show_details: bool) -> List[str
     """Format a single validation error.
 
     Args:
+    ----
         error: Validation error to format
         show_details: Whether to show detailed information
 
     Returns:
+    -------
         List of formatted lines for this error
+
     """
     lines = []
 
@@ -203,11 +220,14 @@ def format_validation_errors_for_cli(
     """Format validation errors for CLI output.
 
     Args:
+    ----
         errors: List of validation errors
         show_details: Whether to show detailed error information
 
     Returns:
+    -------
         Formatted error message string
+
     """
     if not errors:
         return "✅ Pipeline validation passed!"
@@ -240,9 +260,11 @@ def print_validation_summary(
     """Print validation summary to console.
 
     Args:
+    ----
         errors: List of validation errors
         pipeline_name: Name of the pipeline being validated
         quiet: Whether to use quiet output mode
+
     """
     if not errors:
         if not quiet:
@@ -268,12 +290,15 @@ def validate_and_exit_on_error(
     if validation fails.
 
     Args:
+    ----
         pipeline_path: Path to the pipeline file
         pipeline_name: Name of the pipeline for display
         quiet: Whether to use quiet output mode
 
     Raises:
+    ------
         typer.Exit: If validation fails (exit code 1)
+
     """
     errors = validate_pipeline_with_caching(pipeline_path)
 

@@ -18,7 +18,9 @@ class EvaluationError(Exception):
         """Initialize an EvaluationError.
 
         Args:
+        ----
             message: Error message
+
         """
         self.message = message
         super().__init__(message)
@@ -31,7 +33,9 @@ class ConditionEvaluator:
         """Initialize with a variables dictionary.
 
         Args:
+        ----
             variables: Dictionary of variable names to values
+
         """
         self.variables = variables
         # Define operators that are allowed
@@ -55,13 +59,17 @@ class ConditionEvaluator:
         """Evaluate a condition expression to a boolean result.
 
         Args:
+        ----
             condition: String containing the condition to evaluate
 
         Returns:
+        -------
             Boolean result of the condition evaluation
 
         Raises:
+        ------
             EvaluationError: If the condition cannot be evaluated
+
         """
         # First substitute variables
         substituted_condition = self._substitute_variables(condition)
@@ -91,10 +99,13 @@ class ConditionEvaluator:
         """Replace ${var} with the variable value.
 
         Args:
+        ----
             condition: Condition containing variable references
 
         Returns:
+        -------
             Condition with variables substituted
+
         """
         pattern = r"\$\{([^}]+)\}"
 
@@ -145,10 +156,13 @@ class ConditionEvaluator:
         """Format a value for substitution in a condition.
 
         Args:
+        ----
             value: Value to format
 
         Returns:
+        -------
             Formatted value as a string
+
         """
         if isinstance(value, str):
             # Keep strings as quoted strings
@@ -168,10 +182,13 @@ class ConditionEvaluator:
         """Format a value with type inference for default values.
 
         Args:
+        ----
             value: String value to format with type inference
 
         Returns:
+        -------
             Properly typed and formatted value as a string
+
         """
         # Strip quotes if present
         if (value.startswith("'") and value.endswith("'")) or (
@@ -207,13 +224,17 @@ class ConditionEvaluator:
         """Safely evaluate an expression to a boolean result.
 
         Args:
+        ----
             expr: Expression to evaluate
 
         Returns:
+        -------
             Boolean result of the evaluation
 
         Raises:
+        ------
             EvaluationError: If the expression cannot be evaluated safely
+
         """
         try:
             # Parse the expression into an AST
@@ -238,13 +259,17 @@ class ConditionEvaluator:
         """Evaluate a single AST node.
 
         Args:
+        ----
             node: The AST node to evaluate
 
         Returns:
+        -------
             The result of evaluating the node
 
         Raises:
+        ------
             EvaluationError: If the node cannot be evaluated
+
         """
         if isinstance(node, ast.BoolOp):
             return self._eval_bool_op(node)
@@ -267,10 +292,13 @@ class ConditionEvaluator:
         """Evaluate a boolean operation (AND/OR).
 
         Args:
+        ----
             node: The boolean operation node
 
         Returns:
+        -------
             The result of the boolean operation
+
         """
         if isinstance(node.op, ast.And):
             # Short-circuit AND
@@ -299,10 +327,13 @@ class ConditionEvaluator:
         """Evaluate a unary operation (NOT).
 
         Args:
+        ----
             node: The unary operation node
 
         Returns:
+        -------
             The result of the unary operation
+
         """
         if isinstance(node.op, ast.Not):
             return not self._eval_node(node.operand)
@@ -312,10 +343,13 @@ class ConditionEvaluator:
         """Evaluate a comparison operation.
 
         Args:
+        ----
             node: The comparison node
 
         Returns:
+        -------
             The result of the comparison
+
         """
         left = self._eval_node(node.left)
         for op, comparator in zip(node.ops, node.comparators):
@@ -341,12 +375,15 @@ class ConditionEvaluator:
         """Check if this is a comparison between a string and a boolean.
 
         Args:
+        ----
             op_type: The operator type
             left: Left operand
             right: Right operand
 
         Returns:
+        -------
             True if this is a string-boolean comparison that needs special handling
+
         """
         is_eq_op = op_type in (ast.Eq, ast.NotEq)
         is_bool_string_pair = (isinstance(left, bool) and isinstance(right, str)) or (
@@ -360,12 +397,15 @@ class ConditionEvaluator:
         """Handle special case for string-boolean comparisons.
 
         Args:
+        ----
             op_type: The operator type
             left: Left operand
             right: Right operand
 
         Returns:
+        -------
             Result of the comparison
+
         """
         # Ensure bool_val is the boolean and str_val is the string
         if isinstance(left, bool) and isinstance(right, str):
@@ -394,10 +434,13 @@ class ConditionEvaluator:
         """Evaluate a name node.
 
         Args:
+        ----
             node: The name node
 
         Returns:
+        -------
             The value of the name
+
         """
         if node.id == "True":
             return True

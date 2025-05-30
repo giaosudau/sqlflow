@@ -23,14 +23,18 @@ class ArtifactManager:
     and execution artifacts in the target directory structure.
 
     Args:
+    ----
         project_dir: Root directory of the SQLFlow project.
+
     """
 
     def __init__(self, project_dir: str):
         """Initialize the artifact manager.
 
         Args:
+        ----
             project_dir: Root directory of the SQLFlow project.
+
         """
         self.project_dir = project_dir
         self.setup_directories()
@@ -38,8 +42,10 @@ class ArtifactManager:
     def setup_directories(self) -> List[str]:
         """Create standard artifact directories.
 
-        Returns:
+        Returns
+        -------
             List of created directory paths.
+
         """
         directories = [
             os.path.join(self.project_dir, "target", "compiled"),
@@ -55,10 +61,13 @@ class ArtifactManager:
         """Get path to the compiled plan file.
 
         Args:
+        ----
             pipeline_name: Name of the pipeline.
 
         Returns:
+        -------
             Path to the compiled plan file.
+
         """
         return os.path.join(
             self.project_dir, "target", "compiled", f"{pipeline_name}.json"
@@ -68,10 +77,13 @@ class ArtifactManager:
         """Get path to the run directory for a pipeline.
 
         Args:
+        ----
             pipeline_name: Name of the pipeline.
 
         Returns:
+        -------
             Path to the run directory.
+
         """
         run_dir = os.path.join(self.project_dir, "target", "run", pipeline_name)
         os.makedirs(run_dir, exist_ok=True)
@@ -81,7 +93,9 @@ class ArtifactManager:
         """Clean (delete and recreate) the run directory for a pipeline.
 
         Args:
+        ----
             pipeline_name: Name of the pipeline.
+
         """
         run_dir = os.path.join(self.project_dir, "target", "run", pipeline_name)
         if os.path.exists(run_dir):
@@ -99,11 +113,14 @@ class ArtifactManager:
         """Save the compiled plan to disk.
 
         Args:
+        ----
             pipeline_name: Name of the pipeline.
             plan: Execution plan dictionary.
 
         Returns:
+        -------
             Path to the saved plan file.
+
         """
         path = self.get_compiled_path(pipeline_name)
         os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -115,13 +132,17 @@ class ArtifactManager:
         """Load a compiled plan from disk.
 
         Args:
+        ----
             pipeline_name: Name of the pipeline.
 
         Returns:
+        -------
             Execution plan dictionary.
 
         Raises:
+        ------
             FileNotFoundError: If compiled plan doesn't exist.
+
         """
         path = self.get_compiled_path(pipeline_name)
         with open(path, "r") as f:
@@ -133,12 +154,15 @@ class ArtifactManager:
         """Initialize execution tracking for a pipeline.
 
         Args:
+        ----
             pipeline_name: Name of the pipeline.
             variables: Variables used in execution.
             profile: Profile name used.
 
         Returns:
+        -------
             Tuple of (execution_id, metadata_dict).
+
         """
         run_dir = self.get_run_dir(pipeline_name)
         execution_id = (
@@ -176,6 +200,7 @@ class ArtifactManager:
         """Record the start of an operation execution.
 
         Args:
+        ----
             pipeline_name: Name of the pipeline.
             operation_id: ID of the operation.
             operation_type: Type of the operation.
@@ -183,7 +208,9 @@ class ArtifactManager:
             operation_details: Additional details about the operation.
 
         Returns:
+        -------
             Operation metadata dictionary.
+
         """
         run_dir = self.get_run_dir(pipeline_name)
 
@@ -291,12 +318,15 @@ class ArtifactManager:
         """Generate a descriptive file name for an operation.
 
         Args:
+        ----
             operation_id: Original operation ID.
             operation_type: Type of operation.
             details: Additional operation details.
 
         Returns:
+        -------
             A descriptive file name base (without extension).
+
         """
         descriptive_part: Optional[str] = None
         if details:
@@ -332,11 +362,14 @@ class ArtifactManager:
         """Get the file name for an operation from metadata or fallback to operation_id.
 
         Args:
+        ----
             pipeline_name: Name of the pipeline
             operation_id: ID of the operation
 
         Returns:
+        -------
             File name base for the operation
+
         """
         run_dir = self.get_run_dir(pipeline_name)
         metadata_path = os.path.join(run_dir, "metadata.json")
@@ -354,11 +387,14 @@ class ArtifactManager:
         """Load existing operation metadata or create new metadata.
 
         Args:
+        ----
             run_dir: Directory containing operation files
             file_name_base: Base name for operation files
 
         Returns:
+        -------
             Operation metadata dictionary
+
         """
         op_path = os.path.join(run_dir, f"{file_name_base}.json")
         try:
@@ -379,11 +415,14 @@ class ArtifactManager:
         """Process operation status and results.
 
         Args:
+        ----
             status: Operation status (bool, str, or dict)
             results: Optional operation results
 
         Returns:
+        -------
             Tuple of (success: bool, error_details: Optional[str], result_values: Dict[str, Any])
+
         """
         success = False
         error_details = None
@@ -423,6 +462,7 @@ class ArtifactManager:
         """Update operation metadata with completion information.
 
         Args:
+        ----
             op_metadata: Existing operation metadata
             success: Whether operation succeeded
             error_details: Error details if operation failed
@@ -430,7 +470,9 @@ class ArtifactManager:
             started_at: Operation start time
 
         Returns:
+        -------
             Updated operation metadata
+
         """
         now = datetime.now()
         duration_ms = int((now - started_at).total_seconds() * 1000)
@@ -456,8 +498,10 @@ class ArtifactManager:
         """Update pipeline metadata with operation completion information.
 
         Args:
+        ----
             pipeline_name: Name of the pipeline
             success: Whether operation succeeded
+
         """
         run_dir = self.get_run_dir(pipeline_name)
         metadata_path = os.path.join(run_dir, "metadata.json")
@@ -484,6 +528,7 @@ class ArtifactManager:
         """Record completion of an operation.
 
         Args:
+        ----
             pipeline_name: Name of the pipeline
             operation_id: ID of the operation
             operation_type: Type of the operation
@@ -491,7 +536,9 @@ class ArtifactManager:
             results: Optional results of the operation (if status is not a dict)
 
         Returns:
+        -------
             Updated operation metadata
+
         """
         run_dir = self.get_run_dir(pipeline_name)
         file_name_base = self._get_operation_file_name(pipeline_name, operation_id)
@@ -526,12 +573,15 @@ class ArtifactManager:
         """Finalize the execution tracking.
 
         Args:
+        ----
             pipeline_name: Name of the pipeline.
             success: Whether pipeline execution succeeded.
             error_message: Optional error message if pipeline failed.
 
         Returns:
+        -------
             Final pipeline execution metadata.
+
         """
         run_dir = self.get_run_dir(pipeline_name)
         metadata_path = os.path.join(run_dir, "metadata.json")

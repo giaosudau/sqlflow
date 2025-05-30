@@ -119,7 +119,6 @@ def test_python_table_udf_with_infer():
 
 def test_python_table_udf_missing_schema():
     """Test the python_table_udf decorator without required schema or infer flag."""
-
     # Should raise ValueError if no output_schema and infer=False
     with pytest.raises(ValueError) as excinfo:
 
@@ -199,7 +198,6 @@ def test_python_table_udf_with_required_columns():
 
 def test_python_table_udf_invalid_signatures():
     """Test the python_table_udf decorator with invalid function signatures."""
-
     # Test with no parameters
     with pytest.raises(ValueError) as excinfo:
 

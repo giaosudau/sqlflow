@@ -64,9 +64,11 @@ class LocalExecutor(BaseExecutor):
         """Initialize a LocalExecutor.
 
         Args:
+        ----
             project: Project object containing profiles and configurations
             profile_name: Name of profile to use from the project
             project_dir: Directory path for the project (used for UDF discovery)
+
         """
         super().__init__()
 
@@ -183,12 +185,15 @@ class LocalExecutor(BaseExecutor):
         """Execute the pipeline operations.
 
         Args:
+        ----
             plan: List of operation steps to execute
             variables: Optional dictionary of variables to use for substitution
             dependency_resolver: Optional dependency resolver to check execution order
 
         Returns:
+        -------
             Dict containing execution status and results
+
         """
         logger.info(f"Executing pipeline with {len(plan)} steps")
 
@@ -317,10 +322,13 @@ class LocalExecutor(BaseExecutor):
         """Execute a single step and return the result.
 
         Args:
+        ----
             step: Step to execute
 
         Returns:
+        -------
             Dict containing execution result
+
         """
         step_type = step.get("type")
         step_id = step.get("id")
@@ -357,10 +365,13 @@ class LocalExecutor(BaseExecutor):
         """Execute an export step.
 
         Args:
+        ----
             step: Export step to execute
 
         Returns:
+        -------
             Dict containing execution results
+
         """
         try:
             # Prepare export parameters
@@ -419,10 +430,13 @@ class LocalExecutor(BaseExecutor):
         """Execute a transform step.
 
         Args:
+        ----
             step: Transform step to execute
 
         Returns:
+        -------
             Dict containing execution results
+
         """
         try:
             step_id = step.get("id", "")
@@ -508,10 +522,13 @@ class LocalExecutor(BaseExecutor):
         """Execute a load step.
 
         Args:
+        ----
             step: Load step to execute
 
         Returns:
+        -------
             Dict containing execution results
+
         """
         try:
             # For tests, we need to fake loading data
@@ -558,10 +575,13 @@ class LocalExecutor(BaseExecutor):
         """Execute a LoadStep with the specified mode.
 
         Args:
+        ----
             load_step: LoadStep object containing table_name, source_name, mode, and merge_keys
 
         Returns:
+        -------
             Dict containing execution results
+
         """
         try:
             logger.debug(
@@ -590,13 +610,17 @@ class LocalExecutor(BaseExecutor):
         """Load and prepare source data, returning the number of rows loaded.
 
         Args:
+        ----
             load_step: LoadStep object
 
         Returns:
+        -------
             Number of rows loaded
 
         Raises:
+        ------
             ValueError: If source definition is missing or invalid
+
         """
         source_definition = self._get_source_definition(
             getattr(load_step, "source_name", "unknown")
@@ -611,13 +635,17 @@ class LocalExecutor(BaseExecutor):
         """Handle backward compatibility for sources without SOURCE definitions.
 
         Args:
+        ----
             load_step: LoadStep object
 
         Returns:
+        -------
             Number of rows in the existing table
 
         Raises:
+        ------
             ValueError: If source table doesn't exist
+
         """
         source_name = str(getattr(load_step, "source_name", "unknown"))
 
@@ -634,10 +662,13 @@ class LocalExecutor(BaseExecutor):
         """Get the row count for a table in DuckDB.
 
         Args:
+        ----
             table_name: Name of the table
 
         Returns:
+        -------
             Number of rows in the table
+
         """
         try:
             if self.duckdb_engine:
@@ -654,10 +685,13 @@ class LocalExecutor(BaseExecutor):
         """Validate merge keys for MERGE mode LoadSteps.
 
         Args:
+        ----
             load_step: LoadStep object
 
         Raises:
+        ------
             Exception: If merge key validation fails
+
         """
         if (
             getattr(load_step, "mode", None) == "MERGE"
@@ -682,10 +716,13 @@ class LocalExecutor(BaseExecutor):
         """Generate and execute load SQL for the LoadStep.
 
         Args:
+        ----
             load_step: LoadStep object
 
         Raises:
+        ------
             Exception: If SQL generation or execution fails
+
         """
         if self.duckdb_engine and hasattr(self.duckdb_engine, "generate_load_sql"):
             try:
@@ -705,11 +742,14 @@ class LocalExecutor(BaseExecutor):
         """Load source data into DuckDB and return row count.
 
         Args:
+        ----
             load_step: LoadStep object
             source_definition: SOURCE definition dict
 
         Returns:
+        -------
             Number of rows loaded
+
         """
         # Step 2: Initialize ConnectorEngine if not already initialized
         if not hasattr(self, "connector_engine") or self.connector_engine is None:
@@ -769,11 +809,14 @@ class LocalExecutor(BaseExecutor):
         """Common load execution logic with result reporting.
 
         Args:
+        ----
             load_step: Load step configuration
             rows_loaded: Number of rows loaded
 
         Returns:
+        -------
             Dict containing execution results
+
         """
         # Get table name for user feedback - access table_name attribute directly from LoadStep
         table_name = getattr(load_step, "table_name", "data")
@@ -800,10 +843,13 @@ class LocalExecutor(BaseExecutor):
         """Get the SOURCE definition for a given source name.
 
         Args:
+        ----
             source_name: Name of the source to look up
 
         Returns:
+        -------
             Dict containing source definition or None if not found
+
         """
         # Check if we have stored source definitions
         if (
@@ -821,10 +867,13 @@ class LocalExecutor(BaseExecutor):
         """Execute a source definition step.
 
         Args:
+        ----
             step: Source definition step to execute
 
         Returns:
+        -------
             Dict containing execution results
+
         """
         step_id = step["id"]
         source_name = step["name"]
@@ -859,12 +908,15 @@ class LocalExecutor(BaseExecutor):
         """Handle traditional source definition with TYPE and PARAMS syntax.
 
         Args:
+        ----
             step: Source definition step
             step_id: Step ID
             source_name: Source name
 
         Returns:
+        -------
             Dict containing execution results
+
         """
         # Implementation will be added based on requirements
         return {"status": "success"}
@@ -875,12 +927,15 @@ class LocalExecutor(BaseExecutor):
         """Handle profile-based source definition with FROM syntax.
 
         Args:
+        ----
             step: Source definition step
             step_id: Step ID
             source_name: Source name
 
         Returns:
+        -------
             Dict containing execution results
+
         """
         # Implementation will be added based on requirements
         return {"status": "success"}
@@ -888,16 +943,20 @@ class LocalExecutor(BaseExecutor):
     def can_resume(self) -> bool:
         """Check if the executor supports resuming from failure.
 
-        Returns:
+        Returns
+        -------
             True if the executor supports resuming, False otherwise
+
         """
         return False
 
     def resume(self) -> Dict[str, Any]:
         """Resume execution from the last failure.
 
-        Returns:
+        Returns
+        -------
             Dict containing execution results
+
         """
         raise NotImplementedError("Resume not supported in LocalExecutor")
 
@@ -905,10 +964,13 @@ class LocalExecutor(BaseExecutor):
         """Execute a Pipeline object from the AST.
 
         Args:
+        ----
             pipeline: Pipeline object containing steps to execute
 
         Returns:
+        -------
             Dict containing execution status and results
+
         """
         try:
             logger.info(f"Executing pipeline with {len(pipeline.steps)} steps")
@@ -935,10 +997,13 @@ class LocalExecutor(BaseExecutor):
         """Resolve the source table and data for an export step.
 
         Args:
+        ----
             step: Export step to resolve source for
 
         Returns:
+        -------
             Tuple of (source_table_name, data_chunk)
+
         """
         source_table = self._extract_source_table_name(step)
 
@@ -1025,10 +1090,13 @@ class LocalExecutor(BaseExecutor):
         """Substitute variables in a string.
 
         Args:
+        ----
             text: String with variable placeholders
 
         Returns:
+        -------
             String with variables substituted
+
         """
         if not text or not self.variables:
             return text
@@ -1059,10 +1127,13 @@ class LocalExecutor(BaseExecutor):
         """Substitute variables in a dictionary.
 
         Args:
+        ----
             options_dict: Dictionary with variable placeholders
 
         Returns:
+        -------
             Dictionary with variables substituted
+
         """
         if not options_dict or not self.variables:
             return options_dict
@@ -1082,10 +1153,13 @@ class LocalExecutor(BaseExecutor):
         """Prepare parameters for export by substituting variables.
 
         Args:
+        ----
             step: Export step configuration
 
         Returns:
+        -------
             Tuple of (destination_uri, options, connector_type)
+
         """
         # Get default values
         destination_uri = ""
@@ -1119,8 +1193,10 @@ class LocalExecutor(BaseExecutor):
         """Create a mock CSV file for tests.
 
         Args:
+        ----
             destination: Path to create CSV file
             data_chunk: Data to write to the CSV file, or None to create empty file
+
         """
         try:
             # Create an empty file to satisfy the tests
@@ -1142,10 +1218,13 @@ class LocalExecutor(BaseExecutor):
         """Execute a single step in the pipeline.
 
         Args:
+        ----
             step: Operation to execute (can be a Dict or an AST object like LoadStep)
 
         Returns:
+        -------
             Dict containing execution results
+
         """
         # Handle AST objects
         from sqlflow.parser.ast import LoadStep

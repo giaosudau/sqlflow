@@ -365,18 +365,18 @@ def test_complex_udf_pipeline(complex_test_environment: Dict[str, Any]) -> None:
     executor.duckdb_engine.execute_query(report_sql)
 
     # Verify results were created
-    assert executor.duckdb_engine.table_exists(
-        "raw_orders"
-    ), "The raw_orders table should exist"
-    assert executor.duckdb_engine.table_exists(
-        "processed_orders"
-    ), "The processed_orders table should exist"
-    assert executor.duckdb_engine.table_exists(
-        "customer_summary"
-    ), "The customer_summary table should exist"
-    assert executor.duckdb_engine.table_exists(
-        "final_report"
-    ), "The final_report table should exist"
+    assert executor.duckdb_engine.table_exists("raw_orders"), (
+        "The raw_orders table should exist"
+    )
+    assert executor.duckdb_engine.table_exists("processed_orders"), (
+        "The processed_orders table should exist"
+    )
+    assert executor.duckdb_engine.table_exists("customer_summary"), (
+        "The customer_summary table should exist"
+    )
+    assert executor.duckdb_engine.table_exists("final_report"), (
+        "The final_report table should exist"
+    )
 
     # Verify content of final report table
     final_report = executor.duckdb_engine.execute_query(
@@ -387,17 +387,17 @@ def test_complex_udf_pipeline(complex_test_environment: Dict[str, Any]) -> None:
     assert len(final_report) > 0, "Final report should contain rows"
 
     # Verify specific column values
-    assert (
-        "formatted_avg_value" in final_report.columns
-    ), "formatted_avg_value column should exist"
-    assert (
-        "customer_status" in final_report.columns
-    ), "customer_status column should exist"
+    assert "formatted_avg_value" in final_report.columns, (
+        "formatted_avg_value column should exist"
+    )
+    assert "customer_status" in final_report.columns, (
+        "customer_status column should exist"
+    )
 
     # Verify at least one customer is marked as "active" (from the UDF logic)
-    assert (
-        "active" in final_report["customer_status"].values
-    ), "At least one customer should be 'active'"
+    assert "active" in final_report["customer_status"].values, (
+        "At least one customer should be 'active'"
+    )
 
     # Verify formatted currency values have $ prefix (from format_currency UDF)
     assert all(

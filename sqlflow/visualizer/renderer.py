@@ -10,18 +10,23 @@ class Renderer:
         """Render a DAG as an interactive HTML visualization.
 
         Args:
+        ----
             dag: PipelineDAG to render
             output_path: Path to write the HTML file
+
         """
 
     def render_dot(self, dag: PipelineDAG) -> str:
         """Render a DAG as a DOT graph.
 
         Args:
+        ----
             dag: PipelineDAG to render
 
         Returns:
+        -------
             DOT graph representation
+
         """
         dot = ["digraph G {"]
 
@@ -51,6 +56,8 @@ class Renderer:
         """Render a DAG as a PNG image.
 
         Args:
+        ----
             dag: PipelineDAG to render
             output_path: Path to write the PNG file
+
         """

@@ -1,7 +1,7 @@
 repos:
 # Fast formatting and linting - these can run in parallel
--   repo: https://github.com/charliermarsh/ruff-pre-commit
-    rev: v0.4.4
+-   repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.11.12
     hooks:
     -   id: ruff
         name: ruff-lint
@@ -9,54 +9,28 @@ repos:
     -   id: ruff-format
         name: ruff-format
 
--   repo: https://github.com/psf/black
-    rev: 24.4.2
-    hooks:
-    -   id: black
-        language_version: python3
-
--   repo: https://github.com/pycqa/isort
-    rev: 5.13.2
-    hooks:
-    -   id: isort
-        args: ['--profile', 'black']
-
 # Local hooks for project-specific tasks
 -   repo: local
     hooks:
-    # Quick syntax/import check only
-    -   id: flake8-critical
-        name: flake8 (critical errors only)
-        entry: flake8
-        language: python
-        types: [python]
-        args: [
-            '--select=E9,F63,F7,F82',  # Only critical errors
-            '--max-complexity=10',
-        ]
-        
-    # Fast unit tests only (exclude slow integration tests)
-    -   id: pytest-unit
-        name: pytest (unit tests only)
+    -   id: pytest
+        name: pytest
         entry: pytest
         language: python
-        files: '^(tests/unit/.*\.py|sqlflow/.*\.py)$'
+        files: '^(.*\.py|tests/.*|setup\.py|setup\.cfg|pyproject\.toml|requirements.*\.txt)$'
         types: [python]
         args: [
-            'tests/unit/',
-            '-q', 
+            '-q',
             '--disable-warnings',
-            '--maxfail=5',           # Stop after 5 failures
-            '-x',                    # Stop on first failure
-            '--tb=short',            # Shorter tracebacks
+            '-n', 'auto'
         ]
         pass_filenames: false
+        require_serial: true
 
-    # Optional: Run only when examples are changed
     -   id: examples-demo-scripts
         name: Run example demo scripts
         entry: ./run_all_examples.sh
         language: system
         pass_filenames: false
         files: '^examples/.*\.(sf|py|csv|yml|yaml|sh)$'
-        stages: [manual]  # Only run manually with --hook-stage manual
+        require_serial: true
+        verbose: true

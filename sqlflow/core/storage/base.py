@@ -12,8 +12,10 @@ class StorageManagerProtocol(ABC):
         """Store data with a key.
 
         Args:
+        ----
             key: Key to store data under
             data: Data to store
+
         """
 
     @abstractmethod
@@ -21,10 +23,13 @@ class StorageManagerProtocol(ABC):
         """Retrieve data by key.
 
         Args:
+        ----
             key: Key to retrieve data for
 
         Returns:
+        -------
             Retrieved data
+
         """
 
     @abstractmethod
@@ -32,10 +37,13 @@ class StorageManagerProtocol(ABC):
         """Check if a key exists.
 
         Args:
+        ----
             key: Key to check
 
         Returns:
+        -------
             True if the key exists, False otherwise
+
         """
 
 
@@ -50,8 +58,10 @@ class MemoryStorageManager(StorageManagerProtocol):
         """Store data with a key.
 
         Args:
+        ----
             key: Key to store data under
             data: Data to store
+
         """
         self.storage[key] = data
 
@@ -59,13 +69,17 @@ class MemoryStorageManager(StorageManagerProtocol):
         """Retrieve data by key.
 
         Args:
+        ----
             key: Key to retrieve data for
 
         Returns:
+        -------
             Retrieved data
 
         Raises:
+        ------
             KeyError: If the key does not exist
+
         """
         if key not in self.storage:
             raise KeyError(f"Key '{key}' not found in storage")
@@ -75,9 +89,12 @@ class MemoryStorageManager(StorageManagerProtocol):
         """Check if a key exists.
 
         Args:
+        ----
             key: Key to check
 
         Returns:
+        -------
             True if the key exists, False otherwise
+
         """
         return key in self.storage

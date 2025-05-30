@@ -17,8 +17,10 @@ class Project:
         """Initialize a Project instance using a profile.
 
         Args:
+        ----
             project_dir: Path to the project directory
             profile_name: Name of the profile to load (default: 'dev')
+
         """
         self.project_dir = project_dir
         self.profile_name = profile_name
@@ -33,9 +35,11 @@ class Project:
         """Load profile configuration from profiles directory.
 
         Args:
+        ----
             profile_name: Name of the profile
         Returns:
             Dict containing profile configuration
+
         """
         profiles_dir = os.path.join(self.project_dir, "profiles")
         profile_path = os.path.join(profiles_dir, f"{profile_name}.yml")
@@ -77,17 +81,22 @@ class Project:
         """Get the full path to a pipeline file.
 
         Args:
+        ----
             pipeline_name: Name of the pipeline
         Returns:
             Full path to the pipeline file
+
         """
         pipelines_dir = self.profile.get("paths", {}).get("pipelines", "pipelines")
         return os.path.join(self.project_dir, pipelines_dir, f"{pipeline_name}.sf")
 
     def get_profile(self) -> Dict[str, Any]:
         """Get the loaded profile configuration.
-        Returns:
+
+        Returns
+        -------
             Dict containing profile configuration
+
         """
         return self.profile
 
@@ -95,9 +104,13 @@ class Project:
         """Get a path from the profile configuration.
 
         Args:
+        ----
             path_type: Type of path to get (e.g. 'pipelines', 'models', etc.)
+
         Returns:
+        -------
             Path if found, None otherwise
+
         """
         return self.profile.get("paths", {}).get(path_type)
 
@@ -106,11 +119,14 @@ class Project:
         """Initialize a new SQLFlow project.
 
         Args:
+        ----
             project_dir: Directory to create the project in
             project_name: Name of the project
 
         Returns:
+        -------
             New Project instance
+
         """
         logger.debug(
             f"Initializing new project at {project_dir} with name {project_name}"
@@ -235,7 +251,9 @@ The `path` can be absolute or relative to the project directory.
     def get_config(self) -> Dict[str, Any]:
         """Get the project configuration.
 
-        Returns:
+        Returns
+        -------
             Dict containing project configuration
+
         """
         return self.profile

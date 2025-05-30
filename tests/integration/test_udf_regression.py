@@ -207,14 +207,14 @@ class TestUDFSystemRegression:
         # Create simple pipeline that just loads and exports data
         simple_pipeline_text = f"""
 SOURCE customers TYPE CSV PARAMS {{
-  "path": "{temp_udf_project['data_file']}",
+  "path": "{temp_udf_project["data_file"]}",
   "has_header": true
 }};
 
 LOAD raw_customers FROM customers;
 
 EXPORT SELECT * FROM raw_customers
-TO "{temp_udf_project['output_dir']}/raw_export.csv"
+TO "{temp_udf_project["output_dir"]}/raw_export.csv"
 TYPE CSV
 OPTIONS {{ "header": true }};
 """
@@ -283,7 +283,7 @@ OPTIONS {{ "header": true }};
         # Create pipeline with UDF call
         udf_pipeline_text = f"""
 SOURCE customers TYPE CSV PARAMS {{
-  "path": "{temp_udf_project['data_file']}",
+  "path": "{temp_udf_project["data_file"]}",
   "has_header": true
 }};
 

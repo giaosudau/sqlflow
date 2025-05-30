@@ -19,9 +19,11 @@ class DataHandler(ABC):
         """Register data with the database connection.
 
         Args:
+        ----
             name: Name to register the data as
             data: Data to register
             connection: Database connection
+
         """
 
 
@@ -32,9 +34,11 @@ class PandasDataHandler(DataHandler):
         """Register a pandas DataFrame with DuckDB.
 
         Args:
+        ----
             name: Name to register the data as
             data: Pandas DataFrame
             connection: DuckDB connection
+
         """
         logger.debug(f"Registering pandas DataFrame: {name}")
         connection.register(name, data)
@@ -47,9 +51,11 @@ class ArrowDataHandler(DataHandler):
         """Register an Arrow table with DuckDB.
 
         Args:
+        ----
             name: Name to register the data as
             data: Arrow table
             connection: DuckDB connection
+
         """
         logger.debug(f"Registering Arrow table: {name}")
         connection.register(name, data)
@@ -63,13 +69,17 @@ class DataHandlerFactory:
         """Create appropriate data handler based on data type.
 
         Args:
+        ----
             data: Data to create handler for
 
         Returns:
+        -------
             Appropriate data handler
 
         Raises:
+        ------
             TypeError: If data type is not supported
+
         """
         # Check data type and return appropriate handler
         if isinstance(data, pd.DataFrame):

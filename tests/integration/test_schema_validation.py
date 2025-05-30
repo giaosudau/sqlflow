@@ -73,9 +73,9 @@ def test_append_schema_compatibility(memory_duckdb_engine, executor):
     result = executor.execute_load_step(load_step)
 
     # Verify success
-    assert (
-        result["status"] == "success"
-    ), f"Failed with message: {result.get('message', 'No message')}"
+    assert result["status"] == "success", (
+        f"Failed with message: {result.get('message', 'No message')}"
+    )
 
     # Query the combined table to verify data was appended
     result_df = memory_duckdb_engine.execute_query(
@@ -187,9 +187,9 @@ def test_merge_schema_compatibility(memory_duckdb_engine, executor):
         result = executor.execute_load_step(load_step)
 
         # Verify success
-        assert (
-            result["status"] == "success"
-        ), f"Failed with message: {result.get('message', 'No message')}"
+        assert result["status"] == "success", (
+            f"Failed with message: {result.get('message', 'No message')}"
+        )
 
         # Query the merged table
         result_df = memory_duckdb_engine.execute_query(
@@ -406,9 +406,9 @@ def test_schema_compatibility_validation_missing_columns_in_source(
     result = memory_duckdb_engine.validate_schema_compatibility(
         "target_with_extra", memory_duckdb_engine.get_table_schema("source_fewer")
     )
-    assert (
-        result is True
-    ), "Schema validation should pass when source has a subset of target columns"
+    assert result is True, (
+        "Schema validation should pass when source has a subset of target columns"
+    )
 
     # Note: This behavior is intentional and allows appending data where only a subset of
     # target columns are populated. In a real scenario, we would execute:
@@ -520,9 +520,9 @@ def test_schema_compatibility_validation_compatible_types(memory_duckdb_engine):
         memory_duckdb_engine.validate_schema_compatibility(
             "target_double", memory_duckdb_engine.get_table_schema("source_int")
         )
-        assert (
-            False
-        ), "Validation should fail: INTEGER should not be compatible with DOUBLE"
+        assert False, (
+            "Validation should fail: INTEGER should not be compatible with DOUBLE"
+        )
     except ValueError as e:
         # Verify error message
         assert "incompatible types" in str(e).lower()
@@ -746,9 +746,9 @@ def test_type_compatibility_matrix(memory_duckdb_engine):
         target_type = source_schema[target_col].upper()
 
         # Check compatibility directly with _are_types_compatible
-        assert memory_duckdb_engine._are_types_compatible(
-            source_type, target_type
-        ), f"Types should be compatible: {source_type} -> {target_type}"
+        assert memory_duckdb_engine._are_types_compatible(source_type, target_type), (
+            f"Types should be compatible: {source_type} -> {target_type}"
+        )
 
     # Test incompatible pairs
     for source_col, target_col in incompatible_pairs:
@@ -829,17 +829,17 @@ def _validate_merge_keys(
             is_valid = True
 
         # Assert the validation result matches expectation
-        assert (
-            expected_valid == is_valid
-        ), f"Expected validation to {'succeed' if expected_valid else 'fail'}"
+        assert expected_valid == is_valid, (
+            f"Expected validation to {'succeed' if expected_valid else 'fail'}"
+        )
 
     except ValueError as e:
         # If validation failed, check if it's the expected error
         assert not expected_valid, "Expected validation to succeed but it failed"
         if expected_error:
-            assert expected_error in str(
-                e
-            ), f"Expected error containing '{expected_error}' but got '{str(e)}'"
+            assert expected_error in str(e), (
+                f"Expected error containing '{expected_error}' but got '{str(e)}'"
+            )
 
 
 def _setup_merge_key_test_tables(memory_duckdb_engine):
@@ -938,9 +938,9 @@ def test_merge_key_validation_incompatible_types(memory_duckdb_engine):
                 "target_merge_test", "incompatible_merge_source", ["id"]
             )
             # This should have failed, so make the test fail if it didn't
-            assert (
-                False
-            ), "Expected type incompatibility to fail validation but it passed"
+            assert False, (
+                "Expected type incompatibility to fail validation but it passed"
+            )
         else:
             # If direct validation is not available, check types manually
             source_schema = memory_duckdb_engine.get_table_schema(
@@ -957,9 +957,9 @@ def test_merge_key_validation_incompatible_types(memory_duckdb_engine):
             ), f"Types should be incompatible: {source_type} vs {target_type}"
     except ValueError as e:
         # This is expected - verify error message contains type information
-        assert (
-            "type" in str(e).lower() or "incompatible" in str(e).lower()
-        ), f"Expected error about incompatible types, got: {str(e)}"
+        assert "type" in str(e).lower() or "incompatible" in str(e).lower(), (
+            f"Expected error about incompatible types, got: {str(e)}"
+        )
 
 
 def test_merge_key_validation_empty_keys(memory_duckdb_engine):

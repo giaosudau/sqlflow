@@ -13,10 +13,13 @@ def format_name(name: str) -> str:
     """Format customer name with proper capitalization.
 
     Args:
+    ----
         name: Customer name
 
     Returns:
+    -------
         Properly formatted name
+
     """
     if name is None:
         return None
@@ -32,11 +35,14 @@ def mask_email(email: str, gdpr_consent: str) -> str:
     """Mask email according to GDPR consent status.
 
     Args:
+    ----
         email: Email address
         gdpr_consent: GDPR consent status ("true" or "false")
 
     Returns:
+    -------
         Original or masked email depending on consent
+
     """
     if email is None:
         return None
@@ -60,10 +66,13 @@ def extract_domain(email: str) -> str:
     """Extract domain from email address.
 
     Args:
+    ----
         email: Email address
 
     Returns:
+    -------
         Domain part of email
+
     """
     if email is None or "@" not in email:
         return None
@@ -76,10 +85,13 @@ def categorize_domain(domain: str) -> str:
     """Categorize email domain by type.
 
     Args:
+    ----
         domain: Email domain
 
     Returns:
+    -------
         Domain category
+
     """
     if domain is None:
         return "Unknown"

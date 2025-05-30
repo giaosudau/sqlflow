@@ -11,10 +11,13 @@ def validate_connectors(pipeline: Pipeline) -> List[ValidationError]:
     """Validate connector parameters against their schemas.
 
     Args:
+    ----
         pipeline: The parsed pipeline to validate
 
     Returns:
+    -------
         List of validation errors found in connector configurations
+
     """
     errors = []
 
@@ -66,10 +69,13 @@ def validate_references(pipeline: Pipeline) -> List[ValidationError]:
     - All referenced sources are defined before use
 
     Args:
+    ----
         pipeline: The parsed pipeline to validate
 
     Returns:
+    -------
         List of validation errors found in cross-references
+
     """
     errors = []
     defined_sources: Set[str] = set()
@@ -115,10 +121,13 @@ def validate_pipeline(pipeline: Pipeline) -> List[ValidationError]:
     This is the main validation entry point that combines all validation checks.
 
     Args:
+    ----
         pipeline: The parsed pipeline to validate
 
     Returns:
+    -------
         List of all validation errors found in the pipeline
+
     """
     errors = []
 

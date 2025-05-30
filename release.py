@@ -1,5 +1,4 @@
-"""
-Release automation script for Python projects.
+"""Release automation script for Python projects.
 
 Features:
 - Automatically bumps the version in pyproject.toml (patch, minor, major), starting at 0.1.0 if not found.

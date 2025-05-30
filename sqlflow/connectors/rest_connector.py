@@ -16,10 +16,7 @@ from sqlflow.connectors.base import (
     Schema,
 )
 from sqlflow.connectors.data_chunk import DataChunk
-from sqlflow.connectors.registry import (
-    register_connector,
-    register_export_connector,
-)
+from sqlflow.connectors.registry import register_connector, register_export_connector
 from sqlflow.core.errors import ConnectorError
 
 
@@ -57,11 +54,14 @@ class RESTConnector(Connector, ExportConnector):
         """Configure the connector with parameters.
 
         Args:
+        ----
             params: Configuration parameters including base_url, auth_method,
                    auth_params, headers, timeout, etc.
 
         Raises:
+        ------
             ConnectorError: If configuration fails
+
         """
         try:
             self.base_url = params.get("base_url")
@@ -98,8 +98,10 @@ class RESTConnector(Connector, ExportConnector):
     def _get_auth(self) -> Optional[AuthBase]:
         """Get authentication handler based on configured method.
 
-        Returns:
+        Returns
+        -------
             Authentication handler for requests or None if no auth is needed
+
         """
         if self.auth_method == AuthMethod.NONE:
             return None
@@ -133,8 +135,10 @@ class RESTConnector(Connector, ExportConnector):
     def test_connection(self) -> ConnectionTestResult:
         """Test the connection to the REST API.
 
-        Returns:
+        Returns
+        -------
             Result of the connection test
+
         """
         self.validate_state(ConnectorState.CONFIGURED)
 
@@ -166,11 +170,14 @@ class RESTConnector(Connector, ExportConnector):
     def discover(self) -> List[str]:
         """Discover available endpoints in the REST API.
 
-        Returns:
+        Returns
+        -------
             List of endpoint paths
 
-        Raises:
+        Raises
+        ------
             ConnectorError: If discovery fails
+
         """
         self.validate_state(ConnectorState.CONFIGURED)
 
@@ -189,13 +196,17 @@ class RESTConnector(Connector, ExportConnector):
         """Get schema for a REST endpoint.
 
         Args:
+        ----
             object_name: Endpoint path
 
         Returns:
+        -------
             Schema for the endpoint
 
         Raises:
+        ------
             ConnectorError: If schema retrieval fails
+
         """
         self.validate_state(ConnectorState.CONFIGURED)
 
@@ -245,16 +256,20 @@ class RESTConnector(Connector, ExportConnector):
         """Read data from a REST endpoint.
 
         Args:
+        ----
             object_name: Endpoint path
             columns: Optional list of columns to read
             filters: Optional filters to apply
             batch_size: Number of rows per batch
 
         Yields:
+        ------
             DataChunk objects
 
         Raises:
+        ------
             ConnectorError: If reading fails
+
         """
         self.validate_state(ConnectorState.CONFIGURED)
 
@@ -305,14 +320,18 @@ class RESTConnector(Connector, ExportConnector):
         """Send a batch of data to the REST API with retries.
 
         Args:
+        ----
             url: URL to send data to
             data: Data to send
 
         Returns:
+        -------
             Response from the API
 
         Raises:
+        ------
             ConnectorError: If sending data fails after all retries
+
         """
         auth = self._get_auth()
         payload = json.dumps(data)
@@ -344,12 +363,15 @@ class RESTConnector(Connector, ExportConnector):
         """Write data to a REST endpoint.
 
         Args:
+        ----
             object_name: Endpoint path
             data_chunk: Data to write
             mode: Write mode (ignored for REST)
 
         Raises:
+        ------
             ConnectorError: If writing fails
+
         """
         self.validate_state(ConnectorState.CONFIGURED)
 

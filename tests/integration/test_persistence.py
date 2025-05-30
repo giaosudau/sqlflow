@@ -97,7 +97,7 @@ SELECT * FROM test_data ORDER BY id;
         for i, step in enumerate(pipeline.steps):
             # Create step dictionary
             step_dict = {
-                "id": f"step_{i+1}",
+                "id": f"step_{i + 1}",
                 "type": "transform",
                 "name": step.table_name,
                 "query": step.sql_query,
@@ -150,7 +150,7 @@ SELECT * FROM test_data ORDER BY id;
         for i, step in enumerate(verify_pipeline.steps):
             # Create step dictionary
             step_dict = {
-                "id": f"verify_step_{i+1}",
+                "id": f"verify_step_{i + 1}",
                 "type": "transform",
                 "name": step.table_name,
                 "query": step.sql_query,

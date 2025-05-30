@@ -18,7 +18,9 @@ class ExecutionTimer:
         """Start a timer.
 
         Args:
+        ----
             name: Name of the timer
+
         """
         self.start_times[name] = time.time()
         self.current_timers.append(name)
@@ -27,13 +29,17 @@ class ExecutionTimer:
         """Stop a timer and record the elapsed time.
 
         Args:
+        ----
             name: Name of the timer, or None to stop the most recent timer
 
         Returns:
+        -------
             Elapsed time in seconds
 
         Raises:
+        ------
             ValueError: If the timer was not started or if name is not provided and no timers are active
+
         """
         if not self.current_timers:
             raise ValueError("No active timers")
@@ -55,13 +61,17 @@ class ExecutionTimer:
         """Get the elapsed time for a timer.
 
         Args:
+        ----
             name: Name of the timer
 
         Returns:
+        -------
             Elapsed time in seconds
 
         Raises:
+        ------
             ValueError: If the timer was not stopped
+
         """
         if name not in self.timings:
             raise ValueError(f"Timer '{name}' was not stopped")
@@ -70,8 +80,10 @@ class ExecutionTimer:
     def get_all_timings(self) -> Dict[str, float]:
         """Get all timings.
 
-        Returns:
+        Returns
+        -------
             Dict mapping timer names to elapsed times
+
         """
         return self.timings.copy()
 
@@ -86,10 +98,13 @@ class ExecutionTimer:
         """Context manager for measuring execution time.
 
         Args:
+        ----
             name: Name of the timer
 
         Yields:
+        ------
             None
+
         """
         self.start(name)
         try:
@@ -106,10 +121,13 @@ def measure(name: str) -> Generator[None, None, None]:
     """Context manager for measuring execution time using the global timer.
 
     Args:
+    ----
         name: Name of the timer
 
     Yields:
+    ------
         None
+
     """
     with timer.measure(name):
         yield

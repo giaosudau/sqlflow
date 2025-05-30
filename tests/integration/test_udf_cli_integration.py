@@ -278,15 +278,15 @@ def test_udf_info_cli(cli_test_env: Dict[str, Any]) -> None:
     )
 
     # Check exit codes
-    assert (
-        scalar_result.returncode == 0
-    ), f"Scalar UDF info command failed: {scalar_result.stderr}"
-    assert (
-        table_result.returncode == 0
-    ), f"Table UDF info command failed: {table_result.stderr}"
-    assert (
-        nested_result.returncode == 0
-    ), f"Nested UDF info command failed: {nested_result.stderr}"
+    assert scalar_result.returncode == 0, (
+        f"Scalar UDF info command failed: {scalar_result.stderr}"
+    )
+    assert table_result.returncode == 0, (
+        f"Table UDF info command failed: {table_result.stderr}"
+    )
+    assert nested_result.returncode == 0, (
+        f"Nested UDF info command failed: {nested_result.stderr}"
+    )
 
     # Check outputs
     assert "double_value" in scalar_result.stdout

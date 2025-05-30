@@ -28,12 +28,15 @@ class ConnectorEngine:
         """Register a connector.
 
         Args:
+        ----
             name: Name of the connector
             connector_type: Type of the connector
             params: Parameters for the connector
 
         Raises:
+        ------
             ValueError: If connector already exists or type is unknown
+
         """
         logger.debug(
             "Registering connector '%s' of type '%s' with params: %s",
@@ -70,13 +73,16 @@ class ConnectorEngine:
         """Register a connector that references a connector defined in a profile.
 
         Args:
+        ----
             name: Name of the connector in the pipeline
             profile_connector_name: Name of the connector in the profile
             profile_connectors: Dictionary of connectors from the profile
             options: Additional options to merge with the connector params
 
         Raises:
+        ------
             ValueError: If connector already exists or profile connector is not found
+
         """
         logger.debug(
             "Registering profile-referenced connector '%s' from profile connector '%s'",
@@ -145,17 +151,21 @@ class ConnectorEngine:
         """Load data from a connector.
 
         Args:
+        ----
             connector_name: Name of the connector
             table_name: Name of the table to load data into
             columns: Optional list of columns to load
             filters: Optional filters to apply
 
         Returns:
+        -------
             Iterator of DataChunk objects
 
         Raises:
+        ------
             ValueError: If connector is not registered
             ConnectorError: If loading fails
+
         """
         logger.debug(
             "Loading data from connector '%s' into table '%s'",

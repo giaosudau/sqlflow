@@ -1,5 +1,4 @@
-"""
-Integration tests for MERGE operation regression prevention.
+"""Integration tests for MERGE operation regression prevention.
 
 These tests ensure that the fix for MERGE operations in local_executor.py
 doesn't regress. Specifically, they test that merge_keys are properly
@@ -68,12 +67,12 @@ class TestMergeOperationRegression:
         # Create pipeline with MERGE operation
         pipeline_sql = f"""
         SOURCE users_csv TYPE CSV PARAMS {{
-            "path": "{data['users_path']}", 
+            "path": "{data["users_path"]}", 
             "has_header": true
         }};
         
         SOURCE updates_csv TYPE CSV PARAMS {{
-            "path": "{data['updates_path']}", 
+            "path": "{data["updates_path"]}", 
             "has_header": true
         }};
         
@@ -81,7 +80,7 @@ class TestMergeOperationRegression:
         LOAD users_table FROM updates_csv MODE MERGE MERGE_KEYS (user_id);
         
         EXPORT SELECT * FROM users_table ORDER BY user_id 
-        TO "{os.path.join(data['temp_dir'], 'result.csv')}"
+        TO "{os.path.join(data["temp_dir"], "result.csv")}"
         TYPE CSV OPTIONS {{ "header": true }};
         """
 
@@ -164,7 +163,7 @@ class TestMergeOperationRegression:
         LOAD sales_table FROM updates_csv MODE MERGE MERGE_KEYS (user_id, region);
         
         EXPORT SELECT * FROM sales_table ORDER BY user_id, region
-        TO "{os.path.join(data['temp_dir'], 'sales_result.csv')}"
+        TO "{os.path.join(data["temp_dir"], "sales_result.csv")}"
         TYPE CSV OPTIONS {{ "header": true }};
         """
 
@@ -204,7 +203,7 @@ class TestMergeOperationRegression:
 
         pipeline_sql = f"""
         SOURCE users_csv TYPE CSV PARAMS {{
-            "path": "{data['users_path']}", 
+            "path": "{data["users_path"]}", 
             "has_header": true
         }};
         
@@ -241,7 +240,7 @@ class TestMergeOperationRegression:
 
         pipeline_sql = f"""
         SOURCE users_csv TYPE CSV PARAMS {{
-            "path": "{data['users_path']}", 
+            "path": "{data["users_path"]}", 
             "has_header": true
         }};
         
@@ -269,7 +268,6 @@ class TestMergeOperationRegression:
 
     def test_load_step_creation_from_execution_plan(self, setup_test_data):
         """Test that LoadStep objects are created correctly from execution plan."""
-
         # Create a mock execution step that represents the fixed scenario
         execution_step = {
             "type": "load",
@@ -303,12 +301,12 @@ class TestMergeOperationRegression:
         # This exact scenario was failing before the fix
         pipeline_sql = f"""
         SOURCE initial_data TYPE CSV PARAMS {{
-            "path": "{data['users_path']}", 
+            "path": "{data["users_path"]}", 
             "has_header": true
         }};
         
         SOURCE update_data TYPE CSV PARAMS {{
-            "path": "{data['updates_path']}", 
+            "path": "{data["updates_path"]}", 
             "has_header": true
         }};
         
@@ -339,6 +337,6 @@ class TestMergeOperationRegression:
             if step.get("type") == "load" and step.get("mode") == "MERGE"
         ]
         assert len(merge_steps) == 1, "Should have exactly one MERGE step"
-        assert merge_steps[0]["merge_keys"] == [
-            "user_id"
-        ], "MERGE step should preserve merge_keys"
+        assert merge_steps[0]["merge_keys"] == ["user_id"], (
+            "MERGE step should preserve merge_keys"
+        )

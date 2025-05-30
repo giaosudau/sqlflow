@@ -22,14 +22,18 @@ class SQLGenerator:
     and SQL dialect adaptations.
 
     Args:
+    ----
         dialect: SQL dialect to use.
+
     """
 
     def __init__(self, dialect: str = "duckdb"):
         """Initialize the SQL generator.
 
         Args:
+        ----
             dialect: SQL dialect to use.
+
         """
         self.dialect = dialect
         # Track logged warnings to prevent duplicates
@@ -42,9 +46,11 @@ class SQLGenerator:
         """Log a warning once to avoid duplicates.
 
         Args:
+        ----
             key: Unique key for the warning.
             message: Warning message.
             level: Log level (warning or debug).
+
         """
         if key not in self._logged_warnings:
             self._logged_warnings.add(key)
@@ -68,11 +74,14 @@ class SQLGenerator:
         """Generate SQL for an operation.
 
         Args:
+        ----
             operation: Operation definition.
             context: Execution context with variables.
 
         Returns:
+        -------
             Executable SQL string.
+
         """
         op_type = operation.get("type", "unknown")
         op_id = operation.get("id", "unknown")
@@ -147,11 +156,14 @@ class SQLGenerator:
         The two syntax patterns CANNOT be mixed. Users must choose one pattern per SOURCE statement.
 
         Args:
+        ----
             operation: Source operation definition.
             context: Execution context.
 
         Returns:
+        -------
             SQL for the source.
+
         """
         source_type = operation.get("source_connector_type", "").upper()
         query = operation.get("query", {})
@@ -241,8 +253,10 @@ SELECT * FROM {pg_query};"""
     def get_warning_summary(self) -> Dict[str, int]:
         """Get a summary of warnings that were logged and suppressed.
 
-        Returns:
+        Returns
+        -------
             Dictionary mapping warning keys to count of occurrences
+
         """
         return self._warning_counts.copy()
 
@@ -252,11 +266,14 @@ SELECT * FROM {pg_query};"""
         """Generate SQL for a transformation.
 
         Args:
+        ----
             operation: Transform operation definition.
             context: Execution context.
 
         Returns:
+        -------
             SQL for the transformation.
+
         """
         materialized = operation.get("materialized", "table").upper()
         name = operation.get("name", "unnamed")
@@ -292,11 +309,14 @@ CREATE OR REPLACE VIEW {name} AS
         """Generate SQL for a load operation.
 
         Args:
+        ----
             operation: Load operation definition.
             context: Execution context.
 
         Returns:
+        -------
             SQL for the load operation.
+
         """
         query = operation.get("query", {})
         source_name = query.get("source_name", "")
@@ -314,11 +334,14 @@ SELECT * FROM {source_name};"""
         """Generate SQL for an export operation.
 
         Args:
+        ----
             operation: Export operation definition.
             context: Execution context.
 
         Returns:
+        -------
             SQL for the export operation.
+
         """
         query = operation.get("query", {})
         source_query = query.get("query", "")
@@ -349,13 +372,16 @@ COPY (
         """Substitute variables in SQL.
 
         Args:
+        ----
             sql: SQL string with variables.
             variables: Dictionary of variables.
 
         Returns:
+        -------
             A tuple containing:
             - SQL with variables substituted
             - Total number of replacements made
+
         """
         if not sql:
             return "", 0
@@ -391,14 +417,17 @@ COPY (
         """Replace variables with their values in the SQL.
 
         Args:
+        ----
             sql: SQL string with variables.
             variables: Dictionary of variables.
             replacements_made: Counter for replacements (modified in place).
 
         Returns:
+        -------
             A tuple containing:
             - SQL with variables replaced by their values
             - The total number of replacements made
+
         """
         result = sql
         total_replacements = replacements_made
@@ -478,10 +507,13 @@ COPY (
         """Handle default values for variables and missing variables.
 
         Args:
+        ----
             sql: SQL string with variables.
 
         Returns:
+        -------
             SQL with default values applied and missing variables replaced with NULL.
+
         """
         # First replace variables inside quotes
         # Look for '${var|default}' patterns
@@ -522,10 +554,13 @@ COPY (
         """Extract default value from a variable|default format string.
 
         Args:
+        ----
             var_with_default: String in format "varname|default_value"
 
         Returns:
+        -------
             The default value
+
         """
         if "|" in var_with_default:
             # Extract default value
@@ -543,10 +578,13 @@ COPY (
         """Replace a variable reference with its default value.
 
         Args:
+        ----
             match: Regex match object for the variable reference.
 
         Returns:
+        -------
             Default value for the variable or NULL if no default is provided.
+
         """
         # Parse variable and default value
         var_expr = match.group(0)
@@ -599,10 +637,13 @@ COPY (
         """Handle a variable reference with no value or default.
 
         Args:
+        ----
             match: Regex match object for the variable reference.
 
         Returns:
+        -------
             NULL as a replacement for the missing variable.
+
         """
         # Extract variable name for logging
         var_expr = match.group(0)

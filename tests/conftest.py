@@ -10,8 +10,10 @@ import pytest
 def temp_dir() -> Generator[str, None, None]:
     """Create a temporary directory for tests.
 
-    Yields:
+    Yields
+    ------
         Path to the temporary directory
+
     """
     with tempfile.TemporaryDirectory() as tmp_dir:
         yield tmp_dir
@@ -21,8 +23,10 @@ def temp_dir() -> Generator[str, None, None]:
 def sample_source_directive() -> str:
     """Return a sample SOURCE directive for testing.
 
-    Returns:
+    Returns
+    -------
         Sample SOURCE directive text
+
     """
     return """SOURCE users TYPE POSTGRES PARAMS {
         "connection": "postgresql://user:pass@localhost:5432/db",
@@ -34,8 +38,10 @@ def sample_source_directive() -> str:
 def sample_pipeline() -> str:
     """Return a sample pipeline for testing.
 
-    Returns:
+    Returns
+    -------
         Sample pipeline text
+
     """
     return """SOURCE users TYPE POSTGRES PARAMS {
         "connection": "postgresql://user:pass@localhost:5432/db",

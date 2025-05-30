@@ -26,10 +26,13 @@ class ASTToDAGConverter:
         """Convert a pipeline AST to a DAG.
 
         Args:
+        ----
             pipeline: Pipeline AST
 
         Returns:
+        -------
             PipelineDAG
+
         """
         pipeline_steps = []
 
@@ -46,12 +49,15 @@ class ASTToDAGConverter:
         """Convert a pipeline step to a dictionary.
 
         Args:
+        ----
             step: Pipeline step
             index: Step index
 
         Returns:
+        -------
             Dictionary representation of the step, or None if the step cannot be
             converted
+
         """
         step_id = f"step_{index}"
 
@@ -113,10 +119,13 @@ class ASTToDAGConverter:
         """Build a map of source names to step IDs.
 
         Args:
+        ----
             pipeline_steps: List of pipeline steps
 
         Returns:
+        -------
             Map of source names to step IDs
+
         """
         source_map = {}
         for step in pipeline_steps:
@@ -128,10 +137,13 @@ class ASTToDAGConverter:
         """Build a map of table names to step IDs.
 
         Args:
+        ----
             pipeline_steps: List of pipeline steps
 
         Returns:
+        -------
             Map of table names to step IDs
+
         """
         table_map = {}
         for step in pipeline_steps:
@@ -143,8 +155,10 @@ class ASTToDAGConverter:
         """Add dependencies for LOAD steps.
 
         Args:
+        ----
             step: Pipeline step
             source_map: Map of source names to step IDs
+
         """
         source_name = step["source_name"]
         if source_name in source_map:
@@ -154,8 +168,10 @@ class ASTToDAGConverter:
         """Add dependencies for SQL-based steps.
 
         Args:
+        ----
             step: Pipeline step
             table_map: Map of table names to step IDs
+
         """
         for table_name in table_map:
             if table_name in step["sql_query"]:
@@ -165,7 +181,9 @@ class ASTToDAGConverter:
         """Add dependencies between pipeline steps.
 
         Args:
+        ----
             pipeline_steps: List of pipeline steps
+
         """
         source_map = self._build_source_map(pipeline_steps)
         table_map = self._build_table_map(pipeline_steps)

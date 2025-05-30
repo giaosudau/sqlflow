@@ -17,8 +17,10 @@ class PipelineDAG:
         """Add a node to the DAG.
 
         Args:
+        ----
             node_id: Unique identifier for the node
             **attrs: Node attributes
+
         """
         self.graph.add_node(node_id)
         self.node_attributes[node_id] = attrs
@@ -27,8 +29,10 @@ class PipelineDAG:
         """Add an edge between nodes.
 
         Args:
+        ----
             from_node: Source node ID
             to_node: Target node ID
+
         """
         self.graph.add_edge(from_node, to_node)
 
@@ -36,18 +40,23 @@ class PipelineDAG:
         """Get attributes for a node.
 
         Args:
+        ----
             node_id: Node ID
 
         Returns:
+        -------
             Dict of node attributes
+
         """
         return self.node_attributes.get(node_id, {})
 
     def get_all_nodes(self) -> List[str]:
         """Get all node IDs.
 
-        Returns:
+        Returns
+        -------
             List of node IDs
+
         """
         return list(self.graph.nodes())
 
@@ -55,10 +64,13 @@ class PipelineDAG:
         """Get predecessors of a node.
 
         Args:
+        ----
             node_id: Node ID
 
         Returns:
+        -------
             List of predecessor node IDs
+
         """
         return list(self.graph.predecessors(node_id))
 
@@ -66,26 +78,33 @@ class PipelineDAG:
         """Get successors of a node.
 
         Args:
+        ----
             node_id: Node ID
 
         Returns:
+        -------
             List of successor node IDs
+
         """
         return list(self.graph.successors(node_id))
 
     def has_cycles(self) -> bool:
         """Check if the DAG has cycles.
 
-        Returns:
+        Returns
+        -------
             True if the DAG has cycles, False otherwise
+
         """
         return not nx.is_directed_acyclic_graph(self.graph)
 
     def topological_sort(self) -> List[str]:
         """Sort nodes in topological order.
 
-        Returns:
+        Returns
+        -------
             List of node IDs in topological order
+
         """
         return list(nx.topological_sort(self.graph))
 
@@ -97,10 +116,13 @@ class DAGBuilder:
         """Build a DAG from pipeline steps.
 
         Args:
+        ----
             pipeline_steps: List of pipeline steps
 
         Returns:
+        -------
             PipelineDAG
+
         """
         dag = PipelineDAG()
 

@@ -1,5 +1,4 @@
-"""
-Integration tests for DuckDB Table UDF API capability verification.
+"""Integration tests for DuckDB Table UDF API capability verification.
 
 This test suite verifies the actual DuckDB Python API capabilities against
 the documented implementation plan expectations, specifically regarding
@@ -25,8 +24,7 @@ class TestDuckDBTableFunctionAPICapabilities:
     """Test suite verifying DuckDB's actual table function API capabilities."""
 
     def test_duckdb_api_table_function_method_availability(self):
-        """
-        Verify whether DuckDB connection has create_table_function method
+        """Verify whether DuckDB connection has create_table_function method
         as documented in the implementation plan.
         """
         connection = duckdb.connect(":memory:")
@@ -60,9 +58,9 @@ class TestDuckDBTableFunctionAPICapabilities:
         }
 
         # Assert basic functionality is available
-        assert api_capabilities[
-            "has_create_function"
-        ], "DuckDB must support create_function for scalar UDFs"
+        assert api_capabilities["has_create_function"], (
+            "DuckDB must support create_function for scalar UDFs"
+        )
 
         # Log capabilities for documentation
         print("\nDuckDB API Capabilities Assessment:")
@@ -133,9 +131,9 @@ class TestVectorizedTableUDFRegistrationStrategy:
 
         assert udf_type == "table", "UDF type metadata should be preserved"
         assert output_schema is not None, "Output schema metadata should be preserved"
-        assert (
-            "computed_value" in output_schema
-        ), "Schema should include computed columns"
+        assert "computed_value" in output_schema, (
+            "Schema should include computed columns"
+        )
 
 
 class TestTableUDFQueryProcessingAndErrorHandling:
@@ -197,12 +195,12 @@ class TestTableUDFQueryProcessingAndErrorHandling:
         processed_query = query_processor.process(query_with_udf)
 
         # Should replace PYTHON_FUNC with direct function call
-        assert (
-            "PYTHON_FUNC" not in processed_query
-        ), "PYTHON_FUNC syntax should be replaced"
-        assert (
-            "processing_table_udf" in processed_query
-        ), "UDF name should appear in processed query"
+        assert "PYTHON_FUNC" not in processed_query, (
+            "PYTHON_FUNC syntax should be replaced"
+        )
+        assert "processing_table_udf" in processed_query, (
+            "UDF name should appear in processed query"
+        )
 
 
 class TestScalarUDFAlternativeApproach:
@@ -254,9 +252,9 @@ class TestScalarUDFAlternativeApproach:
 
         rows = result.fetchall()
         assert len(rows) == 3, "Should return all rows"
-        assert (
-            rows[0][3] == 35.0
-        ), "Scalar UDF computation should be correct (10*2.5+10)"
+        assert rows[0][3] == 35.0, (
+            "Scalar UDF computation should be correct (10*2.5+10)"
+        )
         print("✅ Scalar UDF alternative approach works perfectly")
         print(f"Sample results: {rows}")
 
@@ -300,9 +298,9 @@ class TestScalarUDFAlternativeApproach:
                     rows = result.fetchall()
 
                     assert len(rows) == 3, "External processing should return all rows"
-                    assert (
-                        len(rows[0]) == 4
-                    ), "Should have original columns plus computed columns"
+                    assert len(rows[0]) == 4, (
+                        "Should have original columns plus computed columns"
+                    )
                     print("✅ External processing alternative works perfectly")
                     print(f"Transformed results: {rows}")
                 else:

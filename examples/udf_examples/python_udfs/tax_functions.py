@@ -14,11 +14,14 @@ def apply_discount(price: float, discount_percent: float) -> float:
     """Apply a percentage discount to a price.
 
     Args:
+    ----
         price: Original price
         discount_percent: Discount percentage (0-100)
 
     Returns:
+    -------
         Discounted price
+
     """
     if price is None:
         return None

@@ -18,9 +18,11 @@ class CSVWriter(WriterProtocol):
         """Write data to a CSV file.
 
         Args:
+        ----
             data: Data to write (pandas DataFrame or similar)
             destination: Path to the CSV file
             options: Options for the writer
+
         """
         options = options or {}
 

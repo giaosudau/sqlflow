@@ -1,5 +1,4 @@
-"""
-UDF automatic discovery and registration for SQLFlow.
+"""UDF automatic discovery and registration for SQLFlow.
 
 Utilities for handling UDFs with default parameters when integrating with DuckDB.
 This module provides functions for discovering UDFs with default parameters
@@ -16,14 +15,16 @@ logger = logging.getLogger(__name__)
 
 
 def _find_default_parameters(func: Callable) -> List[Tuple[str, Any]]:
-    """
-    Extract default parameters from a function's signature.
+    """Extract default parameters from a function's signature.
 
     Args:
+    ----
         func: The function to inspect
 
     Returns:
+    -------
         List of (param_name, default_value) tuples
+
     """
     sig = inspect.signature(func)
     return [
@@ -36,16 +37,18 @@ def _find_default_parameters(func: Callable) -> List[Tuple[str, Any]]:
 def _create_wrapper_function(
     original_func: Callable, param: str, default_val: Any
 ) -> Callable:
-    """
-    Create a wrapper function that applies a default parameter value.
+    """Create a wrapper function that applies a default parameter value.
 
     Args:
+    ----
         original_func: The original UDF function
         param: Parameter name to set default for
         default_val: Default value to use
 
     Returns:
+    -------
         Wrapped function with the default parameter applied
+
     """
 
     @python_scalar_udf
@@ -75,18 +78,20 @@ def _create_wrapper_function(
 def create_specialized_udfs(
     manager: Any, udfs: Dict[str, Callable]
 ) -> Dict[str, Callable]:
-    """
-    Create specialized versions of UDFs that have default parameters.
+    """Create specialized versions of UDFs that have default parameters.
 
     For each UDF with default parameters, create specialized versions
     that don't require those parameters with defaults.
 
     Args:
+    ----
         manager: The UDFManager instance
         udfs: Dictionary of UDFs
 
     Returns:
+    -------
         Dictionary with original and specialized UDFs
+
     """
     new_udfs = dict(udfs)  # Make a copy of the original UDFs
 
@@ -127,14 +132,15 @@ def create_specialized_udfs(
 
 
 def enhance_udf_manager(manager: Any) -> None:
-    """
-    Enhance the UDF manager to properly handle default parameters.
+    """Enhance the UDF manager to properly handle default parameters.
 
     This function modifies the UDF manager's discover_udfs method
     to create specialized versions of UDFs with default parameters.
 
     Args:
+    ----
         manager: The UDFManager instance
+
     """
     original_discover = manager.discover_udfs
 

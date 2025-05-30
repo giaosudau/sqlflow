@@ -37,10 +37,13 @@ class CSVConnector(Connector):
         """Configure the connector with parameters.
 
         Args:
+        ----
             params: Configuration parameters
 
         Raises:
+        ------
             ConnectorError: If configuration fails
+
         """
         try:
             self.path = params.get("path")
@@ -64,8 +67,10 @@ class CSVConnector(Connector):
     def test_connection(self) -> ConnectionTestResult:
         """Test if the CSV file exists and is readable.
 
-        Returns:
+        Returns
+        -------
             Result of the connection test
+
         """
         self.validate_state(ConnectorState.CONFIGURED)
 
@@ -91,11 +96,14 @@ class CSVConnector(Connector):
 
         For CSV, this returns a single object representing the file.
 
-        Returns:
+        Returns
+        -------
             List with a single object name
 
-        Raises:
+        Raises
+        ------
             ConnectorError: If discovery fails
+
         """
         self.validate_state(ConnectorState.CONFIGURED)
 
@@ -118,13 +126,17 @@ class CSVConnector(Connector):
         """Get schema for the CSV file.
 
         Args:
+        ----
             object_name: Name of the object (ignored for CSV)
 
         Returns:
+        -------
             Schema for the CSV file
 
         Raises:
+        ------
             ConnectorError: If schema retrieval fails
+
         """
         self.validate_state(ConnectorState.CONFIGURED)
 
@@ -200,16 +212,20 @@ class CSVConnector(Connector):
         """Read data from the CSV file in chunks.
 
         Args:
+        ----
             object_name: Name of the object (ignored for CSV)
             columns: Optional list of columns to read
             filters: Optional filters to apply (not supported for CSV)
             batch_size: Number of rows per batch
 
         Yields:
+        ------
             DataChunk objects
 
         Raises:
+        ------
             ConnectorError: If reading fails
+
         """
         self.validate_state(ConnectorState.CONFIGURED)
 
@@ -300,12 +316,15 @@ class CSVConnector(Connector):
         """Write data to a CSV file.
 
         Args:
+        ----
             object_name: Name of the object (used to create filename if path not set)
             data_chunk: Data to write
             mode: Write mode (append or overwrite)
 
         Raises:
+        ------
             ConnectorError: If writing fails
+
         """
         self.validate_state(ConnectorState.CONFIGURED)
 

@@ -15,9 +15,11 @@ class WriterProtocol(Protocol):
         """Write data to a destination.
 
         Args:
+        ----
             data: Data to write
             destination: Destination to write to
             options: Options for the writer
+
         """
 
 
@@ -30,10 +32,13 @@ class ExecutorProtocol(Protocol):
         """Execute a pipeline plan.
 
         Args:
+        ----
             plan: List of operations to execute
 
         Returns:
+        -------
             Dict containing execution results
+
         """
 
 
@@ -46,8 +51,10 @@ class StorageManagerProtocol(Protocol):
         """Store data with a key.
 
         Args:
+        ----
             key: Key to store data under
             data: Data to store
+
         """
 
     @abstractmethod
@@ -55,10 +62,13 @@ class StorageManagerProtocol(Protocol):
         """Retrieve data by key.
 
         Args:
+        ----
             key: Key to retrieve data for
 
         Returns:
+        -------
             Retrieved data
+
         """
 
     @abstractmethod
@@ -66,8 +76,11 @@ class StorageManagerProtocol(Protocol):
         """Check if a key exists.
 
         Args:
+        ----
             key: Key to check
 
         Returns:
+        -------
             True if the key exists, False otherwise
+
         """

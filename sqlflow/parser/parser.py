@@ -29,9 +29,11 @@ class ParserError(Exception):
         """Initialize a ParserError.
 
         Args:
+        ----
             message: Error message
             line: Line number where the error occurred
             column: Column number where the error occurred
+
         """
         self.message = message
         self.line = line
@@ -49,7 +51,9 @@ class Parser:
         """Initialize the parser with input text.
 
         Args:
+        ----
             text: The input text to parse (optional)
+
         """
         if text is not None:
             self.lexer = Lexer(text)
@@ -67,11 +71,14 @@ class Parser:
         """Tokenize the input text and set up the lexer if needed.
 
         Args:
+        ----
             text: Input text to tokenize (optional)
 
         Raises:
+        ------
             ValueError: If no text is provided
             ParserError: If lexer encounters an error
+
         """
         # If text is provided, create a new lexer
         if text is not None:
@@ -92,11 +99,13 @@ class Parser:
     def _parse_all_statements(self) -> list:
         """Parse all statements in the token stream.
 
-        Returns:
+        Returns
+        -------
             List of parsing errors, empty if successful
 
         Side effect:
             Adds parsed steps to self.pipeline
+
         """
         parsing_errors = []
         logger.debug("Starting to parse all statements")
@@ -140,10 +149,13 @@ class Parser:
         """Format multiple parsing errors into a single error message.
 
         Args:
+        ----
             errors: List of ParserError objects
 
         Returns:
+        -------
             Formatted error message
+
         """
         error_messages = [
             f"{e.message} at line {e.line}, column {e.column}" for e in errors
@@ -154,16 +166,20 @@ class Parser:
         """Parse the input text into a Pipeline AST.
 
         Args:
+        ----
             text: The input text to parse (optional if provided in constructor)
             validate: Whether to run validation after parsing (default: True)
 
         Returns:
+        -------
             Pipeline AST
 
         Raises:
+        ------
             ValidationError: If the pipeline has validation errors and validate=True
             ParserError: If the input text cannot be parsed
             ValueError: If no text is provided
+
         """
         # Reset parser state
         self.current = 0
@@ -204,8 +220,10 @@ class Parser:
     def _validate_pipeline(self) -> List:
         """Validate the parsed pipeline using the validation module.
 
-        Returns:
+        Returns
+        -------
             List of ValidationError objects, empty if valid
+
         """
         try:
             from sqlflow.validation import ValidationError, validate_pipeline
@@ -230,11 +248,14 @@ class Parser:
     def _parse_statement(self) -> Optional[PipelineStep]:
         """Parse a statement in the SQLFlow DSL.
 
-        Returns:
+        Returns
+        -------
             PipelineStep or None if the statement is not recognized
 
-        Raises:
+        Raises
+        ------
             ParserError: If the statement cannot be parsed
+
         """
         token = self._peek()
 
@@ -268,11 +289,14 @@ class Parser:
         1. SOURCE name TYPE connector_type PARAMS {...};
         2. SOURCE name FROM "connector_name" OPTIONS {...};
 
-        Returns:
+        Returns
+        -------
             SourceDefinitionStep
 
-        Raises:
+        Raises
+        ------
             ParserError: If the SOURCE statement cannot be parsed
+
         """
         source_token = self._consume(TokenType.SOURCE, "Expected 'SOURCE'")
 
@@ -417,8 +441,10 @@ class Parser:
     def _advance(self) -> Token:
         """Advance to the next token.
 
-        Returns:
+        Returns
+        -------
             The current token before advancing
+
         """
         token = self.tokens[self.current]
         if not self._is_at_end():
@@ -430,15 +456,19 @@ class Parser:
         """Consume a token of the expected type.
 
         Args:
+        ----
             type: Expected token type
             error_message: Error message if the token is not of the expected
                 type
 
         Returns:
+        -------
             The consumed token
 
         Raises:
+        ------
             ParserError: If the token is not of the expected type
+
         """
         if self._check(type):
             return self._advance()
@@ -450,10 +480,13 @@ class Parser:
         """Check if the current token is of the expected type.
 
         Args:
+        ----
             type: Expected token type
 
         Returns:
+        -------
             True if the current token is of the expected type, False otherwise
+
         """
         if self._is_at_end():
             return False
@@ -462,24 +495,30 @@ class Parser:
     def _is_at_end(self) -> bool:
         """Check if we have reached the end of the token stream.
 
-        Returns:
+        Returns
+        -------
             True if we have reached the end, False otherwise
+
         """
         return self._peek().type == TokenType.EOF
 
     def _peek(self) -> Token:
         """Peek at the current token.
 
-        Returns:
+        Returns
+        -------
             The current token
+
         """
         return self.tokens[self.current]
 
     def _previous(self) -> Token:
         """Get the previous token.
 
-        Returns:
+        Returns
+        -------
             The previous token
+
         """
         return self.tokens[self.current - 1]
 
@@ -491,11 +530,14 @@ class Parser:
         2. LOAD table_name FROM source_name MODE mode_type;
         3. LOAD table_name FROM source_name MODE MERGE MERGE_KEYS key1, key2, ...;
 
-        Returns:
+        Returns
+        -------
             LoadStep
 
-        Raises:
+        Raises
+        ------
             ParserError: If the LOAD statement cannot be parsed
+
         """
         load_token = self._consume(TokenType.LOAD, "Expected 'LOAD'")
 
@@ -530,11 +572,14 @@ class Parser:
     def _parse_load_mode(self) -> tuple[str, list[str]]:
         """Parse the MODE clause of a LOAD statement.
 
-        Returns:
+        Returns
+        -------
             Tuple of (mode, merge_keys)
 
-        Raises:
+        Raises
+        ------
             ParserError: If the MODE clause cannot be parsed
+
         """
         self._advance()  # Consume MODE token
 
@@ -564,11 +609,14 @@ class Parser:
         - MERGE_KEYS key1, key2
         - MERGE_KEYS (key1, key2)
 
-        Returns:
+        Returns
+        -------
             List of merge key column names
 
-        Raises:
+        Raises
+        ------
             ParserError: If the MERGE_KEYS clause cannot be parsed
+
         """
         # For MERGE mode, MERGE_KEYS is required
         if not self._check(TokenType.MERGE_KEYS):
@@ -629,11 +677,14 @@ class Parser:
     def _parse_export_statement(self) -> ExportStep:
         """Parse an EXPORT statement.
 
-        Returns:
+        Returns
+        -------
             ExportStep
 
-        Raises:
+        Raises
+        ------
             ParserError: If the EXPORT statement cannot be parsed
+
         """
         export_token = self._consume(TokenType.EXPORT, "Expected 'EXPORT'")
 
@@ -681,11 +732,14 @@ class Parser:
     def _parse_include_statement(self) -> IncludeStep:
         """Parse an INCLUDE statement.
 
-        Returns:
+        Returns
+        -------
             IncludeStep
 
-        Raises:
+        Raises
+        ------
             ParserError: If the INCLUDE statement cannot be parsed
+
         """
         include_token = self._consume(TokenType.INCLUDE, "Expected 'INCLUDE'")
 
@@ -707,11 +761,14 @@ class Parser:
     def _parse_set_statement(self) -> SetStep:
         """Parse a SET statement.
 
-        Returns:
+        Returns
+        -------
             SetStep
 
-        Raises:
+        Raises
+        ------
             ParserError: If the SET statement cannot be parsed
+
         """
         set_token = self._consume(TokenType.SET, "Expected 'SET'")
 
@@ -753,11 +810,14 @@ class Parser:
     def _parse_sql_block_statement(self) -> SQLBlockStep:
         """Parse a CREATE TABLE statement.
 
-        Returns:
+        Returns
+        -------
             SQLBlockStep
 
-        Raises:
+        Raises
+        ------
             ParserError: If the CREATE TABLE statement cannot be parsed
+
         """
         create_token = self._consume(TokenType.CREATE, "Expected 'CREATE'")
 
@@ -800,10 +860,13 @@ class Parser:
         - Variable references in different contexts
 
         Args:
+        ----
             tokens: List of tokens or token values
 
         Returns:
+        -------
             Properly formatted SQL query string
+
         """
         formatted_parts = []
         i = 0
@@ -896,10 +959,13 @@ class Parser:
         - Numeric comparisons: Variables should not be quoted (${var})
 
         Args:
+        ----
             sql: SQL query containing variable references
 
         Returns:
+        -------
             SQL query with properly formatted variable references
+
         """
         # First fix any spacing issues in variable references
         sql = self._fix_variable_references(sql)
@@ -1018,11 +1084,14 @@ class Parser:
         Similar to _consume but returns the token without raising an error.
 
         Args:
+        ----
             type: Expected token type
 
         Returns:
+        -------
             The matched token if it matches the expected type,
             otherwise None
+
         """
         if self._check(type):
             return self._advance()
@@ -1031,8 +1100,10 @@ class Parser:
     def _parse_json_token(self) -> dict:
         """Parse a JSON token.
 
-        Returns:
+        Returns
+        -------
             Parsed JSON value
+
         """
         json_token = self._consume(TokenType.JSON_OBJECT, "Expected JSON object")
         try:
@@ -1069,11 +1140,14 @@ class Parser:
     def _parse_conditional_block(self) -> ConditionalBlockStep:
         """Parse an IF/ELSEIF/ELSE/ENDIF block.
 
-        Returns:
+        Returns
+        -------
             ConditionalBlockStep
 
-        Raises:
+        Raises
+        ------
             ParserError: If the conditional block cannot be parsed
+
         """
         logger.debug("Parsing conditional block")
         start_line = self._peek().line
@@ -1122,11 +1196,14 @@ class Parser:
     def _parse_condition_expression(self) -> str:
         """Parse a condition expression until THEN.
 
-        Returns:
+        Returns
+        -------
             String containing the condition expression
 
-        Raises:
+        Raises
+        ------
             ParserError: If the condition expression cannot be parsed
+
         """
         condition_tokens = []
         while not self._check(TokenType.THEN) and not self._is_at_end():
@@ -1162,13 +1239,17 @@ class Parser:
         """Parse statements until reaching one of the terminator tokens.
 
         Args:
+        ----
             terminator_tokens: List of token types that terminate the branch
 
         Returns:
+        -------
             List of parsed pipeline steps
 
         Raises:
+        ------
             ParserError: If the branch statements cannot be parsed
+
         """
         branch_steps = []
         while not self._check_any(terminator_tokens) and not self._is_at_end():
@@ -1185,10 +1266,13 @@ class Parser:
         """Check if the current token is any of the given types.
 
         Args:
+        ----
             token_types: List of token types to check
 
         Returns:
+        -------
             True if the current token is any of the given types, False otherwise
+
         """
         return any(self._check(token_type) for token_type in token_types)
 
@@ -1200,10 +1284,13 @@ class Parser:
         - '${var | default}' to '${var|default}'
 
         Args:
+        ----
             text: Text containing variable references
 
         Returns:
+        -------
             Text with properly formatted variable references
+
         """
         # Step 1: Fix the outer spaces - Replace ${ var_name } with ${var_name}
         fixed = re.sub(r"\$\s*{\s*([^}]+?)\s*}", r"${\1}", text)

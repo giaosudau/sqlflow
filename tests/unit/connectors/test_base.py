@@ -252,11 +252,14 @@ class TestBidirectionalConnectorMixin:
 
         Should be overridden by subclasses.
 
-        Returns:
+        Returns
+        -------
             An instance of a BidirectionalConnector
 
-        Raises:
+        Raises
+        ------
             NotImplementedError: If not implemented by subclass
+
         """
         # This implementation will never be called in actual tests because they override it
         # But it serves to document the requirement and type
@@ -270,11 +273,14 @@ class TestBidirectionalConnectorMixin:
 
         Should be overridden by subclasses.
 
-        Returns:
+        Returns
+        -------
             Dict[str, List]: Sample data for testing write operations
 
-        Raises:
+        Raises
+        ------
             NotImplementedError: If not implemented by subclass
+
         """
         # This implementation will never be called in actual tests because they override it
         # But it serves to document the requirement and type
@@ -288,8 +294,10 @@ class TestBidirectionalConnectorMixin:
 
         Can be overridden by subclasses.
 
-        Returns:
+        Returns
+        -------
             Dict[str, Any]: Configuration parameters
+
         """
         return {"param1": "value1"}
 
@@ -340,10 +348,13 @@ class TestBidirectionalConnectorMixin:
         """Helper method to get a test object name.
 
         Args:
+        ----
             connector: The connector instance
 
         Returns:
+        -------
             str: Object name to use for testing
+
         """
         try:
             objects = connector.discover()
@@ -357,11 +368,14 @@ class TestBidirectionalConnectorMixin:
         """Helper method to verify data can be read.
 
         Args:
+        ----
             connector: The connector instance
             test_object: Object name to read from
 
         Raises:
+        ------
             pytest.skip: If reading is not supported
+
         """
         try:
             read_chunks = list(connector.read(test_object))

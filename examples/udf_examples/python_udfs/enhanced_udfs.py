@@ -1,5 +1,4 @@
-"""
-UDF utilities for SQLFlow.
+"""UDF utilities for SQLFlow.
 
 This module provides decorators and utilities for creating and working with User-Defined Functions
 in SQLFlow, specifically handling cases with default parameters.
@@ -15,18 +14,20 @@ F = TypeVar("F", bound=Callable[..., Any])
 
 
 def duckdb_compatible_udf(func: F) -> F:
-    """
-    Decorator that makes a function with default parameters compatible with DuckDB.
+    """Decorator that makes a function with default parameters compatible with DuckDB.
 
     This decorator creates specialized versions of the function for each parameter
     with a default value. These specialized versions can be called without the
     defaulted parameters.
 
     Args:
+    ----
         func: The function to decorate
 
     Returns:
+    -------
         Decorated function that has specialized versions available via attributes
+
     """
     # Original parameters and their default values
     sig = inspect.signature(func)

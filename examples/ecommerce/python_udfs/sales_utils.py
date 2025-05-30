@@ -13,11 +13,14 @@ def calculate_discount(price: float, region: str) -> float:
     """Calculate region-specific discount.
 
     Args:
+    ----
         price: Original price
         region: Geographic region
 
     Returns:
+    -------
         Discounted price
+
     """
     if price is None:
         return None
@@ -41,11 +44,14 @@ def categorize_customer(account_type: str, order_count: int) -> str:
     """Categorize customer based on account type and order count.
 
     Args:
+    ----
         account_type: Customer account type
         order_count: Number of orders placed
 
     Returns:
+    -------
         Customer category
+
     """
     if account_type is None:
         return "Unknown"
@@ -73,11 +79,14 @@ def format_currency(amount: float, region: str) -> str:
     """Format amount as currency based on region.
 
     Args:
+    ----
         amount: Monetary amount
         region: Geographic region
 
     Returns:
+    -------
         Formatted currency string
+
     """
     if amount is None:
         return None
@@ -102,11 +111,14 @@ def calculate_shipping_cost(quantity: int, region: str) -> float:
     """Calculate shipping cost based on quantity and region.
 
     Args:
+    ----
         quantity: Number of items
         region: Geographic region
 
     Returns:
+    -------
         Shipping cost
+
     """
     base_rates = {
         "us-east": 5.99,

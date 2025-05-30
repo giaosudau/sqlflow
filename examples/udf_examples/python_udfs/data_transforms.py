@@ -17,11 +17,14 @@ def calculate_tax(price: float, tax_rate: float) -> float:
     """Calculate the price with tax added.
 
     Args:
+    ----
         price: Original price
         tax_rate: Tax rate (e.g., 0.1 for 10%)
 
     Returns:
+    -------
         Price with tax added
+
     """
     if price is None:
         return None
@@ -41,10 +44,13 @@ def calculate_tax_default(price: float) -> float:
     the default tax rate of 10% without requiring the parameter.
 
     Args:
+    ----
         price: Original price
 
     Returns:
+    -------
         Price with default tax (10%) added
+
     """
     if price is None:
         return None
@@ -79,10 +85,13 @@ def add_sales_metrics(df: pd.DataFrame) -> pd.DataFrame:
     """Add sales metrics to a DataFrame.
 
     Args:
+    ----
         df: Input DataFrame with 'price' and 'quantity' columns
 
     Returns:
+    -------
         DataFrame with calculated metrics
+
     """
     result = df.copy()
 
@@ -136,11 +145,14 @@ def detect_outliers(df: pd.DataFrame, column_name: str = "price") -> pd.DataFram
     """Detect outliers in a numeric column using Z-score method.
 
     Args:
+    ----
         df: Input DataFrame
         column_name: Name of numeric column to check for outliers, default is "price"
 
     Returns:
+    -------
         DataFrame with outlier detection flags
+
     """
     result = df.copy()
 

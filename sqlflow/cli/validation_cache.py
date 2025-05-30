@@ -26,7 +26,9 @@ class ValidationCache:
         """Initialize validation cache.
 
         Args:
+        ----
             project_dir: Project directory path
+
         """
         self.project_dir = Path(project_dir)
         self.cache_dir = self.project_dir / "target" / "validation"
@@ -36,10 +38,13 @@ class ValidationCache:
         """Get cached validation errors for a pipeline file.
 
         Args:
+        ----
             pipeline_path: Path to the pipeline file
 
         Returns:
+        -------
             List of validation errors if cached and valid, None otherwise
+
         """
         try:
             cache_file = self._get_cache_file(pipeline_path)
@@ -85,8 +90,10 @@ class ValidationCache:
         """Store validation errors in cache.
 
         Args:
+        ----
             pipeline_path: Path to the pipeline file
             errors: List of validation errors to cache
+
         """
         try:
             cache_file = self._get_cache_file(pipeline_path)
@@ -112,10 +119,13 @@ class ValidationCache:
         """Generate cache file path for a pipeline.
 
         Args:
+        ----
             pipeline_path: Path to the pipeline file
 
         Returns:
+        -------
             Path to the cache file
+
         """
         # Create a safe filename from the pipeline path
         # Use hash to handle long paths and special characters
@@ -140,8 +150,10 @@ class ValidationCache:
     def cache_stats(self) -> dict:
         """Get cache statistics for debugging.
 
-        Returns:
+        Returns
+        -------
             Dictionary with cache statistics
+
         """
         try:
             if not self.cache_dir.exists():

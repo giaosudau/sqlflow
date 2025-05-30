@@ -46,10 +46,13 @@ class ArrowPerformanceOptimizer:
         with minimal copying and maximum performance.
 
         Args:
+        ----
             input_data: Input data in various formats (DataFrame, Arrow, etc.)
 
         Returns:
+        -------
             Optimized Arrow Table for zero-copy operations
+
         """
         start_time = time.time()
 
@@ -105,10 +108,13 @@ class ArrowPerformanceOptimizer:
         serialization and data transfer mechanisms.
 
         Args:
+        ----
             function: Original UDF function
 
         Returns:
+        -------
             Optimized function with reduced serialization overhead
+
         """
         function_name = getattr(function, "__name__", "unknown")
 
@@ -184,16 +190,18 @@ class ArrowPerformanceOptimizer:
         for table UDFs working with large datasets.
 
         Args:
+        ----
             function: UDF function to vectorize
 
         Returns:
+        -------
             Vectorized function with batch processing capabilities
+
         """
         function_name = getattr(function, "__name__", "unknown")
 
         def vectorized_wrapper(*args, **kwargs):
             """Vectorized wrapper that processes data in optimized batches."""
-
             # Check if we should use vectorized processing
             if not self._should_vectorize(args):
                 logger.debug(f"Vectorization not beneficial for {function_name}")
@@ -277,8 +285,10 @@ class ArrowPerformanceOptimizer:
     def _check_arrow_availability(self) -> bool:
         """Check if Apache Arrow is available and functional.
 
-        Returns:
+        Returns
+        -------
             True if Arrow is available
+
         """
         try:
             # Test basic Arrow functionality
@@ -294,10 +304,13 @@ class ArrowPerformanceOptimizer:
         """Optimize pandas DataFrame to Arrow Table conversion.
 
         Args:
+        ----
             df: Pandas DataFrame
 
         Returns:
+        -------
             Optimized Arrow Table
+
         """
         # Use optimal conversion settings
         return pa.Table.from_pandas(
@@ -310,10 +323,13 @@ class ArrowPerformanceOptimizer:
         """Check if an argument should be optimized.
 
         Args:
+        ----
             arg: Function argument
 
         Returns:
+        -------
             True if argument should be optimized
+
         """
         # Optimize large DataFrames and Arrow tables
         if isinstance(arg, pd.DataFrame):
@@ -326,10 +342,13 @@ class ArrowPerformanceOptimizer:
         """Optimize a function argument.
 
         Args:
+        ----
             arg: Argument to optimize
 
         Returns:
+        -------
             Optimized argument
+
         """
         if isinstance(arg, pd.DataFrame):
             # Convert to Arrow for zero-copy operations
@@ -340,10 +359,13 @@ class ArrowPerformanceOptimizer:
         """Check if output should be optimized.
 
         Args:
+        ----
             result: Function result
 
         Returns:
+        -------
             True if result should be optimized
+
         """
         if isinstance(result, pd.DataFrame):
             return len(result) > 1000
@@ -355,10 +377,13 @@ class ArrowPerformanceOptimizer:
         """Optimize function output.
 
         Args:
+        ----
             result: Function result
 
         Returns:
+        -------
             Optimized result
+
         """
         if isinstance(result, pd.DataFrame) and self.arrow_available:
             # Convert to Arrow for downstream zero-copy operations
@@ -369,10 +394,13 @@ class ArrowPerformanceOptimizer:
         """Check if vectorized processing should be used.
 
         Args:
+        ----
             args: Function arguments
 
         Returns:
+        -------
             True if vectorization is beneficial
+
         """
         # Look for large DataFrames in arguments
         for arg in args:
@@ -384,10 +412,13 @@ class ArrowPerformanceOptimizer:
         """Find the primary DataFrame argument for vectorization.
 
         Args:
+        ----
             args: Function arguments
 
         Returns:
+        -------
             Primary DataFrame or None
+
         """
         # Return the first DataFrame found
         for arg in args:
@@ -399,11 +430,14 @@ class ArrowPerformanceOptimizer:
         """Get optimal batch size for a function and dataset.
 
         Args:
+        ----
             function_name: Name of the function
             df: Input DataFrame
 
         Returns:
+        -------
             Optimal batch size
+
         """
         # Check cache first
         if function_name in self.batch_size_cache:
@@ -438,11 +472,14 @@ class ArrowPerformanceOptimizer:
         """Replace the primary DataFrame in arguments with a new one.
 
         Args:
+        ----
             args: Original arguments
             new_df: New DataFrame to use
 
         Returns:
+        -------
             Modified arguments tuple
+
         """
         new_args = []
         df_replaced = False
@@ -462,8 +499,10 @@ class ArrowPerformanceOptimizer:
         """Record optimization performance metrics.
 
         Args:
+        ----
             optimization_type: Type of optimization
             metrics: Metrics to record
+
         """
         if optimization_type not in self.performance_metrics:
             self.performance_metrics[optimization_type] = []
@@ -480,8 +519,10 @@ class ArrowPerformanceOptimizer:
     def get_performance_metrics(self) -> Dict[str, Any]:
         """Get current performance metrics.
 
-        Returns:
+        Returns
+        -------
             Dictionary with performance metrics and statistics
+
         """
         metrics_summary = {}
 
@@ -523,10 +564,13 @@ class ArrowPerformanceOptimizer:
         """Get recommended optimizations for a UDF function.
 
         Args:
+        ----
             function: UDF function to analyze
 
         Returns:
+        -------
             List of recommended optimization strategies
+
         """
         recommendations = []
 

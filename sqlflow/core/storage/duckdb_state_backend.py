@@ -20,8 +20,10 @@ class DuckDBStateBackend:
         """Initialize a DuckDBStateBackend.
 
         Args:
+        ----
             db_path: Path to the DuckDB database file.
                      Defaults to ~/.sqlflow/state.db.
+
         """
         if db_path is None:
             home_dir = os.path.expanduser("~")
@@ -83,8 +85,10 @@ class DuckDBStateBackend:
         """Create a new execution run.
 
         Args:
+        ----
             run_id: Unique identifier for the run
             metadata: Additional metadata for the run
+
         """
         metadata_json = json.dumps(metadata or {})
         self.conn.execute(
@@ -99,8 +103,10 @@ class DuckDBStateBackend:
         """Save an execution plan.
 
         Args:
+        ----
             run_id: Unique identifier for the run
             plan: Execution plan to save
+
         """
         plan_json = json.dumps(plan)
         self.conn.execute(
@@ -116,10 +122,13 @@ class DuckDBStateBackend:
         """Load an execution plan.
 
         Args:
+        ----
             run_id: Unique identifier for the run
 
         Returns:
+        -------
             Execution plan or None if not found
+
         """
         result = self.conn.execute(
             """
@@ -137,8 +146,10 @@ class DuckDBStateBackend:
         """Save a task status.
 
         Args:
+        ----
             run_id: Unique identifier for the run
             task_status: Task status to save
+
         """
         task_dict = asdict(task_status)
         dependencies_json = json.dumps(task_dict["dependencies"])
@@ -179,10 +190,13 @@ class DuckDBStateBackend:
         """Load task statuses for a run.
 
         Args:
+        ----
             run_id: Unique identifier for the run
 
         Returns:
+        -------
             Dict mapping task IDs to TaskStatus objects
+
         """
         result = self.conn.execute(
             """
@@ -230,8 +244,10 @@ class DuckDBStateBackend:
         """Update the status of a run.
 
         Args:
+        ----
             run_id: Unique identifier for the run
             status: New status of the run
+
         """
         self.conn.execute(
             """
@@ -246,10 +262,13 @@ class DuckDBStateBackend:
         """Get the status of a run.
 
         Args:
+        ----
             run_id: Unique identifier for the run
 
         Returns:
+        -------
             Status of the run or None if not found
+
         """
         result = self.conn.execute(
             """
@@ -266,8 +285,10 @@ class DuckDBStateBackend:
     def list_runs(self) -> List[Dict[str, Any]]:
         """List all execution runs.
 
-        Returns:
+        Returns
+        -------
             List of execution runs
+
         """
         result = self.conn.execute(
             """

@@ -18,9 +18,11 @@ class UDFRegistrationStrategy(ABC):
         """Register a UDF using this strategy.
 
         Args:
+        ----
             name: Name to register the UDF as
             function: Python function to register
             connection: Database connection
+
         """
 
 
@@ -36,9 +38,11 @@ class AdvancedTableUDFStrategy(UDFRegistrationStrategy):
         """Register table UDF using sophisticated multi-strategy approach.
 
         Args:
+        ----
             name: Name to register the UDF as
             function: Python function to register
             connection: Database connection
+
         """
         logger.info(
             f"Attempting to register table UDF {name} with advanced multi-strategy approach"
@@ -91,7 +95,9 @@ class AdvancedTableUDFStrategy(UDFRegistrationStrategy):
         """Extract metadata from wrapped functions if needed.
 
         Args:
+        ----
             function: Function to extract metadata from
+
         """
         wrapped_func = getattr(function, "__wrapped__", None)
         if wrapped_func:
@@ -118,13 +124,16 @@ class AdvancedTableUDFStrategy(UDFRegistrationStrategy):
         """Register UDF with explicit schema using STRUCT types.
 
         Args:
+        ----
             name: UDF name
             function: UDF function
             connection: DuckDB connection
             output_schema: Output schema definition
 
         Returns:
+        -------
             True if registration successful, False to try next strategy
+
         """
         try:
             # Create a DuckDB struct type that describes the output schema
@@ -155,12 +164,15 @@ class AdvancedTableUDFStrategy(UDFRegistrationStrategy):
         """Register UDF with intelligent fallback for table functions.
 
         Args:
+        ----
             name: UDF name
             function: UDF function
             connection: DuckDB connection
 
         Returns:
+        -------
             True if registration successful, False to try next strategy
+
         """
         try:
             logger.debug(
@@ -205,12 +217,15 @@ class AdvancedTableUDFStrategy(UDFRegistrationStrategy):
         """Register UDF with enhanced standard DuckDB approach.
 
         Args:
+        ----
             name: UDF name
             function: UDF function
             connection: DuckDB connection
 
         Returns:
+        -------
             True if registration successful
+
         """
         try:
             logger.debug(
@@ -247,10 +262,13 @@ class AdvancedTableUDFStrategy(UDFRegistrationStrategy):
         """Build DuckDB STRUCT type from output schema.
 
         Args:
+        ----
             output_schema: Dictionary mapping column names to types
 
         Returns:
+        -------
             DuckDB STRUCT type string
+
         """
         struct_fields = []
         for col_name, col_type in output_schema.items():
@@ -265,10 +283,13 @@ class AdvancedTableUDFStrategy(UDFRegistrationStrategy):
         """Normalize column type for DuckDB compatibility.
 
         Args:
+        ----
             col_type: Input column type
 
         Returns:
+        -------
             Normalized DuckDB type
+
         """
         type_name = col_type.upper()
 
@@ -343,10 +364,13 @@ class UDFRegistrationStrategyFactory:
         """Create appropriate registration strategy based on function attributes.
 
         Args:
+        ----
             function: Function to create strategy for
 
         Returns:
+        -------
             Appropriate registration strategy
+
         """
         # Always use the advanced strategy for table UDFs
         return AdvancedTableUDFStrategy()

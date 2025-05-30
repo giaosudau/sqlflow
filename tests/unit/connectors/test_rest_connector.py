@@ -8,9 +8,7 @@ import pytest
 import requests
 
 from sqlflow.connectors.data_chunk import DataChunk
-from sqlflow.connectors.rest_connector import (
-    RESTExportConnector,
-)
+from sqlflow.connectors.rest_connector import RESTExportConnector
 from sqlflow.core.errors import ConnectorError
 
 

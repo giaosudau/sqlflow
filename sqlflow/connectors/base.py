@@ -34,8 +34,10 @@ class ConnectionTestResult:
         """Initialize a ConnectionTestResult.
 
         Args:
+        ----
             success: Whether the test was successful
             message: Optional message with details
+
         """
         self.success = success
         self.message = message
@@ -48,7 +50,9 @@ class Schema:
         """Initialize a Schema.
 
         Args:
+        ----
             arrow_schema: Arrow schema
+
         """
         self.arrow_schema = arrow_schema
 
@@ -57,10 +61,13 @@ class Schema:
         """Create a Schema from a dictionary.
 
         Args:
+        ----
             schema_dict: Dictionary mapping field names to types
 
         Returns:
+        -------
             Schema instance
+
         """
         fields = []
         for name, type_str in schema_dict.items():
@@ -98,29 +105,37 @@ class Connector(ABC):
         """Configure the connector with parameters.
 
         Args:
+        ----
             params: Configuration parameters
 
         Raises:
+        ------
             ConnectorError: If configuration fails
+
         """
 
     @abstractmethod
     def test_connection(self) -> ConnectionTestResult:
         """Test the connection to the data source.
 
-        Returns:
+        Returns
+        -------
             Result of the connection test
+
         """
 
     @abstractmethod
     def discover(self) -> List[str]:
         """Discover available objects in the data source.
 
-        Returns:
+        Returns
+        -------
             List of object names (tables, files, etc.)
 
-        Raises:
+        Raises
+        ------
             ConnectorError: If discovery fails
+
         """
 
     @abstractmethod
@@ -128,13 +143,17 @@ class Connector(ABC):
         """Get schema for an object.
 
         Args:
+        ----
             object_name: Name of the object
 
         Returns:
+        -------
             Schema for the object
 
         Raises:
+        ------
             ConnectorError: If schema retrieval fails
+
         """
 
     @abstractmethod
@@ -148,26 +167,33 @@ class Connector(ABC):
         """Read data from the source in chunks.
 
         Args:
+        ----
             object_name: Name of the object to read
             columns: Optional list of columns to read
             filters: Optional filters to apply
             batch_size: Number of rows per batch
 
         Returns:
+        -------
             Iterator yielding DataChunk objects
 
         Raises:
+        ------
             ConnectorError: If reading fails
+
         """
 
     def validate_state(self, expected_state: ConnectorState) -> None:
         """Validate that the connector is in the expected state.
 
         Args:
+        ----
             expected_state: Expected state
 
         Raises:
+        ------
             ConnectorError: If the connector is not in the expected state
+
         """
         valid_states = {expected_state, ConnectorState.READY}
         if self.state not in valid_states:
@@ -191,18 +217,23 @@ class ExportConnector(ABC):
         """Configure the connector with parameters.
 
         Args:
+        ----
             params: Configuration parameters
 
         Raises:
+        ------
             ConnectorError: If configuration fails
+
         """
 
     @abstractmethod
     def test_connection(self) -> ConnectionTestResult:
         """Test the connection to the destination.
 
-        Returns:
+        Returns
+        -------
             Result of the connection test
+
         """
 
     @abstractmethod
@@ -212,22 +243,28 @@ class ExportConnector(ABC):
         """Write data to the destination.
 
         Args:
+        ----
             object_name: Name of the object to write to
             data_chunk: Data to write
             mode: Write mode (append, overwrite, etc.)
 
         Raises:
+        ------
             ConnectorError: If writing fails
+
         """
 
     def validate_state(self, expected_state: ConnectorState) -> None:
         """Validate that the connector is in the expected state.
 
         Args:
+        ----
             expected_state: Expected state
 
         Raises:
+        ------
             ConnectorError: If the connector is not in the expected state
+
         """
         valid_states = {expected_state, ConnectorState.READY}
         if self.state not in valid_states:
@@ -259,29 +296,37 @@ class BidirectionalConnector(Connector, ExportConnector):
         """Configure the connector with parameters.
 
         Args:
+        ----
             params: Configuration parameters
 
         Raises:
+        ------
             ConnectorError: If configuration fails
+
         """
 
     @abstractmethod
     def test_connection(self) -> ConnectionTestResult:
         """Test the connection.
 
-        Returns:
+        Returns
+        -------
             Result of the connection test
+
         """
 
     @abstractmethod
     def discover(self) -> List[str]:
         """Discover available objects.
 
-        Returns:
+        Returns
+        -------
             List of object names
 
-        Raises:
+        Raises
+        ------
             ConnectorError: If discovery fails
+
         """
 
     @abstractmethod
@@ -289,13 +334,17 @@ class BidirectionalConnector(Connector, ExportConnector):
         """Get schema for an object.
 
         Args:
+        ----
             object_name: Name of the object
 
         Returns:
+        -------
             Schema for the object
 
         Raises:
+        ------
             ConnectorError: If schema retrieval fails
+
         """
 
     @abstractmethod
@@ -309,16 +358,20 @@ class BidirectionalConnector(Connector, ExportConnector):
         """Read data from the source.
 
         Args:
+        ----
             object_name: Name of the object to read
             columns: Optional list of columns to read
             filters: Optional filters to apply
             batch_size: Number of rows per batch
 
         Returns:
+        -------
             Iterator yielding DataChunk objects
 
         Raises:
+        ------
             ConnectorError: If reading fails
+
         """
 
     @abstractmethod
@@ -328,10 +381,13 @@ class BidirectionalConnector(Connector, ExportConnector):
         """Write data to the destination.
 
         Args:
+        ----
             object_name: Name of the object to write to
             data_chunk: Data to write
             mode: Write mode (append, overwrite, etc.)
 
         Raises:
+        ------
             ConnectorError: If writing fails
+
         """

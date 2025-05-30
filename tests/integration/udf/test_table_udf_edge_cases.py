@@ -4,11 +4,8 @@ This module contains focused tests for table UDF edge cases,
 error handling, schema validation, and batch processing scenarios.
 """
 
-from typing import cast
-
 import numpy as np
 import pandas as pd
-import pytest
 
 from sqlflow.core.engines.duckdb import DuckDBEngine
 from sqlflow.logging import get_logger
@@ -24,7 +21,11 @@ class TestTableUDFEdgeCases:
         """Test edge cases and error handling scenarios."""
 
         @python_table_udf(
-            output_schema={"id": "INTEGER", "safe_result": "DOUBLE", "status": "VARCHAR"}
+            output_schema={
+                "id": "INTEGER",
+                "safe_result": "DOUBLE",
+                "status": "VARCHAR",
+            }
         )
         def robust_error_handling_udf(df: pd.DataFrame) -> pd.DataFrame:
             """UDF with comprehensive error handling."""
@@ -50,13 +51,17 @@ class TestTableUDFEdgeCases:
             return result[["id", "safe_result", "status"]]
 
         # Test data with edge cases
-        edge_case_data = pd.DataFrame({
-            "id": [1, 2, 3, 4, 5, 6],
-            "value": [100, -50, 0, None, "invalid", np.inf],
-        })
+        edge_case_data = pd.DataFrame(
+            {
+                "id": [1, 2, 3, 4, 5, 6],
+                "value": [100, -50, 0, None, "invalid", np.inf],
+            }
+        )
 
         duckdb_engine.register_table("edge_case_data", edge_case_data)
-        duckdb_engine.register_python_udf("robust_error_handling_udf", robust_error_handling_udf)
+        duckdb_engine.register_python_udf(
+            "robust_error_handling_udf", robust_error_handling_udf
+        )
 
         # Execute UDF
         result = duckdb_engine.execute_query(
@@ -67,7 +72,7 @@ class TestTableUDFEdgeCases:
         assert len(result) == 6
         assert "safe_result" in result.columns
         assert "status" in result.columns
-        
+
         # Check specific edge case handling
         status_counts = result["status"].value_counts()
         assert "zero_or_null" in status_counts.index
@@ -78,28 +83,40 @@ class TestTableUDFEdgeCases:
         """Test batch processing capabilities with varying sizes."""
 
         @python_table_udf(
-            output_schema={"batch_id": "INTEGER", "item_count": "INTEGER", "avg_value": "DOUBLE"}
+            output_schema={
+                "batch_id": "INTEGER",
+                "item_count": "INTEGER",
+                "avg_value": "DOUBLE",
+            }
         )
-        def batch_processor_udf(df: pd.DataFrame, *, batch_size: int = 100) -> pd.DataFrame:
+        def batch_processor_udf(
+            df: pd.DataFrame, *, batch_size: int = 100
+        ) -> pd.DataFrame:
             """UDF that processes data in configurable batches."""
             results = []
-            
+
             for i in range(0, len(df), batch_size):
-                batch = df.iloc[i:i + batch_size]
+                batch = df.iloc[i : i + batch_size]
                 batch_result = {
                     "batch_id": i // batch_size + 1,
                     "item_count": len(batch),
-                    "avg_value": batch.get("value", pd.Series(dtype=float)).mean() if len(batch) > 0 else 0.0,
+                    "avg_value": (
+                        batch.get("value", pd.Series(dtype=float)).mean()
+                        if len(batch) > 0
+                        else 0.0
+                    ),
                 }
                 results.append(batch_result)
-            
+
             return pd.DataFrame(results)
 
         # Create test data for batch processing
-        batch_test_data = pd.DataFrame({
-            "id": range(1, 351),  # 350 rows
-            "value": np.random.uniform(10, 100, 350),
-        })
+        batch_test_data = pd.DataFrame(
+            {
+                "id": range(1, 351),  # 350 rows
+                "value": np.random.uniform(10, 100, 350),
+            }
+        )
 
         duckdb_engine.register_table("batch_test_data", batch_test_data)
         duckdb_engine.register_python_udf("batch_processor_udf", batch_processor_udf)
@@ -133,14 +150,18 @@ class TestTableUDFEdgeCases:
             # Validate required columns exist
             required_columns = ["customer_id", "customer_name"]
             missing_columns = [col for col in required_columns if col not in df.columns]
-            
+
             if missing_columns:
                 # Return error row for missing columns
-                return pd.DataFrame({
-                    "customer_id": [0],
-                    "normalized_name": [""],
-                    "validation_status": [f"Missing columns: {', '.join(missing_columns)}"],
-                })
+                return pd.DataFrame(
+                    {
+                        "customer_id": [0],
+                        "normalized_name": [""],
+                        "validation_status": [
+                            f"Missing columns: {', '.join(missing_columns)}"
+                        ],
+                    }
+                )
 
             # Process valid data
             result["customer_id"] = df["customer_id"]
@@ -150,13 +171,17 @@ class TestTableUDFEdgeCases:
             return result
 
         # Test with valid schema
-        valid_data = pd.DataFrame({
-            "customer_id": [1, 2, 3],
-            "customer_name": ["  john doe  ", "Jane Smith", "bob wilson"],
-        })
+        valid_data = pd.DataFrame(
+            {
+                "customer_id": [1, 2, 3],
+                "customer_name": ["  john doe  ", "Jane Smith", "bob wilson"],
+            }
+        )
 
         duckdb_engine.register_table("valid_schema_data", valid_data)
-        duckdb_engine.register_python_udf("schema_validation_udf", schema_validation_udf)
+        duckdb_engine.register_python_udf(
+            "schema_validation_udf", schema_validation_udf
+        )
 
         result = duckdb_engine.execute_query(
             "SELECT * FROM schema_validation_udf(SELECT * FROM valid_schema_data)"
@@ -167,10 +192,12 @@ class TestTableUDFEdgeCases:
         assert result.loc[0, "normalized_name"] == "JOHN DOE"
 
         # Test with invalid schema
-        invalid_data = pd.DataFrame({
-            "customer_id": [1, 2],
-            "wrong_column": ["value1", "value2"],
-        })
+        invalid_data = pd.DataFrame(
+            {
+                "customer_id": [1, 2],
+                "wrong_column": ["value1", "value2"],
+            }
+        )
 
         duckdb_engine.register_table("invalid_schema_data", invalid_data)
 
@@ -186,7 +213,7 @@ class TestTableUDFEdgeCases:
 
         @python_table_udf(
             output_schema={
-                "operation_id": "INTEGER", 
+                "operation_id": "INTEGER",
                 "processing_time_ms": "DOUBLE",
                 "optimization_applied": "VARCHAR",
                 "result": "DOUBLE",
@@ -195,14 +222,14 @@ class TestTableUDFEdgeCases:
         def debug_optimization_udf(df: pd.DataFrame) -> pd.DataFrame:
             """UDF with debugging and optimization tracking."""
             import time
-            
+
             results = []
-            
+
             for idx, row in df.iterrows():
                 start_time = time.time()
-                
+
                 value = row.get("value", 0)
-                
+
                 # Simulate different optimization paths
                 if value > 100:
                     # Complex computation path
@@ -216,27 +243,53 @@ class TestTableUDFEdgeCases:
                     # Minimal computation path
                     result_value = value
                     optimization = "passthrough"
-                
+
                 processing_time = (time.time() - start_time) * 1000
-                
-                results.append({
-                    "operation_id": int(idx) + 1,
-                    "processing_time_ms": processing_time,
-                    "optimization_applied": optimization,
-                    "result": result_value,
-                })
-            
+
+                results.append(
+                    {
+                        "operation_id": int(idx) + 1,
+                        "processing_time_ms": processing_time,
+                        "optimization_applied": optimization,
+                        "result": result_value,
+                    }
+                )
+
             return pd.DataFrame(results)
 
         # Create test data with different value ranges
-        debug_data = pd.DataFrame({
-            "id": range(1, 21),
-            "value": [5, 15, 150, 8, 25, 200, 3, 50, 300, 1,
-                     12, 175, 6, 35, 250, 9, 45, 180, 4, 60],
-        })
+        debug_data = pd.DataFrame(
+            {
+                "id": range(1, 21),
+                "value": [
+                    5,
+                    15,
+                    150,
+                    8,
+                    25,
+                    200,
+                    3,
+                    50,
+                    300,
+                    1,
+                    12,
+                    175,
+                    6,
+                    35,
+                    250,
+                    9,
+                    45,
+                    180,
+                    4,
+                    60,
+                ],
+            }
+        )
 
         duckdb_engine.register_table("debug_data", debug_data)
-        duckdb_engine.register_python_udf("debug_optimization_udf", debug_optimization_udf)
+        duckdb_engine.register_python_udf(
+            "debug_optimization_udf", debug_optimization_udf
+        )
 
         result = duckdb_engine.execute_query(
             "SELECT * FROM debug_optimization_udf(SELECT * FROM debug_data)"
@@ -246,7 +299,7 @@ class TestTableUDFEdgeCases:
         assert len(result) == 20
         assert "processing_time_ms" in result.columns
         assert "optimization_applied" in result.columns
-        
+
         # Check that different optimization paths were used
         optimizations = result["optimization_applied"].unique()
         assert "passthrough" in optimizations
@@ -257,28 +310,38 @@ class TestTableUDFEdgeCases:
         """Test handling of NULL values and empty datasets."""
 
         @python_table_udf(
-            output_schema={"id": "INTEGER", "processed": "VARCHAR", "is_valid": "BOOLEAN"}
+            output_schema={
+                "id": "INTEGER",
+                "processed": "VARCHAR",
+                "is_valid": "BOOLEAN",
+            }
         )
         def null_safe_udf(df: pd.DataFrame) -> pd.DataFrame:
             """UDF that safely handles NULL and empty data."""
             if df.empty:
-                return pd.DataFrame({
-                    "id": [],
-                    "processed": [],
-                    "is_valid": [],
-                })
+                return pd.DataFrame(
+                    {
+                        "id": [],
+                        "processed": [],
+                        "is_valid": [],
+                    }
+                )
 
             result = df.copy()
-            result["processed"] = result.get("text", pd.Series(dtype=str)).fillna("NULL_VALUE")
+            result["processed"] = result.get("text", pd.Series(dtype=str)).fillna(
+                "NULL_VALUE"
+            )
             result["is_valid"] = ~result.get("text", pd.Series(dtype=str)).isna()
-            
+
             return result[["id", "processed", "is_valid"]]
 
         # Test with NULL values
-        null_data = pd.DataFrame({
-            "id": [1, 2, 3, 4],
-            "text": ["hello", None, "world", None],
-        })
+        null_data = pd.DataFrame(
+            {
+                "id": [1, 2, 3, 4],
+                "text": ["hello", None, "world", None],
+            }
+        )
 
         duckdb_engine.register_table("null_data", null_data)
         duckdb_engine.register_python_udf("null_safe_udf", null_safe_udf)
@@ -301,4 +364,4 @@ class TestTableUDFEdgeCases:
         ).fetchdf()
 
         assert len(result) == 0
-        assert list(result.columns) == ["id", "processed", "is_valid"] 
+        assert list(result.columns) == ["id", "processed", "is_valid"]
