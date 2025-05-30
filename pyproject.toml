@@ -1,6 +1,6 @@
 [project]
 name = "sqlflow-core"
-version = "0.1.6"
+version = "0.1.7"
 description = "SQLFlow is a SQL-native engine for defining, orchestrating, and managing data workflows—empowering analysts and engineers to build robust, production-grade pipelines using only SQL."
 readme = "README.md"
 license = { file = "LICENSE" }
