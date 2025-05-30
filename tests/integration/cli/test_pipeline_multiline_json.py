@@ -10,9 +10,9 @@ import os
 import tempfile
 
 import duckdb
+import pytest
 import yaml
 from typer.testing import CliRunner
-import pytest
 
 from sqlflow.cli.main import app
 

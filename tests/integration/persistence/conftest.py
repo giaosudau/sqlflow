@@ -2,7 +2,7 @@
 
 import tempfile
 from pathlib import Path
-from typing import Dict, Any, Generator
+from typing import Any, Dict, Generator
 
 import pytest
 
