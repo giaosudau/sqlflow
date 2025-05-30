@@ -7,7 +7,6 @@ from typing import Any, Dict, Generator
 import pytest
 
 from sqlflow.core.engines.duckdb import DuckDBEngine
-from sqlflow.core.executors.local_executor import LocalExecutor
 
 
 @pytest.fixture(scope="function")

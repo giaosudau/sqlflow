@@ -5,7 +5,6 @@ import os
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
-import pytest
 
 from sqlflow.connectors.connector_engine import ConnectorEngine
 from sqlflow.connectors.csv_connector import CSVConnector

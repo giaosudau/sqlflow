@@ -1,6 +1,6 @@
 """Test suite for SQLFlow main entry point."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 

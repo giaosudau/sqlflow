@@ -180,9 +180,9 @@ WHERE purchase_amount > 500;
             )
 
             # Should succeed without JSON parsing errors
-            assert result.exit_code == 0, (
-                f"Pipeline with multiline JSON failed: {result.output}"
-            )
+            assert (
+                result.exit_code == 0
+            ), f"Pipeline with multiline JSON failed: {result.output}"
 
             # Should mention successful execution
             assert (
@@ -259,9 +259,9 @@ CREATE TABLE result_{i} AS SELECT COUNT(*) as row_count FROM test_table_{i};
                     app, ["pipeline", "run", f"format_test_{i}", "--profile", "dev"]
                 )
 
-                assert result.exit_code == 0, (
-                    f"Format variation {i} failed: {result.output}"
-                )
+                assert (
+                    result.exit_code == 0
+                ), f"Format variation {i} failed: {result.output}"
 
         finally:
             os.chdir(old_cwd)

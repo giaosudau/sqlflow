@@ -12,7 +12,6 @@ Integration tests should:
 
 import tempfile
 from pathlib import Path
-from typing import Any, Dict
 
 import pandas as pd
 import pytest

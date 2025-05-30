@@ -67,12 +67,15 @@ class TestCSVWriter:
         assert os.path.exists(destination)
 
         # Read raw content to verify formatting
-        with open(destination, "r", encoding="utf-8") as f:
+        with open(destination, encoding="utf-8") as f:
             content = f.read()
 
-        # Should use semicolon delimiter and quote all fields
+        # Check that semicolon delimiter was used
         assert ";" in content
-        assert content.count("'") > 0  # Custom quote character
+        # Check that single quotes were used (quotechar)
+        assert "'" in content
+        # Check line terminator (may be converted by OS)
+        assert "\r\n" in content or "\n" in content
 
     def test_write_without_header(self, csv_writer, sample_dataframe, temp_dir):
         """Test writing CSV without header."""
@@ -85,7 +88,7 @@ class TestCSVWriter:
         assert os.path.exists(destination)
 
         # Read and verify no header
-        with open(destination, "r") as f:
+        with open(destination) as f:
             first_line = f.readline().strip()
 
         # First line should be data, not headers
@@ -146,7 +149,7 @@ class TestCSVWriter:
         assert os.path.exists(destination)
 
         # File should exist but be essentially empty
-        with open(destination, "r") as f:
+        with open(destination) as f:
             content = f.read().strip()
         assert content == "" or content == "\n"  # Just newline or empty
 

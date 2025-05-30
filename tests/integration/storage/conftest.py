@@ -1,6 +1,5 @@
 """Storage-specific fixtures for integration tests."""
 
-import shutil
 import tempfile
 from collections.abc import Generator
 from pathlib import Path

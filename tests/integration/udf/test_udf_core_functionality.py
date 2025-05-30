@@ -53,7 +53,8 @@ def create_basic_udf_file(udf_dir: str) -> Path:
     """Create UDF file with basic scalar and table functions."""
     udf_file = Path(udf_dir) / "basic_udfs.py"
     with open(udf_file, "w") as f:
-        f.write('''
+        f.write(
+            '''
 """Basic UDF functions for testing core functionality."""
 
 import pandas as pd
@@ -110,7 +111,8 @@ def customer_summary(df: pd.DataFrame) -> pd.DataFrame:
     
     summary.columns = ["customer_id", "total_amount", "order_count"]
     return summary
-''')
+'''
+        )
     return udf_file
 
 
@@ -118,7 +120,8 @@ def create_analytics_udf_file(sub_dir: str) -> Path:
     """Create UDF file in subdirectory for namespace testing."""
     udf_file = Path(sub_dir) / "analytics_udfs.py"
     with open(udf_file, "w") as f:
-        f.write('''
+        f.write(
+            '''
 """Analytics UDFs in subdirectory for namespace testing."""
 
 import pandas as pd
@@ -148,7 +151,8 @@ def revenue_analysis(df: pd.DataFrame) -> pd.DataFrame:
     result["growth_rate"] = result["growth_rate"].fillna(0)
     
     return result[["period", "revenue", "growth_rate"]]
-''')
+'''
+        )
     return udf_file
 
 
@@ -245,7 +249,7 @@ class TestUDFRegistration:
         manager = PythonUDFManager(project_dir=core_udf_test_env["project_dir"])
 
         # Discover and register UDFs
-        udfs = manager.discover_udfs()
+        manager.discover_udfs()
         manager.register_udfs_with_engine(engine)
 
         # Test scalar UDF calls
@@ -267,7 +271,7 @@ class TestUDFRegistration:
         engine = DuckDBEngine(":memory:")
         manager = PythonUDFManager(project_dir=core_udf_test_env["project_dir"])
 
-        udfs = manager.discover_udfs()
+        manager.discover_udfs()
         manager.register_udfs_with_engine(engine)
 
         # Create test data
@@ -289,7 +293,7 @@ class TestUDFRegistration:
         manager = PythonUDFManager(project_dir=core_udf_test_env["project_dir"])
 
         # Discover and register twice - should not error
-        udfs = manager.discover_udfs()
+        manager.discover_udfs()
         manager.register_udfs_with_engine(engine)
         manager.register_udfs_with_engine(engine)
 
@@ -307,28 +311,32 @@ class TestUDFExecution:
         """User applies scalar UDF to real dataset."""
         engine = DuckDBEngine(":memory:")
         manager = PythonUDFManager(project_dir=core_udf_test_env["project_dir"])
-        udfs = manager.discover_udfs()
+        manager.discover_udfs()
         manager.register_udfs_with_engine(engine)
 
         # Create realistic customer data
-        engine.execute_query("""
+        engine.execute_query(
+            """
             CREATE TABLE customers AS
             SELECT * FROM VALUES
                 ('John', 'Smith', 1000.0),
                 ('Jane', 'Doe', 2500.0),
                 ('Bob', 'Johnson', 750.0)
             AS t(first_name, last_name, purchase_amount)
-        """)
+        """
+        )
 
         # Apply multiple UDFs in single query
-        result = engine.execute_query("""
+        result = engine.execute_query(
+            """
             SELECT 
                 format_name(first_name, last_name) as full_name,
                 add_ten(purchase_amount) as adjusted_amount,
                 calculate_tax(purchase_amount) as tax_owed
             FROM customers
             ORDER BY purchase_amount DESC
-        """).fetchdf()
+        """
+        ).fetchdf()
 
         assert len(result) == 3
         assert result.iloc[0]["full_name"] == "Jane Doe"
@@ -341,7 +349,7 @@ class TestUDFExecution:
         """User uses table UDF for data aggregation and analysis."""
         engine = DuckDBEngine(":memory:")
         manager = PythonUDFManager(project_dir=core_udf_test_env["project_dir"])
-        udfs = manager.discover_udfs()
+        manager.discover_udfs()
         manager.register_udfs_with_engine(engine)
 
         # Create order data as DataFrame for table UDF
@@ -374,7 +382,7 @@ class TestUDFExecution:
         """User combines multiple UDFs in complex analytical query."""
         engine = DuckDBEngine(":memory:")
         manager = PythonUDFManager(project_dir=core_udf_test_env["project_dir"])
-        udfs = manager.discover_udfs()
+        manager.discover_udfs()
         manager.register_udfs_with_engine(engine)
 
         # Create sales data as DataFrame for table UDF
@@ -392,7 +400,8 @@ class TestUDFExecution:
         engine.register_table("enriched", enriched_data)
 
         # Complex query using both table and scalar UDFs
-        result = engine.execute_query("""
+        result = engine.execute_query(
+            """
             SELECT 
                 period,
                 revenue,
@@ -401,7 +410,8 @@ class TestUDFExecution:
                 calculate_tax(revenue, 0.25) as tax_estimate
             FROM enriched
             ORDER BY period
-        """).fetchdf()
+        """
+        ).fetchdf()
 
         assert len(result) == 4
 
@@ -425,18 +435,20 @@ class TestUDFQueryProcessing:
         """User uses variables in UDF calls for dynamic queries."""
         engine = DuckDBEngine(":memory:")
         manager = PythonUDFManager(project_dir=core_udf_test_env["project_dir"])
-        udfs = manager.discover_udfs()
+        manager.discover_udfs()
         manager.register_udfs_with_engine(engine)
 
         # Create test data
-        engine.execute_query("""
+        engine.execute_query(
+            """
             CREATE TABLE products AS
             SELECT * FROM VALUES
                 (1, 'Widget A', 50.0),
                 (2, 'Widget B', 75.0),
                 (3, 'Widget C', 120.0)
             AS t(id, name, price)
-        """)
+        """
+        )
 
         # Query with variable for tax rate
         variables = {"tax_rate": 0.1, "bonus": 20}
@@ -467,7 +479,7 @@ class TestUDFQueryProcessing:
         """User's complex queries with UDFs are processed correctly."""
         engine = DuckDBEngine(":memory:")
         manager = PythonUDFManager(project_dir=core_udf_test_env["project_dir"])
-        udfs = manager.discover_udfs()
+        manager.discover_udfs()
         manager.register_udfs_with_engine(engine)
 
         # Use table UDF programmatically to create enriched data
@@ -529,7 +541,7 @@ class TestUDFNamespaceIsolation:
         engine = DuckDBEngine(":memory:")
         manager = PythonUDFManager(project_dir=core_udf_test_env["project_dir"])
 
-        udfs = manager.discover_udfs()
+        manager.discover_udfs()
         manager.register_udfs_with_engine(engine)
 
         # Test UDF from main file
@@ -543,10 +555,12 @@ class TestUDFNamespaceIsolation:
         assert result2.iloc[0]["growth"] == 20.0
 
         # Both should work in same query
-        result3 = engine.execute_query("""
+        result3 = engine.execute_query(
+            """
             SELECT 
                 add_ten(100) as enhanced,
                 calculate_growth_rate(150, 100) as growth
-        """).fetchdf()
+        """
+        ).fetchdf()
         assert result3.iloc[0]["enhanced"] == 110
         assert result3.iloc[0]["growth"] == 50.0

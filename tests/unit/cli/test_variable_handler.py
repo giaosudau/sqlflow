@@ -1,9 +1,6 @@
 """Test suite for CLI variable handler functionality."""
 
-import logging
 from unittest.mock import patch
-
-import pytest
 
 from sqlflow.cli.variable_handler import VariableHandler
 

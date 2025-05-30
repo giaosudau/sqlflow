@@ -14,7 +14,6 @@ Each test represents a real error condition users encounter.
 import math
 import os
 import tempfile
-from decimal import Decimal
 from pathlib import Path
 from typing import Any, Dict, Generator
 
@@ -24,7 +23,7 @@ import pytest
 
 from sqlflow.core.engines.duckdb import DuckDBEngine
 from sqlflow.logging import get_logger
-from sqlflow.udfs.decorators import python_scalar_udf, python_table_udf
+from sqlflow.udfs.decorators import python_table_udf
 from sqlflow.udfs.manager import PythonUDFManager
 
 logger = get_logger(__name__)
@@ -55,7 +54,8 @@ def create_error_prone_udf_file(udf_dir: str) -> Path:
     """Create UDF file with functions that raise various errors."""
     udf_file = Path(udf_dir) / "error_prone_udfs.py"
     with open(udf_file, "w") as f:
-        f.write('''
+        f.write(
+            '''
 """UDFs that demonstrate various error conditions for testing."""
 
 import math
@@ -164,7 +164,8 @@ def empty_input_error(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
         raise ValueError("Cannot process empty DataFrame")
     return pd.DataFrame({"result": ["processed"]})
-''')
+'''
+        )
     return udf_file
 
 
@@ -172,7 +173,8 @@ def create_edge_case_udf_file(udf_dir: str) -> Path:
     """Create UDF file with edge case handling functions."""
     udf_file = Path(udf_dir) / "edge_case_udfs.py"
     with open(udf_file, "w") as f:
-        f.write('''
+        f.write(
+            '''
 """UDFs that handle edge cases properly for testing."""
 
 import math
@@ -278,7 +280,8 @@ def schema_validation_processing(df: pd.DataFrame) -> pd.DataFrame:
     result["validation_status"] = "valid"
     
     return result
-''')
+'''
+        )
     return udf_file
 
 
@@ -290,23 +293,27 @@ class TestRuntimeErrors:
     ) -> None:
         """User encounters division by zero error in scalar UDF."""
         manager = PythonUDFManager(project_dir=error_handling_test_env["project_dir"])
-        udfs = manager.discover_udfs()
+        manager.discover_udfs()
 
         engine = DuckDBEngine(":memory:")
         manager.register_udfs_with_engine(engine)
 
         # Create test data
-        engine.execute_query("""
+        engine.execute_query(
+            """
             CREATE TABLE test_data AS
             SELECT * FROM VALUES (1), (2), (3) AS t(value)
-        """)
+        """
+        )
 
         # Test division by zero error
         with pytest.raises(Exception) as excinfo:
-            engine.execute_query("""
+            engine.execute_query(
+                """
                 SELECT value, divide_by_zero(value) as result 
                 FROM test_data
-            """)
+            """
+            )
 
         error_message = str(excinfo.value)
         assert (
@@ -319,18 +326,20 @@ class TestRuntimeErrors:
     ) -> None:
         """User encounters type error with None values in UDF."""
         manager = PythonUDFManager(project_dir=error_handling_test_env["project_dir"])
-        udfs = manager.discover_udfs()
+        manager.discover_udfs()
 
         engine = DuckDBEngine(":memory:")
         manager.register_udfs_with_engine(engine)
 
         # Test with NULL value - DuckDB should handle this gracefully
-        result = engine.execute_query("""
+        result = engine.execute_query(
+            """
             SELECT 
                 'hello' as text,
                 unsafe_string_operation('hello') as result_1,
                 unsafe_string_operation(NULL) as result_2
-        """).fetchdf()
+        """
+        ).fetchdf()
 
         assert result.iloc[0]["result_1"] == "HELLO"
         assert pd.isna(result.iloc[0]["result_2"])  # NULL should result in NULL
@@ -340,23 +349,27 @@ class TestRuntimeErrors:
     ) -> None:
         """User encounters math domain error with invalid values."""
         manager = PythonUDFManager(project_dir=error_handling_test_env["project_dir"])
-        udfs = manager.discover_udfs()
+        manager.discover_udfs()
 
         engine = DuckDBEngine(":memory:")
         manager.register_udfs_with_engine(engine)
 
         # Create test data with negative values
-        engine.execute_query("""
+        engine.execute_query(
+            """
             CREATE TABLE test_data AS
             SELECT * FROM VALUES (10.0), (-5.0), (0.0) AS t(value)
-        """)
+        """
+        )
 
         # Test math domain error with negative values
         with pytest.raises(Exception) as excinfo:
-            engine.execute_query("""
+            engine.execute_query(
+                """
                 SELECT value, math_domain_error(value) as log_result 
                 FROM test_data
-            """)
+            """
+            )
 
         error_message = str(excinfo.value)
         assert (
@@ -369,16 +382,18 @@ class TestRuntimeErrors:
     ) -> None:
         """User encounters type conversion error with incompatible types."""
         manager = PythonUDFManager(project_dir=error_handling_test_env["project_dir"])
-        udfs = manager.discover_udfs()
+        manager.discover_udfs()
 
         engine = DuckDBEngine(":memory:")
         manager.register_udfs_with_engine(engine)
 
         # Test type conversion with non-numeric string
         with pytest.raises(Exception) as excinfo:
-            engine.execute_query("""
+            engine.execute_query(
+                """
                 SELECT type_conversion_error('not_a_number') as result
-            """)
+            """
+            )
 
         error_message = str(excinfo.value)
         assert (
@@ -391,16 +406,18 @@ class TestRuntimeErrors:
     ) -> None:
         """User encounters Decimal type handling errors."""
         manager = PythonUDFManager(project_dir=error_handling_test_env["project_dir"])
-        udfs = manager.discover_udfs()
+        manager.discover_udfs()
 
         engine = DuckDBEngine(":memory:")
         manager.register_udfs_with_engine(engine)
 
         # Test with decimal values that may cause type errors
         try:
-            result = engine.execute_query("""
+            result = engine.execute_query(
+                """
                 SELECT decimal_handling_error(100.50, 0.08) as result
-            """).fetchdf()
+            """
+            ).fetchdf()
             # If it works, that's fine - DuckDB might convert automatically
             assert result.iloc[0]["result"] == pytest.approx(8.04, rel=1e-6)
         except Exception as excinfo:
@@ -523,8 +540,8 @@ class TestEdgeCases:
 
         assert len(result) == 4
         assert result.iloc[1]["processed"] == "NULL_VALUE"
-        assert result.iloc[1]["is_valid"] == False
-        assert result.iloc[0]["is_valid"] == True
+        assert not result.iloc[1]["is_valid"]
+        assert result.iloc[0]["is_valid"]
 
     def test_edge_case_empty_dataset_handling(
         self, error_handling_test_env: Dict[str, Any]
@@ -576,19 +593,21 @@ class TestEdgeCases:
     ) -> None:
         """User performs safe math operations that handle edge cases."""
         manager = PythonUDFManager(project_dir=error_handling_test_env["project_dir"])
-        udfs = manager.discover_udfs()
+        manager.discover_udfs()
 
         engine = DuckDBEngine(":memory:")
         manager.register_udfs_with_engine(engine)
 
         # Test safe division
-        result = engine.execute_query("""
+        result = engine.execute_query(
+            """
             SELECT 
                 safe_divide(10, 2) as normal_div,
                 safe_divide(10, 0) as div_by_zero,
                 safe_divide(-10, 0) as neg_div_by_zero,
                 safe_divide(0, 0) as zero_div_zero
-        """).fetchdf()
+        """
+        ).fetchdf()
 
         assert result.iloc[0]["normal_div"] == 5.0
         assert result.iloc[0]["div_by_zero"] == float("inf")
@@ -596,13 +615,15 @@ class TestEdgeCases:
         assert pd.isna(result.iloc[0]["zero_div_zero"])
 
         # Test safe logarithm
-        result = engine.execute_query("""
+        result = engine.execute_query(
+            """
             SELECT 
                 safe_log(10) as normal_log,
                 safe_log(0) as log_zero,
                 safe_log(-5) as log_negative,
                 safe_log(NULL) as log_null
-        """).fetchdf()
+        """
+        ).fetchdf()
 
         assert result.iloc[0]["normal_log"] == pytest.approx(math.log(10), rel=1e-6)
         assert math.isnan(result.iloc[0]["log_zero"])  # log(0) -> NaN
@@ -680,13 +701,14 @@ class TestComplexErrorPropagation:
     ) -> None:
         """User encounters errors that propagate through multiple pipeline steps."""
         manager = PythonUDFManager(project_dir=error_handling_test_env["project_dir"])
-        udfs = manager.discover_udfs()
+        manager.discover_udfs()
 
         engine = DuckDBEngine(":memory:")
         manager.register_udfs_with_engine(engine)
 
         # Create test data with problematic values
-        engine.execute_query("""
+        engine.execute_query(
+            """
             CREATE TABLE pipeline_input AS
             SELECT * FROM VALUES
                 (1, 10.0, 'A'),
@@ -694,11 +716,13 @@ class TestComplexErrorPropagation:
                 (3, -5.0, 'C'),   -- Will cause math_domain_error
                 (4, 100.0, 'D')
             AS t(id, value, category)
-        """)
+        """
+        )
 
         # Multi-step pipeline that should fail
         with pytest.raises(Exception) as excinfo:
-            engine.execute_query("""
+            engine.execute_query(
+                """
                 WITH step1 AS (
                     SELECT * FROM pipeline_input WHERE id > 0
                 ),
@@ -716,7 +740,8 @@ class TestComplexErrorPropagation:
                     log_value,
                     log_value * 2 as doubled_log
                 FROM step2
-            """)
+            """
+            )
 
         error_message = str(excinfo.value)
         assert (
@@ -729,13 +754,14 @@ class TestComplexErrorPropagation:
     ) -> None:
         """User implements error recovery patterns in complex queries."""
         manager = PythonUDFManager(project_dir=error_handling_test_env["project_dir"])
-        udfs = manager.discover_udfs()
+        manager.discover_udfs()
 
         engine = DuckDBEngine(":memory:")
         manager.register_udfs_with_engine(engine)
 
         # Create test data
-        engine.execute_query("""
+        engine.execute_query(
+            """
             CREATE TABLE recovery_test AS
             SELECT * FROM VALUES
                 (1, 10.0),
@@ -743,10 +769,12 @@ class TestComplexErrorPropagation:
                 (3, -5.0),
                 (4, 100.0)
             AS t(id, value)
-        """)
+        """
+        )
 
         # Use safe UDFs for error recovery
-        result = engine.execute_query("""
+        result = engine.execute_query(
+            """
             SELECT 
                 id,
                 value,
@@ -755,7 +783,8 @@ class TestComplexErrorPropagation:
                 decimal_safe_multiply(value, 0.1) as safe_mult_result
             FROM recovery_test
             ORDER BY id
-        """).fetchdf()
+        """
+        ).fetchdf()
 
         assert len(result) == 4
 
@@ -776,7 +805,7 @@ class TestComplexErrorPropagation:
     ) -> None:
         """User combines scalar and table UDFs with error handling."""
         manager = PythonUDFManager(project_dir=error_handling_test_env["project_dir"])
-        udfs = manager.discover_udfs()
+        manager.discover_udfs()
 
         engine = DuckDBEngine(":memory:")
         manager.register_udfs_with_engine(engine)
@@ -793,7 +822,8 @@ class TestComplexErrorPropagation:
         engine.register_table("processed", processed_data)
 
         # Use scalar UDFs on processed data
-        result = engine.execute_query("""
+        result = engine.execute_query(
+            """
             SELECT 
                 id,
                 safe_result,
@@ -802,7 +832,8 @@ class TestComplexErrorPropagation:
                 safe_log(safe_result) as log_result
             FROM processed
             ORDER BY id
-        """).fetchdf()
+        """
+        ).fetchdf()
 
         assert len(result) == 5
         assert "doubled_result" in result.columns

@@ -18,7 +18,7 @@ import os
 import tempfile
 import time
 from pathlib import Path
-from typing import Any, Dict, Generator, List, Optional, Tuple
+from typing import Any, Dict, Generator, Tuple
 
 import numpy as np
 import pandas as pd
@@ -26,7 +26,6 @@ import pytest
 
 from sqlflow.core.engines.duckdb import DuckDBEngine
 from sqlflow.logging import get_logger
-from sqlflow.udfs.decorators import python_scalar_udf, python_table_udf
 from sqlflow.udfs.manager import PythonUDFManager
 
 logger = get_logger(__name__)
@@ -65,7 +64,8 @@ def create_performance_udf_file(udf_dir: str) -> Path:
     """Create UDF file with performance-focused functions."""
     udf_file = Path(udf_dir) / "performance_udfs.py"
     with open(udf_file, "w") as f:
-        f.write('''
+        f.write(
+            '''
 """Performance-focused UDF functions for benchmarking."""
 
 import math
@@ -166,7 +166,8 @@ def batch_aggregation(df: pd.DataFrame, *, batch_size: int = 1000) -> pd.DataFra
         results.append(batch_result)
     
     return pd.DataFrame(results)
-''')
+'''
+        )
     return udf_file
 
 
@@ -174,7 +175,8 @@ def create_optimization_udf_file(udf_dir: str) -> Path:
     """Create UDF file with optimized vs non-optimized functions."""
     udf_file = Path(udf_dir) / "optimization_udfs.py"
     with open(udf_file, "w") as f:
-        f.write('''
+        f.write(
+            '''
 """Optimization comparison UDF functions."""
 
 import pandas as pd
@@ -247,7 +249,8 @@ def memory_efficient_processing(df: pd.DataFrame) -> pd.DataFrame:
         results.append(chunk_result)
     
     return pd.concat(results, ignore_index=True) if results else pd.DataFrame({"id": [], "result": []})
-''')
+'''
+        )
     return udf_file
 
 
@@ -283,7 +286,7 @@ class TestPerformanceBenchmarks:
     ) -> None:
         """User runs scalar UDFs on datasets of varying sizes."""
         manager = PythonUDFManager(project_dir=performance_test_env["project_dir"])
-        udfs = manager.discover_udfs()
+        manager.discover_udfs()
 
         engine = DuckDBEngine(":memory:")
         manager.register_udfs_with_engine(engine)
@@ -316,15 +319,15 @@ class TestPerformanceBenchmarks:
         assert len(complex_result_df) == target["rows"]
 
         # Performance assertions
-        assert simple_time_ms < target["max_time_ms"], (
-            f"Simple UDF too slow: {simple_time_ms:.2f}ms > {target['max_time_ms']}ms"
-        )
+        assert (
+            simple_time_ms < target["max_time_ms"]
+        ), f"Simple UDF too slow: {simple_time_ms:.2f}ms > {target['max_time_ms']}ms"
 
         # Complex UDF gets more lenient time limit
         complex_limit = target["max_time_ms"] * 3
-        assert complex_time_ms < complex_limit, (
-            f"Complex UDF too slow: {complex_time_ms:.2f}ms > {complex_limit}ms"
-        )
+        assert (
+            complex_time_ms < complex_limit
+        ), f"Complex UDF too slow: {complex_time_ms:.2f}ms > {complex_limit}ms"
 
         logger.info(
             f"✅ Scalar UDF performance ({size}): simple={simple_time_ms:.2f}ms, complex={complex_time_ms:.2f}ms"
@@ -365,16 +368,16 @@ class TestPerformanceBenchmarks:
 
         # Performance assertions
         table_time_limit = target["max_time_ms"] * 2  # Table UDFs get 2x time limit
-        assert basic_time_ms < table_time_limit, (
-            f"Basic table UDF too slow: {basic_time_ms:.2f}ms > {table_time_limit}ms"
-        )
+        assert (
+            basic_time_ms < table_time_limit
+        ), f"Basic table UDF too slow: {basic_time_ms:.2f}ms > {table_time_limit}ms"
 
         complex_table_limit = (
             target["max_time_ms"] * 4
         )  # Complex table UDFs get 4x time limit
-        assert complex_time_ms < complex_table_limit, (
-            f"Complex table UDF too slow: {complex_time_ms:.2f}ms > {complex_table_limit}ms"
-        )
+        assert (
+            complex_time_ms < complex_table_limit
+        ), f"Complex table UDF too slow: {complex_time_ms:.2f}ms > {complex_table_limit}ms"
 
         logger.info(
             f"✅ Table UDF performance ({size}): basic={basic_time_ms:.2f}ms, complex={complex_time_ms:.2f}ms"
@@ -402,9 +405,9 @@ class TestPerformanceBenchmarks:
 
         # Throughput should be at least 1000 rows/second
         min_throughput = 1000
-        assert throughput > min_throughput, (
-            f"Throughput too low: {throughput:.0f} rows/sec < {min_throughput} rows/sec"
-        )
+        assert (
+            throughput > min_throughput
+        ), f"Throughput too low: {throughput:.0f} rows/sec < {min_throughput} rows/sec"
 
         logger.info(f"✅ Throughput validation: {throughput:.0f} rows/sec")
 
@@ -452,9 +455,9 @@ class TestMemoryEfficiency:
             assert len(result) == target["rows"]
 
             # Memory efficiency assertion
-            assert memory_used < target["max_memory_mb"], (
-                f"Memory usage too high ({size_category}): {memory_used:.2f}MB > {target['max_memory_mb']}MB"
-            )
+            assert (
+                memory_used < target["max_memory_mb"]
+            ), f"Memory usage too high ({size_category}): {memory_used:.2f}MB > {target['max_memory_mb']}MB"
 
             logger.info(
                 f"✅ Memory efficiency ({size_category}): {memory_used:.2f}MB used"
@@ -533,9 +536,9 @@ class TestOptimizationValidation:
         speedup = avg_iterative / avg_vectorized
         min_speedup = 1.1  # At least 10% faster
 
-        assert speedup > min_speedup, (
-            f"Vectorization not effective: {speedup:.2f}x speedup < {min_speedup}x"
-        )
+        assert (
+            speedup > min_speedup
+        ), f"Vectorization not effective: {speedup:.2f}x speedup < {min_speedup}x"
 
         logger.info(
             f"✅ Optimization validation: {speedup:.2f}x speedup from vectorization"
@@ -573,9 +576,9 @@ class TestOptimizationValidation:
             expected_max_time = (
                 target["max_time_ms"] * 2
             )  # 2x buffer for regression detection
-            assert avg_time < expected_max_time, (
-                f"Performance regression detected for {size}: {avg_time:.2f}ms > {expected_max_time}ms"
-            )
+            assert (
+                avg_time < expected_max_time
+            ), f"Performance regression detected for {size}: {avg_time:.2f}ms > {expected_max_time}ms"
 
         # Check scaling is reasonable (not exponential)
         if len(execution_times) >= 2:
@@ -588,9 +591,9 @@ class TestOptimizationValidation:
 
             # Time should not scale worse than O(n^1.5)
             max_scaling_ratio = 1.5
-            assert scaling_ratio < max_scaling_ratio, (
-                f"Poor scaling detected: {scaling_ratio:.2f} > {max_scaling_ratio}"
-            )
+            assert (
+                scaling_ratio < max_scaling_ratio
+            ), f"Poor scaling detected: {scaling_ratio:.2f} > {max_scaling_ratio}"
 
         logger.info(f"✅ Regression detection: execution times {execution_times}")
 
@@ -636,9 +639,9 @@ class TestScalabilityValidation:
         avg_scaling = sum(scaling_ratios) / len(scaling_ratios)
         max_acceptable_scaling = 2.0  # Time growth should not exceed 2x size growth
 
-        assert avg_scaling < max_acceptable_scaling, (
-            f"Poor scalability: {avg_scaling:.2f}x > {max_acceptable_scaling}x"
-        )
+        assert (
+            avg_scaling < max_acceptable_scaling
+        ), f"Poor scalability: {avg_scaling:.2f}x > {max_acceptable_scaling}x"
 
         logger.info(f"✅ Scalability validation: {avg_scaling:.2f}x scaling ratio")
 
@@ -681,9 +684,9 @@ class TestScalabilityValidation:
 
         # Total time should be reasonable for concurrent processing
         max_total_time = 5.0  # 5 seconds for 3 datasets
-        assert total_time < max_total_time, (
-            f"Concurrent processing too slow: {total_time:.2f}s > {max_total_time}s"
-        )
+        assert (
+            total_time < max_total_time
+        ), f"Concurrent processing too slow: {total_time:.2f}s > {max_total_time}s"
 
         logger.info(
             f"✅ Concurrent processing: {total_time:.2f}s total for {len(datasets)} datasets"

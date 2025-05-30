@@ -13,7 +13,6 @@ Each test represents a real integration scenario users encounter.
 """
 
 import json
-import os
 import tempfile
 from pathlib import Path
 from typing import Any, Dict, Generator
@@ -78,7 +77,8 @@ def create_integration_udf_file(udf_dir: Path) -> Path:
     """Create UDF file with integration testing functions."""
     udf_file = udf_dir / "integration_udfs.py"
     with open(udf_file, "w") as f:
-        f.write('''
+        f.write(
+            '''
 """Integration testing UDF functions."""
 
 import pandas as pd
@@ -212,7 +212,8 @@ def segment_summary(df: pd.DataFrame) -> pd.DataFrame:
     summary.columns = ["segment", "customer_count", "avg_loyalty_score", "total_revenue"]
     
     return summary
-''')
+'''
+        )
     return udf_file
 
 
@@ -220,7 +221,8 @@ def create_analytics_udf_file(udf_dir: Path) -> Path:
     """Create UDF file with analytics functions."""
     udf_file = udf_dir / "analytics_udfs.py"
     with open(udf_file, "w") as f:
-        f.write('''
+        f.write(
+            '''
 """Analytics UDF functions for integration testing."""
 
 import math
@@ -322,7 +324,8 @@ def create_histogram(df: pd.DataFrame, *, column: str = "value", buckets: int = 
         })
     
     return pd.DataFrame(results)
-''')
+'''
+        )
     return udf_file
 
 
@@ -382,7 +385,8 @@ def create_basic_integration_pipeline(pipeline_dir: Path, data_dir: Path) -> Pat
     """Create basic integration pipeline file."""
     pipeline_file = pipeline_dir / "basic_integration.sf"
     with open(pipeline_file, "w") as f:
-        f.write(f'''
+        f.write(
+            f"""
 -- Basic UDF Integration Pipeline
 -- Tests scalar UDF integration in SQL pipeline
 
@@ -414,7 +418,8 @@ EXPORT SELECT * FROM customer_segments
 TO "{pipeline_dir.parent}/output/basic_integration_results.csv"
 TYPE CSV
 OPTIONS {{ "header": true }};
-''')
+"""
+        )
     return pipeline_file
 
 
@@ -422,7 +427,8 @@ def create_complex_integration_pipeline(pipeline_dir: Path, data_dir: Path) -> P
     """Create complex integration pipeline file."""
     pipeline_file = pipeline_dir / "complex_integration.sf"
     with open(pipeline_file, "w") as f:
-        f.write(f'''
+        f.write(
+            f"""
 -- Complex UDF Integration Pipeline
 -- Tests both scalar and table UDFs in multi-step pipeline
 
@@ -476,7 +482,8 @@ EXPORT SELECT * FROM segment_metrics
 TO "{pipeline_dir.parent}/output/segment_summary.csv"
 TYPE CSV
 OPTIONS {{ "header": true }};
-''')
+"""
+        )
     return pipeline_file
 
 
@@ -485,7 +492,8 @@ def create_test_profiles(profiles_dir: Path) -> None:
     # Development profile
     dev_profile = profiles_dir / "dev.yml"
     with open(dev_profile, "w") as f:
-        f.write("""
+        f.write(
+            """
 default: true
 output_dir: output
 variables:
@@ -494,7 +502,8 @@ variables:
 engines:
   duckdb:
     mode: memory
-""")
+"""
+        )
 
     # Test profile for JSON format
     test_profile = profiles_dir / "test.json"
@@ -520,13 +529,16 @@ class TestEndToEndPipelineIntegration:
 
         # Execute the basic pipeline steps manually
         # Step 1: Load customer data
-        executor.duckdb_engine.execute_query(f"""
+        executor.duckdb_engine.execute_query(
+            f"""
             CREATE TABLE raw_customers AS
             SELECT * FROM read_csv('{integration_test_env["customers_csv"]}', header=true, auto_detect=true)
-        """)
+        """
+        )
 
         # Step 2: Apply scalar UDFs for data standardization
-        executor.duckdb_engine.execute_query("""
+        executor.duckdb_engine.execute_query(
+            """
             CREATE TABLE standardized_customers AS
             SELECT
                 customer_id,
@@ -537,16 +549,19 @@ class TestEndToEndPipelineIntegration:
                 calculate_loyalty_score(years_active, total_purchases) AS loyalty_score,
                 region
             FROM raw_customers
-        """)
+        """
+        )
 
         # Step 3: Apply segmentation UDF
-        executor.duckdb_engine.execute_query("""
+        executor.duckdb_engine.execute_query(
+            """
             CREATE TABLE customer_segments AS
             SELECT
                 *,
                 determine_customer_segment(loyalty_score, age) AS segment
             FROM standardized_customers
-        """)
+        """
+        )
 
         # Step 4: Export results
         output_file = (
@@ -594,7 +609,8 @@ class TestEndToEndPipelineIntegration:
         executor = LocalExecutor(project_dir=integration_test_env["project_dir"])
 
         # Step 1: Load and standardize customer data
-        executor.duckdb_engine.execute_query(f"""
+        executor.duckdb_engine.execute_query(
+            f"""
             CREATE TABLE clean_customers AS
             SELECT
                 customer_id,
@@ -606,7 +622,8 @@ class TestEndToEndPipelineIntegration:
                 determine_customer_segment(calculate_loyalty_score(years_active, total_purchases), age) AS segment,
                 region
             FROM read_csv('{integration_test_env["customers_csv"]}', header=true, auto_detect=true)
-        """)
+        """
+        )
 
         # Step 2: Apply table UDF for risk analysis
         risk_data = executor.duckdb_engine.execute_query(
@@ -622,7 +639,8 @@ class TestEndToEndPipelineIntegration:
         executor.duckdb_engine.register_table("customer_risk", risk_result)
 
         # Step 3: Combine customer data with risk analysis
-        executor.duckdb_engine.execute_query("""
+        executor.duckdb_engine.execute_query(
+            """
             CREATE TABLE enriched_customers AS
             SELECT
                 c.customer_id,
@@ -636,7 +654,8 @@ class TestEndToEndPipelineIntegration:
                 r.recommended_action
             FROM clean_customers c
             JOIN customer_risk r ON c.customer_id = r.customer_id
-        """)
+        """
+        )
 
         # Step 4: Generate segment summary using table UDF
         segment_data = executor.duckdb_engine.execute_query(
@@ -709,7 +728,8 @@ class TestEndToEndPipelineIntegration:
         executor = LocalExecutor(project_dir=integration_test_env["project_dir"])
 
         # Create test data with potential error conditions
-        executor.duckdb_engine.execute_query("""
+        executor.duckdb_engine.execute_query(
+            """
             CREATE TABLE test_data AS
             SELECT * FROM (
                 VALUES 
@@ -717,18 +737,21 @@ class TestEndToEndPipelineIntegration:
                 (2, '', 0, -100.0),  -- Edge cases
                 (3, NULL, 999, 0.0)   -- NULL values
             ) AS t(id, name, age, purchases)
-        """)
+        """
+        )
 
         # Apply UDFs with error-prone data
         try:
-            executor.duckdb_engine.execute_query("""
+            executor.duckdb_engine.execute_query(
+                """
                 CREATE TABLE processed_data AS
                 SELECT
                     id,
                     standardize_name(COALESCE(name, 'unknown')) AS clean_name,
                     calculate_loyalty_score(GREATEST(age, 0), GREATEST(purchases, 0)) AS loyalty_score
                 FROM test_data
-            """)
+            """
+            )
 
             # Verify data was processed
             result = executor.duckdb_engine.execute_query(
@@ -837,10 +860,12 @@ class TestWorkflowIntegration:
         executor = LocalExecutor(project_dir=integration_test_env["project_dir"])
 
         # Load base data
-        executor.duckdb_engine.execute_query(f"""
+        executor.duckdb_engine.execute_query(
+            f"""
             CREATE TABLE base_customers AS
             SELECT * FROM read_csv('{integration_test_env["customers_csv"]}', header=true, auto_detect=true)
-        """)
+        """
+        )
 
         # Simulate concurrent operations by running multiple UDF queries
         queries = [
@@ -1016,10 +1041,12 @@ class TestProductionIntegrationScenarios:
         executor = LocalExecutor(project_dir=integration_test_env["project_dir"])
 
         # Load base data
-        executor.duckdb_engine.execute_query(f"""
+        executor.duckdb_engine.execute_query(
+            f"""
             CREATE TABLE all_customers AS
             SELECT * FROM read_csv('{integration_test_env["customers_csv"]}', header=true, auto_detect=true)
-        """)
+        """
+        )
 
         # Process in batches by region
         regions = ["north", "south", "east", "west"]
@@ -1155,9 +1182,9 @@ class TestRegressionIntegration:
             discovered_names.append(function_name)
 
         for expected_name in expected_udf_names:
-            assert expected_name in discovered_names, (
-                f"UDF {expected_name} not discovered"
-            )
+            assert (
+                expected_name in discovered_names
+            ), f"UDF {expected_name} not discovered"
 
         # Test registration with engine
         engine = DuckDBEngine(":memory:")

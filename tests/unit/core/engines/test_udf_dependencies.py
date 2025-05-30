@@ -1,8 +1,5 @@
 """Test suite for UDF dependency resolution functionality."""
 
-import logging
-from unittest.mock import MagicMock
-
 import pytest
 
 from sqlflow.core.engines.duckdb.udf.dependencies import TableUDFDependencyResolver
@@ -246,15 +243,12 @@ class TestTableUDFDependencyResolver:
 
         def test_udf1():
             """Depends on: table1, table2"""
-            pass
 
         def test_udf2():
             """depends on table3, table4"""
-            pass
 
         def test_udf3():
             """Depend on: table5"""
-            pass
 
         deps1 = resolver._extract_deps_from_docstring(test_udf1)
         deps2 = resolver._extract_deps_from_docstring(test_udf2)
@@ -269,7 +263,6 @@ class TestTableUDFDependencyResolver:
 
         def test_udf():
             """This function has no dependencies."""
-            pass
 
         deps = resolver._extract_deps_from_docstring(test_udf)
         assert deps == []
