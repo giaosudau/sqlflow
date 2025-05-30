@@ -26,7 +26,27 @@ flowchart LR
     style P fill:#EC4899,color:white,stroke:#DB2777,stroke-width:2px
 ```
 
-## 🚀 Fastest Time to Value in the Industry
+## 🚀 Get Started in 90 Seconds
+
+```bash
+# Install SQLFlow (includes everything for analytics)
+pip install sqlflow-core
+
+# Create project with realistic sample data + working pipelines
+sqlflow init my_analytics
+
+# See immediate results with 1,000 customers and 5,000 orders
+cd my_analytics
+sqlflow pipeline run customer_analytics
+
+# View working customer analytics
+cat output/customer_summary.csv
+cat output/top_customers.csv
+```
+
+**That's it!** You now have working customer analytics with 1,000 customers, 5,000 orders, and 500 products.
+
+## ⚡ Fastest Time to Value in the Industry
 
 **SQLFlow: Under 2 minutes to working analytics**  
 Competitors: 15-60 minutes of setup
@@ -52,25 +72,28 @@ Competitors: 15-60 minutes of setup
 - Instant realistic sample data (1,000 customers, 5,000 orders)
 - Complete pipeline in a single file
 
-## ⚡ Get Started in 90 Seconds
+## 📦 Installation Options
+
+<details>
+<summary><strong>Need database connectivity or cloud storage?</strong></summary>
 
 ```bash
-# Install SQLFlow
+# Basic installation (90% of users)
 pip install sqlflow-core
 
-# Create project with realistic sample data + working pipelines
-sqlflow init my_analytics
+# Add PostgreSQL support
+pip install "sqlflow-core[postgres]"
 
-# See immediate results
-cd my_analytics
-sqlflow pipeline run customer_analytics
+# Add cloud storage (AWS S3 + Google Cloud)
+pip install "sqlflow-core[cloud]"
 
-# View working customer analytics
-cat output/customer_summary.csv
-cat output/top_customers.csv
+# Everything included
+pip install "sqlflow-core[all]"
 ```
 
-**That's it!** You now have working customer analytics with 1,000 customers, 5,000 orders, and 500 products.
+**Having installation issues?** See our comprehensive [Installation Guide](INSTALLATION.md) for platform-specific instructions and troubleshooting.
+
+</details>
 
 ## What Makes SQLFlow Different
 
@@ -296,20 +319,6 @@ SQLFlow uses DuckDB as its core engine, offering:
 * **Persistent mode** for production reliability  
 * **High performance** SQL execution
 * **Larger-than-memory** datasets supported
-
-## 📦 Installation & Quick Start
-
-```bash
-pip install sqlflow-core
-```
-
-For development installations:
-
-```bash
-git clone https://github.com/sqlflow/sqlflow.git
-cd sqlflow
-pip install -e .
-```
 
 ## 📖 Documentation
 

@@ -15,7 +15,27 @@ This guide shows you how to get started with SQLFlow - from installation to runn
 Install SQLFlow using pip:
 
 ```bash
+# Install SQLFlow with everything you need for analytics
 pip install sqlflow-core
+```
+
+**What's included in the basic installation:**
+- DuckDB engine for fast analytical queries
+- Apache Arrow for high-performance data processing  
+- Pandas for data manipulation
+- Rich CLI with beautiful output
+- All core functionality for complete workflows
+
+**Need database connectivity?**
+```bash
+# Add PostgreSQL support
+pip install "sqlflow-core[postgres]"
+
+# Add cloud storage (AWS S3 + Google Cloud)
+pip install "sqlflow-core[cloud]"
+
+# Everything included  
+pip install "sqlflow-core[all]"
 ```
 
 You can verify the installation was successful by checking the version:
