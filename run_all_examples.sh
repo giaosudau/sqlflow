@@ -38,12 +38,35 @@ print_status "📂 Repository root: $REPO_ROOT"
 echo ""
 
 # Check if SQLFlow is available
-SQLFLOW_PATH="$REPO_ROOT/.venv/bin/sqlflow"
-if [ ! -f "$SQLFLOW_PATH" ]; then
-    print_error "SQLFlow not found at $SQLFLOW_PATH"
-    print_error "Please ensure SQLFlow is installed and the path is correct"
+SQLFLOW_PATH=""
+
+# Try different locations for SQLFlow
+POSSIBLE_PATHS=(
+    "$REPO_ROOT/.venv/bin/sqlflow"  # Local development with venv
+    "$(which sqlflow 2>/dev/null)"  # System PATH (CI environments)
+    "/usr/local/bin/sqlflow"        # Common system location
+    "$HOME/.local/bin/sqlflow"      # User-local installation
+)
+
+for path in "${POSSIBLE_PATHS[@]}"; do
+    if [ -n "$path" ] && [ -f "$path" ] && [ -x "$path" ]; then
+        SQLFLOW_PATH="$path"
+        break
+    fi
+done
+
+if [ -z "$SQLFLOW_PATH" ]; then
+    print_error "SQLFlow executable not found in any of the following locations:"
+    for path in "${POSSIBLE_PATHS[@]}"; do
+        if [ -n "$path" ]; then
+            echo "  - $path"
+        fi
+    done
+    print_error "Please ensure SQLFlow is installed and accessible"
+    print_error "Try: pip install -e .[dev]"
     exit 1
 fi
+
 print_success "✅ SQLFlow found at $SQLFLOW_PATH"
 echo ""
 
