@@ -4,14 +4,9 @@ These tests verify that SQLFlow correctly handles persistent database operations
 including data persistence across sessions and proper cleanup.
 """
 
-import os
-import tempfile
-from pathlib import Path
-
 import pytest
 
 from sqlflow.core.executors.local_executor import LocalExecutor
-from sqlflow.parser import SQLFlowParser
 
 
 @pytest.mark.skip(
@@ -60,7 +55,7 @@ def test_data_persistence_across_sessions(
     This is the core persistence behavior: data created in one session
     should be available in subsequent sessions using the same database.
     """
-    db_path = temp_persistent_project["db_path"]
+    temp_persistent_project["db_path"]
 
     # First session: Create and populate data
     executor1 = LocalExecutor(

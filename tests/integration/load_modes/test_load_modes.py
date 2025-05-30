@@ -468,9 +468,9 @@ def test_schema_compatibility_validation(engine, executor, sample_data):
         # The validation should pass because we skip the extra column
         assert True
     except ValueError as e:
-        assert False, (
-            f"Schema validation should not fail for extra columns in source: {str(e)}"
-        )
+        assert (
+            False
+        ), f"Schema validation should not fail for extra columns in source: {str(e)}"
 
     # Now try the reverse - create a target with extra column
     engine.register_table("users_target_with_extra", sample_data["users_incompatible"])
@@ -802,9 +802,9 @@ def test_schema_compatibility_column_subset_selection(engine, executor):
     # Verify that the full source schema is incompatible with the target
     try:
         engine.validate_schema_compatibility("narrow_target", source_schema)
-        assert False, (
-            "Should have failed because wide_source has columns not in narrow_target"
-        )
+        assert (
+            False
+        ), "Should have failed because wide_source has columns not in narrow_target"
     except ValueError as e:
         # This should fail because source has columns that don't exist in target
         assert "Column" in str(e) and "does not exist in target" in str(e)

@@ -337,6 +337,6 @@ class TestMergeOperationRegression:
             if step.get("type") == "load" and step.get("mode") == "MERGE"
         ]
         assert len(merge_steps) == 1, "Should have exactly one MERGE step"
-        assert merge_steps[0]["merge_keys"] == ["user_id"], (
-            "MERGE step should preserve merge_keys"
-        )
+        assert merge_steps[0]["merge_keys"] == [
+            "user_id"
+        ], "MERGE step should preserve merge_keys"

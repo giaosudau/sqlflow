@@ -1,9 +1,6 @@
 """Test suite for CLI test_variable_handler script functionality."""
 
-from io import StringIO
-from unittest.mock import call, patch
-
-import pytest
+from unittest.mock import patch
 
 from sqlflow.cli.test_variable_handler import test_variable_handling
 

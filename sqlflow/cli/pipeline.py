@@ -911,9 +911,7 @@ def _print_status_by_step_type(by_type: dict) -> None:
         status_color = (
             success_color
             if success == total
-            else warning_color
-            if success > 0
-            else error_color
+            else warning_color if success > 0 else error_color
         )
         typer.echo(
             f"  {typer.style(step_type, fg=info_color)}: {typer.style(f'{success}/{total}', fg=status_color)} completed successfully"

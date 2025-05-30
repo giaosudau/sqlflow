@@ -1,17 +1,50 @@
 repos:
-# Fast formatting and linting - these can run in parallel
--   repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.11.12
-    hooks:
-    -   id: ruff
-        name: ruff-lint
-        args: ['--fix', '--select', 'I,F401,F841,E,F,C90,UP,B,SIM', '--exit-non-zero-on-fix']
-    -   id: ruff-format
-        name: ruff-format
-
-# Local hooks for project-specific tasks
 -   repo: local
     hooks:
+    -   id: autoflake
+        name: autoflake
+        entry: autoflake
+        language: python
+        types: [python]
+        files: '^(.*\.py|tests/.*|setup\.py|setup\.cfg|pyproject\.toml|requirements.*\.txt)$'
+        args: [
+            '--in-place',
+            '--remove-all-unused-imports',
+            '--remove-unused-variables',
+            '--expand-star-imports',
+            '--ignore-init-module-imports',
+        ]
+        require_serial: true
+
+    -   id: black
+        name: black
+        entry: black
+        language: python
+        types: [python]
+        files: '^(.*\.py|tests/.*|setup\.py|setup\.cfg|pyproject\.toml|requirements.*\.txt)$'
+        require_serial: true
+
+    -   id: isort
+        name: isort
+        entry: isort
+        language: python
+        types: [python]
+        files: '^(.*\.py|tests/.*|setup\.py|setup\.cfg|pyproject\.toml|requirements.*\.txt)$'
+        args: ['--profile', 'black']
+        require_serial: true
+
+    -   id: flake8
+        name: flake8
+        entry: flake8
+        language: python
+        types: [python]
+        files: '^(.*\.py|tests/.*|setup\.py|setup\.cfg|pyproject\.toml|requirements.*\.txt)$'
+        args: [
+            '--ignore=E501,E221,E222,E223,E224,E303,E301,E302,E402,F401,F841,E741,W291,W293,D100,D101,W503,W504,E203',
+            '--max-complexity=10',
+        ]
+        require_serial: true
+
     -   id: pytest
         name: pytest
         entry: pytest
@@ -19,11 +52,14 @@ repos:
         files: '^(.*\.py|tests/.*|setup\.py|setup\.cfg|pyproject\.toml|requirements.*\.txt)$'
         types: [python]
         args: [
-            '-q',
-            '--disable-warnings',
+            '--cov=sqlflow',
+            '--cov-branch',
+            '--cov-report=xml',
             '-n', 'auto',
             '--dist', 'worksteal',
-            '--maxfail=3'
+            '--maxfail=3',
+            '-q',
+            '--disable-warnings'
         ]
         pass_filenames: false
         require_serial: true

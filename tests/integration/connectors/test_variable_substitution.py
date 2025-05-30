@@ -9,10 +9,7 @@ Tests verify that SQLFlow correctly substitutes variables in:
 These tests use real executors and validate end-to-end behavior.
 """
 
-import os
-import tempfile
-from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pandas as pd
 import pytest
@@ -186,9 +183,10 @@ def test_multiple_connector_types_variable_substitution(connector_executor):
             result = connector_executor._execute_source_definition(source_step)
 
         # Each connector type should handle variable substitution
-        assert result["status"] in ["success", "failed"], (
-            f"Failed for {connector_config['name']}"
-        )
+        assert result["status"] in [
+            "success",
+            "failed",
+        ], f"Failed for {connector_config['name']}"
 
 
 def test_nested_and_complex_variable_patterns(

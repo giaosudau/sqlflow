@@ -20,7 +20,6 @@ import pytest
 
 from sqlflow.core.engines.duckdb import DuckDBEngine
 from sqlflow.core.engines.duckdb.udf.performance import ArrowPerformanceOptimizer
-from sqlflow.logging import get_logger
 from sqlflow.udfs.decorators import python_table_udf
 
 logger = logging.getLogger(__name__)
@@ -87,7 +86,18 @@ class TableUDFPerformanceBenchmarks:
         engine = DuckDBEngine(":memory:")
         results = {}
 
-        # Test 1: Simple UDF registration speed
+        # Test simple and complex UDF registration
+        results["simple_registration"] = self._benchmark_simple_udf_registration(engine)
+        results["complex_registration"] = self._benchmark_complex_udf_registration(
+            engine
+        )
+
+        # Validate performance targets
+        self._validate_registration_performance(results)
+        self._log_registration_results(results)
+
+    def _benchmark_simple_udf_registration(self, engine):
+        """Benchmark simple UDF registration performance."""
         simple_registration_times = []
         for i in range(100):
 
@@ -111,7 +121,7 @@ class TableUDFPerformanceBenchmarks:
 
             simple_registration_times.append((end_time - start_time) * 1000)
 
-        results["simple_registration"] = {
+        return {
             "avg_time_ms": np.mean(simple_registration_times),
             "median_time_ms": np.median(simple_registration_times),
             "p95_time_ms": np.percentile(simple_registration_times, 95),
@@ -119,7 +129,8 @@ class TableUDFPerformanceBenchmarks:
             "target_ms": 5.0,  # Industry target: <5ms per registration
         }
 
-        # Test 2: Complex UDF registration speed
+    def _benchmark_complex_udf_registration(self, engine):
+        """Benchmark complex UDF registration performance."""
         complex_registration_times = []
         for i in range(50):
 
@@ -186,7 +197,7 @@ class TableUDFPerformanceBenchmarks:
 
             complex_registration_times.append((end_time - start_time) * 1000)
 
-        results["complex_registration"] = {
+        return {
             "avg_time_ms": np.mean(complex_registration_times),
             "median_time_ms": np.median(complex_registration_times),
             "p95_time_ms": np.percentile(complex_registration_times, 95),
@@ -194,21 +205,20 @@ class TableUDFPerformanceBenchmarks:
             "target_ms": 10.0,  # Industry target: <10ms per complex registration
         }
 
-        # Validate performance targets
+    def _validate_registration_performance(self, results):
+        """Validate registration performance against targets."""
         assert (
             results["simple_registration"]["p95_time_ms"]
             < results["simple_registration"]["target_ms"]
-        ), (
-            f"Simple registration P95 exceeds target: {results['simple_registration']['p95_time_ms']:.2f}ms > {results['simple_registration']['target_ms']}ms"
-        )
+        ), f"Simple registration P95 exceeds target: {results['simple_registration']['p95_time_ms']:.2f}ms > {results['simple_registration']['target_ms']}ms"
 
         assert (
             results["complex_registration"]["p95_time_ms"]
             < results["complex_registration"]["target_ms"]
-        ), (
-            f"Complex registration P95 exceeds target: {results['complex_registration']['p95_time_ms']:.2f}ms > {results['complex_registration']['target_ms']}ms"
-        )
+        ), f"Complex registration P95 exceeds target: {results['complex_registration']['p95_time_ms']:.2f}ms > {results['complex_registration']['target_ms']}ms"
 
+    def _log_registration_results(self, results):
+        """Log registration performance results."""
         logger.info("✅ Registration Performance Benchmarks:")
         logger.info(
             f"   Simple UDFs: {results['simple_registration']['avg_time_ms']:.2f}ms avg (target: <{results['simple_registration']['target_ms']}ms)"
@@ -230,8 +240,16 @@ class TableUDFPerformanceBenchmarks:
             pytest.skip("psutil not available for performance testing")
 
         engine = DuckDBEngine(":memory:")
+        benchmark_udf = self._create_benchmark_udf()
+        engine.register_python_udf("benchmark_udf", benchmark_udf)
 
-        # Create high-performance UDF for benchmarking
+        # Benchmark across different dataset sizes
+        results = self._run_execution_benchmarks(benchmark_udf, psutil, gc, os)
+        return results
+
+    def _create_benchmark_udf(self):
+        """Create high-performance UDF for benchmarking."""
+
         @python_table_udf(
             output_schema={
                 "id": "INTEGER",
@@ -245,46 +263,9 @@ class TableUDFPerformanceBenchmarks:
             result = df.copy()
 
             # Optimized vectorized operations with safe numeric handling
-            try:
-                value1_raw = pd.to_numeric(df.get("value1", 0), errors="coerce")
-                value2_raw = pd.to_numeric(df.get("value2", 0), errors="coerce")
-
-                if isinstance(value1_raw, pd.Series):
-                    value1 = value1_raw.fillna(0)
-                else:
-                    value1 = pd.Series([0.0] * len(df))
-
-                if isinstance(value2_raw, pd.Series):
-                    value2 = value2_raw.fillna(0)
-                else:
-                    value2 = pd.Series([0.0] * len(df))
-
-                result["processed_value"] = value1 * 1.5 + value2 * 0.8 + np.sin(value1)
-            except (TypeError, ValueError, AttributeError):
-                # Fallback for any type issues
-                result["processed_value"] = pd.Series([1.0] * len(df))
-
-            # Efficient categorization with proper type handling
-            try:
-                processed_values = result["processed_value"]
-                categories = pd.cut(
-                    processed_values,
-                    bins=[-np.inf, 0.3, 0.7, np.inf],
-                    labels=["low", "medium", "high"],
-                )
-                # Safe conversion to string series
-                result["category"] = pd.Series(categories).astype(str).fillna("medium")
-            except (TypeError, ValueError, AttributeError):
-                result["category"] = pd.Series(["medium"] * len(df))
-
-            try:
-                processed_values = result["processed_value"]
-                max_val = float(processed_values.max())
-                if pd.isna(max_val) or max_val == 0:
-                    max_val = 1.0
-                result["confidence"] = np.clip(processed_values / max_val, 0, 1)
-            except (TypeError, ValueError, AttributeError):
-                result["confidence"] = pd.Series([0.5] * len(df))
+            result = self._process_numeric_values(result, df)
+            result = self._categorize_values(result)
+            result = self._calculate_confidence(result)
 
             # Ensure proper DataFrame return
             final_result = result[
@@ -292,78 +273,144 @@ class TableUDFPerformanceBenchmarks:
             ].copy()
             return cast(pd.DataFrame, final_result)
 
-        engine.register_python_udf("benchmark_udf", benchmark_udf)
+        return benchmark_udf
 
-        # Benchmark across different dataset sizes
+    def _process_numeric_values(self, result, df):
+        """Process numeric values with safe handling."""
+        try:
+            value1_raw = pd.to_numeric(df.get("value1", 0), errors="coerce")
+            value2_raw = pd.to_numeric(df.get("value2", 0), errors="coerce")
+
+            if isinstance(value1_raw, pd.Series):
+                value1 = value1_raw.fillna(0)
+            else:
+                value1 = pd.Series([0.0] * len(df))
+
+            if isinstance(value2_raw, pd.Series):
+                value2 = value2_raw.fillna(0)
+            else:
+                value2 = pd.Series([0.0] * len(df))
+
+            result["processed_value"] = value1 * 1.5 + value2 * 0.8 + np.sin(value1)
+        except (TypeError, ValueError, AttributeError):
+            # Fallback for any type issues
+            result["processed_value"] = pd.Series([1.0] * len(df))
+        return result
+
+    def _categorize_values(self, result):
+        """Categorize processed values efficiently."""
+        try:
+            processed_values = result["processed_value"]
+            categories = pd.cut(
+                processed_values,
+                bins=[-np.inf, 0.3, 0.7, np.inf],
+                labels=["low", "medium", "high"],
+            )
+            # Safe conversion to string series
+            result["category"] = pd.Series(categories).astype(str).fillna("medium")
+        except (TypeError, ValueError, AttributeError):
+            result["category"] = pd.Series(["medium"] * len(result))
+        return result
+
+    def _calculate_confidence(self, result):
+        """Calculate confidence values safely."""
+        try:
+            processed_values = result["processed_value"]
+            max_val = float(processed_values.max())
+            if pd.isna(max_val) or max_val == 0:
+                max_val = 1.0
+            result["confidence"] = np.clip(processed_values / max_val, 0, 1)
+        except (TypeError, ValueError, AttributeError):
+            result["confidence"] = pd.Series([0.5] * len(result))
+        return result
+
+    def _run_execution_benchmarks(self, benchmark_udf, psutil, gc, os):
+        """Run execution benchmarks across different dataset sizes."""
         results = {}
         for target_name, target in self.PERFORMANCE_TARGETS.items():
             if target.dataset_size > 100000:  # Skip extremely large datasets in CI
                 continue
 
-            # Generate test data
-            test_data = pd.DataFrame(
-                {
-                    "id": range(target.dataset_size),
-                    "value1": np.random.random(target.dataset_size),
-                    "value2": np.random.random(target.dataset_size) + 0.5,
-                }
+            # Generate test data and run benchmark
+            test_data = self._generate_test_data(target.dataset_size)
+            benchmark_result = self._benchmark_execution(
+                benchmark_udf, test_data, target, psutil, gc, os
             )
 
-            # Warm-up run
-            _ = benchmark_udf(test_data.head(100))
-            gc.collect()
-
-            # Measure memory before execution
-            process = psutil.Process(os.getpid())
-            memory_before = process.memory_info().rss / 1024 / 1024  # MB
-
-            # Benchmark execution
-            start_time = time.perf_counter()
-            result = benchmark_udf(test_data)
-            end_time = time.perf_counter()
-
-            # Measure memory after execution
-            memory_after = process.memory_info().rss / 1024 / 1024  # MB
-            memory_used = memory_after - memory_before
-
-            execution_time_ms = (end_time - start_time) * 1000
-            throughput = target.dataset_size / (end_time - start_time)
-
-            results[target_name] = {
-                "dataset_size": target.dataset_size,
-                "execution_time_ms": execution_time_ms,
-                "memory_used_mb": memory_used,
-                "throughput_rows_per_sec": throughput,
-                "target_time_ms": target.max_execution_time_ms,
-                "target_memory_mb": target.max_memory_mb,
-                "target_throughput": target.min_throughput_rows_per_sec,
-                "meets_time_target": execution_time_ms <= target.max_execution_time_ms,
-                "meets_memory_target": memory_used <= target.max_memory_mb,
-                "meets_throughput_target": throughput
-                >= target.min_throughput_rows_per_sec,
-            }
-
-            # Validate results
-            assert len(result) == target.dataset_size, (
-                f"Result size mismatch for {target_name}"
-            )
-            assert all(
-                col in result.columns
-                for col in ["id", "processed_value", "category", "confidence"]
-            ), f"Missing columns in result for {target_name}"
-
-            logger.info(f"✅ {target.description}:")
-            logger.info(
-                f"   Time: {execution_time_ms:.2f}ms (target: ≤{target.max_execution_time_ms}ms) {'✅' if results[target_name]['meets_time_target'] else '❌'}"
-            )
-            logger.info(
-                f"   Memory: {memory_used:.2f}MB (target: ≤{target.max_memory_mb}MB) {'✅' if results[target_name]['meets_memory_target'] else '❌'}"
-            )
-            logger.info(
-                f"   Throughput: {throughput:,.0f} rows/sec (target: ≥{target.min_throughput_rows_per_sec:,}) {'✅' if results[target_name]['meets_throughput_target'] else '❌'}"
-            )
+            results[target_name] = benchmark_result
+            self._validate_and_log_result(benchmark_result, target_name, target)
 
         return results
+
+    def _generate_test_data(self, size):
+        """Generate test data for benchmarking."""
+        return pd.DataFrame(
+            {
+                "id": range(size),
+                "value1": np.random.random(size),
+                "value2": np.random.random(size) + 0.5,
+            }
+        )
+
+    def _benchmark_execution(self, benchmark_udf, test_data, target, psutil, gc, os):
+        """Benchmark UDF execution and collect metrics."""
+        # Warm-up run
+        _ = benchmark_udf(test_data.head(100))
+        gc.collect()
+
+        # Measure memory before execution
+        process = psutil.Process(os.getpid())
+        memory_before = process.memory_info().rss / 1024 / 1024  # MB
+
+        # Benchmark execution
+        start_time = time.perf_counter()
+        result = benchmark_udf(test_data)
+        end_time = time.perf_counter()
+
+        # Measure memory after execution
+        memory_after = process.memory_info().rss / 1024 / 1024  # MB
+        memory_used = memory_after - memory_before
+
+        execution_time_ms = (end_time - start_time) * 1000
+        throughput = target.dataset_size / (end_time - start_time)
+
+        return {
+            "dataset_size": target.dataset_size,
+            "execution_time_ms": execution_time_ms,
+            "memory_used_mb": memory_used,
+            "throughput_rows_per_sec": throughput,
+            "target_time_ms": target.max_execution_time_ms,
+            "target_memory_mb": target.max_memory_mb,
+            "target_throughput": target.min_throughput_rows_per_sec,
+            "meets_time_target": execution_time_ms <= target.max_execution_time_ms,
+            "meets_memory_target": memory_used <= target.max_memory_mb,
+            "meets_throughput_target": throughput >= target.min_throughput_rows_per_sec,
+            "result": result,
+        }
+
+    def _validate_and_log_result(self, benchmark_result, target_name, target):
+        """Validate benchmark results and log performance metrics."""
+        result = benchmark_result["result"]
+
+        # Validate results
+        assert (
+            len(result) == target.dataset_size
+        ), f"Result size mismatch for {target_name}"
+        assert all(
+            col in result.columns
+            for col in ["id", "processed_value", "category", "confidence"]
+        ), f"Missing columns in result for {target_name}"
+
+        logger.info(f"✅ {target.description}:")
+        logger.info(
+            f"   Time: {benchmark_result['execution_time_ms']:.2f}ms (target: ≤{target.max_execution_time_ms}ms) {'✅' if benchmark_result['meets_time_target'] else '❌'}"
+        )
+        logger.info(
+            f"   Memory: {benchmark_result['memory_used_mb']:.2f}MB (target: ≤{target.max_memory_mb}MB) {'✅' if benchmark_result['meets_memory_target'] else '❌'}"
+        )
+        logger.info(
+            f"   Throughput: {benchmark_result['throughput_rows_per_sec']:,.0f} rows/sec (target: ≥{target.min_throughput_rows_per_sec:,}) {'✅' if benchmark_result['meets_throughput_target'] else '❌'}"
+        )
 
     def test_arrow_optimization_performance(self):
         """Benchmark Arrow optimization performance improvements."""
@@ -477,9 +524,9 @@ class TableUDFPerformanceBenchmarks:
             }
 
             # Memory efficiency target: <1KB per row
-            assert memory_per_row < 1024, (
-                f"Memory usage too high: {memory_per_row:.2f} bytes/row > 1024 bytes/row for {size} rows"
-            )
+            assert (
+                memory_per_row < 1024
+            ), f"Memory usage too high: {memory_per_row:.2f} bytes/row > 1024 bytes/row for {size} rows"
 
             logger.info(f"✅ Memory efficiency for {size:,} rows:")
             logger.info(f"   Memory used: {memory_used:.2f}MB")
@@ -566,9 +613,9 @@ class TableUDFPerformanceBenchmarks:
         avg_size_ratio = np.mean(size_ratios)
         scalability_factor = avg_time_ratio / avg_size_ratio
 
-        assert scalability_factor <= 2.0, (
-            f"Poor scalability detected: time grows {scalability_factor:.2f}x faster than data size"
-        )
+        assert (
+            scalability_factor <= 2.0
+        ), f"Poor scalability detected: time grows {scalability_factor:.2f}x faster than data size"
 
         logger.info("✅ Scalability analysis:")
         logger.info(f"   Time growth factor: {avg_time_ratio:.2f}x")
@@ -662,18 +709,18 @@ class TableUDFPerformanceBenchmarks:
 
         # Validate competitive advantage
         for competitor, analysis in competitive_analysis.items():
-            assert analysis["overall_advantage_score"] > 0, (
-                f"SQLFlow should outperform {competitor} overall"
-            )
-            assert analysis["registration_improvement_pct"] > 0, (
-                f"SQLFlow should have faster registration than {competitor}"
-            )
-            assert analysis["throughput_improvement_pct"] > 0, (
-                f"SQLFlow should have higher throughput than {competitor}"
-            )
-            assert analysis["memory_improvement_pct"] > 0, (
-                f"SQLFlow should be more memory efficient than {competitor}"
-            )
+            assert (
+                analysis["overall_advantage_score"] > 0
+            ), f"SQLFlow should outperform {competitor} overall"
+            assert (
+                analysis["registration_improvement_pct"] > 0
+            ), f"SQLFlow should have faster registration than {competitor}"
+            assert (
+                analysis["throughput_improvement_pct"] > 0
+            ), f"SQLFlow should have higher throughput than {competitor}"
+            assert (
+                analysis["memory_improvement_pct"] > 0
+            ), f"SQLFlow should be more memory efficient than {competitor}"
 
         return competitive_analysis
 

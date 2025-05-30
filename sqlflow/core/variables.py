@@ -313,9 +313,7 @@ class VariableSubstitutor:
                 else (
                     self.substitute_list(item)
                     if isinstance(item, list)
-                    else self.substitute_string(item)
-                    if isinstance(item, str)
-                    else item
+                    else self.substitute_string(item) if isinstance(item, str) else item
                 )
             )
             for item in data_list

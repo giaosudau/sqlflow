@@ -5,7 +5,6 @@ import tempfile
 from pathlib import Path
 from typing import Any, Dict, Generator
 
-import pandas as pd
 import pyarrow as pa
 import pyarrow.csv as csv_arrow
 import pyarrow.parquet as pq

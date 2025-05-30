@@ -13,7 +13,6 @@ Each test represents a real storage scenario users encounter.
 
 import json
 import os
-import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -21,7 +20,6 @@ import duckdb
 import pandas as pd
 import pytest
 
-from sqlflow.core.engines.duckdb import DuckDBEngine
 from sqlflow.core.executors.task_status import TaskState, TaskStatus
 from sqlflow.core.storage.artifact_manager import ArtifactManager
 from sqlflow.core.storage.duckdb_state_backend import DuckDBStateBackend
