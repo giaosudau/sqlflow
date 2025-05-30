@@ -1,12 +1,9 @@
 """Integration tests for connector framework."""
 
 import os
-import tempfile
-from typing import Generator
 
 import pandas as pd
 import pyarrow as pa
-import pyarrow.csv as csv_arrow
 import pyarrow.parquet as pq
 import pytest
 
@@ -14,58 +11,6 @@ from sqlflow.connectors.connector_engine import ConnectorEngine
 from sqlflow.connectors.csv_connector import CSVConnector
 from sqlflow.connectors.data_chunk import DataChunk
 from sqlflow.connectors.parquet_connector import ParquetConnector
-
-
-@pytest.fixture
-def sample_data() -> pa.Table:
-    """Create sample data for testing.
-
-    Returns
-    -------
-        PyArrow Table with sample data
-
-    """
-    data = {
-        "id": [1, 2, 3, 4, 5],
-        "name": ["Alice", "Bob", "Charlie", "David", "Eve"],
-        "value": [10.5, 20.3, 30.1, 40.7, 50.9],
-        "active": [True, False, True, True, False],
-    }
-    return pa.Table.from_pydict(data)
-
-
-@pytest.fixture
-def sample_csv_file(sample_data) -> Generator[str, None, None]:
-    """Create a sample CSV file for testing.
-
-    Yields
-    ------
-        Path to the sample CSV file
-
-    """
-    with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as f:
-        csv_arrow.write_csv(sample_data, f.name)
-
-    yield f.name
-
-    os.unlink(f.name)
-
-
-@pytest.fixture
-def sample_parquet_file(sample_data) -> Generator[str, None, None]:
-    """Create a sample Parquet file for testing.
-
-    Yields
-    ------
-        Path to the sample Parquet file
-
-    """
-    with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as f:
-        pq.write_table(sample_data, f.name)
-
-    yield f.name
-
-    os.unlink(f.name)
 
 
 def test_csv_to_parquet_conversion(sample_csv_file, temp_dir):

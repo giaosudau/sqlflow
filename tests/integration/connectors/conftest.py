@@ -1,9 +1,14 @@
 """Connector-specific fixtures for integration tests."""
 
+import os
 import tempfile
 from pathlib import Path
-from typing import Dict, Any, Generator
+from typing import Any, Dict, Generator
 
+import pandas as pd
+import pyarrow as pa
+import pyarrow.csv as csv_arrow
+import pyarrow.parquet as pq
 import pytest
 
 from sqlflow.core.executors.local_executor import LocalExecutor
@@ -54,7 +59,7 @@ def connector_executor(temp_connector_project: Dict[str, Any]) -> LocalExecutor:
 
 @pytest.fixture(scope="function")
 def sample_csv_data(temp_connector_project: Dict[str, Any]) -> Path:
-    """Create sample CSV data for connector testing.
+    """Create a sample CSV file for testing.
 
     Args:
     ----
@@ -62,15 +67,74 @@ def sample_csv_data(temp_connector_project: Dict[str, Any]) -> Path:
 
     Returns:
     -------
-        Path to created CSV file with sample data
+        Path to the created CSV file
     """
-    csv_file = temp_connector_project["data_dir"] / "sample_data.csv"
-    csv_content = """id,name,value,category
-1,Product A,100.0,electronics
-2,Product B,200.0,clothing
-3,Product C,150.0,electronics
-4,Product D,75.0,books
-5,Product E,300.0,clothing"""
+    csv_content = """customer_id,name,email,status
+1,Alice Johnson,alice@example.com,active
+2,Bob Smith,bob@example.com,inactive
+3,Charlie Brown,charlie@example.com,active"""
 
+    csv_file = temp_connector_project["data_dir"] / "sample_data.csv"
     csv_file.write_text(csv_content)
     return csv_file
+
+
+@pytest.fixture
+def sample_data() -> pa.Table:
+    """Create sample data for testing.
+
+    Returns
+    -------
+        PyArrow Table with sample data
+    """
+    data = {
+        "id": [1, 2, 3, 4, 5],
+        "name": ["Alice", "Bob", "Charlie", "David", "Eve"],
+        "value": [10.5, 20.3, 30.1, 40.7, 50.9],
+        "active": [True, False, True, True, False],
+    }
+    return pa.Table.from_pydict(data)
+
+
+@pytest.fixture
+def sample_csv_file(sample_data) -> Generator[str, None, None]:
+    """Create a sample CSV file for testing.
+
+    Yields
+    ------
+        Path to the sample CSV file
+    """
+    with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as f:
+        csv_arrow.write_csv(sample_data, f.name)
+
+    yield f.name
+
+    os.unlink(f.name)
+
+
+@pytest.fixture
+def sample_parquet_file(sample_data) -> Generator[str, None, None]:
+    """Create a sample Parquet file for testing.
+
+    Yields
+    ------
+        Path to the sample Parquet file
+    """
+    with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as f:
+        pq.write_table(sample_data, f.name)
+
+    yield f.name
+
+    os.unlink(f.name)
+
+
+@pytest.fixture
+def temp_dir() -> Generator[str, None, None]:
+    """Create a temporary directory for testing.
+
+    Yields
+    ------
+        Path to the temporary directory
+    """
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        yield tmp_dir
