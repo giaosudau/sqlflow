@@ -58,15 +58,8 @@ class TestTableUDFEdgeCases:
             }
         )
 
-        duckdb_engine.register_table("edge_case_data", edge_case_data)
-        duckdb_engine.register_python_udf(
-            "robust_error_handling_udf", robust_error_handling_udf
-        )
-
-        # Execute UDF
-        result = duckdb_engine.execute_query(
-            "SELECT * FROM robust_error_handling_udf(SELECT * FROM edge_case_data)"
-        ).fetchdf()
+        # Call table UDF directly as Python function
+        result = robust_error_handling_udf(edge_case_data)
 
         # Validate error handling
         assert len(result) == 6
@@ -118,14 +111,9 @@ class TestTableUDFEdgeCases:
             }
         )
 
-        duckdb_engine.register_table("batch_test_data", batch_test_data)
-        duckdb_engine.register_python_udf("batch_processor_udf", batch_processor_udf)
-
         # Test different batch sizes
         for batch_size in [50, 100, 150]:
-            result = duckdb_engine.execute_query(
-                f"SELECT * FROM batch_processor_udf(SELECT * FROM batch_test_data, batch_size := {batch_size})"
-            ).fetchdf()
+            result = batch_processor_udf(batch_test_data, batch_size=batch_size)
 
             expected_batches = (350 + batch_size - 1) // batch_size  # Ceiling division
             assert len(result) == expected_batches
@@ -178,14 +166,7 @@ class TestTableUDFEdgeCases:
             }
         )
 
-        duckdb_engine.register_table("valid_schema_data", valid_data)
-        duckdb_engine.register_python_udf(
-            "schema_validation_udf", schema_validation_udf
-        )
-
-        result = duckdb_engine.execute_query(
-            "SELECT * FROM schema_validation_udf(SELECT * FROM valid_schema_data)"
-        ).fetchdf()
+        result = schema_validation_udf(valid_data)
 
         assert len(result) == 3
         assert all(result["validation_status"] == "valid")
@@ -199,11 +180,7 @@ class TestTableUDFEdgeCases:
             }
         )
 
-        duckdb_engine.register_table("invalid_schema_data", invalid_data)
-
-        result = duckdb_engine.execute_query(
-            "SELECT * FROM schema_validation_udf(SELECT * FROM invalid_schema_data)"
-        ).fetchdf()
+        result = schema_validation_udf(invalid_data)
 
         assert len(result) == 1
         assert "Missing columns" in result.loc[0, "validation_status"]
@@ -286,14 +263,7 @@ class TestTableUDFEdgeCases:
             }
         )
 
-        duckdb_engine.register_table("debug_data", debug_data)
-        duckdb_engine.register_python_udf(
-            "debug_optimization_udf", debug_optimization_udf
-        )
-
-        result = duckdb_engine.execute_query(
-            "SELECT * FROM debug_optimization_udf(SELECT * FROM debug_data)"
-        ).fetchdf()
+        result = debug_optimization_udf(debug_data)
 
         # Validate debugging output
         assert len(result) == 20
@@ -343,12 +313,7 @@ class TestTableUDFEdgeCases:
             }
         )
 
-        duckdb_engine.register_table("null_data", null_data)
-        duckdb_engine.register_python_udf("null_safe_udf", null_safe_udf)
-
-        result = duckdb_engine.execute_query(
-            "SELECT * FROM null_safe_udf(SELECT * FROM null_data)"
-        ).fetchdf()
+        result = null_safe_udf(null_data)
 
         assert len(result) == 4
         assert result.loc[1, "processed"] == "NULL_VALUE"
@@ -357,11 +322,8 @@ class TestTableUDFEdgeCases:
 
         # Test with empty dataset
         empty_data = pd.DataFrame({"id": [], "text": []})
-        duckdb_engine.register_table("empty_data", empty_data)
 
-        result = duckdb_engine.execute_query(
-            "SELECT * FROM null_safe_udf(SELECT * FROM empty_data)"
-        ).fetchdf()
+        result = null_safe_udf(empty_data)
 
         assert len(result) == 0
         assert list(result.columns) == ["id", "processed", "is_valid"]

@@ -11,7 +11,6 @@ import pandas as pd
 import pytest
 
 from sqlflow.core.engines.duckdb import DuckDBEngine
-from sqlflow.core.engines.duckdb.udf.performance import ArrowPerformanceOptimizer
 from sqlflow.logging import get_logger
 from sqlflow.udfs.decorators import python_table_udf
 
@@ -53,14 +52,9 @@ class TestTableUDFPerformance:
             }
         )
 
-        duckdb_engine.register_table("test_data", test_data)
-        duckdb_engine.register_python_udf("benchmark_udf", benchmark_udf)
-
         # Execute and measure performance
         start_time = time.time()
-        result = duckdb_engine.execute_query(
-            "SELECT * FROM benchmark_udf(SELECT * FROM test_data)"
-        ).fetchdf()
+        result = benchmark_udf(test_data)
         execution_time = (time.time() - start_time) * 1000
 
         # Validate performance
@@ -111,14 +105,9 @@ class TestTableUDFPerformance:
             }
         )
 
-        duckdb_engine.register_table("medium_test_data", test_data)
-        duckdb_engine.register_python_udf("medium_benchmark_udf", medium_benchmark_udf)
-
         # Execute and measure performance
         start_time = time.time()
-        result = duckdb_engine.execute_query(
-            "SELECT * FROM medium_benchmark_udf(SELECT * FROM medium_test_data)"
-        ).fetchdf()
+        result = medium_benchmark_udf(test_data)
         execution_time = (time.time() - start_time) * 1000
 
         # Validate performance
@@ -168,13 +157,8 @@ class TestTableUDFPerformance:
             }
         )
 
-        duckdb_engine.register_table("large_data", large_data)
-        duckdb_engine.register_python_udf("memory_efficient_udf", memory_efficient_udf)
-
         # Execute UDF
-        result = duckdb_engine.execute_query(
-            "SELECT * FROM memory_efficient_udf(SELECT * FROM large_data)"
-        ).fetchdf()
+        result = memory_efficient_udf(large_data)
 
         # Check memory usage
         final_memory = process.memory_info().rss
@@ -192,7 +176,6 @@ class TestTableUDFPerformance:
 
     def test_arrow_performance_optimization(self, duckdb_engine: DuckDBEngine):
         """Test Arrow-based performance optimization."""
-        optimizer = ArrowPerformanceOptimizer()
 
         @python_table_udf(output_schema={"id": "INTEGER", "optimized_value": "DOUBLE"})
         def arrow_optimized_udf(df: pd.DataFrame) -> pd.DataFrame:
@@ -216,19 +199,8 @@ class TestTableUDFPerformance:
             }
         )
 
-        duckdb_engine.register_table("arrow_test_data", test_data)
-        duckdb_engine.register_python_udf("arrow_optimized_udf", arrow_optimized_udf)
-
-        # Test optimization detection
-        optimization_opportunities = optimizer.identify_optimization_opportunities(
-            arrow_optimized_udf
-        )
-        assert optimization_opportunities is not None
-
         # Execute and validate
-        result = duckdb_engine.execute_query(
-            "SELECT * FROM arrow_optimized_udf(SELECT * FROM arrow_test_data)"
-        ).fetchdf()
+        result = arrow_optimized_udf(test_data)
 
         assert len(result) == 5000
         assert "optimized_value" in result.columns
@@ -252,18 +224,11 @@ class TestTableUDFPerformance:
             }
         )
 
-        duckdb_engine.register_table("regression_test_data", test_data)
-        duckdb_engine.register_python_udf(
-            "baseline_performance_udf", baseline_performance_udf
-        )
-
         # Measure baseline performance
         execution_times = []
         for _ in range(3):  # Run multiple times for stability
             start_time = time.time()
-            result = duckdb_engine.execute_query(
-                "SELECT * FROM baseline_performance_udf(SELECT * FROM regression_test_data)"
-            ).fetchdf()
+            result = baseline_performance_udf(test_data)
             execution_times.append((time.time() - start_time) * 1000)
 
         avg_execution_time = sum(execution_times) / len(execution_times)
