@@ -5,7 +5,7 @@ repos:
     hooks:
     -   id: ruff
         name: ruff-lint
-        args: ['--fix', '--select', 'I', '--exit-non-zero-on-fix']
+        args: ['--fix', '--select', 'I,F401,F841,E,F,C90,UP,B,SIM', '--exit-non-zero-on-fix']
     -   id: ruff-format
         name: ruff-format
 
