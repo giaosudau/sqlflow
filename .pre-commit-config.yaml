@@ -21,7 +21,9 @@ repos:
         args: [
             '-q',
             '--disable-warnings',
-            '-n', 'auto'
+            '-n', 'auto',
+            '--dist', 'worksteal',
+            '--maxfail=3'
         ]
         pass_filenames: false
         require_serial: true
