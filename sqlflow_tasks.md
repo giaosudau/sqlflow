@@ -10,6 +10,7 @@
 - ✅ **Implemented UDF dependency tracking** in planner for optimized execution
 - ✅ **Created technical documentation** for UDF system architecture and dependencies
 - ✅ **Completed complex UDF integration testing** with reliable execution
+- ✅ **Integration Test Refactoring** (January 2025): Reorganized integration tests into component-based structure with shared fixtures and improved maintainability
 
 ## MVP Focus Areas
 The primary focus for MVP release is completing the UDF feature set:
@@ -66,6 +67,7 @@ This document tracks the implementation status of Conditional Execution, Python 
 | [Task 2.16](#task-216-implement-duckdb-version-compatibility) | Implement DuckDB Version Compatibility | ⬜ NOT STARTED | | |
 | [Task 2.17](#task-217-optimize-type-mapping-for-udfs) | Optimize Type Mapping for UDFs | ⬜ NOT STARTED | | |
 | [Task 2.18](#task-218-performance-profiling-and-optimization) | Performance Profiling and Optimization | ⬜ NOT STARTED | | |
+| [Task 2.19](#task-219-integration-test-refactoring) | Integration Test Refactoring | ✅ COMPLETED | 🔥 MVP Critical | |
 
 ### Epic 3: Enhanced Load Controls (MODE Parameter) ✅ COMPLETED
 
@@ -1303,3 +1305,44 @@ This document tracks the implementation status of Conditional Execution, Python 
 - All tests passing with >90% coverage
 
 **Status:** ⬜ NOT STARTED
+
+### Task 2.19: Integration Test Refactoring
+
+**Description:** Reorganize integration tests into a component-based structure with shared fixtures and improved maintainability following testing standards.
+
+**Files Impacted:**
+- `tests/integration/conftest.py` (NEW)
+- `tests/integration/udf/conftest.py` (NEW)
+- `tests/integration/load_modes/conftest.py` (NEW)
+- `tests/integration/pipeline/conftest.py` (NEW)
+- `tests/integration/cli/conftest.py` (NEW)
+- `tests/integration/README.md` (NEW)
+- `tests/integration/udf/test_table_udf_edge_cases.py` (NEW)
+- `tests/integration/udf/test_table_udf_performance.py` (NEW)
+- Various test files moved to component directories
+
+**Subtasks:**
+1. Create central `conftest.py` with shared fixtures
+2. Establish component-based directory structure (udf/, load_modes/, pipeline/, cli/)
+3. Create component-specific `conftest.py` files with specialized fixtures
+4. Split large test files into focused, maintainable components
+5. Move existing test files to appropriate component directories
+6. Create comprehensive documentation for the new structure
+7. Fix table UDF test syntax issues and improve test reliability
+
+**Testing Requirements:**
+- All existing tests continue to pass in new structure
+- New table UDF tests pass with direct function calls
+- Performance tests include realistic benchmarks
+- Tests demonstrate proper fixture usage and isolation
+- Component-specific tests can run independently
+
+**Definition of Done:**
+- Component-based directory structure implemented
+- Central and component-specific fixtures created
+- Large test files split into focused components
+- All tests passing with improved organization
+- Comprehensive documentation created
+- Tests follow standards defined in `04_testing_standards.mdc`
+- Proper fixture scoping and cleanup implemented
+- Performance tests with realistic targets
