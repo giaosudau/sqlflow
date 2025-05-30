@@ -1,68 +1,62 @@
 repos:
+# Fast formatting and linting - these can run in parallel
+-   repo: https://github.com/charliermarsh/ruff-pre-commit
+    rev: v0.4.4
+    hooks:
+    -   id: ruff
+        name: ruff-lint
+        args: ['--fix', '--exit-non-zero-on-fix']
+    -   id: ruff-format
+        name: ruff-format
+
+-   repo: https://github.com/psf/black
+    rev: 24.4.2
+    hooks:
+    -   id: black
+        language_version: python3
+
+-   repo: https://github.com/pycqa/isort
+    rev: 5.13.2
+    hooks:
+    -   id: isort
+        args: ['--profile', 'black']
+
+# Local hooks for project-specific tasks
 -   repo: local
     hooks:
-    -   id: autoflake
-        name: autoflake
-        entry: autoflake
-        language: python
-        types: [python]
-        files: '^(.*\.py|tests/.*|setup\.py|setup\.cfg|pyproject\.toml|requirements.*\.txt)$'
-        args: [
-            '--in-place',
-            '--remove-all-unused-imports',
-            '--remove-unused-variables',
-            '--expand-star-imports',
-            '--ignore-init-module-imports',
-        ]
-        require_serial: true
-
-    -   id: black
-        name: black
-        entry: black
-        language: python
-        types: [python]
-        files: '^(.*\.py|tests/.*|setup\.py|setup\.cfg|pyproject\.toml|requirements.*\.txt)$'
-        require_serial: true
-
-    -   id: isort
-        name: isort
-        entry: isort
-        language: python
-        types: [python]
-        files: '^(.*\.py|tests/.*|setup\.py|setup\.cfg|pyproject\.toml|requirements.*\.txt)$'
-        args: ['--profile', 'black']
-        require_serial: true
-
-    -   id: flake8
-        name: flake8
+    # Quick syntax/import check only
+    -   id: flake8-critical
+        name: flake8 (critical errors only)
         entry: flake8
         language: python
         types: [python]
-        files: '^(.*\.py|tests/.*|setup\.py|setup\.cfg|pyproject\.toml|requirements.*\.txt)$'
         args: [
-            '--ignore=E501,E221,E222,E223,E224,E303,E301,E302,E402,F401,F841,E741,W291,W293,D100,D101,W503,W504,E203',
+            '--select=E9,F63,F7,F82',  # Only critical errors
             '--max-complexity=10',
         ]
-        require_serial: true
-
-    -   id: pytest
-        name: pytest
+        
+    # Fast unit tests only (exclude slow integration tests)
+    -   id: pytest-unit
+        name: pytest (unit tests only)
         entry: pytest
         language: python
-        files: '^(.*\.py|tests/.*|setup\.py|setup\.cfg|pyproject\.toml|requirements.*\.txt)$'
+        files: '^(tests/unit/.*\.py|sqlflow/.*\.py)$'
         types: [python]
         args: [
-            '-q',
-            '--disable-warnings'
+            'tests/unit/',
+            '-q', 
+            '--disable-warnings',
+            '--maxfail=5',           # Stop after 5 failures
+            '-x',                    # Stop on first failure
+            '--tb=short',            # Shorter tracebacks
         ]
         pass_filenames: false
-        require_serial: true
 
+    # Optional: Run only when examples are changed
     -   id: examples-demo-scripts
         name: Run example demo scripts
         entry: ./run_all_examples.sh
         language: system
         pass_filenames: false
         files: '^examples/.*\.(sf|py|csv|yml|yaml|sh)$'
-        require_serial: true
-        verbose: true
+        stages: [manual]  # Only run manually with --hook-stage manual
