@@ -10,6 +10,14 @@ from sqlflow.connectors.data_chunk import DataChunk
 from sqlflow.core.errors import ConnectorError
 
 
+class SyncMode(Enum):
+    """Synchronization modes for connectors."""
+
+    FULL_REFRESH = "full_refresh"
+    INCREMENTAL = "incremental"
+    CDC = "cdc"
+
+
 class ConnectorState(Enum):
     """State of a connector."""
 
@@ -182,6 +190,101 @@ class Connector(ABC):
             ConnectorError: If reading fails
 
         """
+
+    def read_incremental(
+        self,
+        object_name: str,
+        cursor_field: str,
+        cursor_value: Optional[Any] = None,
+        columns: Optional[List[str]] = None,
+        batch_size: int = 10000,
+    ) -> Iterator[DataChunk]:
+        """Read data incrementally from the source using cursor-based approach.
+
+        Args:
+        ----
+            object_name: Name of the object to read
+            cursor_field: Field to use for incremental reading
+            cursor_value: Last cursor value (watermark) for incremental reading
+            columns: Optional list of columns to read
+            batch_size: Number of rows per batch
+
+        Returns:
+        -------
+            Iterator yielding DataChunk objects
+
+        Raises:
+        ------
+            ConnectorError: If incremental reading fails
+
+        """
+        # Default implementation filters by cursor field
+        if cursor_value is not None:
+            filters = {cursor_field: {">=": cursor_value}}
+        else:
+            filters = None
+
+        return self.read(
+            object_name=object_name,
+            columns=columns,
+            filters=filters,
+            batch_size=batch_size,
+        )
+
+    def supports_incremental(self) -> bool:
+        """Check if the connector supports incremental reading.
+
+        Returns:
+        -------
+            True if incremental reading is supported, False otherwise
+
+        """
+        return True  # Most connectors can support basic incremental reading
+
+    def get_cursor_value(
+        self, data_chunk: DataChunk, cursor_field: str
+    ) -> Optional[Any]:
+        """Extract the maximum cursor value from a data chunk.
+
+        Args:
+        ----
+            data_chunk: Data chunk to extract cursor value from
+            cursor_field: Field to use as cursor
+
+        Returns:
+        -------
+            Maximum cursor value or None if not found
+
+        """
+        try:
+            df = data_chunk.pandas_df
+            if cursor_field in df.columns and not df.empty:
+                return df[cursor_field].max()
+        except Exception:
+            pass
+        return None
+
+    def validate_incremental_params(self, params: Dict[str, Any]) -> List[str]:
+        """Validate incremental loading parameters.
+
+        Args:
+        ----
+            params: Parameters to validate
+
+        Returns:
+        -------
+            List of validation error messages
+
+        """
+        errors = []
+        sync_mode = params.get("sync_mode")
+
+        if sync_mode == SyncMode.INCREMENTAL.value:
+            cursor_field = params.get("cursor_field")
+            if not cursor_field:
+                errors.append("cursor_field is required for incremental sync mode")
+
+        return errors
 
     def validate_state(self, expected_state: ConnectorState) -> None:
         """Validate that the connector is in the expected state.
