@@ -150,7 +150,6 @@ def test_csv_connector_read(csv_connector, sample_csv_file):
         list(connector.read("test"))
 
 
-@pytest.mark.serial
 def test_csv_connector_write(tmp_path):
     """Test writing data with CSV connector."""
     connector = CSVConnector()

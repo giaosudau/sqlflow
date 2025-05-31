@@ -114,7 +114,6 @@ def test_s3_connector_configure(s3_connector, sample_config):
         )
 
 
-@pytest.mark.serial
 @patch("boto3.Session")
 def test_s3_connector_test_connection(
     mock_session, s3_connector, sample_config, mock_s3_client
@@ -147,7 +146,6 @@ def test_s3_connector_test_connection(
     assert s3_connector.state == ConnectorState.ERROR
 
 
-@pytest.mark.serial
 @patch("boto3.Session")
 def test_s3_connector_discover(
     mock_session, s3_connector, sample_config, mock_s3_client
@@ -172,7 +170,6 @@ def test_s3_connector_discover(
     )
 
 
-@pytest.mark.serial
 @patch("boto3.Session")
 def test_s3_connector_read_csv(
     mock_session, s3_connector, sample_config, mock_s3_client
@@ -202,7 +199,6 @@ def test_s3_connector_read_csv(
     )
 
 
-@pytest.mark.serial
 @patch("boto3.Session")
 def test_s3_connector_write_csv(
     mock_session, s3_connector, sample_config, mock_s3_client, sample_data
@@ -221,7 +217,6 @@ def test_s3_connector_write_csv(
     assert call_args["ContentType"] == "text/csv"
 
 
-@pytest.mark.serial
 @patch("boto3.Session")
 def test_s3_connector_write_multipart(
     mock_session, s3_connector, sample_config, mock_s3_client, sample_data
@@ -245,7 +240,6 @@ def test_s3_connector_write_multipart(
     mock_s3_client.complete_multipart_upload.assert_called_once()
 
 
-@pytest.mark.serial
 def test_s3_connector_mock_mode(s3_connector, sample_data):
     """Test S3 connector in mock mode."""
     s3_connector.configure({"bucket": "test-bucket", "mock_mode": True})
@@ -260,7 +254,6 @@ def test_s3_connector_mock_mode(s3_connector, sample_data):
     assert s3_connector.state == ConnectorState.READY
 
 
-@pytest.mark.serial
 def test_s3_connector_close(s3_connector, sample_config):
     """Test closing S3 connector."""
     s3_connector.configure(sample_config)
@@ -268,7 +261,6 @@ def test_s3_connector_close(s3_connector, sample_config):
     assert s3_connector.s3_client is None
 
 
-@pytest.mark.serial
 @pytest.mark.parametrize("sample_config", ["parquet"], indirect=True)
 @patch("boto3.Session")
 def test_s3_connector_read_parquet(
@@ -311,7 +303,6 @@ def test_s3_connector_read_parquet(
     )
 
 
-@pytest.mark.serial
 @pytest.mark.parametrize("sample_config", ["json"], indirect=True)
 @patch("boto3.Session")
 def test_s3_connector_read_json(
@@ -347,7 +338,6 @@ def test_s3_connector_read_json(
     )
 
 
-@pytest.mark.serial
 @pytest.mark.parametrize("sample_config", ["parquet"], indirect=True)
 @patch("boto3.Session")
 def test_s3_connector_write_parquet(
@@ -367,7 +357,6 @@ def test_s3_connector_write_parquet(
     assert call_args["ContentType"] == "application/octet-stream"
 
 
-@pytest.mark.serial
 @pytest.mark.parametrize("sample_config", ["json"], indirect=True)
 @patch("boto3.Session")
 def test_s3_connector_write_json(
@@ -387,7 +376,6 @@ def test_s3_connector_write_json(
     assert call_args["ContentType"] == "application/json"
 
 
-@pytest.mark.serial
 @pytest.mark.parametrize("sample_config", ["parquet"], indirect=True)
 @patch("boto3.Session")
 def test_s3_connector_write_parquet_compressed(
@@ -407,7 +395,6 @@ def test_s3_connector_write_parquet_compressed(
     assert call_args["ContentType"] == "application/octet-stream"
 
 
-@pytest.mark.serial
 @pytest.mark.parametrize("sample_config", ["json"], indirect=True)
 @patch("boto3.Session")
 def test_s3_connector_write_json_compressed(

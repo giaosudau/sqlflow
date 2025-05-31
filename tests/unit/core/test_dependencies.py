@@ -118,7 +118,6 @@ def make_temp_project_with_profile(duckdb_path=None, mode="persistent"):
     return temp_dir
 
 
-@pytest.mark.serial
 def test_local_executor_duckdb_path_config(tmp_path):
     # Use a unique temporary file to avoid lock conflicts during parallel execution
     import tempfile
@@ -163,7 +162,6 @@ def test_local_executor_duckdb_path_config(tmp_path):
                 pass  # Original directory might not exist anymore
 
 
-@pytest.mark.serial
 def test_local_executor_duckdb_path_default(tmp_path):
     temp_dir = make_temp_project_with_profile(
         mode="memory"
