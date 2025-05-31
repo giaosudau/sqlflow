@@ -1,0 +1,91 @@
+-- Basic Incremental Loading Pipeline
+-- This pipeline demonstrates SQLFlow's Phase 1 enhanced features using current syntax
+-- while showing incremental loading concepts and performance benefits
+
+-- ============================================================================
+-- Phase 1 Demo: Basic Incremental Loading Concepts
+-- ============================================================================
+
+-- Step 1: Load initial customer data (simulates first full load)
+SOURCE customers_initial TYPE CSV PARAMS {
+    "path": "${data_dir}/customers_initial.csv",
+    "has_header": true
+};
+
+-- Step 2: First load - loads ALL initial data
+LOAD customers_table FROM customers_initial;
+
+-- Step 3: Export initial load summary
+EXPORT SELECT 
+    'Initial Load' as load_type,
+    COUNT(*) as total_customers,
+    COUNT(CASE WHEN status = 'active' THEN 1 END) as active_customers,
+    MAX(updated_at) as latest_update
+FROM customers_table
+TO "${output_dir}/01_initial_load_summary.csv"
+TYPE CSV OPTIONS { "header": true };
+
+-- ============================================================================
+-- Simulate Incremental Loading - New Data Available
+-- ============================================================================
+
+-- Step 4: Load updated customer data (simulates incremental data)
+-- In production, this would use watermark-based filtering
+SOURCE customers_updates TYPE CSV PARAMS {
+    "path": "${data_dir}/customers_updates.csv",
+    "has_header": true
+};
+
+-- Step 5: Simulate incremental load using MERGE
+-- This demonstrates the concept of incremental updates
+-- Note: This shows the MERGE capability even without automatic watermarks
+LOAD customers_table FROM customers_updates MODE MERGE MERGE_KEYS (customer_id);
+
+-- Step 6: Create final analytics showing incremental changes
+CREATE OR REPLACE TABLE customer_summary AS
+SELECT 
+    status,
+    COUNT(*) as customer_count,
+    MIN(created_at) as first_signup,
+    MAX(updated_at) as last_activity
+FROM customers_table 
+GROUP BY status;
+
+-- Step 7: Export final results showing incremental updates
+EXPORT SELECT 
+    'Incremental Load Complete' as load_type,
+    COUNT(*) as total_customers,
+    COUNT(CASE WHEN status = 'active' THEN 1 END) as active_customers,
+    COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending_customers,
+    MAX(updated_at) as latest_update
+FROM customers_table
+TO "${output_dir}/01_incremental_load_summary.csv"
+TYPE CSV OPTIONS { "header": true };
+
+-- Step 8: Export customer summary analytics
+EXPORT SELECT 
+    status,
+    customer_count,
+    first_signup,
+    last_activity
+FROM customer_summary
+TO "${output_dir}/01_customer_summary.csv"
+TYPE CSV OPTIONS { "header": true };
+
+-- Step 9: Show performance comparison concept
+EXPORT SELECT 
+    'Initial Load' as operation,
+    '10 customers processed' as data_volume,
+    'Full dataset required' as efficiency_note
+TO "${output_dir}/01_performance_concept.csv"
+TYPE CSV OPTIONS { "header": true };
+
+-- Step 10: Show feature roadmap
+EXPORT SELECT 
+    'Current Demo' as demo_status,
+    'MERGE-based incremental concept' as current_feature,
+    'Manual data management' as current_limitation,
+    'Phase 1 Enhancement' as future_feature,
+    'Automatic watermarks + sync_mode parameters' as future_benefit
+TO "${output_dir}/01_feature_roadmap.csv"
+TYPE CSV OPTIONS { "header": true }; 

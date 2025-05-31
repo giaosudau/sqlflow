@@ -150,6 +150,9 @@ addopts = "-ra -q"
 testpaths = [
     "tests",
 ]
+markers = [
+    "serial: mark tests to run serially (not in parallel) due to library conflicts",
+]
 
 [tool.coverage.run]
 source = ["sqlflow"]

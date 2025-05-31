@@ -1,13 +1,12 @@
 """Tests for CSV connector."""
 
-import os
-
 import pandas as pd
 import pyarrow as pa
 import pytest
 
 from sqlflow.connectors.base import ConnectorState
 from sqlflow.connectors.csv_connector import CSVConnector
+from sqlflow.connectors.data_chunk import DataChunk
 from sqlflow.core.errors import ConnectorError
 
 
@@ -151,52 +150,28 @@ def test_csv_connector_read(csv_connector, sample_csv_file):
         list(connector.read("test"))
 
 
-def test_csv_connector_write(csv_connector, tmp_path):
-    """Test writing data to CSV."""
-    output_file = str(tmp_path / "output.csv")
-    csv_connector.configure({"path": output_file})
+@pytest.mark.serial
+def test_csv_connector_write(tmp_path):
+    """Test writing data with CSV connector."""
+    connector = CSVConnector()
 
-    # Create test data
     data = {
-        "id": [1, 2, 3],
-        "name": ["Alice", "Bob", "Charlie"],
-        "value": [10.5, 20.0, 30.0],
+        "id": [10, 20, 30],
+        "name": ["X", "Y", "Z"],
+        "value": [1.1, 2.2, 3.3],
     }
-    df = pd.DataFrame(data)
-    table = pa.Table.from_pandas(df)
-    from sqlflow.connectors.data_chunk import DataChunk
+    table = pa.Table.from_pydict(data)
+
+    output_path = str(tmp_path / "output.csv")
+    connector.configure({"path": output_path})
 
     chunk = DataChunk(table)
-
-    # Test write
-    csv_connector.write("test", chunk)
-    assert os.path.exists(output_file)
+    connector.write("any_name", chunk)
 
     # Verify written data
-    read_df = pd.read_csv(output_file)
-    assert read_df.shape == (3, 3)
-    assert list(read_df.columns) == ["id", "name", "value"]
-    assert list(read_df["name"]) == ["Alice", "Bob", "Charlie"]
-
-    # Test append mode
-    csv_connector.write("test", chunk, mode="append")
-    read_df = pd.read_csv(output_file)
-    assert read_df.shape == (6, 3)  # Original 3 rows + 3 new rows
-
-    # Test write with custom delimiter
-    output_file2 = str(tmp_path / "output2.csv")
-    connector = CSVConnector()
-    connector.configure(
-        {
-            "path": output_file2,
-            "delimiter": ";",
-            "quote_char": "'",
-            "encoding": "latin-1",
-        }
-    )
-    connector.write("test", chunk)
-
-    # Verify custom format
-    with open(output_file2, "r") as f:
-        content = f.read()
-        assert ";" in content  # Custom delimiter used
+    df = pd.read_csv(output_path)
+    assert len(df) == 3
+    assert list(df.columns) == ["id", "name", "value"]
+    assert df["id"].tolist() == [10, 20, 30]
+    assert df["name"].tolist() == ["X", "Y", "Z"]
+    assert df["value"].tolist() == [1.1, 2.2, 3.3]

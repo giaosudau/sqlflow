@@ -165,10 +165,16 @@ class TestDuckDBEngine(unittest.TestCase):
                 pass
 
     @patch("sqlflow.core.engines.duckdb.engine.duckdb")
-    def test_initialization_default_database(self, mock_duckdb):
+    @patch("sqlflow.core.engines.duckdb.engine.os.makedirs")
+    @patch("sqlflow.core.engines.duckdb.engine.os.getcwd")
+    def test_initialization_default_database(
+        self, mock_getcwd, mock_makedirs, mock_duckdb
+    ):
         """Test engine initialization with default database path."""
         mock_connection = MagicMock()
         mock_duckdb.connect.return_value = mock_connection
+        mock_getcwd.return_value = "/test/dir"  # Mock a valid working directory
+        mock_makedirs.return_value = None  # Mock successful directory creation
 
         engine = DuckDBEngine(None)
         self.assertEqual(engine.database_path, DuckDBConstants.DEFAULT_DATABASE_PATH)

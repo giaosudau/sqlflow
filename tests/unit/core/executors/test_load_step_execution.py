@@ -1,5 +1,6 @@
 """Tests for execution of LoadStep with different modes."""
 
+import tempfile
 from unittest.mock import MagicMock
 
 import pytest
@@ -11,26 +12,27 @@ from sqlflow.parser.ast import LoadStep, Pipeline
 @pytest.fixture
 def local_executor():
     """Create a LocalExecutor with mocked engine for testing."""
-    executor = LocalExecutor()
+    with tempfile.TemporaryDirectory() as temp_dir:
+        executor = LocalExecutor(project_dir=temp_dir)
 
-    # Mock the duckdb_engine instead of engine
-    executor.duckdb_engine = MagicMock()
+        # Mock the duckdb_engine instead of engine
+        executor.duckdb_engine = MagicMock()
 
-    # Mock generate_load_sql method
-    executor.duckdb_engine.generate_load_sql = MagicMock(return_value="MOCK SQL")
+        # Mock generate_load_sql method
+        executor.duckdb_engine.generate_load_sql = MagicMock(return_value="MOCK SQL")
 
-    # Mock execute_query method with proper return value for fetchone()
-    mock_result = MagicMock()
-    mock_result.fetchone.return_value = [100]  # Mock row count of 100
-    executor.duckdb_engine.execute_query = MagicMock(return_value=mock_result)
+        # Mock execute_query method with proper return value for fetchone()
+        mock_result = MagicMock()
+        mock_result.fetchone.return_value = [100]  # Mock row count of 100
+        executor.duckdb_engine.execute_query = MagicMock(return_value=mock_result)
 
-    # Mock table_exists and get_table_schema to avoid database calls
-    executor.duckdb_engine.table_exists = MagicMock(return_value=True)
-    executor.duckdb_engine.get_table_schema = MagicMock(
-        return_value={"id": "INTEGER", "name": "VARCHAR"}
-    )
+        # Mock table_exists and get_table_schema to avoid database calls
+        executor.duckdb_engine.table_exists = MagicMock(return_value=True)
+        executor.duckdb_engine.get_table_schema = MagicMock(
+            return_value={"id": "INTEGER", "name": "VARCHAR"}
+        )
 
-    return executor
+        yield executor
 
 
 def test_execute_load_step_replace_mode(local_executor):

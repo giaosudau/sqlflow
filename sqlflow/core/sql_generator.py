@@ -62,11 +62,8 @@ class SQLGenerator:
                 logger.debug(message)
             else:
                 logger.warning(message)
-
-            return True
         else:
             self._warning_counts[key] += 1
-            return False
 
     def generate_operation_sql(
         self, operation: Dict[str, Any], context: Dict[str, Any]
@@ -170,10 +167,12 @@ class SQLGenerator:
         name = operation.get("name", "unnamed_source")
         operation.get("id", "unknown")
 
+        # Get profile connector name outside the conditional block so it's always available
+        profile_connector_name = operation.get("profile_connector_name", "")
+
         # Handle profile-based source definition (FROM syntax)
         if operation.get("is_from_profile", False):
             # Get connector type from profile for profile-based sources
-            profile_connector_name = operation.get("profile_connector_name", "")
             profile = context.get("profile", {})
             profile_connectors = profile.get("connectors", {})
 
@@ -278,20 +277,26 @@ SELECT * FROM {pg_query};"""
         materialized = operation.get("materialized", "table").upper()
         name = operation.get("name", "unnamed")
         query = operation.get("query", "")
+        # For backward compatibility, check is_replace but default to True for consistency
+        is_replace = operation.get("is_replace", True)
 
         logger.debug(
-            f"Generating transform SQL for {name}, materialization: {materialized}"
+            f"Generating transform SQL for {name}, materialization: {materialized}, is_replace: {is_replace}"
         )
 
         if materialized == "TABLE":
+            # Use CREATE OR REPLACE TABLE by default for consistency with sources and loads
+            # This ensures idempotency - operations can be re-run safely
+            create_clause = "CREATE OR REPLACE TABLE" if is_replace else "CREATE TABLE"
             return f"""-- Materialization: TABLE
-CREATE OR REPLACE TABLE {name} AS
+{create_clause} {name} AS
 {query};
 
 -- Statistics collection
 ANALYZE {name};"""
 
         elif materialized == "VIEW":
+            # For views, always use CREATE OR REPLACE as it's the standard practice
             return f"""-- Materialization: VIEW
 CREATE OR REPLACE VIEW {name} AS
 {query};"""

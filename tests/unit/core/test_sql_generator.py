@@ -202,3 +202,91 @@ def test_multiple_dependencies():
     # Assert
     assert "-- Operation: join_tables" in sql
     assert "-- Dependencies: source_orders, source_customers" in sql
+
+
+def test_sql_generator_transform_explicit_no_replace():
+    """Test SQL generation for transform with explicit is_replace=False for backward compatibility."""
+    # Arrange
+    generator = SQLGenerator()
+    operation = {
+        "id": "transform_no_replace",
+        "type": "transform",
+        "name": "test_transform",
+        "materialized": "table",
+        "query": "SELECT * FROM source",
+        "depends_on": ["source_test"],
+        "is_replace": False,
+    }
+    context = {"variables": {}}
+
+    # Act
+    sql = generator.generate_operation_sql(operation, context)
+
+    # Assert
+    assert "-- Operation: transform_no_replace" in sql
+    assert "-- Dependencies: source_test" in sql
+    assert "-- Materialization: TABLE" in sql
+    assert "CREATE TABLE test_transform AS" in sql
+    assert "CREATE OR REPLACE" not in sql
+    assert "SELECT * FROM source" in sql
+    assert "ANALYZE test_transform" in sql
+
+
+def test_create_or_replace_consistency_across_operations():
+    """Test that all table-creating operations consistently use CREATE OR REPLACE by default."""
+    generator = SQLGenerator()
+    context = {"variables": {}}
+
+    # Test SOURCE operation
+    source_operation = {
+        "id": "source_test",
+        "type": "source_definition",
+        "name": "test_source",
+        "source_connector_type": "CSV",
+        "query": {"path": "data/test.csv", "has_header": True},
+        "depends_on": [],
+    }
+    source_sql = generator.generate_operation_sql(source_operation, context)
+    assert "CREATE OR REPLACE TABLE test_source AS" in source_sql
+
+    # Test LOAD operation
+    load_operation = {
+        "id": "load_test",
+        "type": "load",
+        "name": "load_data",
+        "query": {"source_name": "source_table", "table_name": "destination_table"},
+        "depends_on": ["source_definition"],
+    }
+    load_sql = generator.generate_operation_sql(load_operation, context)
+    assert "CREATE OR REPLACE TABLE destination_table AS" in load_sql
+
+    # Test TRANSFORM operation (default behavior)
+    transform_operation = {
+        "id": "transform_test",
+        "type": "transform",
+        "name": "test_transform",
+        "materialized": "table",
+        "query": "SELECT * FROM source",
+        "depends_on": ["source_test"],
+        # No is_replace specified - should default to True
+    }
+    transform_sql = generator.generate_operation_sql(transform_operation, context)
+    assert "CREATE OR REPLACE TABLE test_transform AS" in transform_sql
+
+    # Test TRANSFORM with VIEW materialization
+    view_operation = {
+        "id": "view_test",
+        "type": "transform",
+        "name": "test_view",
+        "materialized": "view",
+        "query": "SELECT * FROM source WHERE value > 100",
+        "depends_on": ["source_test"],
+    }
+    view_sql = generator.generate_operation_sql(view_operation, context)
+    assert "CREATE OR REPLACE VIEW test_view AS" in view_sql
+
+    print(
+        "✅ All table-creating operations consistently use CREATE OR REPLACE by default"
+    )
+    print("✅ This ensures idempotency - pipelines can be re-run safely")
+    print("✅ Consistency maintained across sources, loads, transforms, and views")

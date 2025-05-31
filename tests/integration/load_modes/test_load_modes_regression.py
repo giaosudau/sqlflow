@@ -84,6 +84,7 @@ class TestLoadModesRegression:
             "users_updates": users_updates_data,
         }
 
+    @pytest.mark.serial
     def test_basic_load_modes_pipeline(self, setup_load_modes_data):
         """Test the basic load modes pipeline that demonstrates REPLACE, APPEND, and MERGE."""
         data = setup_load_modes_data
@@ -164,6 +165,7 @@ class TestLoadModesRegression:
         ivan_row = result_df[result_df["user_id"] == 9]
         assert len(ivan_row) == 1, "Ivan should be added via MERGE"
 
+    @pytest.mark.serial
     def test_multiple_merge_keys_load_mode(self, setup_load_modes_data):
         """Test load mode with multiple merge keys."""
         data = setup_load_modes_data
@@ -259,6 +261,7 @@ class TestLoadModesRegression:
             len(user4_records) == 0
         ), "User 4 should not be added since composite key doesn't exist"
 
+    @pytest.mark.serial
     def test_schema_compatibility_load_mode(self, setup_load_modes_data):
         """Test load mode with schema compatibility."""
         data = setup_load_modes_data
@@ -326,6 +329,7 @@ class TestLoadModesRegression:
         jill_row = result_df[result_df["user_id"] == 11]
         assert len(jill_row) == 1, "Jill should be added with compatible schema"
 
+    @pytest.mark.serial
     def test_load_modes_execution_plan_structure(self, setup_load_modes_data):
         """Test that load modes execution plans have correct structure."""
         data = setup_load_modes_data
@@ -365,6 +369,7 @@ class TestLoadModesRegression:
             "email",
         ], "MERGE step should preserve merge_keys"
 
+    @pytest.mark.serial
     def test_load_modes_error_handling(self, setup_load_modes_data):
         """Test proper error handling in load modes."""
         data = setup_load_modes_data
@@ -391,6 +396,7 @@ class TestLoadModesRegression:
             or "merge" in str(exc_info.value).lower()
         )
 
+    @pytest.mark.serial
     def test_load_modes_comprehensive_scenario(self, setup_load_modes_data):
         """Test a comprehensive scenario that exercises all load modes."""
         data = setup_load_modes_data

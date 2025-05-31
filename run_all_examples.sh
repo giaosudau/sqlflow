@@ -73,13 +73,19 @@ echo ""
 # Find all run.sh scripts in examples directories
 EXAMPLE_SCRIPTS=($(find examples -name "run.sh" -type f | sort))
 
-if [ ${#EXAMPLE_SCRIPTS[@]} -eq 0 ]; then
-    print_warning "No run.sh scripts found in examples directories"
+# Also find run_demo.sh scripts (like incremental_loading_demo)
+DEMO_SCRIPTS=($(find examples -name "run_demo.sh" -type f | sort))
+
+# Combine both types of scripts
+ALL_SCRIPTS=("${EXAMPLE_SCRIPTS[@]}" "${DEMO_SCRIPTS[@]}")
+
+if [ ${#ALL_SCRIPTS[@]} -eq 0 ]; then
+    print_warning "No run.sh or run_demo.sh scripts found in examples directories"
     exit 0
 fi
 
-print_status "📋 Found ${#EXAMPLE_SCRIPTS[@]} example scripts:"
-for script in "${EXAMPLE_SCRIPTS[@]}"; do
+print_status "📋 Found ${#ALL_SCRIPTS[@]} example scripts:"
+for script in "${ALL_SCRIPTS[@]}"; do
     echo "  - $script"
 done
 echo ""
@@ -88,7 +94,7 @@ echo ""
 FAILED_SCRIPTS=()
 SUCCESSFUL_SCRIPTS=()
 
-for script in "${EXAMPLE_SCRIPTS[@]}"; do
+for script in "${ALL_SCRIPTS[@]}"; do
     script_dir="$(dirname "$script")"
     script_name="$(basename "$script")"
     

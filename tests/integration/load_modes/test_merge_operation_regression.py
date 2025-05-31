@@ -60,6 +60,7 @@ class TestMergeOperationRegression:
             "updates_data": updates_data,
         }
 
+    @pytest.mark.serial
     def test_merge_operation_with_single_key(self, setup_test_data):
         """Test MERGE operation with single merge key executes successfully."""
         data = setup_test_data
@@ -120,6 +121,7 @@ class TestMergeOperationRegression:
         david_row = result_df[result_df["user_id"] == 4].iloc[0]
         assert david_row["name"] == "David"
 
+    @pytest.mark.serial
     def test_merge_operation_with_multiple_keys(self, setup_test_data):
         """Test MERGE operation with multiple merge keys."""
         data = setup_test_data
@@ -197,6 +199,7 @@ class TestMergeOperationRegression:
         ].iloc[0]
         assert user2_eu["sales"] == 300  # Updated
 
+    @pytest.mark.serial
     def test_merge_operation_execution_plan_structure(self, setup_test_data):
         """Test that execution plan correctly preserves merge_keys."""
         data = setup_test_data
@@ -234,6 +237,7 @@ class TestMergeOperationRegression:
         assert "source_name" in merge_step
         assert "target_table" in merge_step
 
+    @pytest.mark.serial
     def test_merge_operation_error_handling(self, setup_test_data):
         """Test proper error handling when merge keys don't exist."""
         data = setup_test_data
@@ -266,6 +270,7 @@ class TestMergeOperationRegression:
             result.get("error", "")
         )
 
+    @pytest.mark.serial
     def test_load_step_creation_from_execution_plan(self, setup_test_data):
         """Test that LoadStep objects are created correctly from execution plan."""
         # Create a mock execution step that represents the fixed scenario
@@ -294,6 +299,7 @@ class TestMergeOperationRegression:
         assert load_step.mode == "MERGE"
         assert load_step.merge_keys == ["test_key"]
 
+    @pytest.mark.serial
     def test_regression_prevention_comprehensive(self, setup_test_data):
         """Comprehensive test that would have failed before the fix."""
         data = setup_test_data

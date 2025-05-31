@@ -83,20 +83,19 @@ def _apply_variable_substitution(pipeline_text: str, variables: Dict[str, Any]) 
         Pipeline text with variables substituted
 
     """
-    from sqlflow.core.variables import VariableContext, VariableSubstitutor
+    from sqlflow.core.variable_substitution import VariableSubstitutionEngine
 
-    # Create a variable context and substitutor
-    var_context = VariableContext(cli_variables=variables)
-    substitutor = VariableSubstitutor(var_context)
+    # Create a variable substitution engine
+    engine = VariableSubstitutionEngine(variables)
 
     # Substitute variables in the pipeline text
-    result = substitutor.substitute_string(pipeline_text)
+    result = engine.substitute(pipeline_text)
 
-    # Log any unresolved variables
-    if var_context.has_unresolved_variables():
-        unresolved = var_context.get_unresolved_variables()
+    # Log any missing variables (those without defaults)
+    missing_vars = engine.validate_required_variables(pipeline_text)
+    if missing_vars:
         logger.warning(
-            f"Pipeline contains unresolved variables: {', '.join(unresolved)}"
+            f"Pipeline contains missing variables: {', '.join(missing_vars)}"
         )
 
     return result
@@ -203,11 +202,42 @@ def _compile_pipeline_to_plan(
             profile_dict.get("variables", {}) if isinstance(profile_dict, dict) else {}
         )
 
-        # Parse the pipeline
+        # Substitute variables in pipeline text BEFORE parsing
+        all_variables = {}
+
+        # Add profile variables
+        if profile_variables:
+            all_variables.update(profile_variables)
+            logger.debug(
+                f"Added profile variables for compilation: {profile_variables}"
+            )
+
+        # Add CLI variables (highest priority)
+        if variables:
+            all_variables.update(variables)
+            logger.debug(f"Added CLI variables for compilation: {variables}")
+
+        # Apply variable substitution if we have any variables
+        if all_variables:
+            from sqlflow.core.variable_substitution import VariableSubstitutionEngine
+
+            engine = VariableSubstitutionEngine(all_variables)
+            pipeline_text = engine.substitute(pipeline_text)
+
+            logger.debug("Applied variable substitution before compilation")
+
+            # Log any missing variables (those without defaults)
+            missing_vars = engine.validate_required_variables(pipeline_text)
+            if missing_vars:
+                logger.warning(
+                    f"Missing variables during compilation: {', '.join(missing_vars)}"
+                )
+
+        # Parse the pipeline (now with variables substituted)
         parser = Parser()
         pipeline = parser.parse(pipeline_text)
 
-        # Create a plan with variable substitution
+        # Create a plan with planner
         planner = Planner()
         operations = planner.create_plan(
             pipeline, variables=variables, profile_variables=profile_variables
@@ -742,7 +772,7 @@ def _read_and_substitute_pipeline(pipeline_path: str, variables: dict) -> str:
         Pipeline text with variables substituted
 
     """
-    from sqlflow.core.variables import VariableContext, VariableSubstitutor
+    from sqlflow.core.variable_substitution import VariableSubstitutionEngine
 
     # Read the pipeline file
     with open(pipeline_path, "r") as f:
@@ -752,18 +782,17 @@ def _read_and_substitute_pipeline(pipeline_path: str, variables: dict) -> str:
     if not variables:
         return pipeline_text
 
-    # Create a variable context and substitutor
-    var_context = VariableContext(cli_variables=variables)
-    substitutor = VariableSubstitutor(var_context)
+    # Create a variable substitution engine
+    engine = VariableSubstitutionEngine(variables)
 
     # Substitute variables in the pipeline text
-    result = substitutor.substitute_string(pipeline_text)
+    result = engine.substitute(pipeline_text)
 
-    # Log any unresolved variables
-    if var_context.has_unresolved_variables():
-        unresolved = var_context.get_unresolved_variables()
+    # Log any missing variables (those without defaults)
+    missing_vars = engine.validate_required_variables(pipeline_text)
+    if missing_vars:
         logger.warning(
-            f"Pipeline contains unresolved variables: {', '.join(unresolved)}"
+            f"Pipeline contains missing variables: {', '.join(missing_vars)}"
         )
 
     return result
@@ -1132,14 +1161,47 @@ def _get_execution_operations(
             with open(pipeline_path, "r") as f:
                 pipeline_text = f.read()
 
-            # Parse the pipeline
+            # Combine all variables before parsing
+            all_variables = {}
+
+            # Add profile variables (lowest priority after defaults)
+            if profile_variables:
+                all_variables.update(profile_variables)
+                logger.debug(f"Added profile variables: {profile_variables}")
+
+            # Add CLI variables (highest priority)
+            if variables:
+                all_variables.update(variables)
+                logger.debug(f"Added CLI variables: {variables}")
+
+            logger.debug(f"Final combined variables for parsing: {all_variables}")
+
+            # Substitute variables in pipeline text BEFORE parsing
+            if all_variables:
+                from sqlflow.core.variable_substitution import (
+                    VariableSubstitutionEngine,
+                )
+
+                engine = VariableSubstitutionEngine(all_variables)
+                pipeline_text = engine.substitute(pipeline_text)
+
+                logger.debug("Applied variable substitution before parsing")
+
+                # Log any missing variables (those without defaults)
+                missing_vars = engine.validate_required_variables(pipeline_text)
+                if missing_vars:
+                    logger.warning(
+                        f"Missing variables during compilation: {', '.join(missing_vars)}"
+                    )
+
+            # Parse the pipeline (now with variables substituted)
             parser = Parser()
             pipeline = parser.parse(pipeline_text)
 
             # Create execution plan with planner
             planner = Planner()
 
-            # Pass both CLI variables and profile variables to the planner
+            # Pass variables to the planner (though they're already substituted)
             operations = planner.create_plan(
                 pipeline, variables=variables, profile_variables=profile_variables
             )

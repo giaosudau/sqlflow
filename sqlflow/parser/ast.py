@@ -311,6 +311,7 @@ class SQLBlockStep(PipelineStep):
     table_name: str
     sql_query: str
     line_number: Optional[int] = None
+    is_replace: bool = False  # True if CREATE OR REPLACE was used
 
     def validate(self) -> List[str]:
         """Validate the SQL block.

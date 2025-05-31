@@ -141,6 +141,26 @@ CSV_SCHEMA = ConnectorSchema(
             description="File encoding",
             allowed_values=["utf-8", "latin-1", "ascii"],
         ),
+        # Incremental loading parameters (industry-standard)
+        FieldSchema(
+            name="sync_mode",
+            required=False,
+            field_type="string",
+            description="Synchronization mode for incremental loading",
+            allowed_values=["full_refresh", "incremental"],
+        ),
+        FieldSchema(
+            name="primary_key",
+            required=False,
+            field_type="string",
+            description="Primary key field for incremental loading",
+        ),
+        FieldSchema(
+            name="cursor_field",
+            required=False,
+            field_type="string",
+            description="Cursor field for incremental loading (e.g., timestamp, id)",
+        ),
     ],
 )
 

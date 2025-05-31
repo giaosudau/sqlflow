@@ -227,7 +227,11 @@ def create_analytics_udf_file(udf_dir: Path) -> Path:
 
 import math
 import pandas as pd
+from typing import List
 from sqlflow.udfs import python_scalar_udf, python_table_udf
+from sqlflow.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 @python_scalar_udf
@@ -239,12 +243,10 @@ def normalize_value(value: float, min_val: float = 0.0, max_val: float = 100.0) 
 
 
 @python_scalar_udf
-def calculate_percentile_rank(value: float, values_list: str) -> float:
-    """Calculate percentile rank of value in list."""
+def calculate_percentile_rank(values: List[float], value: float) -> float:
+    """Calculate percentile rank of a value within a list of values."""
     try:
-        # Parse comma-separated string of values
-        values = [float(v.strip()) for v in values_list.split(",")]
-        if not values:
+        if not values or value is None:
             return 0.0
         
         count_below = sum(1 for v in values if v < value)
@@ -252,7 +254,11 @@ def calculate_percentile_rank(value: float, values_list: str) -> float:
         
         # Use standard percentile rank formula
         return (count_below + 0.5 * count_equal) / len(values) * 100
-    except:
+    except (TypeError, ValueError, ZeroDivisionError) as e:
+        logger.warning(f"Error calculating percentile rank: {e}")
+        return 0.0
+    except Exception as e:
+        logger.error(f"Unexpected error in percentile rank calculation: {e}")
         return 0.0
 
 
