@@ -37,7 +37,7 @@ class TestExecutorSafeguard:
                 LocalExecutor, "execute_step", return_value={"status": "success"}
             ) as mock_execute_step,
         ):
-            executor.execute(plan, resolver)
+            executor.execute(plan, None, resolver)
             mock_logger.warning.assert_not_called()
 
     def test_execution_order_mismatch(self):
@@ -64,7 +64,7 @@ class TestExecutorSafeguard:
                 LocalExecutor, "execute_step", return_value={"status": "success"}
             ) as mock_execute_step,
         ):
-            executor.execute(plan, resolver)
+            executor.execute(plan, None, resolver)
             mock_logger.warning.assert_called_once()
             call_args = mock_logger.warning.call_args[0]
             assert "Execution order mismatch detected" in call_args[0]
@@ -91,13 +91,14 @@ class TestExecutorSafeguard:
                 LocalExecutor, "execute_step", return_value={"status": "success"}
             ) as mock_execute_step,
         ):
-            executor.execute(plan)
+            executor.execute(plan, None)
             mock_logger.warning.assert_not_called()
 
 
 class DummyDuckDBEngine:
     def __init__(self, path):
         self.path = path
+        self.database_path = path  # Add this for compatibility
 
 
 # Patch DuckDBEngine for test isolation
@@ -122,12 +123,16 @@ def test_local_executor_memory_mode(tmp_path, monkeypatch):
     profiles_dir = tmp_path / "profiles"
     profiles_dir.mkdir()
     make_profile(profiles_dir, "dev", "memory")
-    cwd = os.getcwd()
     try:
+        cwd = os.getcwd()
         os.chdir(tmp_path)
         exec = LocalExecutor(profile_name="dev")
-        assert exec.duckdb_engine.path == ":memory:"
-    finally:
+        assert exec.duckdb_engine.database_path == ":memory:"
+    except (FileNotFoundError, OSError):
+        # If current directory doesn't exist, test with project_dir parameter
+        exec = LocalExecutor(project_dir=str(tmp_path), profile_name="dev")
+        assert exec.duckdb_engine.database_path == ":memory:"
+    else:
         os.chdir(cwd)
 
 
@@ -137,12 +142,16 @@ def test_local_executor_persistent_mode(tmp_path, monkeypatch):
     profiles_dir.mkdir()
     db_path = tmp_path / "prod.db"
     make_profile(profiles_dir, "production", "persistent", path=db_path)
-    cwd = os.getcwd()
     try:
+        cwd = os.getcwd()
         os.chdir(tmp_path)
         exec = LocalExecutor(profile_name="production")
-        assert exec.duckdb_engine.path == str(db_path)
-    finally:
+        assert exec.duckdb_engine.database_path == str(db_path)
+    except (FileNotFoundError, OSError):
+        # If current directory doesn't exist, test with project_dir parameter
+        exec = LocalExecutor(project_dir=str(tmp_path), profile_name="production")
+        assert exec.duckdb_engine.database_path == str(db_path)
+    else:
         os.chdir(cwd)
 
 
@@ -151,10 +160,14 @@ def test_local_executor_persistent_mode_missing_path(tmp_path, monkeypatch):
     profiles_dir = tmp_path / "profiles"
     profiles_dir.mkdir()
     make_profile(profiles_dir, "broken", "persistent")
-    cwd = os.getcwd()
     try:
+        cwd = os.getcwd()
         os.chdir(tmp_path)
         with pytest.raises(ValueError):
             LocalExecutor(profile_name="broken")
-    finally:
+    except (FileNotFoundError, OSError):
+        # If current directory doesn't exist, test with project_dir parameter
+        with pytest.raises(ValueError):
+            LocalExecutor(project_dir=str(tmp_path), profile_name="broken")
+    else:
         os.chdir(cwd)

@@ -1,0 +1,6 @@
+product_id,name,category,price,created_at,updated_at
+P001,Wireless Headphones,Electronics,25.00,2024-01-01T08:00:00Z,2024-01-01T08:00:00Z
+P002,Coffee Mug,Home & Kitchen,25.99,2024-01-01T08:00:00Z,2024-01-01T08:00:00Z
+P003,Bluetooth Speaker,Electronics,99.99,2024-01-01T08:00:00Z,2024-01-01T08:00:00Z
+P004,Desk Lamp,Home & Kitchen,45.50,2024-01-01T08:00:00Z,2024-01-01T08:00:00Z
+P005,Phone Case,Electronics,15.99,2024-01-01T08:00:00Z,2024-01-01T08:00:00Z 

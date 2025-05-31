@@ -95,102 +95,109 @@ class TestExecutorUDFRegression:
             "CREATE TABLE test AS SELECT processed_name FROM test_table"
         )
 
-        executor = LocalExecutor()
-        executor.discovered_udfs = {
-            "python_udfs.simple_udfs.test_func": lambda x: f"processed_{x}"
-        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            executor = LocalExecutor(project_dir=temp_dir)
+            executor.discovered_udfs = {
+                "python_udfs.simple_udfs.test_func": lambda x: f"processed_{x}"
+            }
 
-        # Mock DuckDB engine and patch process_query_for_udfs on the instance
-        executor.duckdb_engine = MagicMock()
-        executor.duckdb_engine.execute_query = MagicMock()
-        executor.duckdb_engine.process_query_for_udfs = mock_process_query
+            # Mock DuckDB engine and patch process_query_for_udfs on the instance
+            executor.duckdb_engine = MagicMock()
+            executor.duckdb_engine.execute_query = MagicMock()
+            executor.duckdb_engine.process_query_for_udfs = mock_process_query
 
-        # Execute SQL that contains UDF calls
-        sql_with_udf = 'CREATE TABLE test AS SELECT PYTHON_FUNC("python_udfs.simple_udfs.test_func", name) as processed_name FROM test_table'
+            # Execute SQL that contains UDF calls
+            sql_with_udf = 'CREATE TABLE test AS SELECT PYTHON_FUNC("python_udfs.simple_udfs.test_func", name) as processed_name FROM test_table'
 
-        executor._execute_sql_query("test", sql_with_udf)
+            # Create a mock step dictionary
+            mock_step = {"id": "test_step", "type": "transform", "name": "test"}
 
-        # process_query_for_udfs should have been called
-        mock_process_query.assert_called_once()
+            executor._execute_sql_query("test", sql_with_udf, mock_step)
 
-        # The processed SQL should have been executed
-        executor.duckdb_engine.execute_query.assert_called_once()
+            # process_query_for_udfs should have been called
+            mock_process_query.assert_called_once()
+
+            # The processed SQL should have been executed
+            executor.duckdb_engine.execute_query.assert_called_once()
 
     def test_source_definition_step_structure_compatibility(self):
         """Test that source definition steps are handled with correct field names.
 
         Regression test for: "Unknown connector type: source_definition" errors
         """
-        executor = LocalExecutor()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            executor = LocalExecutor(project_dir=temp_dir)
 
-        # Test step with correct structure that executor expects
-        step = {
-            "id": "source_test",
-            "type": "source_definition",
-            "name": "test_source",
-            "source_connector_type": "CSV",  # This is the field executor should read
-            "query": {"path": "data/test.csv", "has_header": True},
-        }
+            # Test step with correct structure that executor expects
+            step = {
+                "id": "source_test",
+                "type": "source_definition",
+                "name": "test_source",
+                "source_connector_type": "CSV",  # This is the field executor should read
+                "query": {"path": "data/test.csv", "has_header": True},
+            }
 
-        # Should not raise an error
-        result = executor._execute_source_definition(step)
+            # Should not raise an error
+            result = executor._execute_source_definition(step)
 
-        assert result["status"] == "success"
+            assert result["status"] == "success"
 
-        # Should have stored source definition correctly
-        assert hasattr(executor, "source_definitions")
-        assert "test_source" in executor.source_definitions
-        assert executor.source_definitions["test_source"]["connector_type"] == "CSV"
+            # Should have stored source definition correctly
+            assert hasattr(executor, "source_definitions")
+            assert "test_source" in executor.source_definitions
+            assert executor.source_definitions["test_source"]["connector_type"] == "CSV"
 
     def test_load_step_routing_to_proper_method(self):
         """Test that load steps with SOURCE definitions route to execute_load_step.
 
         Regression test for: Load steps using wrong execution method
         """
-        executor = LocalExecutor()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            executor = LocalExecutor(project_dir=temp_dir)
 
-        # Mock the execute_load_step method
-        with patch.object(executor, "execute_load_step") as mock_execute_load_step:
-            mock_execute_load_step.return_value = {"status": "success"}
+            # Mock the execute_load_step method
+            with patch.object(executor, "execute_load_step") as mock_execute_load_step:
+                mock_execute_load_step.return_value = {"status": "success"}
 
-            # Create load step with source_name and target_table (proper structure)
-            step = {
-                "id": "load_test",
-                "type": "load",
-                "source_name": "test_source",
-                "target_table": "test_table",
-                "source_connector_type": "CSV",
-            }
+                # Create load step with source_name and target_table (proper structure)
+                step = {
+                    "id": "load_test",
+                    "type": "load",
+                    "source_name": "test_source",
+                    "target_table": "test_table",
+                    "source_connector_type": "CSV",
+                }
 
-            result = executor._execute_step(step)
+                result = executor._execute_step(step)
 
-            # Should have called execute_load_step (not _execute_load)
-            mock_execute_load_step.assert_called_once()
-            assert result["status"] == "success"
+                # Should have called execute_load_step (not _execute_load)
+                mock_execute_load_step.assert_called_once()
+                assert result["status"] == "success"
 
     def test_load_step_fallback_to_legacy_method(self):
         """Test that load steps without proper structure fall back to legacy method.
 
         This ensures backward compatibility while preferring the new method.
         """
-        executor = LocalExecutor()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            executor = LocalExecutor(project_dir=temp_dir)
 
-        # Mock the legacy _execute_load method
-        with patch.object(executor, "_execute_load") as mock_execute_load:
-            mock_execute_load.return_value = {"status": "success"}
+            # Mock the legacy _execute_load method
+            with patch.object(executor, "_execute_load") as mock_execute_load:
+                mock_execute_load.return_value = {"status": "success"}
 
-            # Create load step without proper structure (legacy format)
-            step = {
-                "id": "load_legacy",
-                "type": "load",
-                # Missing source_name and target_table
-            }
+                # Create load step without proper structure (legacy format)
+                step = {
+                    "id": "load_legacy",
+                    "type": "load",
+                    # Missing source_name and target_table
+                }
 
-            result = executor._execute_step(step)
+                result = executor._execute_step(step)
 
-            # Should have called _execute_load (legacy method)
-            mock_execute_load.assert_called_once()
-            assert result["status"] == "success"
+                # Should have called _execute_load (legacy method)
+                mock_execute_load.assert_called_once()
+                assert result["status"] == "success"
 
 
 class TestExecutorSourceDefinitionRegression:
@@ -201,73 +208,79 @@ class TestExecutorSourceDefinitionRegression:
 
         Regression test for: Parameters in wrong field causing lookup failures
         """
-        executor = LocalExecutor()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            executor = LocalExecutor(project_dir=temp_dir)
 
-        # Test with parameters in 'query' field (execution plan format)
-        step_with_query = {
-            "id": "source_test1",
-            "type": "source_definition",
-            "name": "test_source1",
-            "source_connector_type": "CSV",
-            "query": {"path": "data/test1.csv", "has_header": True},
-        }
+            # Test with parameters in 'query' field (execution plan format)
+            step_with_query = {
+                "id": "source_test1",
+                "type": "source_definition",
+                "name": "test_source1",
+                "source_connector_type": "CSV",
+                "query": {"path": "data/test1.csv", "has_header": True},
+            }
 
-        result = executor._execute_source_definition(step_with_query)
-        assert result["status"] == "success"
-        assert "test_source1" in executor.source_definitions
-        assert executor.source_definitions["test_source1"]["params"] == {
-            "path": "data/test1.csv",
-            "has_header": True,
-        }
+            result = executor._execute_source_definition(step_with_query)
+            assert result["status"] == "success"
+            assert "test_source1" in executor.source_definitions
+            assert executor.source_definitions["test_source1"]["params"] == {
+                "path": "data/test1.csv",
+                "has_header": True,
+            }
 
-        # Test with parameters in 'params' field (legacy format)
-        step_with_params = {
-            "id": "source_test2",
-            "type": "source_definition",
-            "name": "test_source2",
-            "source_connector_type": "CSV",
-            "params": {"path": "data/test2.csv", "has_header": True},
-        }
+            # Test with parameters in 'params' field (legacy format)
+            step_with_params = {
+                "id": "source_test2",
+                "type": "source_definition",
+                "name": "test_source2",
+                "source_connector_type": "CSV",
+                "params": {"path": "data/test2.csv", "has_header": True},
+            }
 
-        result = executor._execute_source_definition(step_with_params)
-        assert result["status"] == "success"
-        assert "test_source2" in executor.source_definitions
-        assert executor.source_definitions["test_source2"]["params"] == {
-            "path": "data/test2.csv",
-            "has_header": True,
-        }
+            result = executor._execute_source_definition(step_with_params)
+            assert result["status"] == "success"
+            assert "test_source2" in executor.source_definitions
+            assert executor.source_definitions["test_source2"]["params"] == {
+                "path": "data/test2.csv",
+                "has_header": True,
+            }
 
     def test_source_definition_connector_type_field_compatibility(self):
         """Test backward compatibility for connector_type field names.
 
         Regression test for: Field name mismatches between planner and executor
         """
-        executor = LocalExecutor()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            executor = LocalExecutor(project_dir=temp_dir)
 
-        # Test with source_connector_type (new format)
-        step_new = {
-            "id": "source_new",
-            "type": "source_definition",
-            "name": "test_source_new",
-            "source_connector_type": "CSV",
-            "query": {"path": "data/test.csv"},
-        }
+            # Test with source_connector_type (new format)
+            step_new = {
+                "id": "source_new",
+                "type": "source_definition",
+                "name": "test_source_new",
+                "source_connector_type": "CSV",
+                "query": {"path": "data/test.csv"},
+            }
 
-        result = executor._execute_source_definition(step_new)
-        assert result["status"] == "success"
-        assert executor.source_definitions["test_source_new"]["connector_type"] == "CSV"
+            result = executor._execute_source_definition(step_new)
+            assert result["status"] == "success"
+            assert (
+                executor.source_definitions["test_source_new"]["connector_type"]
+                == "CSV"
+            )
 
-        # Test with just connector_type (legacy format)
-        step_legacy = {
-            "id": "source_legacy",
-            "type": "source_definition",
-            "name": "test_source_legacy",
-            "connector_type": "CSV",  # No source_ prefix
-            "query": {"path": "data/test.csv"},
-        }
+            # Test with just connector_type (legacy format)
+            step_legacy = {
+                "id": "source_legacy",
+                "type": "source_definition",
+                "name": "test_source_legacy",
+                "connector_type": "CSV",  # No source_ prefix
+                "query": {"path": "data/test.csv"},
+            }
 
-        result = executor._execute_source_definition(step_legacy)
-        assert result["status"] == "success"
-        assert (
-            executor.source_definitions["test_source_legacy"]["connector_type"] == "CSV"
-        )
+            result = executor._execute_source_definition(step_legacy)
+            assert result["status"] == "success"
+            assert (
+                executor.source_definitions["test_source_legacy"]["connector_type"]
+                == "CSV"
+            )

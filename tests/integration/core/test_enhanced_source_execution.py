@@ -79,9 +79,10 @@ class TestEnhancedSourceExecution:
             os.unlink(f.name)
 
     @pytest.fixture
-    def executor_with_watermarks(self):
+    def executor_with_watermarks(self, tmp_path):
         """Create LocalExecutor with watermark management enabled."""
-        executor = LocalExecutor()
+        # Use tmp_path fixture to avoid os.getcwd() issues during parallel tests
+        executor = LocalExecutor(project_dir=str(tmp_path))
 
         # Ensure watermark manager is initialized
         if (

@@ -52,6 +52,7 @@ def connector_executor(temp_connector_project: Dict[str, Any]) -> LocalExecutor:
         Configured LocalExecutor with temporary project context
     """
     # Use project_dir parameter in constructor for UDF discovery
+    # This avoids issues with os.getcwd() during parallel test execution
     executor = LocalExecutor(project_dir=temp_connector_project["project_dir"])
     return executor
 

@@ -96,6 +96,10 @@ class TokenType(Enum):
     AND = auto()
     OR = auto()
 
+    # SQL query structure tokens
+    UNION = auto()
+    ALL = auto()
+
     SQL_BLOCK = auto()
 
     WHITESPACE = auto()
@@ -158,6 +162,8 @@ class Lexer:
             (TokenType.IN, re.compile(r"IN\b", re.IGNORECASE)),
             (TokenType.AND, re.compile(r"AND\b", re.IGNORECASE)),
             (TokenType.OR, re.compile(r"OR\b", re.IGNORECASE)),
+            (TokenType.UNION, re.compile(r"UNION\b", re.IGNORECASE)),
+            (TokenType.ALL, re.compile(r"ALL\b", re.IGNORECASE)),
             # Load mode patterns
             (TokenType.MODE, re.compile(r"MODE\b", re.IGNORECASE)),
             (TokenType.REPLACE, re.compile(r"REPLACE\b", re.IGNORECASE)),

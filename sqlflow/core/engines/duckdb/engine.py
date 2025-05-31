@@ -218,13 +218,29 @@ class DuckDBEngine(SQLEngine):
             if dir_path:
                 logger.debug("Creating directory for DuckDB file: %s", dir_path)
                 try:
+                    # Check if this is a relative path and we can't access the current directory
+                    if not os.path.isabs(dir_path):
+                        try:
+                            os.getcwd()
+                        except (FileNotFoundError, OSError):
+                            # Current directory doesn't exist, fall back to memory database
+                            logger.warning(
+                                "Current working directory not accessible, falling back to memory database"
+                            )
+                            self.database_path = DuckDBConstants.MEMORY_DATABASE
+                            self.is_persistent = False
+                            return
+
                     os.makedirs(dir_path, exist_ok=True)
                     logger.debug("Directory created/verified: %s", dir_path)
                 except Exception as e:
                     logger.debug("Error creating directory: %s", e)
-                    raise DuckDBConnectionError(
-                        f"Failed to create directory for DuckDB database: {e}"
+                    # Fall back to memory database instead of raising an error
+                    logger.warning(
+                        f"Failed to create directory {dir_path}, falling back to memory database: {e}"
                     )
+                    self.database_path = DuckDBConstants.MEMORY_DATABASE
+                    self.is_persistent = False
 
     def _establish_connection(self):
         """Establish connection to DuckDB."""

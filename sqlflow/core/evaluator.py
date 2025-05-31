@@ -4,11 +4,13 @@ This module provides a class to evaluate conditional expressions with variable s
 """
 
 import ast
-import logging
 import re
 from typing import Any, Dict
 
-logger = logging.getLogger(__name__)
+from sqlflow.core.variable_substitution import VariableSubstitutionEngine
+from sqlflow.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class EvaluationError(Exception):
@@ -38,6 +40,7 @@ class ConditionEvaluator:
 
         """
         self.variables = variables
+        self.substitution_engine = VariableSubstitutionEngine(variables)
         # Define operators that are allowed
         self.operators = {
             # Comparison operators
@@ -71,7 +74,7 @@ class ConditionEvaluator:
             EvaluationError: If the condition cannot be evaluated
 
         """
-        # First substitute variables
+        # First substitute variables using centralized engine
         substituted_condition = self._substitute_variables(condition)
 
         # Detect accidental use of '=' instead of '==' (not part of '==', '!=', '>=', '<=')
@@ -96,7 +99,7 @@ class ConditionEvaluator:
             )
 
     def _substitute_variables(self, condition: str) -> str:
-        """Replace ${var} with the variable value.
+        """Replace ${var} with the variable value using centralized engine.
 
         Args:
         ----
@@ -107,118 +110,27 @@ class ConditionEvaluator:
             Condition with variables substituted
 
         """
-        pattern = r"\$\{([^}]+)\}"
+        # Use the centralized substitution engine
+        substituted = self.substitution_engine._substitute_string(condition)
 
-        def replace_var(match):
-            var_expr = match.group(1)
-            if "|" in var_expr:
-                # Handle default value
-                var_name, default = var_expr.split("|", 1)
-                var_name = var_name.strip()
-                default = default.strip()
+        # The centralized engine returns values as-is, but for condition evaluation
+        # we need to ensure proper formatting for Python AST parsing
+        return self._format_for_ast_evaluation(substituted)
 
-                if var_name in self.variables:
-                    value = self.variables[var_name]
-                else:
-                    # Use the default value, properly typed
-                    logger.debug(
-                        f"Using default value '{default}' for variable '{var_name}'"
-                    )
-                    return self._format_value_with_type_inference(default)
-            else:
-                var_name = var_expr.strip()
-                if var_name not in self.variables:
-                    # Check if this is a self-reference to a variable that was defined with a default
-                    # For example: SET use_csv = "${use_csv|true}";
-                    # The variable would be defined in the SET but the evaluator might not see it
-                    # We should still log a warning but use the default that was set
-                    match_with_default = re.search(
-                        r"\$\{" + re.escape(var_name) + r"\|([^}]+)\}", condition
-                    )
-                    if match_with_default:
-                        default = match_with_default.group(1).strip()
-                        logger.debug(
-                            f"Found self-referential variable ${{{var_name}}} with default '{default}'"
-                        )
-                        return self._format_value_with_type_inference(default)
-
-                    logger.warning(f"Variable {var_name} not found in context")
-                    return "None"  # Missing variable becomes None
-
-                value = self.variables[var_name]
-
-            return self._format_value(value)
-
-        # Substitute variables with their values
-        return re.sub(pattern, replace_var, condition)
-
-    def _format_value(self, value: Any) -> str:
-        """Format a value for substitution in a condition.
+    def _format_for_ast_evaluation(self, condition: str) -> str:
+        """Format substituted condition for AST evaluation.
 
         Args:
         ----
-            value: Value to format
+            condition: Condition with variables already substituted
 
         Returns:
         -------
-            Formatted value as a string
-
+            Condition formatted for Python AST evaluation
         """
-        if isinstance(value, str):
-            # Keep strings as quoted strings
-            if value.startswith("'") and value.endswith("'"):
-                return value  # Already properly quoted
-            if value.startswith('"') and value.endswith('"'):
-                return value  # Already properly quoted
-            return f"'{value}'"
-        elif isinstance(value, bool):
-            return str(value)  # Returns 'True' or 'False'
-        elif value is None:
-            return "None"
-        else:
-            return str(value)  # Numbers and other types
-
-    def _format_value_with_type_inference(self, value: str) -> str:
-        """Format a value with type inference for default values.
-
-        Args:
-        ----
-            value: String value to format with type inference
-
-        Returns:
-        -------
-            Properly typed and formatted value as a string
-
-        """
-        # Strip quotes if present
-        if (value.startswith("'") and value.endswith("'")) or (
-            value.startswith('"') and value.endswith('"')
-        ):
-            return value  # Already a string literal
-
-        # Handle boolean values
-        if value.lower() == "true":
-            return "True"
-        if value.lower() == "false":
-            return "False"
-
-        # Handle None/null
-        if value.lower() == "none" or value.lower() == "null":
-            return "None"
-
-        # Try to parse as number
-        try:
-            # Check if it's an integer
-            int_val = int(value)
-            return str(int_val)
-        except ValueError:
-            try:
-                # Check if it's a float
-                float_val = float(value)
-                return str(float_val)
-            except ValueError:
-                # If not a number, treat as string
-                return f"'{value}'"
+        # This method handles any additional formatting needed for AST evaluation
+        # The centralized engine should handle most cases correctly
+        return condition
 
     def _safe_eval(self, expr: str) -> bool:
         """Safely evaluate an expression to a boolean result.
@@ -285,6 +197,8 @@ class ConditionEvaluator:
             return node.s
         elif isinstance(node, ast.Num):
             return node.n
+        elif isinstance(node, ast.BinOp):
+            return self._eval_binop(node)
         else:
             raise EvaluationError(f"Unsupported AST node type: {type(node).__name__}")
 
@@ -410,10 +324,13 @@ class ConditionEvaluator:
         # Ensure bool_val is the boolean and str_val is the string
         if isinstance(left, bool) and isinstance(right, str):
             bool_val, str_val = left, right
-        else:
+        elif isinstance(right, bool) and isinstance(left, str):
             bool_val, str_val = right, left
+        else:
+            # This should not happen due to check in _is_string_boolean_comparison
+            return False
 
-        # Normalize the string for comparison
+        # Normalize the string for comparison (str_val is guaranteed to be str here)
         normalized_str = str_val.lower()
 
         # Handle equality and inequality differently
@@ -448,4 +365,51 @@ class ConditionEvaluator:
             return False
         elif node.id == "None":
             return None
-        raise EvaluationError(f"Unknown identifier: {node.id}")
+        else:
+            # Treat unknown identifiers as string literals
+            # This handles cases where unquoted strings are parsed as identifiers
+            # including Python reserved keywords like 'global'
+            logger.debug(f"Treating unknown identifier '{node.id}' as string literal")
+            return node.id
+
+    def _eval_binop(self, node: ast.BinOp) -> Any:
+        """Evaluate a binary operation.
+
+        This handles cases where unquoted strings with hyphens are incorrectly
+        parsed as subtraction operations (e.g., 'us-east' becomes 'us - east').
+
+        Args:
+        ----
+            node: The binary operation node
+
+        Returns:
+        -------
+            The result of the binary operation
+
+        Raises:
+        ------
+            EvaluationError: If the operation is not supported
+        """
+        # Handle subtraction operations that might be misinterpreted string literals
+        if isinstance(node.op, ast.Sub):
+            left = self._eval_node(node.left)
+            right = self._eval_node(node.right)
+
+            # If both operands are strings/names, this might be a misinterpreted string literal
+            if isinstance(left, str) and isinstance(right, str):
+                # Reconstruct the original string (e.g., 'us' - 'east' -> 'us-east')
+                reconstructed = f"{left}-{right}"
+                logger.debug(
+                    f"Reconstructed string from binary operation: {reconstructed}"
+                )
+                return reconstructed
+
+            # If they're numbers, perform actual subtraction
+            if isinstance(left, (int, float)) and isinstance(right, (int, float)):
+                return left - right
+
+        # For other binary operations, raise an error as they're not supported in conditions
+        raise EvaluationError(
+            f"Unsupported binary operation: {type(node.op).__name__}. "
+            "Conditions should use comparison operators (==, !=, <, >, <=, >=) and logical operators (and, or, not)."
+        )

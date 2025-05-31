@@ -1,226 +1,233 @@
-"""Tests for variable substitution in export paths and destinations."""
+"""Tests for centralized variable substitution engine."""
 
-import os
-import tempfile
-import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
-import pandas as pd
-import pytest
-
-from sqlflow.connectors.data_chunk import DataChunk
-from sqlflow.core.executors.local_executor import LocalExecutor
+from sqlflow.core.variable_substitution import (
+    VariableSubstitutionEngine,
+    substitute_variables,
+    validate_variables,
+)
 
 
-class TestExportPathVariableSubstitution(unittest.TestCase):
-    """Test that variable substitution works correctly in export paths for all connectors."""
+class TestVariableSubstitutionEngine:
+    """Test cases for the centralized variable substitution engine."""
 
-    def setUp(self):
-        """Set up a test environment."""
-        self.temp_dir = tempfile.TemporaryDirectory()
-        self.test_profile = {
-            "variables": {"region": "us-east", "date": "2023-10-25", "env": "test"}
+    def test_substitute_string_simple(self):
+        """Test simple string substitution."""
+        engine = VariableSubstitutionEngine({"name": "Alice", "age": 30})
+
+        template = "Hello, ${name}! You are ${age} years old."
+        expected = "Hello, Alice! You are 30 years old."
+        assert engine.substitute(template) == expected
+
+    def test_substitute_string_with_defaults(self):
+        """Test string substitution with default values."""
+        engine = VariableSubstitutionEngine({"name": "Alice"})
+
+        # Test with default values
+        template = "Hello, ${name}! You are ${age|25} years old."
+        expected = "Hello, Alice! You are 25 years old."
+        assert engine.substitute(template) == expected
+
+    def test_substitute_string_with_quoted_defaults(self):
+        """Test string substitution with quoted default values."""
+        engine = VariableSubstitutionEngine({})
+
+        # Test with quoted defaults
+        template = 'Region: ${region|"us-west"}'
+        expected = "Region: us-west"
+        assert engine.substitute(template) == expected
+
+        template = "Region: ${region|'us-east'}"
+        expected = "Region: us-east"
+        assert engine.substitute(template) == expected
+
+    def test_substitute_string_missing_variable(self):
+        """Test behavior with missing variables."""
+        engine = VariableSubstitutionEngine({})
+
+        template = "Hello, ${missing_name}!"
+        # Should keep original text for missing variables without defaults
+        assert engine.substitute(template) == template
+
+    def test_substitute_dict(self):
+        """Test dictionary substitution."""
+        engine = VariableSubstitutionEngine({"region": "eu-west", "env": "prod"})
+
+        template = {
+            "destination": "s3://${region}-bucket/data/${env}/",
+            "options": {"format": "csv", "path": "/tmp/${env}/"},
+            "number": 42,
         }
 
-        # Mock profile loading
-        self.executor = LocalExecutor()
-        self.executor.profile = self.test_profile
-        # Initialize variables attribute
-        self.executor.variables = self.test_profile.get("variables", {})
+        expected = {
+            "destination": "s3://eu-west-bucket/data/prod/",
+            "options": {"format": "csv", "path": "/tmp/prod/"},
+            "number": 42,
+        }
 
-    def tearDown(self):
-        """Clean up after tests."""
-        self.temp_dir.cleanup()
+        assert engine.substitute(template) == expected
 
-    def test_csv_export_variable_substitution(self):
-        """Test that variables are substituted in CSV export paths."""
-        # Create mock data
-        data = pd.DataFrame({"id": [1, 2, 3], "name": ["Alice", "Bob", "Charlie"]})
-        data_chunk = DataChunk(data)
+    def test_substitute_list(self):
+        """Test list substitution."""
+        engine = VariableSubstitutionEngine({"a": 1, "b": 2})
 
-        # Mock the connector engine and export method
-        self.executor.connector_engine = MagicMock()
+        template = [
+            "Value: ${a}",
+            {"nested": "Item ${b}"},
+            ["${a}", "${b}"],
+            42,  # Non-string/dict/list item
+        ]
 
-        # Create export step with variables in path
-        step = {
-            "id": "export_csv_test",
-            "type": "export",
-            "source_connector_type": "CSV",
-            "query": {
-                "destination_uri": f"{self.temp_dir.name}/${{region}}_${{date}}_report.csv",
-                "options": {"header": True},
+        expected = ["Value: 1", {"nested": "Item 2"}, ["1", "2"], 42]
+        assert engine.substitute(template) == expected
+
+    def test_update_variables(self):
+        """Test updating variables."""
+        engine = VariableSubstitutionEngine({"x": "old"})
+
+        assert engine.substitute("${x}") == "old"
+
+        engine.update_variables({"x": "new", "y": "added"})
+        assert engine.substitute("${x}-${y}") == "new-added"
+
+    def test_validate_required_variables(self):
+        """Test variable validation."""
+        engine = VariableSubstitutionEngine({"available": "value"})
+
+        # Text with available variable
+        text1 = "Using ${available} variable"
+        assert engine.validate_required_variables(text1) == []
+
+        # Text with missing variable
+        text2 = "Using ${missing} variable"
+        missing = engine.validate_required_variables(text2)
+        assert "missing" in missing
+
+        # Text with variable that has default (not considered missing)
+        text3 = "Using ${missing|default} variable"
+        assert engine.validate_required_variables(text3) == []
+
+    def test_empty_and_none_inputs(self):
+        """Test handling of empty and special inputs."""
+        engine = VariableSubstitutionEngine({"var": "value"})
+
+        # Empty string
+        assert engine.substitute("") == ""
+
+        # Empty dict
+        assert engine.substitute({}) == {}
+
+        # Empty list
+        assert engine.substitute([]) == []
+
+        # Non-string, non-dict, non-list types should pass through unchanged
+        assert engine.substitute(42) == 42
+        assert engine.substitute(True) is True
+
+    def test_logging_behavior(self):
+        """Test that appropriate logging occurs."""
+        engine = VariableSubstitutionEngine({"known": "value"})
+
+        with patch("sqlflow.core.variable_substitution.logger") as mock_logger:
+            # Should log debug for known variable
+            engine.substitute("${known}")
+            mock_logger.debug.assert_called()
+
+            # Should log warning for unknown variable
+            engine.substitute("${unknown}")
+            mock_logger.warning.assert_called()
+
+
+class TestConvenienceFunctions:
+    """Test the convenience functions for backward compatibility."""
+
+    def test_substitute_variables_function(self):
+        """Test the standalone substitute_variables function."""
+        variables = {"name": "Bob", "count": 5}
+
+        # String substitution
+        result = substitute_variables("Hello ${name}, count: ${count}", variables)
+        assert result == "Hello Bob, count: 5"
+
+        # Dict substitution
+        template = {"greeting": "Hello ${name}", "items": ["${count} items"]}
+        expected = {"greeting": "Hello Bob", "items": ["5 items"]}
+        result = substitute_variables(template, variables)
+        assert result == expected
+
+    def test_validate_variables_function(self):
+        """Test the standalone validate_variables function."""
+        variables = {"available": "value"}
+
+        # No missing variables
+        missing = validate_variables("${available}", variables)
+        assert missing == []
+
+        # Has missing variables
+        missing = validate_variables("${missing}", variables)
+        assert "missing" in missing
+
+    def test_backward_compatibility(self):
+        """Ensure the convenience functions maintain backward compatibility."""
+        # Test that the functions work as drop-in replacements
+        variables = {"region": "us-west", "env": "dev"}
+
+        # Complex nested structure
+        template = {
+            "config": {
+                "database": "${env}_db",
+                "regions": ["${region}", "us-east"],
             },
+            "settings": ["debug=${debug|false}"],
         }
 
-        # Execute the export step
-        with patch.object(self.executor, "_resolve_export_source") as mock_resolve:
-            mock_resolve.return_value = ("test_table", data_chunk)
-            result = self.executor._execute_export(step)
-
-        # Check that the executor called export_data with the substituted path
-        expected_path = f"{self.temp_dir.name}/us-east_2023-10-25_report.csv"
-        self.executor.connector_engine.export_data.assert_called_once()
-        args, kwargs = self.executor.connector_engine.export_data.call_args
-        self.assertEqual(kwargs["destination"], expected_path)
-        self.assertEqual(result["status"], "success")
-
-    def test_default_value_substitution(self):
-        """Test that default values are used when variables are not provided."""
-        # Create mock data
-        data = pd.DataFrame({"id": [1, 2, 3], "name": ["Alice", "Bob", "Charlie"]})
-        data_chunk = DataChunk(data)
-
-        # Mock the connector engine and export method
-        self.executor.connector_engine = MagicMock()
-
-        # Create export step with variables and defaults in path
-        step = {
-            "id": "export_csv_test",
-            "type": "export",
-            "source_connector_type": "CSV",
-            "query": {
-                "destination_uri": f"{self.temp_dir.name}/${{missing|default}}_${{date}}_report.csv",
-                "options": {"header": True},
+        result = substitute_variables(template, variables)
+        expected = {
+            "config": {
+                "database": "dev_db",
+                "regions": ["us-west", "us-east"],
             },
+            "settings": ["debug=false"],
         }
-
-        # Execute the export step
-        with patch.object(self.executor, "_resolve_export_source") as mock_resolve:
-            mock_resolve.return_value = ("test_table", data_chunk)
-            result = self.executor._execute_export(step)
-
-        # Check that the executor called export_data with the substituted path using default
-        expected_path = f"{self.temp_dir.name}/default_2023-10-25_report.csv"
-        self.executor.connector_engine.export_data.assert_called_once()
-        args, kwargs = self.executor.connector_engine.export_data.call_args
-        self.assertEqual(kwargs["destination"], expected_path)
-        self.assertEqual(result["status"], "success")
-
-    def test_complex_nested_variables(self):
-        """Test substitution of complex nested variable patterns."""
-        # Create mock data
-        data = pd.DataFrame({"id": [1, 2, 3], "name": ["Alice", "Bob", "Charlie"]})
-        data_chunk = DataChunk(data)
-
-        # Mock the connector engine and export method
-        self.executor.connector_engine = MagicMock()
-
-        # Create export step with complex nested variables in path
-        step = {
-            "id": "export_csv_test",
-            "type": "export",
-            "source_connector_type": "CSV",
-            "query": {
-                "destination_uri": f"{self.temp_dir.name}/${{env}}/${{region}}/reports_${{date}}_${{format|csv}}.csv",
-                "options": {"header": True},
-            },
-        }
-
-        # Execute the export step
-        with patch.object(self.executor, "_resolve_export_source") as mock_resolve:
-            mock_resolve.return_value = ("test_table", data_chunk)
-            result = self.executor._execute_export(step)
-
-        # Check that the executor called export_data with the substituted path
-        expected_path = f"{self.temp_dir.name}/test/us-east/reports_2023-10-25_csv.csv"
-        self.executor.connector_engine.export_data.assert_called_once()
-        args, kwargs = self.executor.connector_engine.export_data.call_args
-        self.assertEqual(kwargs["destination"], expected_path)
-        self.assertEqual(result["status"], "success")
-
-    def test_all_connector_types(self):
-        """Test variable substitution works with all connector types."""
-        # List of known connector types
-        connector_types = ["CSV", "S3", "POSTGRES"]
-
-        # Create mock data
-        data = pd.DataFrame({"id": [1, 2, 3], "name": ["Alice", "Bob", "Charlie"]})
-        data_chunk = DataChunk(data)
-
-        # Mock the connector engine and export method
-        self.executor.connector_engine = MagicMock()
-
-        for connector_type in connector_types:
-            # Reset mock
-            self.executor.connector_engine.reset_mock()
-
-            # Create export step with variables in path
-            step = {
-                "id": f"export_{connector_type.lower()}_test",
-                "type": "export",
-                "source_connector_type": connector_type,
-                "query": {
-                    "destination_uri": f"output/${{region}}/${{date}}_report.{connector_type.lower()}",
-                    "options": {"header": True},
-                },
-            }
-
-            # Execute the export step
-            with patch.object(self.executor, "_resolve_export_source") as mock_resolve:
-                mock_resolve.return_value = ("test_table", data_chunk)
-                result = self.executor._execute_export(step)
-
-            # Check that the executor called export_data with the substituted path
-            expected_path = f"output/us-east/2023-10-25_report.{connector_type.lower()}"
-            self.executor.connector_engine.export_data.assert_called_once()
-            args, kwargs = self.executor.connector_engine.export_data.call_args
-            self.assertEqual(
-                kwargs["destination"],
-                expected_path,
-                f"Failed for connector type: {connector_type}",
-            )
-            self.assertEqual(
-                result["status"],
-                "success",
-                f"Export failed for connector type: {connector_type}",
-            )
+        assert result == expected
 
 
-@pytest.mark.integration
-class TestIntegrationVariableSubstitution:
-    """Integration tests for variable substitution in real pipeline execution."""
+class TestEdgeCases:
+    """Test edge cases and error scenarios."""
 
-    def test_variable_substitution_in_pipeline(self, tmp_path):
-        """Test variable substitution in a real pipeline."""
-        # Create temporary directory for output
-        output_dir = os.path.join(tmp_path, "output")
-        os.makedirs(output_dir, exist_ok=True)
+    def test_malformed_variable_expressions(self):
+        """Test handling of malformed variable expressions."""
+        engine = VariableSubstitutionEngine({"valid": "value"})
 
-        # Create a test pipeline file
-        pipeline_file = os.path.join(tmp_path, "test_pipeline.sf")
-        with open(pipeline_file, "w") as f:
-            f.write(
-                f"""
-            -- Test pipeline for variable substitution
-            SOURCE test_source TYPE CSV PARAMS {{
-                "path": "{tmp_path}/data.csv",
-                "has_header": true
-            }};
-            
-            LOAD data FROM test_source;
-            
-            CREATE TABLE processed_data AS
-            SELECT * FROM data;
-            
-            EXPORT SELECT * FROM processed_data
-            TO "{output_dir}/${{region|us-east}}/${{date|2023-10-25}}_export.csv"
-            TYPE CSV
-            OPTIONS {{
-                "header": true
-            }};
-            """
-            )
+        # Incomplete expressions should be left as-is
+        assert engine.substitute("${incomplete") == "${incomplete"
+        assert engine.substitute("$incomplete}") == "$incomplete}"
+        assert engine.substitute("${}") == "${}"
 
-        # Create test data
-        data_file = os.path.join(tmp_path, "data.csv")
-        with open(data_file, "w") as f:
-            f.write("id,name\n1,Alice\n2,Bob\n3,Charlie")
+    def test_nested_variable_like_patterns(self):
+        """Test that nested patterns are handled correctly."""
+        engine = VariableSubstitutionEngine({"outer": "value"})
 
-        # Execute the pipeline
-        LocalExecutor()
-        # This part would be implemented for actual integration testing
-        # For now, it's a placeholder to demonstrate the test structure
+        # Should not try to substitute inner ${inner}
+        text = "SELECT '${outer}' as col, '${missing}' as other"
+        result = engine.substitute(text)
 
-        # Assert the exported file exists with the expected path
-        os.path.join(output_dir, "us-east/2023-10-25_export.csv")
-        # assert os.path.exists(expected_file)  # For real integration testing
+        assert "value" in result
+        assert "${missing}" in result  # Should remain unchanged
+
+    def test_special_characters_in_defaults(self):
+        """Test defaults containing special characters."""
+        engine = VariableSubstitutionEngine({})
+
+        text = "${path|/data/files with spaces/file.csv}"
+        result = engine.substitute(text)
+        assert result == "/data/files with spaces/file.csv"
+
+    def test_regex_escape_handling(self):
+        """Test that variable names with regex special characters work."""
+        engine = VariableSubstitutionEngine({"var.name": "value", "var+plus": "plus"})
+
+        # These should work correctly despite special regex characters
+        assert engine.substitute("${var.name}") == "value"
+        assert engine.substitute("${var+plus}") == "plus"

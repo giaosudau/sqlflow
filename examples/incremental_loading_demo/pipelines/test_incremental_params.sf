@@ -1,0 +1,10 @@
+-- Simple test for incremental loading parameters
+SOURCE test_source TYPE CSV PARAMS {
+    "path": "${data_dir}/customers_initial.csv",
+    "has_header": true,
+    "sync_mode": "incremental",
+    "primary_key": "customer_id",
+    "cursor_field": "updated_at"
+};
+
+LOAD test_table FROM test_source; 

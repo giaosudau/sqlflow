@@ -431,16 +431,25 @@ class TestDuckDBEnginePersistenceIntegration(unittest.TestCase):
 
     def test_database_creation_error_handling_integration(self):
         """Test error handling when database creation fails."""
-        from sqlflow.core.engines.duckdb.exceptions import DuckDBConnectionError
-
         # Try to create database in restricted location that should fail
         restricted_path = "/root/restricted/test.db"  # This should fail on most systems
 
-        # Should raise DuckDBConnectionError when directory creation fails
-        with self.assertRaises(DuckDBConnectionError) as cm:
-            DuckDBEngine(restricted_path)
+        # With our new fallback logic, this should succeed by falling back to memory database
+        engine = DuckDBEngine(restricted_path)
 
-        self.assertIn("Failed to create directory", str(cm.exception))
+        # Should have fallen back to memory database
+        self.assertEqual(engine.database_path, ":memory:")
+        self.assertFalse(engine.is_persistent)
+
+        # Test that engine works fine with the fallback
+        test_data = pd.DataFrame({"id": [1, 2], "value": ["a", "b"]})
+        engine.register_table("test_table", test_data)
+
+        self.assertTrue(engine.table_exists("test_table"))
+        result = engine.execute_query("SELECT COUNT(*) FROM test_table")
+        self.assertEqual(result.fetchone()[0], 2)
+
+        engine.close()
 
         # Test that engine works fine with valid memory path
         memory_engine = DuckDBEngine(":memory:")

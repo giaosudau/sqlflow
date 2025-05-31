@@ -1,7 +1,6 @@
 """Local execution environment for SQLFlow pipelines."""
 
 import os
-import re
 from typing import Any, Dict, List, Optional, Protocol, Tuple
 
 from sqlflow.connectors.data_chunk import DataChunk
@@ -9,6 +8,7 @@ from sqlflow.core.engines.duckdb import DuckDBEngine
 from sqlflow.core.executors.base_executor import BaseExecutor
 from sqlflow.core.state.backends import DuckDBStateBackend
 from sqlflow.core.state.watermark_manager import WatermarkManager
+from sqlflow.core.variable_substitution import VariableSubstitutionEngine
 from sqlflow.logging import get_logger
 from sqlflow.project import Project
 
@@ -109,11 +109,18 @@ class LocalExecutor(BaseExecutor):
         """Create project from directory if available."""
         if not project_dir:
             # Auto-discover if current directory has profiles
-            current_dir = os.getcwd()
-            if os.path.exists(os.path.join(current_dir, "profiles")):
-                project_dir = current_dir
-                logger.debug(f"Auto-discovered project directory: {project_dir}")
-            else:
+            try:
+                current_dir = os.getcwd()
+                if os.path.exists(os.path.join(current_dir, "profiles")):
+                    project_dir = current_dir
+                    logger.debug(f"Auto-discovered project directory: {project_dir}")
+                else:
+                    return None
+            except (FileNotFoundError, OSError):
+                # During parallel test execution, the current directory might not exist
+                logger.debug(
+                    "Current working directory not accessible, skipping project auto-discovery"
+                )
                 return None
 
         try:
@@ -248,23 +255,26 @@ class LocalExecutor(BaseExecutor):
             self._validate_execution_order(plan, dependency_resolver)
 
     def _is_persistence_test(self, plan: List[Dict[str, Any]]) -> bool:
-        """Check if this is a persistence test scenario."""
-        # Only run automatic test setup for unit tests that have both step_ and verify_step_ patterns
-        # The integration test has a more specific pattern and should handle its own data
-        step_ids = [op.get("id", "") for op in plan]
-        has_step_pattern = any(id.startswith("step_") for id in step_ids)
-        any(id.startswith("verify_step_") for id in step_ids)
+        """Check if this is a persistence test scenario.
 
-        # Only setup automatic test data if this looks like a unit test with both patterns
-        # The integration test will have step_ but also contains "transform" steps that create real SQL
-        return (
-            self.duckdb_mode == "persistent"
-            and has_step_pattern
-            and not any(
-                op.get("type") == "transform" and op.get("name") == "test_data"
-                for op in plan
-            )
+        Returns True if:
+        1. We're in persistent mode
+        2. Plan has unit test pattern (step_ and verify_step_ operations)
+        3. Plan does not have integration test pattern (transform operations with test_data)
+        """
+        if self.duckdb_mode != "persistent":
+            return False
+
+        step_ids = [op.get("id", "") for op in plan]
+        has_unit_test_pattern = any(id.startswith("step_") for id in step_ids) and any(
+            id.startswith("verify_step_") for id in step_ids
         )
+        has_integration_test = any(
+            op.get("type") == "transform" and op.get("name") == "test_data"
+            for op in plan
+        )
+
+        return has_unit_test_pattern and not has_integration_test
 
     def _setup_persistence_test_data(self) -> None:
         """Setup test data for persistence tests."""
@@ -468,7 +478,7 @@ class LocalExecutor(BaseExecutor):
                 # Print user-friendly message
                 print(f"🔄 Creating {table_name}")
                 logger.debug(f"Creating table: {table_name}")
-                return self._execute_sql_query(table_name, sql_query)
+                return self._execute_sql_query(table_name, sql_query, step)
 
             # Fallback to mock data for tests without real SQL
             if table_name:
@@ -482,13 +492,21 @@ class LocalExecutor(BaseExecutor):
             )
             return {"status": "error", "message": str(e)}
 
-    def _execute_sql_query(self, table_name: str, sql_query: str) -> Dict[str, Any]:
+    def _execute_sql_query(
+        self, table_name: str, sql_query: str, step: Dict[str, Any]
+    ) -> Dict[str, Any]:
         """Execute SQL query for transform step."""
         try:
             # For CREATE TABLE statements, we need to reconstruct the full SQL
             if table_name and not sql_query.strip().upper().startswith("CREATE"):
                 # This is likely a parsed CREATE TABLE AS SELECT statement
-                full_sql = f"CREATE TABLE {table_name} AS {sql_query}"
+                # Check if this should use CREATE OR REPLACE based on the step's is_replace flag
+                # Default to True for consistency with other table operations (sources, loads)
+                is_replace = step.get("is_replace", True)
+                create_clause = (
+                    "CREATE OR REPLACE TABLE" if is_replace else "CREATE TABLE"
+                )
+                full_sql = f"{create_clause} {table_name} AS {sql_query}"
             else:
                 full_sql = sql_query
 
@@ -1294,25 +1312,9 @@ class LocalExecutor(BaseExecutor):
         if not text or not self.variables:
             return text
 
-        result = text
-
-        # Replace ${var} patterns with values from variables
-        for var_name, var_value in self.variables.items():
-            # Handle both ${var} and ${var|default} patterns
-            pattern = rf"\$\{{{var_name}(?:\|[^}}]*)?}}"
-            replacement = str(var_value)
-            result = re.sub(pattern, replacement, result)
-
-        # Handle any remaining ${var|default} patterns with their default values
-        pattern = r"\$\{([^|}]+)\|([^}]+)\}"
-
-        def replace_with_default(match):
-            # If we got here, the variable wasn't in self.variables, so use default
-            return match.group(2)
-
-        result = re.sub(pattern, replace_with_default, result)
-
-        return result
+        engine = VariableSubstitutionEngine(self.variables)
+        result = engine.substitute(text)
+        return str(result) if result is not None else text
 
     def _substitute_variables_in_dict(
         self, options_dict: Dict[str, Any]
@@ -1331,14 +1333,9 @@ class LocalExecutor(BaseExecutor):
         if not options_dict or not self.variables:
             return options_dict
 
-        result = {}
-        for key, value in options_dict.items():
-            if isinstance(value, str):
-                result[key] = self._substitute_variables(value)
-            else:
-                result[key] = value
-
-        return result
+        engine = VariableSubstitutionEngine(self.variables)
+        result = engine.substitute(options_dict)
+        return result if isinstance(result, dict) else options_dict
 
     def _prepare_export_parameters(
         self, step: Dict[str, Any]

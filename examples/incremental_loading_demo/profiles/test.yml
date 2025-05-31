@@ -1,0 +1,19 @@
+# SQLFlow Test Profile
+# Configured for testing the incremental loading demo
+
+# Engine configuration
+engines:
+  duckdb:
+    mode: persistent
+    path: target/test_demo.duckdb
+    memory_limit: 1GB
+
+# Logging
+log_level: debug
+
+# Default variables for testing
+variables:
+  data_dir: data
+  output_dir: output
+  environment: test
+  demo_name: incremental_loading_demo 

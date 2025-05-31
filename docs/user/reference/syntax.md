@@ -88,7 +88,7 @@ SET variable_name = "value";
 
 The `SOURCE` directive defines a data source that can be loaded into the pipeline.
 
-**Syntax:**
+**Basic Syntax:**
 ```sql
 SOURCE source_name TYPE source_type PARAMS {
   "param1": "value1",
@@ -104,13 +104,78 @@ SOURCE customers TYPE CSV PARAMS {
 };
 ```
 
-The SOURCE directive also supports an alternative syntax:
+**Alternative Syntax:**
 ```sql
 SOURCE source_name (
   connector_type = "CONNECTOR_TYPE",
   param1 = "value1",
   param2 = "value2"
 );
+```
+
+#### Industry-Standard Parameters
+
+SQLFlow supports industry-standard parameters compatible with Airbyte, Fivetran, and other ELT tools:
+
+**Incremental Loading Parameters:**
+```sql
+SOURCE users TYPE CSV PARAMS {
+  "path": "data/users.csv",
+  "has_header": true,
+  "sync_mode": "incremental",
+  "primary_key": "user_id",
+  "cursor_field": "updated_at"
+};
+```
+
+**Supported Parameters:**
+
+| Parameter | Type | Description | Values |
+|-----------|------|-------------|---------|
+| `sync_mode` | string | How to sync data | `"full_refresh"`, `"incremental"` |
+| `primary_key` | string | Primary key field for MERGE operations | Any column name |
+| `cursor_field` | string | Field used for incremental loading watermarks | Timestamp or ID column |
+
+**Parameter Usage Examples:**
+
+```sql
+-- Full refresh (default behavior)
+SOURCE products TYPE CSV PARAMS {
+  "path": "data/products.csv",
+  "has_header": true,
+  "sync_mode": "full_refresh"
+};
+
+-- Incremental loading with timestamp cursor
+SOURCE orders TYPE CSV PARAMS {
+  "path": "data/orders.csv", 
+  "has_header": true,
+  "sync_mode": "incremental",
+  "primary_key": "order_id",
+  "cursor_field": "created_at"
+};
+
+-- Incremental loading with ID cursor
+SOURCE events TYPE CSV PARAMS {
+  "path": "data/events.csv",
+  "has_header": true, 
+  "sync_mode": "incremental",
+  "primary_key": "event_id",
+  "cursor_field": "sequence_id"
+};
+```
+
+**Migration from Other Tools:**
+These parameters follow industry standards, making migration from Airbyte or Fivetran straightforward:
+
+```sql
+-- Airbyte-style configuration
+SOURCE airbyte_users TYPE CSV PARAMS {
+  "path": "data/users.csv",
+  "sync_mode": "incremental",     -- Same as Airbyte
+  "cursor_field": "updated_at",   -- Same as Airbyte  
+  "primary_key": "id"             -- Same as Airbyte
+};
 ```
 
 ### LOAD
@@ -145,6 +210,44 @@ SELECT
 FROM source_table
 WHERE condition;
 ```
+
+**CREATE OR REPLACE Syntax:**
+```sql
+CREATE OR REPLACE TABLE table_name AS
+SELECT
+  column1,
+  column2,
+  expression AS column3
+FROM source_table
+WHERE condition;
+```
+
+**Example:**
+```sql
+-- Standard table creation
+CREATE TABLE customer_summary AS
+SELECT 
+    customer_id,
+    COUNT(order_id) as order_count,
+    SUM(amount) as total_spent
+FROM orders_table
+GROUP BY customer_id;
+
+-- Replace existing table
+CREATE OR REPLACE TABLE daily_metrics AS
+SELECT 
+    DATE(order_date) as date,
+    COUNT(*) as orders,
+    SUM(amount) as revenue
+FROM orders_table
+WHERE order_date >= CURRENT_DATE - INTERVAL '30 days'
+GROUP BY DATE(order_date);
+```
+
+The `CREATE OR REPLACE` variant will:
+- Drop the existing table if it exists
+- Create a new table with the same name
+- Useful for incremental pipelines that need to refresh derived tables
 
 ### EXPORT
 

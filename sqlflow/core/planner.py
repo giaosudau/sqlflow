@@ -608,7 +608,7 @@ class ExecutionPlanBuilder:
 
                     # Allow multiple LoadSteps on the same table (for different load modes)
                     # but disallow:
-                    # 1. Multiple SQLBlockSteps creating the same table
+                    # 1. Multiple SQLBlockSteps creating the same table (unless using CREATE OR REPLACE)
                     # 2. SQLBlockStep creating a table that LoadStep already created
                     # 3. LoadStep creating a table that SQLBlockStep already created
                     if isinstance(step, LoadStep) and isinstance(
@@ -617,6 +617,17 @@ class ExecutionPlanBuilder:
                         # Multiple LoadSteps on same table are allowed for load modes
                         # Keep the first one in the mapping for dependency purposes
                         continue
+                    elif isinstance(step, SQLBlockStep) and isinstance(
+                        existing_step, SQLBlockStep
+                    ):
+                        # Allow SQLBlockStep to redefine a table if it uses CREATE OR REPLACE
+                        if getattr(step, "is_replace", False):
+                            # This step uses CREATE OR REPLACE, so it can redefine the table
+                            table_to_step[table_name] = step  # Update to the newer step
+                            continue
+                        else:
+                            # Regular CREATE without OR REPLACE - this is a duplicate
+                            duplicate_tables.append((table_name, step.line_number))
                     else:
                         # This is a true duplicate: different step types creating same table
                         duplicate_tables.append((table_name, step.line_number))
@@ -1536,6 +1547,9 @@ class ExecutionPlanBuilder:
             "type": "transform",
             "name": step.table_name,
             "query": sql_query,
+            "is_replace": getattr(
+                step, "is_replace", False
+            ),  # Include the is_replace flag
             "depends_on": depends_on,
         }
 

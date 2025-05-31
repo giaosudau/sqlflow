@@ -693,7 +693,7 @@ class Parser:
         sql_query_tokens = ["SELECT"]
         while not self._check(TokenType.TO) and not self._is_at_end():
             token = self._advance()
-            sql_query_tokens.append(token)
+            sql_query_tokens.append(token.value)  # Store token value, not Token object
 
         # Properly handle SQL query tokens (especially DOT tokens)
         sql_query = self._format_sql_query(sql_query_tokens)
@@ -810,6 +810,10 @@ class Parser:
     def _parse_sql_block_statement(self) -> SQLBlockStep:
         """Parse a CREATE TABLE statement.
 
+        Supports both:
+        - CREATE TABLE table_name AS SELECT ...
+        - CREATE OR REPLACE TABLE table_name AS SELECT ...
+
         Returns
         -------
             SQLBlockStep
@@ -821,7 +825,16 @@ class Parser:
         """
         create_token = self._consume(TokenType.CREATE, "Expected 'CREATE'")
 
-        self._consume(TokenType.TABLE, "Expected 'TABLE' after 'CREATE'")
+        # Check for optional OR REPLACE
+        is_replace = False
+        if self._check(TokenType.OR):
+            self._advance()  # Consume OR token
+            self._consume(TokenType.REPLACE, "Expected 'REPLACE' after 'OR'")
+            is_replace = True
+
+        self._consume(
+            TokenType.TABLE, "Expected 'TABLE' after 'CREATE' or 'CREATE OR REPLACE'"
+        )
 
         table_name_token = self._consume(
             TokenType.IDENTIFIER, "Expected table name after 'TABLE'"
@@ -834,7 +847,7 @@ class Parser:
 
         while not self._check(TokenType.SEMICOLON) and not self._is_at_end():
             token = self._advance()
-            sql_query_tokens.append(token)
+            sql_query_tokens.append(token.value)  # Store token value, not Token object
 
         # Properly handle SQL query tokens (especially DOT tokens)
         sql_query = self._format_sql_query(sql_query_tokens)
@@ -845,6 +858,7 @@ class Parser:
             table_name=table_name_token.value,
             sql_query=sql_query,
             line_number=create_token.line,
+            is_replace=is_replace,
         )
 
     def _format_sql_query(self, tokens) -> str:
@@ -1079,18 +1093,16 @@ class Parser:
 
             self._advance()
 
-    def _match(self, type: TokenType) -> Token:
-        """Match a token of the expected type and advance.
-        Similar to _consume but returns the token without raising an error.
+    def _match(self, type: TokenType) -> Optional[Token]:
+        """Match a token type and return it if it matches.
 
         Args:
         ----
-            type: Expected token type
+            type: Token type to match
 
         Returns:
         -------
-            The matched token if it matches the expected type,
-            otherwise None
+            The matching token if found, None otherwise
 
         """
         if self._check(type):

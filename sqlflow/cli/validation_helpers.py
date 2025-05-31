@@ -65,7 +65,36 @@ def _parse_and_validate_pipeline(
     errors = []
 
     try:
-        # Parse with validation enabled
+        # Get profile variables for validation
+        import os
+
+        from sqlflow.project import Project
+
+        project_dir = os.getcwd()
+        project = Project(project_dir)
+        profile_dict = project.get_profile()
+        profile_variables = (
+            profile_dict.get("variables", {}) if isinstance(profile_dict, dict) else {}
+        )
+
+        # Substitute variables in pipeline text for validation
+        if profile_variables:
+            from sqlflow.core.variables import VariableContext, VariableSubstitutor
+
+            var_context = VariableContext(profile_variables=profile_variables)
+            substitutor = VariableSubstitutor(var_context)
+            pipeline_text = substitutor.substitute_string(pipeline_text)
+
+            logger.debug("Applied variable substitution for validation")
+
+            # Log any unresolved variables (but don't fail validation for them)
+            if var_context.has_unresolved_variables():
+                unresolved = var_context.get_unresolved_variables()
+                logger.debug(
+                    f"Unresolved variables during validation: {', '.join(unresolved)}"
+                )
+
+        # Parse with validation enabled (now with variables substituted)
         parser.parse(pipeline_text, validate=True)
         logger.debug("Pipeline validation passed for %s", pipeline_path)
 

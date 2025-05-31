@@ -1,0 +1,164 @@
+-- Mixed Load Modes Pipeline
+-- This pipeline demonstrates using different load modes together:
+-- 1. REPLACE mode for reference data (products)
+-- 2. MERGE mode for customer updates
+-- 3. APPEND mode for order data
+-- 4. Performance comparison concepts
+
+-- ============================================================================
+-- Phase 1 Demo: Mixed Load Modes - Performance & Flexibility Concepts
+-- ============================================================================
+
+-- Step 1: Products are reference data - use REPLACE mode (default)
+-- Reference data typically changes infrequently and is small
+SOURCE products TYPE CSV PARAMS {
+    "path": "${data_dir}/products.csv",
+    "has_header": true
+};
+
+-- Step 2: Load initial customer data
+SOURCE customers_initial TYPE CSV PARAMS {
+    "path": "${data_dir}/customers_initial.csv",
+    "has_header": true
+};
+
+-- Step 3: Load initial orders
+SOURCE orders_day1 TYPE CSV PARAMS {
+    "path": "${data_dir}/orders_day1.csv",
+    "has_header": true
+};
+
+-- Step 4: Load all sources - first time loads everything using REPLACE (default)
+LOAD products_table FROM products;
+LOAD customers_table FROM customers_initial;
+LOAD orders_table FROM orders_day1;
+
+-- Step 5: Create initial analytics showing Day 1 results
+CREATE OR REPLACE TABLE daily_summary AS
+SELECT 
+    DATE(o.order_date) as order_date,
+    COUNT(DISTINCT o.customer_id) as unique_customers,
+    COUNT(o.order_id) as total_orders,
+    SUM(o.amount) as total_revenue,
+    AVG(o.amount) as avg_order_value
+FROM orders_table o
+GROUP BY DATE(o.order_date);
+
+-- Step 6: Product performance analysis
+CREATE TABLE product_performance AS
+SELECT 
+    p.name,
+    p.category,
+    COUNT(o.order_id) as order_count,
+    SUM(o.quantity) as total_quantity,
+    SUM(o.amount) as total_revenue
+FROM orders_table o
+JOIN products_table p ON o.product_id = p.product_id
+GROUP BY p.product_id, p.name, p.category
+ORDER BY total_revenue DESC;
+
+-- Export Day 1 results
+EXPORT SELECT * FROM daily_summary 
+TO "${output_dir}/02_day1_summary.csv"
+TYPE CSV OPTIONS { "header": true };
+
+EXPORT SELECT * FROM product_performance 
+TO "${output_dir}/02_day1_products.csv"
+TYPE CSV OPTIONS { "header": true };
+
+-- ============================================================================
+-- Day 2: Different Load Modes Show Performance Benefits
+-- ============================================================================
+
+-- Step 7: New customer data (will use MERGE mode)
+SOURCE customers_updates TYPE CSV PARAMS {
+    "path": "${data_dir}/customers_updates.csv",
+    "has_header": true
+};
+
+-- Step 8: New orders (will use APPEND mode)
+SOURCE orders_day2 TYPE CSV PARAMS {
+    "path": "${data_dir}/orders_day2.csv",
+    "has_header": true
+};
+
+-- Step 9: Demonstrate different load modes
+-- Products: REPLACE mode (default - reloads all data)
+-- Customers: MERGE mode (updates existing, adds new)
+-- Orders: APPEND mode (adds new orders only)
+LOAD products_table FROM products;                                    -- REPLACE: All 5 records reloaded
+LOAD customers_table FROM customers_updates MODE MERGE MERGE_KEYS (customer_id);  -- MERGE: Only new/changed records
+LOAD orders_table FROM orders_day2 MODE APPEND;                      -- APPEND: Only new orders added
+
+-- Step 10: Updated analytics with Day 2 data
+CREATE OR REPLACE TABLE daily_summary AS
+SELECT 
+    DATE(o.order_date) as order_date,
+    COUNT(DISTINCT o.customer_id) as unique_customers,
+    COUNT(o.order_id) as total_orders,
+    SUM(o.amount) as total_revenue,
+    AVG(o.amount) as avg_order_value
+FROM orders_table o
+GROUP BY DATE(o.order_date)
+ORDER BY order_date;
+
+-- Step 11: Customer activity analysis
+CREATE TABLE customer_activity AS
+SELECT 
+    c.customer_id,
+    c.name,
+    c.status,
+    COUNT(o.order_id) as order_count,
+    SUM(o.amount) as total_spent,
+    MIN(o.order_date) as first_order,
+    MAX(o.order_date) as last_order
+FROM customers_table c
+LEFT JOIN orders_table o ON c.customer_id = o.customer_id
+GROUP BY c.customer_id, c.name, c.status
+ORDER BY total_spent DESC;
+
+-- Export final results showing different load modes
+EXPORT SELECT * FROM daily_summary 
+TO "${output_dir}/02_final_daily_summary.csv"
+TYPE CSV OPTIONS { "header": true };
+
+EXPORT SELECT * FROM customer_activity 
+TO "${output_dir}/02_customer_activity.csv"
+TYPE CSV OPTIONS { "header": true };
+
+-- Step 12: Load mode comparison summary
+EXPORT SELECT 
+    'Mixed Load Modes Demo' as demo_type,
+    'Products: REPLACE mode (5 records always reloaded)' as products_mode,
+    'Customers: MERGE mode (10→13, only 5 processed on day 2)' as customers_mode,
+    'Orders: APPEND mode (8→14, only 6 new records added)' as orders_mode,
+    'Efficiency: Different modes for different data patterns' as performance_benefit
+TO "${output_dir}/02_load_modes_summary.csv"
+TYPE CSV OPTIONS { "header": true };
+
+-- Step 13: Performance concepts demonstration
+EXPORT SELECT 
+    'REPLACE Mode' as load_mode,
+    'Always loads complete dataset' as behavior,
+    'Best for: Small reference data' as use_case,
+    'Products table (5 records)' as example
+UNION ALL
+SELECT 
+    'MERGE Mode',
+    'Updates existing, inserts new based on keys',
+    'Best for: Customer data, dimension tables',
+    'Customer updates (2 updated + 3 new)'
+UNION ALL
+SELECT 
+    'APPEND Mode',
+    'Adds new records without modification',
+    'Best for: Immutable event data, logs',
+    'New orders (6 new records)'
+UNION ALL
+SELECT 
+    'Future: AUTO Mode',
+    'Automatically chooses optimal mode',
+    'Phase 1: Watermark-based optimization',
+    'Zero-configuration performance'
+TO "${output_dir}/02_load_modes_comparison.csv"
+TYPE CSV OPTIONS { "header": true }; 

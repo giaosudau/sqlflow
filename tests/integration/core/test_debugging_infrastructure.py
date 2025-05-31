@@ -36,7 +36,8 @@ class TestDebuggingInfrastructure:
     @pytest.fixture
     def duckdb_engine(self):
         """Create a DuckDB engine for testing."""
-        return DuckDBEngine()
+        # Use memory database to avoid file system issues during tests
+        return DuckDBEngine(database_path=":memory:")
 
     @pytest.fixture
     def debug_logger(self):
@@ -353,60 +354,64 @@ class TestDebuggingInfrastructure:
 
     def test_integrated_debugging_with_executor(self, temp_csv_file):
         """Test integrated debugging with LocalExecutor."""
-        executor = LocalExecutor()
+        # Use a temporary directory to avoid os.getcwd() issues during parallel tests
+        with tempfile.TemporaryDirectory() as temp_dir:
+            executor = LocalExecutor(project_dir=temp_dir)
 
-        # Create debugging infrastructure
-        debug_logger = DebugLogger("executor_test", debug_mode=True)
-        query_tracer = QueryTracer(engine=executor.duckdb_engine, debug_mode=True)
-        operation_tracer = OperationTracer(debug_mode=True)
+            # Create debugging infrastructure
+            debug_logger = DebugLogger("executor_test", debug_mode=True)
+            query_tracer = QueryTracer(engine=executor.duckdb_engine, debug_mode=True)
+            operation_tracer = OperationTracer(debug_mode=True)
 
-        # Simulate a complete pipeline operation with debugging
-        with operation_tracer.trace_operation("pipeline", "test_pipeline"):
-            with debug_logger.operation("source_setup"):
-                # Create SOURCE definition
-                source_def = {
-                    "id": "source_users",
-                    "name": "users",
-                    "connector_type": "CSV",
-                    "params": {"path": temp_csv_file},
-                }
+            # Simulate a complete pipeline operation with debugging
+            with operation_tracer.trace_operation("pipeline", "test_pipeline"):
+                with debug_logger.operation("source_setup"):
+                    # Create SOURCE definition
+                    source_def = {
+                        "id": "source_users",
+                        "name": "users",
+                        "connector_type": "CSV",
+                        "params": {"path": temp_csv_file},
+                    }
 
-                debug_logger.log_connector_operation(
-                    "register", "users", "CSV", path=temp_csv_file
-                )
-
-                source_result = executor._execute_source_definition(source_def)
-                assert source_result["status"] == "success"
-
-            with debug_logger.operation("data_loading"):
-                # Create and execute LOAD step
-                from sqlflow.parser.ast import LoadStep
-
-                load_step = LoadStep(
-                    table_name="users_table", source_name="users", mode="REPLACE"
-                )
-
-                load_result = executor.execute_load_step(load_step)
-                assert load_result["status"] == "success"
-
-                operation_tracer.trace_data_flow(
-                    "users", "users_table", load_result["rows_loaded"]
-                )
-
-            with debug_logger.operation("query_execution"):
-                with query_tracer.trace_query("SELECT COUNT(*) FROM users", "SELECT"):
-                    result = executor.duckdb_engine.execute_query(
-                        "SELECT COUNT(*) FROM users"
+                    debug_logger.log_connector_operation(
+                        "register", "users", "CSV", path=temp_csv_file
                     )
-                    count = result.fetchone()[0]
-                    assert count == 3
 
-        # Verify debugging data was collected
-        debug_metrics = debug_logger.get_metrics()
-        assert len(debug_metrics) > 0
+                    source_result = executor._execute_source_definition(source_def)
+                    assert source_result["status"] == "success"
 
-        query_history = query_tracer.get_query_history()
-        assert len(query_history) > 0
+                with debug_logger.operation("data_loading"):
+                    # Create and execute LOAD step
+                    from sqlflow.parser.ast import LoadStep
 
-        operation_history = operation_tracer.get_operation_history()
-        assert len(operation_history) == 1  # The main pipeline operation
+                    load_step = LoadStep(
+                        table_name="users_table", source_name="users", mode="REPLACE"
+                    )
+
+                    load_result = executor.execute_load_step(load_step)
+                    assert load_result["status"] == "success"
+
+                    operation_tracer.trace_data_flow(
+                        "users", "users_table", load_result["rows_loaded"]
+                    )
+
+                with debug_logger.operation("query_execution"):
+                    with query_tracer.trace_query(
+                        "SELECT COUNT(*) FROM users", "SELECT"
+                    ):
+                        result = executor.duckdb_engine.execute_query(
+                            "SELECT COUNT(*) FROM users"
+                        )
+                        count = result.fetchone()[0]
+                        assert count == 3
+
+            # Verify debugging data was collected
+            debug_metrics = debug_logger.get_metrics()
+            assert len(debug_metrics) > 0
+
+            query_history = query_tracer.get_query_history()
+            assert len(query_history) > 0
+
+            operation_history = operation_tracer.get_operation_history()
+            assert len(operation_history) == 1  # The main pipeline operation

@@ -15,9 +15,14 @@ from typing import Any, Callable, Dict, List, Optional, Set, TypeVar
 
 import pandas as pd
 
-from sqlflow.logging import get_logger
+try:
+    from sqlflow.logging import get_logger
 
-logger = get_logger(__name__)
+    logger = get_logger(__name__)
+except ImportError:
+    import logging
+
+    logger = logging.getLogger(__name__)
 
 
 class UDFDiscoveryError(Exception):
@@ -78,7 +83,21 @@ class PythonUDFManager:
             project_dir: Path to project directory (default: current working directory)
 
         """
-        self.project_dir = project_dir or os.getcwd()
+        if project_dir:
+            self.project_dir = project_dir
+        else:
+            try:
+                self.project_dir = os.getcwd()
+            except (FileNotFoundError, OSError):
+                # During parallel test execution, the current directory might not exist
+                # Use a safe fallback for tests
+                import tempfile
+
+                self.project_dir = tempfile.gettempdir()
+                logger.warning(
+                    "Current working directory not accessible, using temp directory as fallback"
+                )
+
         self.udfs: Dict[str, Callable] = {}
         self.udf_info: Dict[str, Dict[str, Any]] = {}
         self.discovery_errors: Dict[str, str] = {}

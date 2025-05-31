@@ -1,0 +1,6 @@
+customer_id,name,email,status,created_at,updated_at
+2,Bob Smith,bob.smith.new@example.com,active,2024-01-01T10:00:00Z,2024-01-02T09:30:00Z
+5,Eve Davis,eve@example.com,active,2024-01-01T13:00:00Z,2024-01-02T10:15:00Z
+11,Katie Lee,katie@example.com,active,2024-01-02T11:00:00Z,2024-01-02T11:00:00Z
+12,Mike Wilson,mike@example.com,active,2024-01-02T12:00:00Z,2024-01-02T12:00:00Z
+13,Nancy Rodriguez,nancy@example.com,pending,2024-01-02T13:00:00Z,2024-01-02T13:00:00Z 

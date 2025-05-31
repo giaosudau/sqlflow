@@ -3,6 +3,7 @@
 import os
 import tempfile
 from unittest import mock
+from unittest.mock import patch
 
 import pytest
 
@@ -10,12 +11,22 @@ from sqlflow.udfs.decorators import python_scalar_udf
 from sqlflow.udfs.manager import PythonUDFManager, UDFDiscoveryError
 
 
+@pytest.mark.serial
 def test_init_default_project_dir():
     """Test that the manager initializes with the current directory by default."""
-    manager = PythonUDFManager()
-    assert manager.project_dir == os.getcwd()
-    assert manager.udfs == {}
-    assert manager.udf_info == {}
+    with tempfile.TemporaryDirectory() as temp_dir:
+        # Create a subdirectory to avoid getcwd issues
+        test_dir = os.path.join(temp_dir, "test_project")
+        os.makedirs(test_dir)
+
+        # Instead of changing directory, patch os.getcwd to return our test directory
+        # This avoids the flaky test issue where parallel tests interfere with cwd
+        with patch("os.getcwd", return_value=test_dir):
+            manager = PythonUDFManager()
+            # Use realpath to handle symlinks (e.g., /var -> /private/var on macOS)
+            assert os.path.realpath(manager.project_dir) == os.path.realpath(test_dir)
+            assert manager.udfs == {}
+            assert manager.udf_info == {}
 
 
 def test_init_custom_project_dir():
@@ -86,120 +97,128 @@ def calculate_metrics(df):
 
 def test_get_udf():
     """Test getting a UDF by name."""
-    manager = PythonUDFManager()
+    with tempfile.TemporaryDirectory() as temp_dir:
+        manager = PythonUDFManager(project_dir=temp_dir)
 
-    # Add a test UDF to the manager
-    @python_scalar_udf
-    def test_func(x):
-        return x * 2
+        # Add a test UDF to the manager
+        @python_scalar_udf
+        def test_func(x):
+            return x * 2
 
-    manager.udfs = {"test.func": test_func}
+        manager.udfs = {"test.func": test_func}
 
-    # Test getting an existing UDF
-    assert manager.get_udf("test.func") == test_func
+        # Test getting an existing UDF
+        assert manager.get_udf("test.func") == test_func
 
-    # Test getting a non-existent UDF
-    assert manager.get_udf("nonexistent.func") is None
+        # Test getting a non-existent UDF
+        assert manager.get_udf("nonexistent.func") is None
 
 
 def test_get_udf_info():
     """Test getting UDF info by name."""
-    manager = PythonUDFManager()
+    with tempfile.TemporaryDirectory() as temp_dir:
+        manager = PythonUDFManager(project_dir=temp_dir)
 
-    # Add a test UDF info to the manager
-    manager.udf_info = {"test.func": {"type": "scalar", "name": "func"}}
+        # Add a test UDF info to the manager
+        manager.udf_info = {"test.func": {"type": "scalar", "name": "func"}}
 
-    # Test getting existing UDF info
-    info = manager.get_udf_info("test.func")
-    assert info is not None
-    assert info["type"] == "scalar"
+        # Test getting existing UDF info
+        info = manager.get_udf_info("test.func")
+        assert info is not None
+        assert info["type"] == "scalar"
 
-    # Test getting non-existent UDF info
-    assert manager.get_udf_info("nonexistent.func") is None
+        # Test getting non-existent UDF info
+        assert manager.get_udf_info("nonexistent.func") is None
 
 
 def test_list_udfs():
     """Test listing all UDFs."""
-    manager = PythonUDFManager()
+    with tempfile.TemporaryDirectory() as temp_dir:
+        manager = PythonUDFManager(project_dir=temp_dir)
 
-    # Add test UDFs to the manager
-    manager.udfs = {"test.func1": lambda x: x, "test.func2": lambda x: x * 2}
+        # Add test UDFs to the manager
+        manager.udfs = {"test.func1": lambda x: x, "test.func2": lambda x: x * 2}
 
-    manager.udf_info = {
-        "test.func1": {"type": "scalar", "udf_name": "func1"},
-        "test.func2": {"type": "scalar", "udf_name": "func2"},
-    }
+        manager.udf_info = {
+            "test.func1": {"type": "scalar", "udf_name": "func1"},
+            "test.func2": {"type": "scalar", "udf_name": "func2"},
+        }
 
-    # List UDFs
-    udf_list = manager.list_udfs()
+        # List UDFs
+        udf_list = manager.list_udfs()
 
-    # Check result
-    assert len(udf_list) == 2
-    for item in udf_list:
-        assert "name" in item
-        assert item["name"] in ["test.func1", "test.func2"]
-        assert "type" in item
-        assert item["type"] == "scalar"
-        assert "udf_name" in item
-        assert item["udf_name"] in ["func1", "func2"]
+        # Check result
+        assert len(udf_list) == 2
+        for item in udf_list:
+            assert "name" in item
+            assert item["name"] in ["test.func1", "test.func2"]
+            assert "type" in item
+            assert item["type"] == "scalar"
+            assert "udf_name" in item
+            assert item["udf_name"] in ["func1", "func2"]
 
 
 def test_extract_udf_references():
     """Test extracting UDF references from SQL queries."""
-    manager = PythonUDFManager()
+    with tempfile.TemporaryDirectory() as temp_dir:
+        manager = PythonUDFManager(project_dir=temp_dir)
 
-    # Add test UDFs to the manager
-    manager.udfs = {"math.add": lambda x, y: x + y, "utils.format": lambda x: str(x)}
+        # Add test UDFs to the manager
+        manager.udfs = {
+            "math.add": lambda x, y: x + y,
+            "utils.format": lambda x: str(x),
+        }
 
-    # Test SQL with UDF references
-    sql = """
-    SELECT
-      PYTHON_FUNC("math.add", a, b) AS sum,
-      PYTHON_FUNC("utils.format", c) AS formatted,
-      PYTHON_FUNC("unknown.func", d) AS unknown
-    FROM table
-    """
+        # Test SQL with UDF references
+        sql = """
+        SELECT
+          PYTHON_FUNC("math.add", a, b) AS sum,
+          PYTHON_FUNC("utils.format", c) AS formatted,
+          PYTHON_FUNC("unknown.func", d) AS unknown
+        FROM table
+        """
 
-    # Extract references
-    refs = manager.extract_udf_references(sql)
+        # Extract references
+        refs = manager.extract_udf_references(sql)
 
-    # Check that only known UDFs were extracted
-    assert len(refs) == 2
-    assert "math.add" in refs
-    assert "utils.format" in refs
-    assert "unknown.func" not in refs
+        # Check that only known UDFs were extracted
+        assert len(refs) == 2
+        assert "math.add" in refs
+        assert "utils.format" in refs
+        assert "unknown.func" not in refs
 
 
 def test_get_udfs_for_query():
     """Test getting UDFs for a specific query."""
-    manager = PythonUDFManager()
+    with tempfile.TemporaryDirectory() as temp_dir:
+        manager = PythonUDFManager(project_dir=temp_dir)
 
-    # Create test UDFs
-    @python_scalar_udf
-    def add(x, y):
-        return x + y
+        # Create test UDFs
+        @python_scalar_udf
+        def add(x, y):
+            return x + y
 
-    @python_scalar_udf
-    def multiply(x, y):
-        return x * y
+        @python_scalar_udf
+        def multiply(x, y):
+            return x * y
 
-    # Add UDFs to the manager
-    manager.udfs = {"math.add": add, "math.multiply": multiply}
+        # Add UDFs to the manager
+        manager.udfs = {"math.add": add, "math.multiply": multiply}
 
-    # Test SQL with UDF references
-    sql = """
-    SELECT
-      PYTHON_FUNC("math.add", a, b) AS sum
-    FROM table
-    """
+        # Test SQL with UDF references
+        sql = """
+        SELECT
+          PYTHON_FUNC("math.add", a, b) AS sum
+        FROM table
+        """
 
-    # Get UDFs for query
-    query_udfs = manager.get_udfs_for_query(sql)
+        # Get UDFs for query
+        query_udfs = manager.get_udfs_for_query(sql)
 
-    # Check that only referenced UDFs were returned
-    assert len(query_udfs) == 1
-    assert "math.add" in query_udfs
-    assert query_udfs["math.add"] == add
+        # Check that only referenced UDFs were returned
+        assert len(query_udfs) == 1
+        assert "math.add" in query_udfs
+        assert query_udfs["math.add"] == add
 
 
 class MockEngine:
@@ -212,38 +231,41 @@ class MockEngine:
 
 def test_register_udfs_with_engine():
     """Test registering UDFs with an engine."""
-    manager = PythonUDFManager()
+    with tempfile.TemporaryDirectory() as temp_dir:
+        manager = PythonUDFManager(project_dir=temp_dir)
 
-    # Create test UDFs
-    @python_scalar_udf
-    def add(x, y):
-        return x + y
+        # Create test UDFs
+        @python_scalar_udf
+        def add(x, y):
+            return x + y
 
-    @python_scalar_udf
-    def multiply(x, y):
-        return x * y
+        @python_scalar_udf
+        def multiply(x, y):
+            return x * y
 
-    # Add UDFs to the manager
-    manager.udfs = {"math.add": add, "math.multiply": multiply}
+        # Add UDFs to the manager
+        manager.udfs = {"math.add": add, "math.multiply": multiply}
 
-    # Create a mock engine
-    engine = MockEngine()
+        # Create a mock engine
+        engine = MockEngine()
 
-    # Register UDFs with the engine
-    manager.register_udfs_with_engine(engine)
+        # Register UDFs
+        manager.register_udfs_with_engine(engine)
 
-    # Check that all UDFs were registered
-    assert len(engine.registered_udfs) == 2
-    assert engine.registered_udfs["math.add"] == add
-    assert engine.registered_udfs["math.multiply"] == multiply
+        # Check that UDFs were registered
+        assert len(engine.registered_udfs) == 2
+        assert "math.add" in engine.registered_udfs
+        assert "math.multiply" in engine.registered_udfs
+        assert engine.registered_udfs["math.add"] == add
+        assert engine.registered_udfs["math.multiply"] == multiply
 
-    # Test registering specific UDFs
-    engine = MockEngine()
-    manager.register_udfs_with_engine(engine, udf_names=["math.add"])
+        # Test registering specific UDFs
+        engine2 = MockEngine()
+        manager.register_udfs_with_engine(engine2, ["math.add"])
 
-    # Check that only the specified UDF was registered
-    assert len(engine.registered_udfs) == 1
-    assert engine.registered_udfs["math.add"] == add
+        # Check that only the specified UDF was registered
+        assert len(engine2.registered_udfs) == 1
+        assert "math.add" in engine2.registered_udfs
 
 
 def test_register_udfs_with_engine_no_support():
@@ -263,20 +285,22 @@ def test_register_udfs_with_engine_no_support():
 
 
 def test_register_udfs_with_engine_error():
-    """Test error handling when registering UDFs with an engine."""
-    manager = PythonUDFManager()
+    """Test handling errors when registering UDFs with an engine."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        manager = PythonUDFManager(project_dir=temp_dir)
 
-    # Add a test UDF to the manager
-    manager.udfs = {"test.func": lambda x: x}
+        class ErrorEngine:
+            def register_python_udf(self, name, func):
+                raise Exception("Registration failed")
 
-    # Create a mock engine that raises an exception
-    class ErrorEngine:
-        def register_python_udf(self, name, func):
-            raise Exception("Registration error")
+        # Add a test UDF
+        manager.udfs = {"test.func": lambda x: x}
 
-    engine = ErrorEngine()
+        # Test error handling - should return registration errors, not raise
+        errors = manager.register_udfs_with_engine(ErrorEngine())
 
-    # This should not raise an exception
-    with mock.patch("sqlflow.udfs.manager.logger.error") as mock_error:
-        manager.register_udfs_with_engine(engine)
-        mock_error.assert_called_once()
+        # Should have registration errors
+        assert errors is not None
+        assert len(errors) == 1
+        assert errors[0][0] == "test.func"
+        assert "Registration failed" in errors[0][1]

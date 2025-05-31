@@ -1,0 +1,30 @@
+# SQLFlow Production Profile
+# Configured for production deployment of the incremental loading demo
+
+# Engine configuration
+engines:
+  duckdb:
+    mode: persistent
+    path: target/production_demo.duckdb
+    memory_limit: 4GB
+
+# Logging
+log_level: warning
+log_file: "logs/sqlflow.log"
+
+# Default variables for production
+variables:
+  data_dir: data
+  output_dir: output
+  environment: production
+  demo_name: incremental_loading_demo
+
+# Optional connector configurations for production
+# connectors:
+#   postgres:
+#     default:
+#       host: "${DB_HOST}"
+#       port: 5432
+#       user: "${DB_USER}"
+#       password: "${DB_PASSWORD}"
+#       database: "production" 
