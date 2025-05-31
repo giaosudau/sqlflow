@@ -64,8 +64,8 @@ This task tracker breaks down the SQLFlow Connector Strategy & Technical Design 
 
 | Task | Description | Status | Priority | Assignee | Estimated Effort |
 |------|-------------|--------|----------|----------|------------------|
-| [Task 1.1](#task-11-watermark-manager-implementation) | Watermark Manager Implementation | ⬜ NOT STARTED | 🔥 Critical | | 5 days |
-| [Task 1.2](#task-12-duckdb-state-backend) | DuckDB State Backend | ⬜ NOT STARTED | 🔥 Critical | | 3 days |
+| [Task 1.1](#task-11-watermark-manager-implementation) | Watermark Manager Implementation | ✅ COMPLETED | 🔥 Critical | | 5 days |
+| [Task 1.2](#task-12-duckdb-state-backend) | DuckDB State Backend | ✅ COMPLETED | 🔥 Critical | | 3 days |
 | [Task 1.3](#task-13-industry-standard-parameter-parsing) | Industry Standard Parameter Parsing | ⬜ NOT STARTED | 🔥 Critical | | 4 days |
 | [Task 1.4](#task-14-enhanced-source-execution) | Enhanced SOURCE Execution | ⬜ NOT STARTED | 🔥 Critical | | 5 days |
 | [Task 1.5](#task-15-debugging-infrastructure) | Debugging Infrastructure | ⬜ NOT STARTED | High | | 3 days |
