@@ -66,7 +66,7 @@ jobs:
 
       - name: Run tests with coverage (parallel)
         run: |
-          pytest --cov=sqlflow --cov-branch --cov-report=xml -n 4 --dist worksteal --maxfail=3 -q --disable-warnings
+          pytest --cov=sqlflow --cov-branch --cov-report=xml -n auto --dist worksteal --maxfail=3 -q --disable-warnings
 
       - name: Run example demo scripts
         run: |
