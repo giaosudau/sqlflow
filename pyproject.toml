@@ -46,58 +46,63 @@ dependencies = [
     "pyarrow>=10.0.0",  # Analytics-ready by default - key differentiator vs competitors
 ]
 
-# Optional dependencies - simplified structure for better user experience
+# Optional dependencies - granular structure inspired by dbt, airflow, and airbyte
 [project.optional-dependencies]
-# PostgreSQL connectivity - most common database need
+# Database connectors - PostgreSQL
 postgres = [
     "psycopg2-binary>=2.9.0; platform_machine != 'aarch64'",
     "psycopg2>=2.9.0; platform_machine == 'aarch64'",
 ]
 
-# Cloud storage integration - AWS S3 + Google Cloud
-cloud = [
+# AWS cloud dependencies
+aws = [
     "boto3>=1.26.0",
     "botocore>=1.29.0",
+]
+
+# Google Cloud Platform dependencies
+gcp = [
     "google-api-python-client>=2.0.0",
     "google-auth>=2.0.0",
     "google-auth-oauthlib>=1.0.0",
     "google-cloud-storage>=2.0.0",
 ]
 
-# Everything included - for users who want it all
-all = [
-    "psycopg2-binary>=2.9.0; platform_machine != 'aarch64'",
-    "psycopg2>=2.9.0; platform_machine == 'aarch64'",
-    "boto3>=1.26.0",
-    "botocore>=1.29.0",
-    "google-api-python-client>=2.0.0",
-    "google-auth>=2.0.0",
-    "google-auth-oauthlib>=1.0.0",
-    "google-cloud-storage>=2.0.0",
-]
-
-# Development dependencies
-dev = [
-    "pytest>=7.0.0",
-    "pytest-cov>=4.1.0",
-    "pytest-xdist>=3.0.0",
-    "black>=22.1.0",
-    "isort>=5.10.1",
-    "flake8>=4.0.1",
-    "flake8-pyproject>=1.2.3",
-    "autoflake>=2.2.0",
-    "pre-commit>=3.0.0",
-    "mypy>=1.0.0",
-]
+# Testing dependencies
 test = [
     "pytest>=7.0.0",
     "pytest-cov>=4.1.0",
+    "pytest-xdist>=3.0.0",
     "mock>=5.0.0",
 ]
+
+# Development dependencies (code quality, formatting, etc.)
+dev = [
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+    "mypy>=1.0.0",
+    "pre-commit>=3.0.0",
+    "isort>=5.12.0",
+    "flake8>=6.0.0",
+    "autoflake>=2.0.0",
+    "coverage>=7.0.0",
+]
+
+# Documentation
 docs = [
-    "sphinx>=4.0.0",
-    "sphinx-rtd-theme>=1.0.0",
+    "sphinx>=5.0.0",
+    "sphinx-rtd-theme>=1.2.0",
     "myst-parser>=1.0.0",
+]
+
+# Cloud storage and services (combines aws + gcp)
+cloud = [
+    "sqlflow-core[aws,gcp]",
+]
+
+# Complete set - everything for development and CI
+all = [
+    "sqlflow-core[postgres,cloud,test,dev,docs]",
 ]
 
 [project.urls]
