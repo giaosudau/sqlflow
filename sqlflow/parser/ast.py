@@ -27,18 +27,23 @@ class SourceDefinitionStep(PipelineStep):
     Example 1:
         SOURCE users TYPE POSTGRES PARAMS {
             "connection": "${DB_CONN}",
-            "table": "users"
+            "table": "users",
+            "sync_mode": "incremental",
+            "cursor_field": "updated_at"
         };
 
     Example 2:
-        SOURCE users FROM "postgres" OPTIONS { "table": "users" };
+        SOURCE users FROM "postgres" OPTIONS { 
+            "table": "users",
+            "sync_mode": "full_refresh"
+        };
     """
 
     name: str
     connector_type: str
     params: Dict[str, Any]
     is_from_profile: bool = False
-    profile_connector_name: str = None
+    profile_connector_name: Optional[str] = None
     line_number: Optional[int] = None
 
     def validate(self) -> List[str]:
@@ -96,7 +101,34 @@ class SourceDefinitionStep(PipelineStep):
                     "SOURCE name TYPE connector_type PARAMS {...};\n"
                 )
 
+        # Validate industry-standard parameters
+        errors.extend(self._validate_industry_standard_parameters())
+
         return errors
+
+    def _validate_industry_standard_parameters(self) -> List[str]:
+        """Validate industry-standard SOURCE parameters.
+        
+        Returns:
+            List of validation error messages for parameter issues
+        """
+        # Import here to avoid circular imports
+        from sqlflow.parser.source_validation import SourceParameterValidator
+        
+        validator = SourceParameterValidator()
+        return validator.validate_parameters(self.params)
+
+    def get_migration_suggestions(self) -> List[str]:
+        """Get migration suggestions for parameters.
+        
+        Returns:
+            List of migration suggestions for better parameter usage
+        """
+        # Import here to avoid circular imports
+        from sqlflow.parser.source_validation import SourceParameterValidator
+        
+        validator = SourceParameterValidator()
+        return validator.get_migration_suggestions(self.params)
 
 
 @dataclass
