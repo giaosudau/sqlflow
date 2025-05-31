@@ -53,7 +53,6 @@ def sample_parquet_file() -> Generator[str, None, None]:
                 pass
 
 
-@pytest.mark.serial
 def test_parquet_connector_configure(sample_parquet_file):
     """Test configuring Parquet connector."""
     connector = ParquetConnector()
@@ -81,7 +80,6 @@ def test_parquet_connector_configure(sample_parquet_file):
     assert connector.state == ConnectorState.ERROR
 
 
-@pytest.mark.serial
 def test_parquet_connector_test_connection(sample_parquet_file):
     """Test connection testing for Parquet connector."""
     connector = ParquetConnector()
@@ -99,7 +97,6 @@ def test_parquet_connector_test_connection(sample_parquet_file):
     assert connector.state == ConnectorState.ERROR
 
 
-@pytest.mark.serial
 def test_parquet_connector_discover(sample_parquet_file):
     """Test discovery for Parquet connector."""
     connector = ParquetConnector()
@@ -117,7 +114,6 @@ def test_parquet_connector_discover(sample_parquet_file):
         connector.discover()
 
 
-@pytest.mark.serial
 def test_parquet_connector_get_schema(sample_parquet_file):
     """Test schema retrieval for Parquet connector."""
     connector = ParquetConnector()
@@ -133,7 +129,6 @@ def test_parquet_connector_get_schema(sample_parquet_file):
         connector.get_schema("any_name")
 
 
-@pytest.mark.serial
 def test_parquet_connector_read(sample_parquet_file):
     """Test reading data from Parquet connector."""
     connector = ParquetConnector()
@@ -163,7 +158,6 @@ def test_parquet_connector_read(sample_parquet_file):
         list(connector.read("any_name"))
 
 
-@pytest.mark.serial
 def test_parquet_connector_write():
     """Test writing data with Parquet connector."""
     connector = ParquetConnector()
@@ -196,7 +190,6 @@ def test_parquet_connector_write():
             os.remove(output_path)
 
 
-@pytest.mark.serial
 def test_parquet_connector_filters(sample_parquet_file):
     """Test filtering data with Parquet connector."""
     data = {

@@ -11,7 +11,6 @@ from sqlflow.udfs.decorators import python_scalar_udf
 from sqlflow.udfs.manager import PythonUDFManager, UDFDiscoveryError
 
 
-@pytest.mark.serial
 def test_init_default_project_dir():
     """Test that the manager initializes with the current directory by default."""
     with tempfile.TemporaryDirectory() as temp_dir:
