@@ -7,6 +7,8 @@ from typing import Any, Dict, List, Optional, Protocol, Tuple
 from sqlflow.connectors.data_chunk import DataChunk
 from sqlflow.core.engines.duckdb import DuckDBEngine
 from sqlflow.core.executors.base_executor import BaseExecutor
+from sqlflow.core.state.backends import DuckDBStateBackend
+from sqlflow.core.state.watermark_manager import WatermarkManager
 from sqlflow.logging import get_logger
 from sqlflow.project import Project
 
@@ -93,6 +95,9 @@ class LocalExecutor(BaseExecutor):
         # Initialize DuckDB engine
         self.duckdb_engine = self._create_duckdb_engine(db_config)
 
+        # Initialize watermark management
+        self._init_watermark_manager()
+
         # Discover UDFs if project directory is provided
         if project_dir:
             self.discover_udfs(project_dir)
@@ -175,6 +180,17 @@ class LocalExecutor(BaseExecutor):
 
         logger.debug(f"DuckDB engine initialized in {db_config.mode} mode")
         return engine
+
+    def _init_watermark_manager(self) -> None:
+        """Initialize watermark manager for incremental loading."""
+        try:
+            # Use the same DuckDB connection for state management
+            state_backend = DuckDBStateBackend(self.duckdb_engine.connection)
+            self.watermark_manager = WatermarkManager(state_backend)
+            logger.debug("Watermark manager initialized")
+        except Exception as e:
+            logger.warning(f"Failed to initialize watermark manager: {e}")
+            self.watermark_manager = None
 
     def execute(
         self,
@@ -781,8 +797,185 @@ class LocalExecutor(BaseExecutor):
             if "already registered" not in str(e):
                 raise
 
-        # Step 4: Load data from the SOURCE using ConnectorEngine
+        # Step 4: Check for incremental loading
+        sync_mode = connector_params.get("sync_mode", "full_refresh")
+
+        if sync_mode == "incremental" and self.watermark_manager:
+            return self._load_incremental_data(load_step, source_definition)
+        else:
+            return self._load_full_refresh_data(load_step, source_definition)
+
+    def _load_incremental_data(self, load_step, source_definition) -> int:
+        """Load data incrementally using watermarks.
+
+        Args:
+        ----
+            load_step: LoadStep object
+            source_definition: SOURCE definition dict
+
+        Returns:
+        -------
+            Number of rows loaded
+
+        """
+        connector_params = source_definition.get("params", {})
+        cursor_field = connector_params.get("cursor_field")
+
+        if not cursor_field:
+            raise ValueError(
+                f"cursor_field is required for incremental loading of '{load_step.source_name}'"
+            )
+
+        # Get pipeline name and last watermark value
+        pipeline_name = getattr(load_step, "pipeline_name", "default")
+        last_cursor_value = self._get_last_watermark_value(
+            pipeline_name, load_step, cursor_field
+        )
+
+        logger.info(
+            f"Loading incremental data for '{load_step.source_name}' "
+            f"with cursor field '{cursor_field}' from value: {last_cursor_value}"
+        )
+
+        try:
+            # Load data and update watermark
+            source_df = self._load_incremental_source_data(
+                load_step, connector_params, cursor_field, last_cursor_value
+            )
+
+            if source_df.empty:
+                logger.info(
+                    f"No new data found for incremental load of '{load_step.source_name}'"
+                )
+                return 0
+
+            # Update watermark if we have new data
+            self._update_watermark_if_needed(
+                pipeline_name, load_step, cursor_field, source_df, last_cursor_value
+            )
+
+            # Register the source data with DuckDB
+            if self.duckdb_engine:
+                self.duckdb_engine.register_table(load_step.source_name, source_df)
+                logger.debug(
+                    f"Registered incremental SOURCE data '{load_step.source_name}' with DuckDB"
+                )
+
+            return len(source_df)
+
+        except Exception as e:
+            logger.error(f"Failed to load incremental data: {e}")
+            # On error, fall back to full refresh
+            logger.warning(
+                "Falling back to full refresh due to incremental loading error"
+            )
+            return self._load_full_refresh_data(load_step, source_definition)
+
+    def _get_last_watermark_value(
+        self, pipeline_name: str, load_step, cursor_field: str
+    ):
+        """Get the last watermark value for incremental loading."""
+        if self.watermark_manager:
+            return self.watermark_manager.get_watermark(
+                pipeline_name, load_step.source_name, load_step.table_name, cursor_field
+            )
+        return None
+
+    def _load_incremental_source_data(
+        self, load_step, connector_params: Dict, cursor_field: str, last_cursor_value
+    ):
+        """Load source data incrementally and return DataFrame."""
         table_name_for_source = connector_params.get("table", load_step.source_name)
+
+        # Check if we can get connector instance for incremental reading
+        connector_instance = self._get_connector_instance(load_step.source_name)
+
+        # Use read_incremental if connector supports it
+        if connector_instance and hasattr(connector_instance, "read_incremental"):
+            data_chunks = list(
+                connector_instance.read_incremental(
+                    table_name_for_source, cursor_field, last_cursor_value
+                )
+            )
+        else:
+            # Fallback to regular read with filters through ConnectorEngine
+            if not self.connector_engine:
+                raise ValueError("ConnectorEngine is not initialized")
+            data_chunks = list(
+                self.connector_engine.load_data(
+                    load_step.source_name, table_name_for_source
+                )
+            )
+
+        if not data_chunks:
+            import pandas as pd
+
+            return pd.DataFrame()
+
+        # Get the first chunk
+        data_chunk = data_chunks[0]
+        return data_chunk.pandas_df
+
+    def _get_connector_instance(self, source_name: str):
+        """Get connector instance from ConnectorEngine."""
+        if (
+            self.connector_engine
+            and source_name in self.connector_engine.registered_connectors
+        ):
+            connector_info = self.connector_engine.registered_connectors[source_name]
+            return connector_info.get("instance")
+        return None
+
+    def _update_watermark_if_needed(
+        self,
+        pipeline_name: str,
+        load_step,
+        cursor_field: str,
+        source_df,
+        last_cursor_value,
+    ):
+        """Update watermark if we have new data."""
+        if (
+            self.watermark_manager
+            and not source_df.empty
+            and cursor_field in source_df.columns
+        ):
+            new_cursor_value = source_df[cursor_field].max()
+
+            # Only update watermark if we have new data
+            if last_cursor_value is None or new_cursor_value > last_cursor_value:
+                self.watermark_manager.update_watermark_atomic(
+                    pipeline_name,
+                    load_step.source_name,
+                    load_step.table_name,
+                    cursor_field,
+                    new_cursor_value,
+                )
+                logger.info(
+                    f"Updated watermark for '{load_step.source_name}' to: {new_cursor_value}"
+                )
+
+    def _load_full_refresh_data(self, load_step, source_definition) -> int:
+        """Load data using full refresh mode.
+
+        Args:
+        ----
+            load_step: LoadStep object
+            source_definition: SOURCE definition dict
+
+        Returns:
+        -------
+            Number of rows loaded
+
+        """
+        # Original loading logic
+        table_name_for_source = source_definition.get("params", {}).get(
+            "table", load_step.source_name
+        )
+
+        if not self.connector_engine:
+            raise ValueError("ConnectorEngine is not initialized")
+
         data_chunks = list(
             self.connector_engine.load_data(
                 load_step.source_name, table_name_for_source
@@ -792,8 +985,8 @@ class LocalExecutor(BaseExecutor):
         if not data_chunks:
             raise ValueError(f"No data loaded from SOURCE '{load_step.source_name}'")
 
-        # Step 5: Get the first chunk and register it with DuckDB as the source table
-        data_chunk = data_chunks[0]  # For simplicity, use first chunk
+        # Get the first chunk and register it with DuckDB as the source table
+        data_chunk = data_chunks[0]
         source_df = data_chunk.pandas_df
 
         # Register the source data with DuckDB using the source_name
