@@ -33,7 +33,7 @@ class SourceDefinitionStep(PipelineStep):
         };
 
     Example 2:
-        SOURCE users FROM "postgres" OPTIONS { 
+        SOURCE users FROM "postgres" OPTIONS {
             "table": "users",
             "sync_mode": "full_refresh"
         };
@@ -108,25 +108,25 @@ class SourceDefinitionStep(PipelineStep):
 
     def _validate_industry_standard_parameters(self) -> List[str]:
         """Validate industry-standard SOURCE parameters.
-        
+
         Returns:
             List of validation error messages for parameter issues
         """
         # Import here to avoid circular imports
         from sqlflow.parser.source_validation import SourceParameterValidator
-        
+
         validator = SourceParameterValidator()
         return validator.validate_parameters(self.params)
 
     def get_migration_suggestions(self) -> List[str]:
         """Get migration suggestions for parameters.
-        
+
         Returns:
             List of migration suggestions for better parameter usage
         """
         # Import here to avoid circular imports
         from sqlflow.parser.source_validation import SourceParameterValidator
-        
+
         validator = SourceParameterValidator()
         return validator.get_migration_suggestions(self.params)
 

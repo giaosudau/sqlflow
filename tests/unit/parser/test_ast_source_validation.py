@@ -1,7 +1,5 @@
 """Tests for AST SOURCE validation with industry-standard parameters."""
 
-import pytest
-
 from sqlflow.parser.ast import SourceDefinitionStep
 
 
@@ -17,10 +15,10 @@ class TestSourceDefinitionStepValidation:
                 "table": "users",
                 "sync_mode": "incremental",
                 "cursor_field": "updated_at",
-                "primary_key": "user_id"
-            }
+                "primary_key": "user_id",
+            },
         )
-        
+
         errors = source.validate()
         assert errors == []
 
@@ -31,14 +29,16 @@ class TestSourceDefinitionStepValidation:
             connector_type="postgres",
             params={
                 "table": "users",
-                "sync_mode": "incremental"
+                "sync_mode": "incremental",
                 # Missing cursor_field
-            }
+            },
         )
-        
+
         errors = source.validate()
         assert len(errors) == 1
-        assert "sync_mode 'incremental' requires cursor_field to be specified" in errors[0]
+        assert (
+            "sync_mode 'incremental' requires cursor_field to be specified" in errors[0]
+        )
 
     def test_invalid_full_refresh_with_cursor(self):
         """Test invalid full refresh SOURCE with cursor field."""
@@ -48,10 +48,10 @@ class TestSourceDefinitionStepValidation:
             params={
                 "table": "users",
                 "sync_mode": "full_refresh",
-                "cursor_field": "updated_at"  # Should not be used with full_refresh
-            }
+                "cursor_field": "updated_at",  # Should not be used with full_refresh
+            },
         )
-        
+
         errors = source.validate()
         assert len(errors) == 1
         assert "sync_mode 'full_refresh' cannot be used with cursor_field" in errors[0]
@@ -61,12 +61,9 @@ class TestSourceDefinitionStepValidation:
         source = SourceDefinitionStep(
             name="users",
             connector_type="postgres",
-            params={
-                "table": "users",
-                "sync_mode": "invalid_mode"
-            }
+            params={"table": "users", "sync_mode": "invalid_mode"},
         )
-        
+
         errors = source.validate()
         assert len(errors) == 1
         assert "Invalid sync_mode 'invalid_mode'" in errors[0]
@@ -76,12 +73,9 @@ class TestSourceDefinitionStepValidation:
         source = SourceDefinitionStep(
             name="users",
             connector_type="postgres",
-            params={
-                "table": "users",
-                "replication_method": "FULL_TABLE"
-            }
+            params={"table": "users", "replication_method": "FULL_TABLE"},
         )
-        
+
         suggestions = source.get_migration_suggestions()
         assert len(suggestions) == 1
         assert "Consider using sync_mode: 'full_refresh'" in suggestions[0]
@@ -99,10 +93,10 @@ class TestSourceDefinitionStepValidation:
                 "primary_key": ["user_id", "tenant_id"],
                 "destination_sync_mode": "append_dedup",
                 "lookback_window": 3600,
-                "start_date": "2024-01-01"
-            }
+                "start_date": "2024-01-01",
+            },
         )
-        
+
         errors = source.validate()
         assert errors == []
 
@@ -114,12 +108,12 @@ class TestSourceDefinitionStepValidation:
             params={
                 "table": "users",
                 "sync_mode": "incremental",
-                "cursor_field": "updated_at"
+                "cursor_field": "updated_at",
             },
             is_from_profile=True,
-            profile_connector_name="postgres_prod"
+            profile_connector_name="postgres_prod",
         )
-        
+
         errors = source.validate()
         assert errors == []
 
@@ -134,15 +128,15 @@ class TestSourceDefinitionStepValidation:
                 "cursor_field": "",  # Empty cursor field
                 "primary_key": [],  # Empty primary key list
                 "destination_sync_mode": "append_dedup",  # Requires primary key
-                "lookback_window": -1  # Negative lookback window
-            }
+                "lookback_window": -1,  # Negative lookback window
+            },
         )
-        
+
         errors = source.validate()
         assert len(errors) >= 5  # Should have multiple validation errors
-        
+
         # Check that we have both basic SOURCE validation and parameter validation errors
         error_text = " ".join(errors)
         assert "SOURCE directive requires a name" in error_text
         assert "Invalid sync_mode" in error_text
-        assert "cursor_field cannot be empty" in error_text 
+        assert "cursor_field cannot be empty" in error_text
