@@ -1,0 +1,3 @@
+order_id,customer_id,product_name,amount,updated_at,status
+1004,104,Widget D,100.00,2024-01-16 10:00:00,shipped
+1005,105,Widget E,125.00,2024-01-16 11:00:00,pending 
