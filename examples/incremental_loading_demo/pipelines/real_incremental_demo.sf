@@ -1,0 +1,13 @@
+-- SQLFlow Phase 2 Real Incremental Loading Demo
+-- This demonstrates automatic watermark-based incremental loading
+
+SOURCE orders TYPE CSV PARAMS {
+    "path": "${data_dir}/orders_incremental_initial.csv",
+    "sync_mode": "incremental", 
+    "cursor_field": "updated_at",
+    "primary_key": "order_id",
+    "has_header": true
+};
+
+-- This LOAD will automatically use watermarks for incremental behavior
+LOAD orders_table FROM orders; 

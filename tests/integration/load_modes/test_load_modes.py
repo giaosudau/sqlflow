@@ -1070,18 +1070,10 @@ def test_load_with_invalid_connector_type():
         "params": {"path": "/nonexistent/path.csv", "has_header": True},
     }
 
-    # Execute the source definition
+    # Execute the source definition - should fail with invalid connector type
     result = executor._execute_source_definition(source_step)
-    assert result["status"] == "success"  # Source definition should succeed
-
-    load_step = LoadStep(
-        table_name="test_table", source_name="invalid_source", mode="REPLACE"
-    )
-
-    # Should fail when trying to load from invalid connector
-    result = executor.execute_load_step(load_step)
-    assert result["status"] == "error"
-    # Error should mention connector registration or loading issue
+    assert result["status"] == "error"  # Should fail due to invalid connector type
+    assert "Unknown connector type" in result["error"]
 
 
 def test_load_with_empty_source_params():
@@ -1097,17 +1089,10 @@ def test_load_with_empty_source_params():
         "params": {},  # Empty params
     }
 
-    # Execute the source definition
+    # Execute the source definition - should fail due to missing required params
     result = executor._execute_source_definition(source_step)
-    assert result["status"] == "success"
-
-    load_step = LoadStep(
-        table_name="test_table", source_name="empty_source", mode="REPLACE"
-    )
-
-    # Should fail when trying to load with missing required params
-    result = executor.execute_load_step(load_step)
-    assert result["status"] == "error"
+    assert result["status"] == "error"  # Should fail due to missing path parameter
+    assert "Path is required" in result["error"]
 
 
 def test_load_mode_case_insensitive():
@@ -1127,75 +1112,128 @@ def test_load_mode_case_insensitive():
     }
 
     result = executor._execute_source_definition(source_step)
-    assert result["status"] == "success"
+    assert result["status"] == "error"  # Should fail due to missing file
+    assert "File not found" in result["error"]
 
-    # Test different case variations of modes
-    modes_to_test = ["replace", "REPLACE", "Replace", "append", "APPEND", "Append"]
+    # Since the source registration failed, we can't test load modes
+    # Let's test with a valid source instead
+    import os
+    import tempfile
 
-    for mode in modes_to_test:
-        load_step = LoadStep(
-            table_name="case_table", source_name="case_source", mode=mode
-        )
+    # Create a temporary CSV file
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
+        f.write("id,name\n1,test\n")
+        temp_file = f.name
 
-        # Should handle case variations (though may fail on connector loading)
-        result = executor.execute_load_step(load_step)
-        # We're testing that the mode parsing doesn't fail due to case
-        # The actual error will be in connector loading, which is expected
-        assert result["status"] == "error"  # Expected due to dummy path
-        assert "mode" not in result["message"].lower()  # No mode-related errors
+    try:
+        # Register a valid SOURCE definition
+        valid_source_step = {
+            "id": "source_valid",
+            "type": "source_definition",
+            "name": "valid_source",
+            "connector_type": "CSV",
+            "params": {
+                "path": temp_file,
+                "has_header": True,
+            },
+        }
+
+        result = executor._execute_source_definition(valid_source_step)
+        assert result["status"] == "success"
+
+        # Test different case variations of modes
+        modes_to_test = ["replace", "REPLACE", "Replace", "append", "APPEND", "Append"]
+
+        for mode in modes_to_test:
+            load_step = LoadStep(
+                table_name="case_table", source_name="valid_source", mode=mode
+            )
+
+            # Should handle case variations successfully
+            result = executor.execute_load_step(load_step)
+            assert result["status"] == "success"  # Should work with valid source
+    finally:
+        # Clean up temporary file
+        if os.path.exists(temp_file):
+            os.unlink(temp_file)
 
 
 def test_source_definition_retrieval():
     """Test comprehensive SOURCE definition storage and retrieval."""
     executor = LocalExecutor()
 
-    # Test multiple SOURCE definitions
-    sources = [
-        {
-            "id": "source_csv",
+    # Test multiple SOURCE definitions with valid files
+    import os
+    import tempfile
+
+    # Create temporary files for testing
+    temp_files = []
+    try:
+        # Create CSV files
+        csv_file1 = tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False)
+        csv_file1.write("id,name\n1,test\n")
+        csv_file1.close()
+        temp_files.append(csv_file1.name)
+
+        csv_file2 = tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False)
+        csv_file2.write("id,value\n1,100\n")
+        csv_file2.close()
+        temp_files.append(csv_file2.name)
+
+        sources = [
+            {
+                "id": "source_csv1",
+                "type": "source_definition",
+                "name": "csv_source1",
+                "connector_type": "CSV",
+                "params": {"path": csv_file1.name, "has_header": True},
+            },
+            {
+                "id": "source_csv2",
+                "type": "source_definition",
+                "name": "csv_source2",
+                "connector_type": "CSV",
+                "params": {"path": csv_file2.name, "has_header": True},
+            },
+        ]
+
+        # Register sources that should succeed
+        for source in sources:
+            result = executor._execute_source_definition(source)
+            assert result["status"] == "success"
+
+        # Verify all sources are stored and retrievable
+        csv_def1 = executor._get_source_definition("csv_source1")
+        assert csv_def1 is not None
+        assert csv_def1["connector_type"] == "CSV"
+        assert csv_def1["params"]["path"] == csv_file1.name
+
+        csv_def2 = executor._get_source_definition("csv_source2")
+        assert csv_def2 is not None
+        assert csv_def2["connector_type"] == "CSV"
+
+        # Test non-existent source
+        missing_def = executor._get_source_definition("nonexistent")
+        assert missing_def is None
+
+        # Test source that would fail (invalid connector type)
+        invalid_source = {
+            "id": "source_invalid",
             "type": "source_definition",
-            "name": "csv_source",
-            "connector_type": "CSV",
-            "params": {"path": "/tmp/test.csv", "has_header": True},
-        },
-        {
-            "id": "source_json",
-            "type": "source_definition",
-            "name": "json_source",
-            "connector_type": "JSON",
-            "params": {"path": "/tmp/test.json"},
-        },
-        {
-            "id": "source_db",
-            "type": "source_definition",
-            "name": "db_source",
-            "connector_type": "POSTGRES",
-            "params": {"host": "localhost", "database": "test"},
-        },
-    ]
+            "name": "invalid_source",
+            "connector_type": "INVALID_TYPE",
+            "params": {"path": csv_file1.name, "has_header": True},
+        }
 
-    # Register all sources
-    for source in sources:
-        result = executor._execute_source_definition(source)
-        assert result["status"] == "success"
+        result = executor._execute_source_definition(invalid_source)
+        assert result["status"] == "error"  # Should fail due to invalid connector type
+        assert "Unknown connector type" in result["error"]
 
-    # Verify all sources are stored and retrievable
-    csv_def = executor._get_source_definition("csv_source")
-    assert csv_def is not None
-    assert csv_def["connector_type"] == "CSV"
-    assert csv_def["params"]["path"] == "/tmp/test.csv"
-
-    json_def = executor._get_source_definition("json_source")
-    assert json_def is not None
-    assert json_def["connector_type"] == "JSON"
-
-    db_def = executor._get_source_definition("db_source")
-    assert db_def is not None
-    assert db_def["connector_type"] == "POSTGRES"
-
-    # Test non-existent source
-    missing_def = executor._get_source_definition("nonexistent")
-    assert missing_def is None
+    finally:
+        # Clean up temporary files
+        for temp_file in temp_files:
+            if os.path.exists(temp_file):
+                os.unlink(temp_file)
 
 
 def test_load_with_profile_based_source():

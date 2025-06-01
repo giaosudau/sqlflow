@@ -310,6 +310,110 @@ class CSVConnector(Connector):
             self.state = ConnectorState.ERROR
             raise ConnectorError(self.name or "CSV", f"Reading failed: {str(e)}")
 
+    def read_incremental(
+        self,
+        object_name: str,
+        cursor_field: str,
+        cursor_value: Optional[Any] = None,
+        columns: Optional[List[str]] = None,
+        batch_size: int = 10000,
+    ) -> Iterator[DataChunk]:
+        """Read CSV with automatic filtering based on cursor field.
+
+        For CSV files, we implement a simple in-memory filtering approach.
+        In production, this could be optimized for large files.
+
+        Args:
+        ----
+            object_name: Name of the object to read (ignored for CSV)
+            cursor_field: Field to use for incremental filtering
+            cursor_value: Last cursor value for filtering (None for initial load)
+            columns: Optional list of columns to read
+            batch_size: Number of rows per batch
+
+        Returns:
+        -------
+            Iterator yielding DataChunk objects with filtered data
+        """
+        logger.info(
+            f"CSV incremental read: cursor_field={cursor_field}, cursor_value={cursor_value}"
+        )
+
+        # Read all data first (simple approach for CSV)
+        chunks = list(self.read(object_name, columns, None, batch_size))
+
+        if not chunks:
+            # Return empty DataFrame if no data
+            import pandas as pd
+
+            yield DataChunk(pd.DataFrame())
+            return
+
+        # For CSV, we'll process all chunks and filter
+        for chunk in chunks:
+            df = chunk.pandas_df
+
+            if cursor_value is not None and cursor_field in df.columns and len(df) > 0:
+                try:
+                    # Simple filtering - let pandas handle type coercion
+                    filtered_df = df[df[cursor_field] > cursor_value]
+                    logger.info(
+                        f"CSV incremental: filtered {len(df)} → {len(filtered_df)} rows"
+                    )
+                    yield DataChunk(filtered_df)
+                except Exception as e:
+                    logger.warning(
+                        f"Incremental filtering failed: {e}, returning full data"
+                    )
+                    yield chunk
+            else:
+                # No filtering needed or possible
+                yield chunk
+
+    def supports_incremental(self) -> bool:
+        """CSV connector supports incremental reading."""
+        return True
+
+    def get_cursor_value(
+        self, data_chunk: DataChunk, cursor_field: str
+    ) -> Optional[Any]:
+        """Extract the maximum cursor value from a data chunk.
+
+        Args:
+        ----
+            data_chunk: Data chunk to extract cursor value from
+            cursor_field: Name of the cursor field
+
+        Returns:
+        -------
+            Maximum cursor value in the chunk, or None if not found
+        """
+        try:
+            df = data_chunk.pandas_df
+            if cursor_field not in df.columns or len(df) == 0:
+                return None
+
+            # Get the maximum value in the cursor field, excluding NaN values
+            series = df[cursor_field].dropna()  # Remove NaN values first
+            if len(series) == 0:
+                return None
+
+            max_value = series.max()
+
+            # Safe check for NaN values - convert to string and check
+            try:
+                if str(max_value).lower() in ["nan", "nat", "none"]:
+                    return None
+            except Exception:
+                pass  # If conversion fails, continue with max_value
+
+            logger.debug(f"CSV cursor value extracted: {cursor_field}={max_value}")
+            return max_value
+
+        except Exception as e:
+            logger.warning(f"Failed to extract cursor value for {cursor_field}: {e}")
+            return None
+
     def write(
         self, object_name: str, data_chunk: DataChunk, mode: str = "append"
     ) -> None:

@@ -30,29 +30,151 @@ This task tracker breaks down the SQLFlow Connector Strategy & Technical Design 
 
 ---
 
-## Current Status: **Phase 1 - Planning & Architecture**
+## Current Status: **Phase 1 - COMPLETED ✅ | Phase 2 - In Progress**
 
 ### Implementation Phases Overview
 
-**Phase 1: Enhanced State Management & Standards** (Weeks 1-4)
-- Build foundation with atomic watermark management
-- Implement industry-standard SOURCE parameter parsing
-- Create robust debugging infrastructure
+**Phase 1: Enhanced State Management & Standards** ✅ COMPLETED (Weeks 1-4)
+- ✅ Build foundation with atomic watermark management
+- ✅ Implement industry-standard SOURCE parameter parsing  
+- ✅ Create robust debugging infrastructure
+- ✅ Extend SOURCE execution with incremental loading support
 
-**Phase 2: Connector Reliability & Standards** (Weeks 5-8)  
-- Refactor existing connectors to industry standards
-- Implement resilience patterns (retry, circuit breaker, rate limiting)
-- Build enhanced PostgreSQL and S3 connectors
+**Phase 2: Connector Reliability & Standards** 🔄 IN PROGRESS (Weeks 5-8)  
+- 🔄 Refactor existing connectors to industry standards
+- ⏳ Implement resilience patterns (retry, circuit breaker, rate limiting)
+- ⏳ Build enhanced PostgreSQL and S3 connectors
 
-**Phase 3: Priority SaaS Connectors** (Weeks 9-16)
+**Phase 3: Priority SaaS Connectors** ⏳ PENDING (Weeks 9-16)
 - Implement Shopify, Stripe, HubSpot connectors
 - Add advanced schema evolution handling
 - Create migration guides from Airbyte/Fivetran
 
-**Phase 4: Advanced Features & Enterprise Readiness** (Weeks 17-20)
+**Phase 4: Advanced Features & Enterprise Readiness** ⏳ PENDING (Weeks 17-20)
 - Advanced schema management with policies
 - Production monitoring and observability
 - Performance optimization and enterprise features
+
+---
+
+## Phase 2 Summary: Next Steps & Critical Gap Analysis
+
+### 🎯 **IMMEDIATE PRIORITY: Complete Incremental Loading Integration**
+
+**Critical Finding:** While Phase 1 successfully implemented watermark management, industry-standard parameter parsing, and debugging infrastructure, there's a **critical gap** between parameter validation and actual incremental execution.
+
+**The Problem:**
+- ✅ Industry-standard parameters (`sync_mode`, `cursor_field`) are parsed and validated
+- ✅ Watermark management infrastructure exists
+- ❌ **GAP**: Parameters don't trigger automatic incremental behavior
+- ❌ **GAP**: Manual MERGE operations used instead of watermark-based filtering
+
+### 📋 **Phase 2 Development Workflow**
+
+**Strict Methodology:** Document → Implement → Test → Demo → Commit (only if pytest passes)
+
+```bash
+# Pre-commit validation checklist for EVERY task:
+pytest tests/ -v                     # All tests must pass
+black . && isort .                   # Code formatting must pass
+flake8 .                            # Linting must pass
+mypy .                              # Type checking must pass
+./run_task_demo.sh                  # Task demo must work end-to-end
+
+# Only commit if ALL checks pass - NO EXCEPTIONS
+```
+
+### 🗓️ **Phase 2 Execution Plan (Next 3 Weeks)**
+
+#### Week 1: Foundation Completion
+**Task 2.0: Complete Incremental Loading Integration** (3 days)
+- Day 1: Document complete incremental loading specification
+- Day 2: Implement automatic watermark-based filtering  
+- Day 3: Test + Demo + Commit (only if all tests pass)
+
+#### Week 2: Connector Standardization
+**Task 2.1: Connector Interface Standardization** (4 days)
+**Task 2.2: Enhanced PostgreSQL Connector** (6 days - parallel with 2.1)
+
+#### Week 3: Resilience & Demo
+**Task 2.3: Enhanced S3 Connector** (5 days)  
+**Task 2.4: Resilience Patterns** (7 days - start parallel with 2.3)
+**Task 2.5: Phase 2 Demo Integration** (2 days)
+
+### 🎯 **Success Criteria for Phase 2 Demo**
+
+**Must Demonstrate:**
+1. **Real Incremental Loading**: SOURCE with `sync_mode: "incremental"` automatically filters data using watermarks
+2. **Performance Gains**: >50% fewer rows processed in incremental runs
+3. **Watermark Persistence**: Watermarks correctly stored and retrieved across pipeline runs
+4. **Industry Standards**: PostgreSQL connector works with Airbyte/Fivetran-compatible parameters
+5. **Resilience**: Connectors recover gracefully from API failures and rate limits
+
+**Demo Script Validation:**
+```bash
+# Initial run: Process all records, establish watermarks
+./run_phase2_demo.sh --mode initial
+echo "✅ Initial load: Processed 10,000 records, watermark: 2024-01-15 10:30:00"
+
+# Incremental run: Process only new records since watermark
+./run_phase2_demo.sh --mode incremental  
+echo "✅ Incremental load: Processed 150 records, watermark: 2024-01-15 14:45:00"
+
+# Performance comparison
+echo "✅ Performance improvement: 98.5% fewer rows processed (150 vs 10,000)"
+```
+
+### ⚠️ **Risk Mitigation**
+
+**Technical Risks:**
+- **Integration Complexity**: Start with CSV connector, extend to PostgreSQL
+- **Testing Coverage**: Require >90% test coverage before any commits
+- **Performance Validation**: Benchmark every incremental loading implementation
+
+**Timeline Risks:**
+- **Focus on MVP**: Complete incremental loading before advanced features
+- **Daily Progress Checks**: Document daily progress with working demos
+- **Rollback Plan**: Keep previous implementation working until new version proven
+
+### 🎯 **Definition of "Phase 2 Complete"**
+
+**Technical Criteria:**
+- ✅ All pytest tests passing (>95% coverage)
+- ✅ Industry-standard parameters trigger automatic incremental behavior
+- ✅ Watermark-based filtering working across all connector types
+- ✅ Performance improvements demonstrated and measured
+- ✅ Resilience patterns handling failure scenarios automatically
+- ✅ Code quality standards met (formatting, linting, type checking)
+
+**Demo Criteria:**
+- ✅ Real incremental demo working end-to-end without manual intervention
+- ✅ Performance gains clearly visible (before/after comparisons)
+- ✅ Error scenarios handled gracefully with clear messaging
+- ✅ Stakeholder presentation completed with documented feedback
+
+**Quality Criteria:**
+- ✅ **ZERO COMMITS WITH FAILING TESTS** - this is non-negotiable
+- ✅ Every feature documented before implementation
+- ✅ Every feature tested before demo
+- ✅ Every feature demoed before commit
+
+### 🚀 **Recommended Starting Point**
+
+**Day 1 Action Plan:**
+1. **Create Technical Specification** for `Task 2.0: Complete Incremental Loading Integration`
+2. **Document exact behavior** for `sync_mode` parameters and watermark filtering
+3. **Define success criteria** for incremental loading integration
+4. **Set up development environment** with strict testing requirements
+5. **Begin implementation** following Document → Implement → Test → Demo → Commit workflow
+
+**Start Command:**
+```bash
+cd /Users/chanhle/ai-playground/sqlflow
+git checkout -b phase2-incremental-loading-integration
+# Begin Task 2.0.1: Documentation phase
+```
+
+This structured approach ensures Phase 2 delivers a **working, tested, and demoed incremental loading system** that bridges the gap identified in Phase 1 and sets the foundation for advanced connector features in Phase 3.
 
 ---
 
@@ -66,125 +188,43 @@ This task tracker breaks down the SQLFlow Connector Strategy & Technical Design 
 |------|-------------|--------|----------|----------|------------------|
 | [Task 1.1](#task-11-watermark-manager-implementation) | Watermark Manager Implementation | ✅ COMPLETED | 🔥 Critical | | 5 days |
 | [Task 1.2](#task-12-duckdb-state-backend) | DuckDB State Backend | ✅ COMPLETED | 🔥 Critical | | 3 days |
-| [Task 1.3](#task-13-industry-standard-parameter-parsing) | Industry Standard Parameter Parsing | ⬜ NOT STARTED | 🔥 Critical | | 4 days |
+| [Task 1.3](#task-13-industry-standard-parameter-parsing) | Industry Standard Parameter Parsing | ✅ COMPLETED | 🔥 Critical | | 4 days |
 | [Task 1.4](#task-14-enhanced-source-execution) | Enhanced SOURCE Execution | ✅ COMPLETED | 🔥 Critical | | 5 days |
 | [Task 1.5](#task-15-debugging-infrastructure) | Debugging Infrastructure | ✅ COMPLETED | High | | 3 days |
 
-### Task 1.1: Watermark Manager Implementation
+### Task 1.1: Watermark Manager Implementation ✅ COMPLETED
 
-**Description:** Implement atomic watermark management system for reliable incremental loading without artificial checkpoints within LOAD operations.
+**Status**: ✅ COMPLETED  
+**Implementation**: Comprehensive watermark management system implemented
+- ✅ Created `WatermarkManager` class with atomic update semantics in `sqlflow/core/state/watermark_manager.py`
+- ✅ Implemented state key generation for pipeline-source-target-column combinations
+- ✅ Added transaction support for atomic watermark updates with DuckDB backend
+- ✅ Implemented clear error handling with ConnectorError exceptions
+- ✅ Added comprehensive logging for watermark operations with DebugLogger integration
+- ✅ Created unit tests in `tests/unit/core/state/test_watermark_manager.py`
+- ✅ Created integration tests in `tests/integration/core/test_enhanced_source_execution.py`
 
-**Technical Reference:** [Simplified Watermark Management System](docs/developer/technical/implementation/SQLFlow_Connector_Strategy_Technical_Design.md#simplified-watermark-management-system)
+### Task 1.2: DuckDB State Backend ✅ COMPLETED
 
-**Files Impacted:**
-- New: `sqlflow/core/state/watermark_manager.py`
-- New: `sqlflow/core/state/__init__.py`
-- New: `sqlflow/core/state/backends.py`
+**Status**: ✅ COMPLETED  
+**Implementation**: DuckDB-based state persistence implemented
+- ✅ Implemented `DuckDBStateBackend` class in `sqlflow/core/state/backends.py`
+- ✅ Created state schema with proper indexing for performance
+- ✅ Implemented efficient watermark storage and retrieval with transaction support
+- ✅ Added execution history tracking capabilities for debugging
+- ✅ Implemented state cleanup and maintenance operations
+- ✅ Full integration with LocalExecutor for automatic initialization
 
-**Subtasks:**
-1. Create `WatermarkManager` class with atomic update semantics
-2. Implement state key generation for pipeline-source-target-column combinations
-3. Add transaction support for atomic watermark updates
-4. Implement clear error handling for state corruption scenarios
-5. Add comprehensive logging for watermark operations
+### Task 1.3: Industry Standard Parameter Parsing ✅ COMPLETED
 
-**Testing Requirements:**
-- Unit tests for watermark key generation and retrieval
-- Tests for atomic update operations under concurrent access
-- Tests for error handling with corrupted state
-- Integration tests with DuckDB state backend
-- Performance tests with large numbers of watermarks
-
-**Definition of Done:**
-- ✅ WatermarkManager correctly generates unique keys for source->target->column combinations
-- ✅ Atomic updates prevent data loss during failures
-- ✅ Transaction support ensures consistency
-- ✅ Comprehensive error handling with clear messages
-- ✅ All tests passing with >95% coverage
-- ✅ Performance benchmarks meet requirements (<50ms for typical operations)
-- ✅ Documentation with usage examples
-
-**Success Criteria:**
-- Zero data loss in failure scenarios
-- Watermark operations complete within performance targets
-- Clear audit trail of all watermark changes
-
-### Task 1.2: DuckDB State Backend
-
-**Description:** Implement DuckDB-based state persistence for watermarks with proper schema and indexing for performance.
-
-**Technical Reference:** [State Storage in DuckDB](docs/developer/technical/implementation/SQLFlow_Connector_Strategy_Technical_Design.md#state-storage-in-duckdb)
-
-**Files Impacted:**
-- `sqlflow/core/state/backends.py`
-- New: `sqlflow/core/state/schema.sql`
-
-**Subtasks:**
-1. Implement `DuckDBStateBackend` class inheriting from `StateBackend` ABC
-2. Create state tables schema with proper indexing
-3. Implement efficient watermark storage and retrieval
-4. Add execution history tracking for debugging
-5. Implement state cleanup and maintenance operations
-
-**Testing Requirements:**
-- Tests for state table creation and schema validation
-- Tests for watermark storage with various data types
-- Tests for concurrent access and locking
-- Tests for execution history tracking
-- Performance tests with large datasets
-
-**Definition of Done:**
-- ✅ DuckDB tables properly store watermark state with ACID properties
-- ✅ Schema includes proper indexes for performance
-- ✅ Execution history provides debugging capability
-- ✅ Concurrent access is handled safely
-- ✅ All tests passing with >90% coverage
-- ✅ Performance meets targets (>1000 watermarks/second)
-- ✅ State cleanup operations work correctly
-
-**Success Criteria:**
-- State operations are fast and reliable
-- Historical data supports debugging workflows
-- No state corruption under concurrent access
-
-### Task 1.3: Industry Standard Parameter Parsing
-
-**Description:** Implement parser support for industry-standard SOURCE parameters (sync_mode, cursor_field, primary_key) compatible with Airbyte/Fivetran conventions.
-
-**Technical Reference:** [Enhanced SOURCE Configuration with Industry Standards](docs/developer/technical/implementation/SQLFlow_Connector_Strategy_Technical_Design.md#enhanced-source-configuration-with-industry-standards-and-debug-support)
-
-**Files Impacted:**
-- `sqlflow/parser/parser.py`
-- `sqlflow/core/planner.py`
-- `sqlflow/parser/ast.py`
-
-**Subtasks:**
-1. Add validation for industry-standard SOURCE parameters
-2. Implement sync_mode validation (full_refresh, incremental, cdc)
-3. Add cursor_field and primary_key parameter parsing
-4. Implement parameter compatibility validation
-5. Add clear error messages for invalid parameter combinations
-
-**Testing Requirements:**
-- Tests for valid industry-standard parameter combinations
-- Tests for parameter validation and error handling
-- Tests for Airbyte/Fivetran parameter compatibility
-- Integration tests with real connector configurations
-- Tests for error message clarity and helpfulness
-
-**Definition of Done:**
-- ✅ Parser accepts all industry-standard SOURCE parameters
-- ✅ Validation ensures parameter compatibility
-- ✅ Error messages are clear and actionable
-- ✅ Airbyte/Fivetran parameter names work without changes
-- ✅ All tests passing with >90% coverage
-- ✅ Documentation includes migration examples
-- ✅ Backward compatibility maintained
-
-**Success Criteria:**
-- Existing Airbyte configurations work with minimal changes
-- Clear migration path documented
-- Parameter validation prevents runtime errors
+**Status**: ✅ COMPLETED  
+**Implementation**: Comprehensive industry-standard parameter support
+- ✅ Added `SourceParameterValidator` in `sqlflow/parser/source_validation.py`
+- ✅ Implemented sync_mode validation (full_refresh, incremental, cdc)
+- ✅ Added cursor_field and primary_key parameter parsing with Airbyte/Fivetran compatibility
+- ✅ Implemented parameter compatibility validation with 41 comprehensive test cases
+- ✅ Added clear error messages for invalid parameter combinations
+- ✅ Integrated validation into SourceDefinitionStep AST with migration suggestions
 
 ### Task 1.4: Enhanced SOURCE Execution ✅ COMPLETED
 **Status**: ✅ COMPLETED  
@@ -210,213 +250,450 @@ This task tracker breaks down the SQLFlow Connector Strategy & Technical Design 
 
 ## Epic 2: Connector Reliability & Standards (Weeks 5-8)
 
-**Goal:** Refactor existing connectors to use industry-standard parameters and implement comprehensive resilience patterns for production reliability.
+**Goal:** Complete the incremental loading integration and refactor existing connectors to use industry-standard parameters with comprehensive resilience patterns for production reliability.
 
-**Reference:** [Technical Architecture & Design Decisions](docs/developer/technical/implementation/SQLFlow_Connector_Strategy_Technical_Design.md#technical-architecture--design-decisions)
+**Development Methodology:** Document → Implement → Test → Demo → Commit (only if pytest passes)
 
 | Task | Description | Status | Priority | Assignee | Estimated Effort |
 |------|-------------|--------|----------|----------|------------------|
-| [Task 2.1](#task-21-connector-interface-standardization) | Connector Interface Standardization | ⬜ NOT STARTED | 🔥 Critical | | 4 days |
-| [Task 2.2](#task-22-enhanced-postgresql-connector) | Enhanced PostgreSQL Connector | ⬜ NOT STARTED | 🔥 Critical | | 6 days |
-| [Task 2.3](#task-23-enhanced-s3-connector) | Enhanced S3 Connector | ⬜ NOT STARTED | High | | 5 days |
-| [Task 2.4](#task-24-resilience-patterns) | Resilience Patterns Implementation | ⬜ NOT STARTED | 🔥 Critical | | 7 days |
-| [Task 2.5](#task-25-generic-rest-api-connector) | Generic REST API Connector | ⬜ NOT STARTED | High | | 5 days |
+| [Task 2.0](#task-20-complete-incremental-loading-integration) | Complete Incremental Loading Integration | 🔄 IN PROGRESS | 🔥 Critical | | 3 days |
+| [Task 2.1](#task-21-connector-interface-standardization) | Connector Interface Standardization | ⏳ PENDING | 🔥 Critical | | 4 days |
+| [Task 2.2](#task-22-enhanced-postgresql-connector) | Enhanced PostgreSQL Connector | ⏳ PENDING | 🔥 Critical | | 6 days |
+| [Task 2.3](#task-23-enhanced-s3-connector) | Enhanced S3 Connector | ⏳ PENDING | High | | 5 days |
+| [Task 2.4](#task-24-resilience-patterns) | Resilience Patterns Implementation | ⏳ PENDING | 🔥 Critical | | 7 days |
+| [Task 2.5](#task-25-phase-2-demo-integration) | Phase 2 Demo Integration | ⏳ PENDING | High | | 2 days |
+
+### Task 2.0: Complete Incremental Loading Integration
+
+**Description:** Bridge the gap between implemented watermark management, industry-standard parameters, and actual automatic incremental loading execution.
+
+**Current Issue:** Industry-standard parameters (sync_mode, cursor_field) are parsed and validated but don't trigger automatic incremental behavior. Manual MERGE operations are used instead of watermark-based filtering.
+
+**Files Impacted:**
+- `sqlflow/core/executors/local_executor.py`
+- `sqlflow/connectors/csv_connector.py`
+- `sqlflow/connectors/postgres_connector.py`
+- `examples/incremental_loading_demo/pipelines/real_incremental_demo.sf` (new)
+
+#### Phase 2.0.1: Documentation (Day 1)
+**Document the complete incremental loading specification:**
+
+1. **Create Technical Specification Document**:
+   - `docs/developer/technical/incremental_loading_complete_spec.md`
+   - Define exact behavior for sync_mode parameters
+   - Specify watermark filtering logic for each connector type
+   - Document error handling and fallback scenarios
+   - Include performance benchmarks and success criteria
+
+2. **Update API Documentation**:
+   - Document how SOURCE parameters trigger incremental behavior
+   - Specify connector interface requirements for incremental support
+   - Document watermark persistence and recovery mechanisms
+
+#### Phase 2.0.2: Implementation (Day 2)
+**Implement automatic incremental loading:**
+
+1. **Extend LocalExecutor incremental integration**:
+   ```python
+   def _execute_source_step_with_incremental(self, step_config: Dict[str, Any]) -> Dict[str, Any]:
+       """Execute SOURCE step with automatic incremental filtering."""
+       sync_mode = step_config.get("sync_mode", "full_refresh")
+       
+       if sync_mode == "incremental":
+           return self._execute_incremental_source_automatic(step_config)
+       else:
+           return self._execute_full_refresh_source(step_config)
+   ```
+
+2. **Update CSV Connector for automatic filtering**:
+   ```python
+   def read_incremental(self, cursor_field: str, last_cursor_value: Any) -> pd.DataFrame:
+       """Read CSV with automatic filtering based on cursor field."""
+       df = self.read()  # Read full CSV
+       if last_cursor_value and cursor_field in df.columns:
+           df = df[df[cursor_field] > last_cursor_value]
+       return df
+   ```
+
+3. **Connect industry-standard parameters to execution flow**
+
+#### Phase 2.0.3: Testing (Day 2)
+**Comprehensive testing without commits:**
+
+1. **Unit Tests** (must pass before any commits):
+   ```bash
+   pytest tests/unit/core/executors/test_incremental_integration.py -v
+   pytest tests/unit/connectors/test_csv_incremental.py -v
+   ```
+
+2. **Integration Tests** (must pass before any commits):
+   ```bash
+   pytest tests/integration/core/test_complete_incremental_flow.py -v
+   ```
+
+3. **Performance Tests**:
+   - Measure incremental vs full refresh performance
+   - Validate watermark persistence across runs
+   - Test error recovery scenarios
+
+#### Phase 2.0.4: Demo Verification (Day 3)
+**Create and verify real incremental loading demo:**
+
+1. **Real Incremental Demo Pipeline**:
+   ```sql
+   -- examples/incremental_loading_demo/pipelines/real_incremental_demo.sf
+   SOURCE orders TYPE CSV PARAMS {
+       "path": "${data_dir}/orders_incremental.csv",
+       "sync_mode": "incremental", 
+       "cursor_field": "updated_at",
+       "primary_key": "order_id"
+   };
+   
+   LOAD orders_table FROM orders; -- Should automatically use watermarks
+   ```
+
+2. **Demo Verification Script**:
+   ```bash
+   # Run 1: Initial load (should process all records)
+   ./run_real_incremental_demo.sh --phase initial
+   
+   # Run 2: Incremental load (should process only new records)  
+   ./run_real_incremental_demo.sh --phase incremental
+   
+   # Verify: Check watermark persistence and row counts
+   ./verify_incremental_behavior.sh
+   ```
+
+3. **Success Criteria for Demo**:
+   - Initial run processes all records, establishes watermark
+   - Incremental run processes only new records since watermark
+   - Performance improvement demonstrated (>50% fewer rows processed)
+   - Watermark values persisted and updated correctly
+   - Error scenarios handled gracefully
+
+#### Phase 2.0.5: Commit (Only if All Tests Pass)
+**Strict commit criteria:**
+
+```bash
+# Pre-commit validation checklist:
+pytest tests/ -v                     # All tests must pass
+black . && isort .                   # Code formatting
+flake8 .                            # Linting
+mypy .                              # Type checking
+./run_real_incremental_demo.sh      # Demo must work end-to-end
+
+# Only commit if ALL checks pass:
+git add .
+git commit -m "feat: complete incremental loading integration
+
+- Connect industry-standard parameters to automatic incremental execution
+- Implement automatic watermark-based filtering in connectors  
+- Add comprehensive testing and real incremental demo
+- Verify performance improvements and error handling
+
+Closes: Phase 2 Task 2.0"
+```
+
+**Definition of Done:**
+- ✅ Technical specification document complete and reviewed
+- ✅ Automatic incremental loading working end-to-end
+- ✅ All unit and integration tests passing (>95% coverage)
+- ✅ Real incremental demo showing actual watermark behavior
+- ✅ Performance improvement demonstrated and measured
+- ✅ Error handling and fallback scenarios tested
+- ✅ Code quality checks passing (formatting, linting, type checking)
+- ✅ No commits made with failing tests
+
+**Success Criteria:**
+- Industry-standard parameters trigger automatic incremental behavior
+- Watermarks filter data correctly without manual intervention
+- >50% performance improvement for incremental vs full refresh
+- Zero data loss during error scenarios
+- Demo clearly shows before/after incremental loading benefits
 
 ### Task 2.1: Connector Interface Standardization
 
 **Description:** Standardize connector interface to support industry-standard parameters and incremental loading patterns across all connector implementations.
 
-**Technical Reference:** [SOURCE-LOAD Coordination Architecture](docs/developer/technical/implementation/SQLFlow_Connector_Strategy_Technical_Design.md#source-load-coordination-architecture)
+**Development Methodology:** Document → Implement → Test → Demo → Commit (only if pytest passes)
 
 **Files Impacted:**
 - `sqlflow/connectors/base.py`
 - `sqlflow/connectors/connector_engine.py`
 - All existing connector implementations
 
-**Subtasks:**
+#### Phase 2.1.1: Documentation (Day 1)
+1. **Create Connector Interface Specification**:
+   - `docs/developer/technical/connector_interface_spec.md`
+   - Define standardized methods for incremental reading
+   - Specify parameter validation framework requirements
+   - Document connection health monitoring interface
+
+#### Phase 2.1.2: Implementation (Day 2-3)
 1. Update `Connector` ABC with industry-standard parameter support
 2. Add `read_incremental()` method to connector interface
 3. Implement parameter validation framework
 4. Add connection health monitoring interface
 5. Update all existing connectors to new interface
 
-**Testing Requirements:**
-- Tests for parameter validation framework
-- Tests for incremental reading interface
-- Tests for connection health monitoring
-- Backward compatibility tests with existing connectors
-- Integration tests with new parameter formats
+#### Phase 2.1.3: Testing (Day 3)
+**Must pass before commits:**
+```bash
+pytest tests/unit/connectors/test_base_connector.py -v
+pytest tests/integration/connectors/test_interface_standardization.py -v
+```
+
+#### Phase 2.1.4: Demo Verification (Day 4)
+- Verify all connectors implement standardized interface
+- Test parameter validation across connector types
+- Demonstrate health monitoring capabilities
+
+#### Phase 2.1.5: Commit (Only if All Tests Pass)
+```bash
+# Pre-commit checklist:
+pytest tests/unit/connectors/ -v
+pytest tests/integration/connectors/ -v
+./verify_connector_interface_demo.sh
+# Commit only if all pass
+```
 
 **Definition of Done:**
+- ✅ Technical specification document complete
 - ✅ All connectors implement standardized interface
-- ✅ Parameter validation catches configuration errors early
-- ✅ Incremental reading interface works across connector types
-- ✅ Health monitoring provides actionable status information
-- ✅ All tests passing with >90% coverage
-- ✅ Backward compatibility maintained
-- ✅ Documentation updated with new interface
-
-**Success Criteria:**
-- Configuration errors caught before runtime
-- All connectors support incremental loading
-- Health checks prevent runtime failures
+- ✅ Parameter validation framework functional
+- ✅ All tests passing (>90% coverage)
+- ✅ Demo shows interface consistency across connectors
+- ✅ No commits with failing tests
 
 ### Task 2.2: Enhanced PostgreSQL Connector
 
 **Description:** Enhance PostgreSQL connector with industry-standard parameters, incremental loading, and advanced query optimization.
 
-**Technical Reference:** [Database Sources Configuration](docs/developer/technical/implementation/SQLFlow_Connector_Strategy_Technical_Design.md#enhanced-source-configuration-with-industry-standards-and-debug-support)
+**Development Methodology:** Document → Implement → Test → Demo → Commit (only if pytest passes)
 
 **Files Impacted:**
 - `sqlflow/connectors/postgres_connector.py`
 - `tests/integration/connectors/test_postgres_connector.py`
 
-**Subtasks:**
-1. Implement industry-standard parameter support (sync_mode, cursor_field, etc.)
+#### Phase 2.2.1: Documentation (Day 1)
+1. **Create PostgreSQL Connector Specification**:
+   - `docs/developer/technical/postgres_connector_spec.md`
+   - Define incremental loading with WHERE clause optimization
+   - Specify connection pooling requirements
+   - Document schema change detection capabilities
+
+#### Phase 2.2.2: Implementation (Day 2-4)
+1. Implement industry-standard parameter support
 2. Add incremental loading with WHERE clause optimization
-3. Implement connection pooling for better performance
+3. Implement connection pooling
 4. Add schema change detection capabilities
 5. Implement query optimization for large datasets
 
-**Testing Requirements:**
-- Tests with real PostgreSQL database instances
-- Tests for incremental loading with various cursor types
-- Tests for connection pooling under load
-- Tests for schema change detection
-- Performance tests with large datasets
-- Tests for query optimization effectiveness
+#### Phase 2.2.3: Testing (Day 4-5)
+**Must pass before commits:**
+```bash
+pytest tests/unit/connectors/test_postgres_connector.py -v
+pytest tests/integration/connectors/test_postgres_incremental.py -v
+```
+
+#### Phase 2.2.4: Demo Verification (Day 5-6)
+1. **Real PostgreSQL Incremental Demo**:
+   ```sql
+   SOURCE postgres_orders TYPE POSTGRES PARAMS {
+       "host": "${DB_HOST}",
+       "database": "ecommerce",
+       "table": "orders",
+       "sync_mode": "incremental",
+       "cursor_field": "updated_at",
+       "primary_key": ["order_id"]
+   };
+   
+   LOAD orders FROM postgres_orders; -- Should automatically filter incrementally
+   ```
+
+#### Phase 2.2.5: Commit (Only if All Tests Pass)
+```bash
+# Pre-commit checklist:
+pytest tests/unit/connectors/test_postgres* -v
+pytest tests/integration/connectors/test_postgres* -v
+./run_postgres_incremental_demo.sh
+# Commit only if all pass
+```
 
 **Definition of Done:**
-- ✅ Connector uses Airbyte/Fivetran-compatible parameters
-- ✅ Incremental loading reduces data transfer by >90% for typical scenarios
+- ✅ PostgreSQL connector specification complete
+- ✅ Incremental loading reduces data transfer by >90%
 - ✅ Connection pooling handles concurrent requests efficiently
-- ✅ Schema changes are detected and reported clearly
-- ✅ All tests passing with >90% coverage
-- ✅ Performance benchmarks show significant improvement
-- ✅ Documentation includes migration examples
-
-**Success Criteria:**
-- 10x faster performance for incremental loads
-- Compatible with existing PostgreSQL configurations
-- Schema changes don't break pipelines unexpectedly
+- ✅ All tests passing (>90% coverage)
+- ✅ Demo shows 10x faster incremental performance
+- ✅ No commits with failing tests
 
 ### Task 2.3: Enhanced S3 Connector
 
 **Description:** Enhance S3 connector with cost management, partition awareness, and multiple file format support using industry-standard parameters.
 
-**Technical Reference:** [Cloud Storage Sources with Cost Management](docs/developer/technical/implementation/SQLFlow_Connector_Strategy_Technical_Design.md#enhanced-source-configuration-with-industry-standards-and-debug-support)
+**Development Methodology:** Document → Implement → Test → Demo → Commit (only if pytest passes)
 
 **Files Impacted:**
 - `sqlflow/connectors/s3_connector.py`
 - `tests/integration/connectors/test_s3_connector.py`
 
-**Subtasks:**
+#### Phase 2.3.1: Documentation (Day 1)
+1. **Create S3 Connector Specification**:
+   - `docs/developer/technical/s3_connector_spec.md`
+   - Define cost management features with spending limits
+   - Specify partition awareness for efficient data reading
+   - Document multiple file format support (CSV, Parquet, JSON)
+
+#### Phase 2.3.2: Implementation (Day 2-4)
 1. Implement cost management features with spending limits
 2. Add partition awareness for efficient data reading
 3. Support multiple file formats (CSV, Parquet, JSON)
 4. Implement intelligent file discovery with pattern matching
 5. Add data sampling for development environments
 
-**Testing Requirements:**
-- Tests with real S3 buckets and various file formats
-- Tests for partition awareness and optimization
-- Tests for cost management and spending limits
-- Tests for file pattern matching and discovery
-- Tests for data sampling functionality
-- Performance tests with large datasets
+#### Phase 2.3.3: Testing (Day 4)
+**Must pass before commits:**
+```bash
+pytest tests/unit/connectors/test_s3_connector.py -v
+pytest tests/integration/connectors/test_s3_cost_management.py -v
+```
+
+#### Phase 2.3.4: Demo Verification (Day 5)
+1. **S3 Cost Management Demo**:
+   ```sql
+   SOURCE s3_events TYPE S3 PARAMS {
+       "bucket": "analytics-data",
+       "prefix": "events/",
+       "file_format": "parquet",
+       "sync_mode": "incremental",
+       "cursor_field": "event_timestamp",
+       "partition_keys": ["year", "month", "day"],
+       "cost_limit_usd": 5.00,
+       "dev_sampling": 0.1
+   };
+   ```
+
+#### Phase 2.3.5: Commit (Only if All Tests Pass)
+```bash
+# Pre-commit checklist:
+pytest tests/unit/connectors/test_s3* -v
+pytest tests/integration/connectors/test_s3* -v
+./run_s3_cost_management_demo.sh
+# Commit only if all pass
+```
 
 **Definition of Done:**
+- ✅ S3 connector specification complete
 - ✅ Cost management prevents unexpected charges
 - ✅ Partition awareness reduces scan costs by >70%
-- ✅ Multiple file formats supported seamlessly
-- ✅ File discovery handles complex directory structures
-- ✅ All tests passing with >90% coverage
-- ✅ Data sampling works correctly in dev environments
-- ✅ Documentation includes cost optimization guides
-
-**Success Criteria:**
-- Cost controls prevent budget overruns
-- Partition optimization significantly reduces scan costs
-- Supports common enterprise file organization patterns
+- ✅ All tests passing (>90% coverage)
+- ✅ Demo shows cost controls and optimization
+- ✅ No commits with failing tests
 
 ### Task 2.4: Resilience Patterns Implementation
 
 **Description:** Implement comprehensive resilience patterns including retry logic, circuit breakers, and rate limiting for production reliability.
 
-**Technical Reference:** [SaaS API Sources with Enhanced Error Handling](docs/developer/technical/implementation/SQLFlow_Connector_Strategy_Technical_Design.md#enhanced-source-configuration-with-industry-standards-and-debug-support)
+**Development Methodology:** Document → Implement → Test → Demo → Commit (only if pytest passes)
 
 **Files Impacted:**
 - `sqlflow/connectors/resilience.py` (new)
 - `sqlflow/connectors/base.py`
 - All connector implementations
 
-**Subtasks:**
+#### Phase 2.4.1: Documentation (Day 1-2)
+1. **Create Resilience Patterns Specification**:
+   - `docs/developer/technical/resilience_patterns_spec.md`
+   - Define exponential backoff retry mechanism
+   - Specify circuit breaker pattern for failing services
+   - Document rate limiting with token bucket algorithm
+
+#### Phase 2.4.2: Implementation (Day 3-5)
 1. Implement exponential backoff retry mechanism
 2. Add circuit breaker pattern for failing services
 3. Implement rate limiting with token bucket algorithm
 4. Add automatic recovery procedures
 5. Create comprehensive error classification system
 
-**Testing Requirements:**
-- Tests for retry logic with various failure scenarios
-- Tests for circuit breaker behavior under load
-- Tests for rate limiting effectiveness
-- Tests for automatic recovery procedures
-- Integration tests with real services under failure
-- Chaos engineering tests for resilience validation
+#### Phase 2.4.3: Testing (Day 6)
+**Must pass before commits:**
+```bash
+pytest tests/unit/connectors/test_resilience.py -v
+pytest tests/integration/connectors/test_resilience_patterns.py -v
+```
+
+#### Phase 2.4.4: Demo Verification (Day 6-7)
+1. **Resilience Demo with Simulated Failures**:
+   - Test connector behavior under API failures
+   - Demonstrate automatic retry with exponential backoff
+   - Show circuit breaker preventing cascading failures
+   - Verify rate limiting stays within API limits
+
+#### Phase 2.4.5: Commit (Only if All Tests Pass)
+```bash
+# Pre-commit checklist:
+pytest tests/unit/connectors/test_resilience* -v
+pytest tests/integration/connectors/test_resilience* -v
+./run_resilience_patterns_demo.sh
+# Commit only if all pass
+```
 
 **Definition of Done:**
-- ✅ Retry logic handles transient failures gracefully
-- ✅ Circuit breakers prevent cascading failures
-- ✅ Rate limiting stays within API limits
-- ✅ Automatic recovery reduces manual intervention
-- ✅ All tests passing with >90% coverage
-- ✅ Chaos engineering tests validate resilience
-- ✅ Error classification helps debugging
+- ✅ Resilience patterns specification complete
+- ✅ 99.5% success rate even with 20% API failure rate
+- ✅ Zero rate limit violations
+- ✅ All tests passing (>90% coverage)
+- ✅ Demo shows automatic recovery from failures
+- ✅ No commits with failing tests
 
-**Success Criteria:**
-- 99.5% success rate even with 20% API failure rate
-- Zero rate limit violations
-- Automatic recovery from common failure modes
+### Task 2.5: Phase 2 Demo Integration
 
-### Task 2.5: Generic REST API Connector
+**Description:** Create comprehensive Phase 2 demo showcasing complete incremental loading integration and connector enhancements.
 
-**Description:** Create a generic REST API connector framework that can be configured for various SaaS APIs with standard authentication and pagination patterns.
-
-**Technical Reference:** [REST API Connector](docs/developer/technical/implementation/SQLFlow_Connector_Strategy_Technical_Design.md#tier-1-essential-sme-connectors-mvp)
+**Development Methodology:** Document → Create → Test → Present → Archive
 
 **Files Impacted:**
-- `sqlflow/connectors/rest_api_connector.py` (new)
-- `tests/integration/connectors/test_rest_api_connector.py` (new)
+- `examples/phase2_connector_demo/` (new directory)
+- `docs/demos/phase2_connector_demo.md` (new)
 
-**Subtasks:**
-1. Implement configurable authentication (Bearer, OAuth, API Key)
-2. Add pagination support (offset, cursor, page-based)
-3. Implement response parsing and schema inference
-4. Add request/response logging for debugging
-5. Create configuration templates for common APIs
+#### Phase 2.5.1: Demo Planning (Day 1)
+1. **Create Demo Specification**:
+   - Document complete end-to-end incremental loading workflow
+   - Plan PostgreSQL and S3 connector demonstrations
+   - Design resilience patterns demonstration scenarios
 
-**Testing Requirements:**
-- Tests with mock REST APIs for various patterns
-- Tests for different authentication methods
-- Tests for pagination with large datasets
-- Tests for schema inference from JSON responses
-- Integration tests with real public APIs
-- Tests for error handling and rate limiting
+#### Phase 2.5.2: Demo Implementation (Day 1)
+1. Create comprehensive demo pipeline using all Phase 2 features
+2. Include performance benchmarks and comparisons
+3. Show real watermark-based incremental loading
+4. Demonstrate error recovery and resilience patterns
+
+#### Phase 2.5.3: Demo Testing (Day 2)
+**Must work perfectly before presentation:**
+```bash
+./run_complete_phase2_demo.sh
+./verify_all_phase2_features.sh
+```
+
+#### Phase 2.5.4: Demo Presentation (Day 2)
+- Present to stakeholders
+- Document results and feedback
+- Create demo video for future reference
 
 **Definition of Done:**
-- ✅ Supports major authentication patterns
-- ✅ Pagination handles large datasets efficiently
-- ✅ Schema inference works with complex JSON
-- ✅ Configuration templates reduce setup time
-- ✅ All tests passing with >90% coverage
-- ✅ Comprehensive error handling and debugging
-- ✅ Documentation with API configuration examples
+- ✅ Demo specification complete
+- ✅ All Phase 2 features working in demo
+- ✅ Performance improvements clearly demonstrated
+- ✅ Demo runs without errors
+- ✅ Stakeholder presentation completed
+- ✅ Results documented for future reference
 
 **Success Criteria:**
-- Works with 80% of common REST APIs out of the box
-- Configuration time <5 minutes for standard APIs
-- Reliable handling of large API responses
+- Demo clearly shows before/after Phase 2 improvements
+- Incremental loading performance gains demonstrated
+- Connector reliability under failure scenarios shown
+- Industry-standard parameter compatibility verified
 
 ---
 

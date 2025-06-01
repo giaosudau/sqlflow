@@ -1103,15 +1103,182 @@ class LocalExecutor(BaseExecutor):
                 "query", step.get("params", {})
             ),  # Try 'query' first, then 'params'
             "is_from_profile": step.get("is_from_profile", False),
+            # Store industry-standard parameters for incremental loading
+            "sync_mode": step.get("sync_mode", "full_refresh"),
+            "cursor_field": step.get("cursor_field"),
+            "primary_key": step.get("primary_key", []),
         }
 
         logger.debug(
-            f"Stored SOURCE definition '{source_name}' with type '{self.source_definitions[source_name]['connector_type']}'"
+            f"Stored SOURCE definition '{source_name}' with type '{self.source_definitions[source_name]['connector_type']}', sync_mode='{self.source_definitions[source_name]['sync_mode']}'"
         )
+
+        # Check for incremental source execution
+        sync_mode = step.get("sync_mode", "full_refresh")
+        if sync_mode == "incremental":
+            return self._execute_incremental_source_definition(step)
 
         if step.get("is_from_profile"):
             return self._handle_profile_based_source(step, step_id, source_name)
         return self._handle_traditional_source(step, step_id, source_name)
+
+    def _execute_incremental_source_definition(
+        self, step: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Execute SOURCE definition with automatic incremental loading.
+
+        This method bridges the gap between industry-standard parameter parsing
+        and actual automatic incremental execution by immediately reading and
+        filtering data when sync_mode='incremental' is specified.
+
+        Args:
+        ----
+            step: Source definition step with incremental parameters
+
+        Returns:
+        -------
+            Dict containing execution results with watermark information
+
+        """
+        source_name = step["name"]
+
+        # Extract parameters from the correct location (compiled JSON uses 'query')
+        params = step.get("query", step.get("params", {}))
+        cursor_field = params.get("cursor_field", step.get("cursor_field"))
+
+        # Validate incremental requirements
+        if not cursor_field:
+            raise ValueError(
+                f"SOURCE {source_name} with sync_mode='incremental' requires cursor_field parameter"
+            )
+
+        # Get pipeline context for watermark key generation
+        pipeline_name = getattr(self, "pipeline_name", "default_pipeline")
+
+        logger.info(
+            f"Executing incremental SOURCE {source_name} with cursor_field={cursor_field}"
+        )
+
+        try:
+            # Get current watermark for this source
+            last_cursor_value = None
+            if self.watermark_manager:
+                last_cursor_value = self.watermark_manager.get_source_watermark(
+                    pipeline=pipeline_name,
+                    source=source_name,
+                    cursor_field=cursor_field,
+                )
+
+            logger.info(
+                f"Incremental SOURCE {source_name}: last_cursor_value={last_cursor_value}"
+            )
+
+            # Get connector instance
+            connector = self._get_incremental_connector_instance(step)
+            if not connector.supports_incremental():
+                logger.warning(
+                    f"Connector {source_name} doesn't support incremental, falling back to full refresh"
+                )
+                return self._handle_traditional_source(step, step["id"], source_name)
+
+            # Read incremental data with automatic filtering
+            max_cursor_value = last_cursor_value
+            total_rows = 0
+
+            # Get object name for reading (table name, file path, etc.)
+            object_name = self._extract_object_name_from_step(step)
+
+            for chunk in connector.read_incremental(
+                object_name=object_name,
+                cursor_field=cursor_field,
+                cursor_value=last_cursor_value,
+                batch_size=step.get("batch_size", 10000),
+            ):
+                # Store chunk data for subsequent LOAD operations
+                if not hasattr(self, "table_data"):
+                    self.table_data = {}
+                self.table_data[source_name] = chunk
+                total_rows += len(chunk)  # DataChunk has __len__ method
+
+                # Track maximum cursor value in this chunk
+                chunk_max = connector.get_cursor_value(chunk, cursor_field)
+                if chunk_max and (not max_cursor_value or chunk_max > max_cursor_value):
+                    max_cursor_value = chunk_max
+
+            # Update source watermark after successful read (atomic)
+            if self.watermark_manager and max_cursor_value != last_cursor_value:
+                self.watermark_manager.update_source_watermark(
+                    pipeline=pipeline_name,
+                    source=source_name,
+                    cursor_field=cursor_field,
+                    value=max_cursor_value,
+                )
+                logger.info(
+                    f"Updated watermark for {source_name}.{cursor_field}: {last_cursor_value} → {max_cursor_value}"
+                )
+
+            return {
+                "status": "success",
+                "source_name": source_name,
+                "sync_mode": "incremental",
+                "previous_watermark": last_cursor_value,
+                "new_watermark": max_cursor_value,
+                "rows_processed": total_rows,
+                "incremental": True,
+                "connector_type": step.get(
+                    "connector_type", step.get("source_connector_type", "CSV")
+                ),
+            }
+
+        except Exception as e:
+            logger.error(f"Incremental source execution failed for {source_name}: {e}")
+            # Don't update watermark on failure
+            return {
+                "status": "error",
+                "source_name": source_name,
+                "error": str(e),
+                "sync_mode": "incremental",
+            }
+
+    def _get_incremental_connector_instance(self, step: Dict[str, Any]):
+        """Get connector instance for incremental loading."""
+        from sqlflow.connectors.registry import get_connector_class
+
+        connector_type = step.get(
+            "connector_type", step.get("source_connector_type", "CSV")
+        )
+        connector_class = get_connector_class(connector_type)
+        connector = connector_class()
+
+        # Configure the connector with parameters
+        # Try 'query' first (from compiled JSON), then 'params' (from direct step)
+        params = step.get("query", step.get("params", {}))
+        # Substitute variables in parameters
+        params = self._substitute_variables_in_dict(params)
+        connector.configure(params)
+
+        return connector
+
+    def _extract_object_name_from_step(self, step: Dict[str, Any]) -> str:
+        """Extract object name (table, file path) from SOURCE step."""
+        # Try 'query' first (from compiled JSON), then 'params' (from direct step)
+        params = step.get("query", step.get("params", {}))
+
+        # For CSV connector, use 'path' parameter
+        if (
+            step.get("connector_type") == "CSV"
+            or step.get("source_connector_type") == "CSV"
+        ):
+            return params.get("path", params.get("file_path", ""))
+
+        # For database connectors, use 'table' parameter
+        if step.get("connector_type") in ["POSTGRES", "MYSQL"] or step.get(
+            "source_connector_type"
+        ) in ["POSTGRES", "MYSQL"]:
+            return params.get("table", "")
+
+        # For other connectors, try common parameter names
+        return params.get("object_name", params.get("table", params.get("path", "")))
 
     def _handle_traditional_source(
         self, step: Dict[str, Any], step_id: str, source_name: str
@@ -1129,8 +1296,32 @@ class LocalExecutor(BaseExecutor):
             Dict containing execution results
 
         """
-        # Implementation will be added based on requirements
-        return {"status": "success"}
+        try:
+            # For traditional sources (full_refresh), load all data immediately
+            connector = self._get_incremental_connector_instance(step)
+            object_name = self._extract_object_name_from_step(step)
+
+            # Read all data without filtering
+            total_rows = 0
+            for chunk in connector.read(
+                object_name=object_name, batch_size=step.get("batch_size", 10000)
+            ):
+                # Store chunk data for subsequent LOAD operations
+                if not hasattr(self, "table_data"):
+                    self.table_data = {}
+                self.table_data[source_name] = chunk
+                total_rows += len(chunk)
+
+            return {
+                "status": "success",
+                "source_name": source_name,
+                "sync_mode": step.get("sync_mode", "full_refresh"),
+                "rows_processed": total_rows,
+            }
+
+        except Exception as e:
+            logger.error(f"Traditional source execution failed for {source_name}: {e}")
+            return {"status": "error", "source_name": source_name, "error": str(e)}
 
     def _handle_profile_based_source(
         self, step: Dict[str, Any], step_id: str, source_name: str
