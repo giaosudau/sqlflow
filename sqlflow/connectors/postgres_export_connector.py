@@ -50,8 +50,8 @@ class PostgresExportConnector(ExportConnector):
             self.params = PostgresConnectionParams(
                 host=params.get("host", ""),
                 port=int(params.get("port", 5432)),
-                dbname=params.get("dbname", ""),
-                user=params.get("user", ""),
+                database=params.get("dbname", "") or params.get("database", ""),
+                username=params.get("user", "") or params.get("username", ""),
                 password=params.get("password", ""),
                 connect_timeout=int(params.get("connect_timeout", 10)),
                 application_name=params.get("application_name", "sqlflow"),
@@ -62,7 +62,7 @@ class PostgresExportConnector(ExportConnector):
             if self.params is None or not self.params.host:
                 raise ValueError("Host is required")
 
-            if self.params is None or not self.params.dbname:
+            if self.params is None or not self.params.database:
                 raise ValueError("Database name is required")
 
             self.batch_size = int(params.get("batch_size", 1000))
@@ -110,8 +110,8 @@ class PostgresExportConnector(ExportConnector):
                 maxconn=self.params.max_connections,
                 host=self.params.host,
                 port=self.params.port,
-                dbname=self.params.dbname,
-                user=self.params.user,
+                dbname=self.params.database,
+                user=self.params.username,
                 password=self.params.password,
                 connect_timeout=self.params.connect_timeout,
                 application_name=self.params.application_name,
@@ -139,8 +139,8 @@ class PostgresExportConnector(ExportConnector):
             conn = psycopg2.connect(
                 host=self.params.host,
                 port=self.params.port,
-                dbname=self.params.dbname,
-                user=self.params.user,
+                dbname=self.params.database,
+                user=self.params.username,
                 password=self.params.password,
                 connect_timeout=self.params.connect_timeout,
                 application_name=self.params.application_name,

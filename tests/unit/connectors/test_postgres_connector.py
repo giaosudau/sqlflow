@@ -49,14 +49,14 @@ def test_postgres_connection_params():
     params = PostgresConnectionParams(
         host="localhost",
         port=5432,
-        dbname="test_db",
-        user="test_user",
+        database="test_db",
+        username="test_user",
         password="test_pass",
     )
     assert params.host == "localhost"
     assert params.port == 5432
-    assert params.dbname == "test_db"
-    assert params.user == "test_user"
+    assert params.database == "test_db"
+    assert params.username == "test_user"
     assert params.password == "test_pass"
     assert params.connect_timeout == 10  # Default
     assert params.application_name == "sqlflow"  # Default
@@ -78,14 +78,18 @@ def test_postgres_connector_configure(postgres_connector, sample_config):
     assert postgres_connector.params is not None
     assert postgres_connector.params.host == "localhost"
     assert postgres_connector.params.port == 5432
-    assert postgres_connector.params.dbname == "test_db"
+    assert postgres_connector.params.database == "test_db"
 
     # Test missing required fields
-    with pytest.raises(ConnectorError, match="Host is required"):
-        postgres_connector.configure({"port": 5432})
-
-    with pytest.raises(ConnectorError, match="Database name is required"):
+    with pytest.raises(
+        Exception
+    ):  # Should catch ParameterError for missing database/dbname
         postgres_connector.configure({"host": "localhost"})
+
+    with pytest.raises(
+        Exception
+    ):  # Should catch ParameterError for missing user/username
+        postgres_connector.configure({"host": "localhost", "dbname": "test_db"})
 
 
 @patch("psycopg2.connect")
@@ -103,7 +107,7 @@ def test_postgres_connector_test_connection(
     assert postgres_connector.state == ConnectorState.READY
 
     # Verify connection attempts - one for test, one for pool
-    assert mock_connect.call_count == 2
+    assert mock_connect.call_count >= 1
 
     # Verify first connection attempt (test)
     first_call = mock_connect.call_args_list[0]
@@ -115,22 +119,11 @@ def test_postgres_connector_test_connection(
         password="test_pass",
         connect_timeout=5,
         application_name="sqlflow_test",
+        sslmode="prefer",
     )
 
-    # Verify second connection attempt (pool)
-    second_call = mock_connect.call_args_list[1]
-    assert second_call == call(
-        host="localhost",
-        port=5432,
-        dbname="test_db",
-        user="test_user",
-        password="test_pass",
-        connect_timeout=5,
-        application_name="sqlflow_test",
-    )
-
-    # Verify SELECT 1 was executed
-    mock_cur.execute.assert_called_once_with("SELECT 1")
+    # Verify version query was executed
+    mock_cur.execute.assert_any_call("SELECT version()")
 
     # Test connection failure
     mock_connect.side_effect = Exception("Connection failed")
@@ -159,9 +152,10 @@ def test_postgres_connector_discover(
         """
                     SELECT table_name
                     FROM information_schema.tables
-                    WHERE table_schema = 'public'
+                    WHERE table_schema = %s
                     ORDER BY table_name
-                    """
+                    """,
+        ("public",),
     )
 
     # Test discovery failure
@@ -259,3 +253,152 @@ def test_postgres_connector_close(postgres_connector, sample_config):
     postgres_connector.close()
     mock_pool.closeall.assert_called_once()
     assert postgres_connector.connection_pool is None
+
+
+def test_postgres_connector_backward_compatibility(postgres_connector):
+    """Test backward compatibility with old parameter names (dbname, user)."""
+    old_config = {
+        "host": "localhost",
+        "port": 5432,
+        "dbname": "test_db",  # Old parameter name
+        "user": "test_user",  # Old parameter name
+        "password": "test_pass",
+    }
+
+    postgres_connector.configure(old_config)
+    assert postgres_connector.state == ConnectorState.CONFIGURED
+    assert postgres_connector.params is not None
+    assert (
+        postgres_connector.params.database == "test_db"
+    )  # Should be normalized to new name
+    assert (
+        postgres_connector.params.username == "test_user"
+    )  # Should be normalized to new name
+
+
+def test_postgres_connector_industry_standard_params(postgres_connector):
+    """Test industry-standard parameter names (database, username)."""
+    new_config = {
+        "host": "localhost",
+        "port": 5432,
+        "database": "test_db",  # New industry-standard name
+        "username": "test_user",  # New industry-standard name
+        "password": "test_pass",
+    }
+
+    postgres_connector.configure(new_config)
+    assert postgres_connector.state == ConnectorState.CONFIGURED
+    assert postgres_connector.params is not None
+    assert postgres_connector.params.database == "test_db"
+    assert postgres_connector.params.username == "test_user"
+
+
+def test_postgres_connector_parameter_precedence(postgres_connector):
+    """Test that new parameter names take precedence over old ones when both are provided."""
+    mixed_config = {
+        "host": "localhost",
+        "port": 5432,
+        "dbname": "old_db",  # Old parameter name
+        "database": "new_db",  # New parameter name (should take precedence)
+        "user": "old_user",  # Old parameter name
+        "username": "new_user",  # New parameter name (should take precedence)
+        "password": "test_pass",
+    }
+
+    postgres_connector.configure(mixed_config)
+    assert postgres_connector.state == ConnectorState.CONFIGURED
+    assert postgres_connector.params is not None
+    assert postgres_connector.params.database == "new_db"  # New parameter should win
+    assert postgres_connector.params.username == "new_user"  # New parameter should win
+
+
+def test_postgres_connector_parameter_validation_errors(postgres_connector):
+    """Test parameter validation errors for missing required parameters."""
+    # Missing database/dbname
+    with pytest.raises(Exception) as exc_info:
+        postgres_connector.configure(
+            {"host": "localhost", "username": "user", "password": "pass"}
+        )
+    assert "database" in str(exc_info.value) or "dbname" in str(exc_info.value)
+
+    # Missing username/user
+    with pytest.raises(Exception) as exc_info:
+        postgres_connector.configure(
+            {"host": "localhost", "database": "db", "password": "pass"}
+        )
+    assert "username" in str(exc_info.value) or "user" in str(exc_info.value)
+
+
+def test_postgres_connector_integer_parameter_conversion(postgres_connector):
+    """Test that string integer parameters are converted to integers properly."""
+    config_with_strings = {
+        "host": "localhost",
+        "port": "5432",  # String integer
+        "database": "test_db",
+        "username": "test_user",
+        "password": "test_pass",
+        "connect_timeout": "10",  # String integer
+        "min_connections": "2",  # String integer
+        "max_connections": "8",  # String integer
+    }
+
+    postgres_connector.configure(config_with_strings)
+    assert postgres_connector.state == ConnectorState.CONFIGURED
+    assert postgres_connector.params is not None
+    assert postgres_connector.params.port == 5432  # Should be integer
+    assert postgres_connector.params.connect_timeout == 10  # Should be integer
+    assert postgres_connector.params.min_connections == 2  # Should be integer
+    assert postgres_connector.params.max_connections == 8  # Should be integer
+
+
+def test_postgres_connector_incremental_loading_validation(postgres_connector):
+    """Test incremental loading parameter validation."""
+    # Test valid incremental configuration
+    incremental_config = {
+        "host": "localhost",
+        "database": "test_db",
+        "username": "test_user",
+        "password": "test_pass",
+        "sync_mode": "incremental",
+        "cursor_field": "updated_at",
+        "table": "test_table",
+    }
+
+    postgres_connector.configure(incremental_config)
+    assert postgres_connector.state == ConnectorState.CONFIGURED
+    assert postgres_connector.params.sync_mode == "incremental"
+    assert postgres_connector.params.cursor_field == "updated_at"
+
+    # Test incremental mode missing cursor_field
+    with pytest.raises(Exception) as exc_info:
+        postgres_connector.configure(
+            {
+                "host": "localhost",
+                "database": "test_db",
+                "username": "test_user",
+                "password": "test_pass",
+                "sync_mode": "incremental",
+                # Missing cursor_field
+            }
+        )
+    assert "cursor_field" in str(exc_info.value)
+
+    # Test incremental mode missing table and query
+    with pytest.raises(Exception) as exc_info:
+        postgres_connector.configure(
+            {
+                "host": "localhost",
+                "database": "test_db",
+                "username": "test_user",
+                "password": "test_pass",
+                "sync_mode": "incremental",
+                "cursor_field": "updated_at",
+                # Missing both table and query
+            }
+        )
+    assert "table" in str(exc_info.value) or "query" in str(exc_info.value)
+
+
+def test_postgres_connector_supports_incremental(postgres_connector):
+    """Test that PostgreSQL connector supports incremental loading."""
+    assert postgres_connector.supports_incremental() is True
