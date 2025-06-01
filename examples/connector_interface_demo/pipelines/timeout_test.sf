@@ -1,0 +1,12 @@
+-- Test pipeline with timeout_seconds parameter
+SOURCE test_timeout TYPE CSV PARAMS {
+    "path": "data/test_data.csv",
+    "has_header": true,
+    "timeout_seconds": 300
+};
+
+LOAD timeout_table FROM test_timeout;
+
+EXPORT SELECT COUNT(*) as record_count FROM timeout_table
+TO "output/timeout_test.csv"
+TYPE CSV OPTIONS { "header": true }; 

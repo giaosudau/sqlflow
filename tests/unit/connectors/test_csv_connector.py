@@ -64,7 +64,7 @@ def test_csv_connector_configure(csv_connector, sample_csv_file):
     assert connector.encoding == "latin-1"
 
     # Test missing path
-    with pytest.raises(ConnectorError, match="Path is required"):
+    with pytest.raises(ConnectorError, match="Missing required parameters"):
         csv_connector.configure({})
 
 
@@ -81,7 +81,7 @@ def test_csv_connector_test_connection(csv_connector, sample_csv_file):
     connector.configure({"path": "/nonexistent/file.csv"})
     result = connector.test_connection()
     assert result.success is False
-    assert "not found" in result.message
+    assert result.message is not None and "not found" in result.message
     assert connector.state == ConnectorState.ERROR
 
     # Test unconfigured connector
