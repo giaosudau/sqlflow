@@ -1,0 +1,13 @@
+-- Test pipeline with both batch_size and timeout_seconds parameters
+SOURCE test_combined TYPE CSV PARAMS {
+    "path": "data/test_data.csv",
+    "has_header": true,
+    "batch_size": 1000,
+    "timeout_seconds": 300
+};
+
+LOAD combined_table FROM test_combined;
+
+EXPORT SELECT COUNT(*) as record_count FROM combined_table
+TO "output/combined_test.csv"
+TYPE CSV OPTIONS { "header": true }; 

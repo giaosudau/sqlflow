@@ -1,0 +1,79 @@
+-- Task 2.1: Parameter Validation Demo
+-- This pipeline demonstrates the standardized parameter validation framework
+-- with industry-standard parameter compatibility
+
+-- ============================================================================
+-- Demonstration 1: Basic Valid Parameters
+-- ============================================================================
+
+-- SOURCE with basic valid parameters
+SOURCE test_data TYPE CSV PARAMS {
+    "path": "data/test_data.csv",
+    "has_header": true,
+    "sync_mode": "full_refresh"
+};
+
+-- Load data using standardized parameters
+LOAD test_table FROM test_data;
+
+-- Export results showing successful parameter validation
+EXPORT SELECT 
+    'Parameter Validation Demo' as demo_name,
+    'Basic parameters' as parameter_type,
+    COUNT(*) as records_loaded,
+    'SUCCESS' as validation_status
+FROM test_table
+TO "output/01_parameter_validation_success.csv"
+TYPE CSV OPTIONS { "header": true };
+
+-- ============================================================================
+-- Demonstration 2: Incremental Mode Parameters  
+-- ============================================================================
+
+-- SOURCE with incremental mode parameters
+SOURCE test_data_incremental TYPE CSV PARAMS {
+    "path": "data/test_data.csv", 
+    "has_header": true,
+    "sync_mode": "incremental",
+    "cursor_field": "updated_at",
+    "primary_key": "id"
+};
+
+-- Load with incremental parameters
+LOAD test_table_incremental FROM test_data_incremental;
+
+-- Export incremental parameter validation results
+EXPORT SELECT 
+    'Incremental Parameter Demo' as demo_name,
+    'Incremental mode parameters' as parameter_type,
+    COUNT(*) as records_loaded,
+    MAX(updated_at) as latest_cursor_value,
+    'SUCCESS' as validation_status
+FROM test_table_incremental
+TO "output/01_incremental_params_success.csv"
+TYPE CSV OPTIONS { "header": true };
+
+-- ============================================================================
+-- Demonstration 3: Performance Parameters
+-- ============================================================================
+
+-- SOURCE demonstrating performance parameters
+SOURCE test_data_performance TYPE CSV PARAMS {
+    "path": "data/test_data.csv",
+    "has_header": true,
+    "batch_size": 1000,
+    "timeout_seconds": 300
+};
+
+-- Load with performance parameters
+LOAD test_table_performance FROM test_data_performance;
+
+-- Export performance parameter results
+EXPORT SELECT 
+    'Performance Parameter Demo' as demo_name,
+    'Performance parameters accepted' as parameter_type,
+    COUNT(*) as records_loaded,
+    'Parameter validation handles performance settings' as notes
+FROM test_table_performance
+TO "output/01_performance_params_success.csv"
+TYPE CSV OPTIONS { "header": true }; 

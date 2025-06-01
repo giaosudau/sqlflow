@@ -1,0 +1,12 @@
+-- Test pipeline with batch_size parameter
+SOURCE test_batch TYPE CSV PARAMS {
+    "path": "data/test_data.csv",
+    "has_header": true,
+    "batch_size": 1000
+};
+
+LOAD batch_table FROM test_batch;
+
+EXPORT SELECT COUNT(*) as record_count FROM batch_table
+TO "output/batch_test.csv"
+TYPE CSV OPTIONS { "header": true }; 

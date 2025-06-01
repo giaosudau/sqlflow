@@ -1,0 +1,4 @@
+id,name,updated_at,status
+1,Alice,2024-01-01,active
+2,Bob,2024-01-02,pending
+3,Charlie,2024-01-03,active 

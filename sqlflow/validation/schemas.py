@@ -141,6 +141,12 @@ CSV_SCHEMA = ConnectorSchema(
             description="File encoding",
             allowed_values=["utf-8", "latin-1", "ascii"],
         ),
+        FieldSchema(
+            name="quote_char",
+            required=False,
+            field_type="string",
+            description="Quote character for CSV parsing",
+        ),
         # Incremental loading parameters (industry-standard)
         FieldSchema(
             name="sync_mode",
@@ -160,6 +166,25 @@ CSV_SCHEMA = ConnectorSchema(
             required=False,
             field_type="string",
             description="Cursor field for incremental loading (e.g., timestamp, id)",
+        ),
+        # Performance parameters (industry-standard)
+        FieldSchema(
+            name="batch_size",
+            required=False,
+            field_type="integer",
+            description="Number of records to process in each batch",
+        ),
+        FieldSchema(
+            name="timeout_seconds",
+            required=False,
+            field_type="integer",
+            description="Timeout for operations in seconds",
+        ),
+        FieldSchema(
+            name="max_retries",
+            required=False,
+            field_type="integer",
+            description="Maximum number of retry attempts",
         ),
     ],
 )

@@ -1,0 +1,11 @@
+-- Simple test pipeline
+SOURCE test_simple TYPE CSV PARAMS {
+    "path": "data/test_data.csv",
+    "has_header": true
+};
+
+LOAD simple_table FROM test_simple;
+
+EXPORT SELECT COUNT(*) as record_count FROM simple_table
+TO "output/simple_test.csv"
+TYPE CSV OPTIONS { "header": true }; 

@@ -1092,7 +1092,7 @@ def test_load_with_empty_source_params():
     # Execute the source definition - should fail due to missing required params
     result = executor._execute_source_definition(source_step)
     assert result["status"] == "error"  # Should fail due to missing path parameter
-    assert "Path is required" in result["error"]
+    assert "Missing required parameters" in result["error"]
 
 
 def test_load_mode_case_insensitive():

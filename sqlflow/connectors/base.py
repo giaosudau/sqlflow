@@ -1,8 +1,10 @@
 """Base connector interfaces for SQLFlow."""
 
+import time
 from abc import ABC, abstractmethod
+from datetime import datetime
 from enum import Enum, auto
-from typing import Any, Dict, Iterator, List, Optional
+from typing import Any, Dict, Iterator, List, Optional, Union
 
 import pyarrow as pa
 
@@ -33,6 +35,141 @@ class ConnectorType(Enum):
     SOURCE = "source"  # Can only read data (source connector)
     EXPORT = "export"  # Can only write data (export connector)
     BIDIRECTIONAL = "bidirectional"  # Can both read and write data
+
+
+# Standardized Exception Hierarchy
+class ParameterError(ConnectorError):
+    """Parameter validation errors."""
+
+    def __init__(self, message: str, connector_name: str = "unknown", **kwargs):
+        super().__init__(connector_name, f"Parameter error: {message}")
+
+
+class IncrementalError(ConnectorError):
+    """Incremental loading errors."""
+
+    def __init__(self, message: str, connector_name: str = "unknown", **kwargs):
+        super().__init__(connector_name, f"Incremental error: {message}")
+
+
+class HealthCheckError(ConnectorError):
+    """Health check errors."""
+
+    def __init__(self, message: str, connector_name: str = "unknown", **kwargs):
+        super().__init__(connector_name, f"Health check error: {message}")
+
+
+# Industry-Standard Parameters
+STANDARD_PARAMS = {
+    # Connection parameters
+    "host": str,
+    "port": int,
+    "database": str,
+    "username": str,
+    "password": str,
+    # Incremental loading parameters
+    "sync_mode": str,  # "full_refresh", "incremental", "cdc"
+    "cursor_field": str,  # Field for incremental loading
+    "primary_key": Union[str, List[str]],  # Primary key(s)
+    # Performance parameters
+    "batch_size": int,  # Default: 10000
+    "timeout_seconds": int,  # Default: 300
+    "max_retries": int,  # Default: 3
+    # Data handling parameters
+    "schema": str,  # Schema/namespace
+    "table": str,  # Table/object name
+    "query": str,  # Custom query override
+    "path": str,  # File path for file-based connectors
+    "has_header": bool,  # CSV header flag
+}
+
+
+class ParameterValidator:
+    """Standardized parameter validation for all connectors."""
+
+    def __init__(self, connector_type: str):
+        self.connector_type = connector_type
+        self.required_params = self._get_required_params()
+        self.optional_params = self._get_optional_params()
+
+    def validate(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Validate parameters and return normalized version."""
+        # Check required parameters
+        missing = set(self.required_params) - set(params.keys())
+        if missing:
+            raise ParameterError(f"Missing required parameters: {missing}")
+
+        # Validate parameter types
+        validated = {}
+        for key, value in params.items():
+            validated[key] = self._validate_param_type(key, value)
+
+        # Set defaults for optional parameters
+        for key, default in self.optional_params.items():
+            if key not in validated:
+                validated[key] = default
+
+        return validated
+
+    def _validate_param_type(self, key: str, value: Any) -> Any:
+        """Validate individual parameter type."""
+        expected_type = STANDARD_PARAMS.get(key, str)
+
+        # Handle special cases for complex types
+        if hasattr(expected_type, "__origin__"):
+            # Handle Union types (e.g., Union[str, List[str]])
+            if expected_type.__origin__ is Union:
+                for arg_type in expected_type.__args__:
+                    try:
+                        return self._convert_to_type(value, arg_type)
+                    except (ValueError, TypeError):
+                        continue
+                # If no type worked, raise error
+                raise ParameterError(
+                    f"Parameter '{key}' must be one of {expected_type.__args__}"
+                )
+
+            # Handle List types (e.g., List[str])
+            elif expected_type.__origin__ is list:
+                if not isinstance(value, list):
+                    # Try to convert single value to list
+                    if isinstance(value, str):
+                        return [value]
+                    else:
+                        raise ParameterError(f"Parameter '{key}' must be a list")
+                return value
+
+        # Handle simple types
+        return self._convert_to_type(value, expected_type)
+
+    def _convert_to_type(self, value: Any, target_type: type) -> Any:
+        """Convert value to target type."""
+        if isinstance(value, target_type):
+            return value
+
+        # Special handling for dict types - they shouldn't be converted to strings automatically
+        if target_type == str and isinstance(value, dict):
+            raise ParameterError(f"Cannot convert dict to string: {value}")
+
+        try:
+            return target_type(value)
+        except (ValueError, TypeError):
+            raise ParameterError(
+                f"Cannot convert {type(value).__name__} to {target_type.__name__}"
+            )
+
+    def _get_required_params(self) -> List[str]:
+        """Get required parameters for connector type."""
+        # Override in subclasses for connector-specific requirements
+        return []
+
+    def _get_optional_params(self) -> Dict[str, Any]:
+        """Get optional parameters with defaults."""
+        return {
+            "batch_size": 10000,
+            "timeout_seconds": 300,
+            "max_retries": 3,
+        }
 
 
 class ConnectionTestResult:
@@ -100,13 +237,17 @@ class Schema:
 
 
 class Connector(ABC):
-    """Base class for all source connectors."""
+    """Standardized base class for all source connectors."""
 
     def __init__(self):
         """Initialize a connector."""
         self.state = ConnectorState.CREATED
         self.name: Optional[str] = None
         self.connector_type = ConnectorType.SOURCE
+        self.connection_params: Dict[str, Any] = {}
+        self.is_connected: bool = False
+        self.health_status: str = "unknown"
+        self._parameter_validator: Optional[ParameterValidator] = None
 
     @abstractmethod
     def configure(self, params: Dict[str, Any]) -> None:
@@ -122,6 +263,25 @@ class Connector(ABC):
 
         """
 
+    def validate_params(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Validate and normalize parameters using standardized framework.
+
+        Args:
+        ----
+            params: Parameters to validate
+
+        Returns:
+        -------
+            Validated and normalized parameters
+
+        Raises:
+        ------
+            ParameterError: If validation fails
+        """
+        if self._parameter_validator is None:
+            self._parameter_validator = ParameterValidator(self.__class__.__name__)
+        return self._parameter_validator.validate(params)
+
     @abstractmethod
     def test_connection(self) -> ConnectionTestResult:
         """Test the connection to the data source.
@@ -131,6 +291,69 @@ class Connector(ABC):
             Result of the connection test
 
         """
+
+    def check_health(self) -> Dict[str, Any]:
+        """Comprehensive health check with performance metrics.
+
+        Returns:
+        -------
+            Health status dictionary with metrics
+        """
+        start_time = time.time()
+
+        try:
+            # Test basic connectivity
+            self._test_connection()
+
+            # Test read capability
+            self._test_read_capability()
+
+            # Calculate response time
+            response_time = (time.time() - start_time) * 1000
+
+            self.health_status = "healthy"
+            return {
+                "status": "healthy",
+                "connected": True,
+                "response_time_ms": response_time,
+                "last_check": datetime.utcnow().isoformat(),
+                "capabilities": {
+                    "incremental": self.supports_incremental(),
+                    "batch_reading": True,
+                    "health_monitoring": True,
+                },
+            }
+        except Exception as e:
+            self.health_status = "unhealthy"
+            return {
+                "status": "unhealthy",
+                "connected": False,
+                "error": str(e),
+                "last_check": datetime.utcnow().isoformat(),
+            }
+
+    def _test_connection(self) -> None:
+        """Test basic connection - override in subclasses."""
+        if not self.is_connected:
+            raise ConnectionError("Not connected")
+
+    def _test_read_capability(self) -> None:
+        """Test read capability - override in subclasses."""
+        # Default: no-op, connectors should implement specific tests
+
+    def get_performance_metrics(self) -> Dict[str, Any]:
+        """Get performance metrics for monitoring.
+
+        Returns:
+        -------
+            Performance metrics dictionary
+        """
+        return {
+            "connection_time_ms": 0,
+            "query_time_ms": 0,
+            "rows_per_second": 0,
+            "bytes_transferred": 0,
+        }
 
     @abstractmethod
     def discover(self) -> List[str]:
@@ -215,9 +438,12 @@ class Connector(ABC):
 
         Raises:
         ------
-            ConnectorError: If incremental reading fails
+            IncrementalError: If incremental reading fails
 
         """
+        if not self.supports_incremental():
+            raise IncrementalError("Connector does not support incremental loading")
+
         # Default implementation filters by cursor field
         if cursor_value is not None:
             filters = {cursor_field: {">=": cursor_value}}
@@ -264,27 +490,30 @@ class Connector(ABC):
             pass
         return None
 
-    def validate_incremental_params(self, params: Dict[str, Any]) -> List[str]:
+    def validate_incremental_params(self, params: Dict[str, Any]) -> None:
         """Validate incremental loading parameters.
 
         Args:
         ----
             params: Parameters to validate
 
-        Returns:
-        -------
-            List of validation error messages
+        Raises:
+        ------
+            IncrementalError: If validation fails
 
         """
-        errors = []
         sync_mode = params.get("sync_mode")
 
         if sync_mode == SyncMode.INCREMENTAL.value:
             cursor_field = params.get("cursor_field")
             if not cursor_field:
-                errors.append("cursor_field is required for incremental sync mode")
-
-        return errors
+                raise IncrementalError(
+                    "cursor_field is required for incremental sync mode"
+                )
+            if not self.supports_incremental():
+                raise IncrementalError(
+                    f"{self.__class__.__name__} does not support incremental loading"
+                )
 
     def validate_state(self, expected_state: ConnectorState) -> None:
         """Validate that the connector is in the expected state.

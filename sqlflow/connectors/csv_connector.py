@@ -10,6 +10,9 @@ from sqlflow.connectors.base import (
     ConnectionTestResult,
     Connector,
     ConnectorState,
+    IncrementalError,
+    ParameterError,
+    ParameterValidator,
     Schema,
 )
 from sqlflow.connectors.data_chunk import DataChunk
@@ -18,6 +21,25 @@ from sqlflow.core.errors import ConnectorError
 from sqlflow.logging import get_logger
 
 logger = get_logger(__name__)
+
+
+class CSVParameterValidator(ParameterValidator):
+    """Parameter validator for CSV connector."""
+
+    def _get_required_params(self) -> List[str]:
+        """Get required parameters for CSV connector."""
+        return ["path"]
+
+    def _get_optional_params(self) -> Dict[str, Any]:
+        """Get optional parameters with defaults."""
+        base_params = super()._get_optional_params()
+        csv_params = {
+            "delimiter": ",",
+            "has_header": True,
+            "quote_char": '"',
+            "encoding": "utf-8",
+        }
+        return {**base_params, **csv_params}
 
 
 @register_connector("CSV")
@@ -32,6 +54,7 @@ class CSVConnector(Connector):
         self.has_header: bool = True
         self.quote_char: str = '"'
         self.encoding: str = "utf-8"
+        self._parameter_validator = CSVParameterValidator("CSV")
 
     def configure(self, params: Dict[str, Any]) -> None:
         """Configure the connector with parameters.
@@ -46,23 +69,58 @@ class CSVConnector(Connector):
 
         """
         try:
-            self.path = params.get("path")
-            if not self.path:
-                raise ValueError("Path is required")
+            # Validate parameters using standardized framework
+            validated_params = self.validate_params(params)
 
-            self.delimiter = params.get("delimiter", ",")
+            self.path = validated_params["path"]
+            self.delimiter = validated_params["delimiter"]
+            self.has_header = validated_params["has_header"]
+            self.quote_char = validated_params["quote_char"]
+            self.encoding = validated_params["encoding"]
 
-            # Handle variations of header parameter naming
-            self.has_header = params.get("has_header", params.get("header", True))
+            # Store validated parameters
+            self.connection_params = validated_params
+
+            # Validate incremental parameters if applicable
+            if validated_params.get("sync_mode") == "incremental":
+                self.validate_incremental_params(validated_params)
+
             logger.debug(f"CSV Connector configured with has_header: {self.has_header}")
-
-            self.quote_char = params.get("quote_char", '"')
-            self.encoding = params.get("encoding", "utf-8")
-
             self.state = ConnectorState.CONFIGURED
+        except (ParameterError, IncrementalError):
+            # Let parameter and incremental errors propagate as-is
+            self.state = ConnectorState.ERROR
+            raise
         except Exception as e:
             self.state = ConnectorState.ERROR
             raise ConnectorError(self.name or "CSV", f"Configuration failed: {str(e)}")
+
+    def _test_connection(self) -> None:
+        """Test basic connection - check if file exists and is readable."""
+        if not self.path:
+            raise ConnectionError("Path not configured")
+
+        if not os.path.exists(self.path):
+            raise ConnectionError(f"File not found: {self.path}")
+
+        # Try to read first byte to ensure file is readable
+        with open(self.path, "r", encoding=self.encoding) as f:
+            f.read(1)
+
+    def _test_read_capability(self) -> None:
+        """Test read capability - try to read CSV header."""
+        if not self.path:
+            raise ConnectionError("Path not configured")
+
+        try:
+            with open(self.path, "r", encoding=self.encoding) as f:
+                reader = csv.reader(
+                    f, delimiter=self.delimiter, quotechar=self.quote_char
+                )
+                # Try to read first row
+                next(reader)
+        except Exception as e:
+            raise ConnectionError(f"Cannot read CSV file: {e}")
 
     def test_connection(self) -> ConnectionTestResult:
         """Test if the CSV file exists and is readable.
@@ -75,20 +133,13 @@ class CSVConnector(Connector):
         self.validate_state(ConnectorState.CONFIGURED)
 
         try:
-            if not self.path:
-                return ConnectionTestResult(False, "Path not configured")
-
-            if not os.path.exists(self.path):
-                self.state = ConnectorState.ERROR
-                return ConnectionTestResult(False, f"File not found: {self.path}")
-
-            with open(self.path, "r", encoding=self.encoding) as f:
-                f.read(1)
-
+            self._test_connection()
             self.state = ConnectorState.READY
+            self.is_connected = True
             return ConnectionTestResult(True)
         except Exception as e:
             self.state = ConnectorState.ERROR
+            self.is_connected = False
             return ConnectionTestResult(False, str(e))
 
     def discover(self) -> List[str]:
@@ -335,6 +386,10 @@ class CSVConnector(Connector):
         -------
             Iterator yielding DataChunk objects with filtered data
         """
+        # Check if incremental reading is supported
+        if not self.supports_incremental():
+            raise IncrementalError("Connector does not support incremental loading")
+
         logger.info(
             f"CSV incremental read: cursor_field={cursor_field}, cursor_value={cursor_value}"
         )
