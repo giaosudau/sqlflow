@@ -253,6 +253,10 @@ variables:
             errors1 = validate_pipeline_with_caching(pipeline_path, temp_project_dir)
             assert len(errors1) == 0
 
+            # Add a small delay to ensure filesystem modification time differs
+            # This is necessary for CI environments where operations happen very quickly
+            time.sleep(0.1)
+
             # Modify the file to introduce an error
             with open(pipeline_path, "w") as f:
                 f.write(
