@@ -35,6 +35,17 @@ class FieldSchema:
             return errors
 
         # Type validation
+        errors.extend(self._validate_type(value))
+
+        # Value validation
+        errors.extend(self._validate_value(value))
+
+        return errors
+
+    def _validate_type(self, value: Any) -> List[str]:
+        """Validate the type of a field value."""
+        errors = []
+
         if self.field_type == "string" and not isinstance(value, str):
             errors.append(
                 f"Field '{self.name}' must be a string, got {type(value).__name__}"
@@ -51,6 +62,16 @@ class FieldSchema:
             errors.append(
                 f"Field '{self.name}' must be an array, got {type(value).__name__}"
             )
+        elif self.field_type == "number" and not isinstance(value, (int, float, str)):
+            errors.append(
+                f"Field '{self.name}' must be a number (int, float, or string), got {type(value).__name__}"
+            )
+
+        return errors
+
+    def _validate_value(self, value: Any) -> List[str]:
+        """Validate the value constraints of a field."""
+        errors = []
 
         # Value validation
         if self.allowed_values and value not in self.allowed_values:
@@ -373,8 +394,9 @@ def validate_postgres_params(params: Dict[str, Any]) -> List[str]:
 
 S3_SCHEMA = ConnectorSchema(
     name="S3",
-    description="Amazon S3 connector for reading/writing files",
+    description="Enhanced Amazon S3 connector with cost management, partition awareness, and multi-format support",
     fields=[
+        # Core S3 parameters
         FieldSchema(
             name="bucket",
             required=True,
@@ -383,20 +405,23 @@ S3_SCHEMA = ConnectorSchema(
         ),
         FieldSchema(
             name="key",
-            required=True,
+            required=False,  # Not always required - can use path_prefix for discovery
             field_type="string",
             description="S3 object key (file path)",
         ),
         FieldSchema(
-            name="region", required=False, field_type="string", description="AWS region"
-        ),
-        FieldSchema(
-            name="format",
+            name="region",
             required=False,
             field_type="string",
-            description="File format",
-            allowed_values=["csv", "parquet", "json"],
+            description="AWS region (default: us-east-1)",
         ),
+        FieldSchema(
+            name="path_prefix",
+            required=False,
+            field_type="string",
+            description="S3 path prefix for object discovery",
+        ),
+        # Authentication parameters
         FieldSchema(
             name="access_key_id",
             required=False,
@@ -408,6 +433,206 @@ S3_SCHEMA = ConnectorSchema(
             required=False,
             field_type="string",
             description="AWS secret access key",
+        ),
+        FieldSchema(
+            name="session_token",
+            required=False,
+            field_type="string",
+            description="AWS session token",
+        ),
+        FieldSchema(
+            name="endpoint_url",
+            required=False,
+            field_type="string",
+            description="Custom S3 endpoint URL (for MinIO, localstack, etc.)",
+        ),
+        # File format and processing parameters
+        FieldSchema(
+            name="file_format",
+            required=False,
+            field_type="string",
+            description="File format",
+            allowed_values=["csv", "parquet", "json", "jsonl", "tsv", "avro"],
+        ),
+        FieldSchema(
+            name="compression",
+            required=False,
+            field_type="string",
+            description="Compression format",
+            allowed_values=["gzip", "bzip2", "lz4", "snappy"],
+        ),
+        # Cost management parameters
+        FieldSchema(
+            name="cost_limit_usd",
+            required=False,
+            field_type="number",  # Allow both string and numeric for JSON compatibility
+            description="Maximum cost limit in USD",
+        ),
+        FieldSchema(
+            name="max_files_per_run",
+            required=False,
+            field_type="integer",
+            description="Maximum number of files to process per run",
+        ),
+        FieldSchema(
+            name="max_data_size_gb",
+            required=False,
+            field_type="number",  # Allow both string and numeric for JSON compatibility
+            description="Maximum data size in GB",
+        ),
+        # Development features
+        FieldSchema(
+            name="dev_sampling",
+            required=False,
+            field_type="number",  # Allow both string and numeric for JSON compatibility
+            description="Development sampling rate (0.0-1.0)",
+        ),
+        FieldSchema(
+            name="dev_max_files",
+            required=False,
+            field_type="integer",
+            description="Maximum files for development mode",
+        ),
+        # Partition awareness
+        FieldSchema(
+            name="partition_keys",
+            required=False,
+            field_type="string",  # Allow comma-separated string
+            description="Partition keys (comma-separated)",
+        ),
+        FieldSchema(
+            name="partition_filter",
+            required=False,
+            field_type="string",  # JSON string for complex filters
+            description="Partition filter criteria",
+        ),
+        # Incremental loading parameters
+        FieldSchema(
+            name="sync_mode",
+            required=False,
+            field_type="string",
+            description="Synchronization mode",
+            allowed_values=["full_refresh", "incremental"],
+        ),
+        FieldSchema(
+            name="cursor_field",
+            required=False,
+            field_type="string",
+            description="Cursor field for incremental loading",
+        ),
+        # Performance parameters
+        FieldSchema(
+            name="batch_size",
+            required=False,
+            field_type="integer",
+            description="Number of rows to process per batch",
+        ),
+        FieldSchema(
+            name="parallel_workers",
+            required=False,
+            field_type="integer",
+            description="Number of parallel processing workers",
+        ),
+        FieldSchema(
+            name="max_retries",
+            required=False,
+            field_type="integer",
+            description="Maximum number of retry attempts",
+        ),
+        FieldSchema(
+            name="timeout_seconds",
+            required=False,
+            field_type="integer",
+            description="Request timeout in seconds",
+        ),
+        # Security parameters
+        FieldSchema(
+            name="use_ssl",
+            required=False,
+            field_type="boolean",
+            description="Use SSL for connections",
+        ),
+        FieldSchema(
+            name="server_side_encryption",
+            required=False,
+            field_type="string",
+            description="Server-side encryption configuration",
+        ),
+        # Format-specific parameters
+        FieldSchema(
+            name="csv_delimiter",
+            required=False,
+            field_type="string",
+            description="CSV field delimiter",
+        ),
+        FieldSchema(
+            name="csv_header",
+            required=False,
+            field_type="boolean",
+            description="CSV has header row",
+        ),
+        FieldSchema(
+            name="csv_encoding",
+            required=False,
+            field_type="string",
+            description="CSV file encoding",
+        ),
+        FieldSchema(
+            name="parquet_columns",
+            required=False,
+            field_type="string",  # Allow string for JSON compatibility
+            description="Parquet columns to read",
+        ),
+        FieldSchema(
+            name="parquet_filters",
+            required=False,
+            field_type="string",  # Allow string for JSON compatibility
+            description="Parquet row group filters",
+        ),
+        FieldSchema(
+            name="json_flatten",
+            required=False,
+            field_type="boolean",
+            description="Flatten nested JSON objects",
+        ),
+        FieldSchema(
+            name="json_max_depth",
+            required=False,
+            field_type="integer",
+            description="Maximum JSON nesting depth",
+        ),
+        # Legacy parameter support for backward compatibility
+        FieldSchema(
+            name="format",
+            required=False,
+            field_type="string",
+            description="File format (legacy parameter)",
+            allowed_values=["csv", "parquet", "json", "jsonl", "tsv", "avro"],
+        ),
+        FieldSchema(
+            name="prefix",
+            required=False,
+            field_type="string",
+            description="S3 path prefix (legacy parameter)",
+        ),
+        FieldSchema(
+            name="access_key",
+            required=False,
+            field_type="string",
+            description="AWS access key (legacy parameter)",
+        ),
+        FieldSchema(
+            name="secret_key",
+            required=False,
+            field_type="string",
+            description="AWS secret key (legacy parameter)",
+        ),
+        # Testing parameters
+        FieldSchema(
+            name="mock_mode",
+            required=False,
+            field_type="boolean",
+            description="Enable mock mode for testing (bypasses real S3 calls)",
         ),
     ],
 )

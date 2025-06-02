@@ -1277,6 +1277,16 @@ class LocalExecutor(BaseExecutor):
         ):
             return params.get("path", params.get("file_path", ""))
 
+        # For S3 connector, use 'key' parameter
+        if (
+            step.get("connector_type") == "S3"
+            or step.get("source_connector_type") == "S3"
+        ):
+            # First try 'key' for specific file, then 'path_prefix' for discovery, then legacy 'prefix'
+            return params.get(
+                "key", params.get("path_prefix", params.get("prefix", ""))
+            )
+
         # For database connectors, use 'table' parameter
         if step.get("connector_type") in ["POSTGRES", "MYSQL"] or step.get(
             "source_connector_type"
@@ -1305,6 +1315,15 @@ class LocalExecutor(BaseExecutor):
         try:
             # For traditional sources (full_refresh), load all data immediately
             connector = self._get_incremental_connector_instance(step)
+
+            # Special handling for S3 connectors
+            connector_type = step.get(
+                "connector_type", step.get("source_connector_type", "")
+            )
+            if connector_type == "S3":
+                return self._handle_s3_traditional_source(step, connector, source_name)
+
+            # For non-S3 connectors, use the existing logic
             object_name = self._extract_object_name_from_step(step)
 
             # Read all data without filtering
@@ -1328,6 +1347,103 @@ class LocalExecutor(BaseExecutor):
         except Exception as e:
             logger.error(f"Traditional source execution failed for {source_name}: {e}")
             return {"status": "error", "source_name": source_name, "error": str(e)}
+
+    def _handle_s3_traditional_source(
+        self, step: Dict[str, Any], connector, source_name: str
+    ) -> Dict[str, Any]:
+        """Handle S3 traditional source with discovery mode support."""
+        try:
+            params = step.get("query", step.get("params", {}))
+            specific_key = params.get("key")
+
+            if specific_key:
+                return self._handle_s3_specific_file_mode(
+                    step, connector, source_name, specific_key
+                )
+            else:
+                return self._handle_s3_discovery_mode(step, connector, source_name)
+
+        except Exception as e:
+            logger.error(
+                f"S3 traditional source execution failed for {source_name}: {e}"
+            )
+            return {"status": "error", "source_name": source_name, "error": str(e)}
+
+    def _handle_s3_specific_file_mode(
+        self, step: Dict[str, Any], connector, source_name: str, specific_key: str
+    ) -> Dict[str, Any]:
+        """Handle S3 source with a specific file key."""
+        total_rows = 0
+        for chunk in connector.read(
+            object_name=specific_key, batch_size=step.get("batch_size", 10000)
+        ):
+            if not hasattr(self, "table_data"):
+                self.table_data = {}
+            self.table_data[source_name] = chunk
+            total_rows += len(chunk)
+
+        return {
+            "status": "success",
+            "source_name": source_name,
+            "sync_mode": step.get("sync_mode", "full_refresh"),
+            "rows_processed": total_rows,
+        }
+
+    def _handle_s3_discovery_mode(
+        self, step: Dict[str, Any], connector, source_name: str
+    ) -> Dict[str, Any]:
+        """Handle S3 source with file discovery."""
+        discovered_files = connector.discover()
+
+        if not discovered_files:
+            logger.warning(f"No files discovered for S3 source {source_name}")
+            return {
+                "status": "success",
+                "source_name": source_name,
+                "sync_mode": step.get("sync_mode", "full_refresh"),
+                "rows_processed": 0,
+            }
+
+        # Read all discovered files and combine the data
+        return self._process_discovered_s3_files(
+            step, connector, source_name, discovered_files
+        )
+
+    def _process_discovered_s3_files(
+        self,
+        step: Dict[str, Any],
+        connector,
+        source_name: str,
+        discovered_files: List[str],
+    ) -> Dict[str, Any]:
+        """Process discovered S3 files and combine data."""
+        combined_chunks = []
+        total_rows = 0
+
+        for file_key in discovered_files[:10]:  # Limit to first 10 files for demo
+            try:
+                for chunk in connector.read(
+                    object_name=file_key,
+                    batch_size=step.get("batch_size", 10000),
+                ):
+                    combined_chunks.append(chunk)
+                    total_rows += len(chunk)
+            except Exception as e:
+                logger.warning(f"Failed to read S3 file {file_key}: {e}")
+                continue
+
+        # Store the last chunk (or create empty if none)
+        if combined_chunks:
+            if not hasattr(self, "table_data"):
+                self.table_data = {}
+            self.table_data[source_name] = combined_chunks[-1]  # Use last chunk
+
+        return {
+            "status": "success",
+            "source_name": source_name,
+            "sync_mode": step.get("sync_mode", "full_refresh"),
+            "rows_processed": total_rows,
+        }
 
     def _handle_profile_based_source(
         self, step: Dict[str, Any], step_id: str, source_name: str

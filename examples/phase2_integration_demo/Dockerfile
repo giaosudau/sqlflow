@@ -1,4 +1,8 @@
 # SQLFlow Phase 2 Integration Demo Dockerfile
+# Optimized for faster builds through:
+# 1. Layer caching: Dependencies installed before code copy
+# 2. Using pyproject.toml extras instead of manual pip installs
+# 3. Minimal duplicate dependency installation
 FROM python:3.11-slim
 
 # Set working directory
@@ -12,20 +16,31 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy SQLFlow source code (now from root context)
+# Copy only pyproject.toml for dependency installation (README.md and LICENSE are optional)
+# Since main .dockerignore excludes .md files, we'll create minimal placeholder files
+COPY pyproject.toml /sqlflow_source/
+
+# Create minimal placeholder files that pip might expect but are not required for functionality
+RUN touch /sqlflow_source/README.md /sqlflow_source/LICENSE
+
+# Create minimal sqlflow package structure for installation
+RUN mkdir -p /sqlflow_source/sqlflow && touch /sqlflow_source/sqlflow/__init__.py
+
+# Install SQLFlow dependencies first (leverages Docker layer caching)
+# Using postgres and aws extras since they cover most demo dependencies
+RUN cd /sqlflow_source && pip install -e ".[postgres,aws,dev]"
+
+# Install additional demo-specific dependencies not in pyproject.toml
+# Note: numpy is already included in core dependencies via pandas/pyarrow
+# Only minio client is needed for S3 compatibility testing
+RUN pip install \
+    minio==7.2.*
+
+# Now copy the full SQLFlow source code (this layer will rebuild when code changes)
 COPY . /sqlflow_source/
 
-# Install SQLFlow in development mode
-RUN cd /sqlflow_source && pip install -e ".[dev]"
-
-# Install additional demo dependencies with compatible versions
-RUN pip install \
-    "numpy<2.0" \
-    boto3==1.34.* \
-    psycopg2-binary==2.9.* \
-    "pandas>=2.0,<2.3" \
-    "pyarrow>=14.0,<15.0" \
-    minio==7.2.*
+# Reinstall SQLFlow to pick up the actual code (fast since dependencies are cached)
+RUN cd /sqlflow_source && pip install -e ".[postgres,aws,dev]" --no-deps
 
 # Create demo directories
 RUN mkdir -p /app/pipelines /app/data /app/profiles /app/output /app/target /app/scripts
