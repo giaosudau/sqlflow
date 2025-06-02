@@ -15,7 +15,6 @@ from sqlflow.connectors.base import (
     ConnectionTestResult,
     Connector,
     ConnectorState,
-    HealthCheckError,
     IncrementalError,
     ParameterError,
     ParameterValidator,
@@ -23,6 +22,7 @@ from sqlflow.connectors.base import (
 )
 from sqlflow.connectors.data_chunk import DataChunk
 from sqlflow.connectors.registry import register_connector
+from sqlflow.connectors.resilience import DB_RESILIENCE_CONFIG, resilient_operation
 from sqlflow.core.errors import ConnectorError
 from sqlflow.logging import get_logger
 
@@ -169,10 +169,14 @@ class PostgresConnector(Connector):
             if self.params.sync_mode == "incremental":
                 self.validate_incremental_params(validated_params)
 
+            # Configure resilience patterns for production reliability
+            self.configure_resilience(DB_RESILIENCE_CONFIG)
+
             self.state = ConnectorState.CONFIGURED
             logger.info(
                 f"PostgreSQL connector configured for {self.params.host}:{self.params.port}/{self.params.database}"
             )
+            logger.info("PostgreSQL connector resilience patterns enabled")
 
         except (ParameterError, IncrementalError):
             self.state = ConnectorState.ERROR
@@ -240,25 +244,28 @@ class PostgresConnector(Connector):
                 f"Failed to create connection pool: {str(e)}",
             )
 
+    @resilient_operation()
     def test_connection(self) -> ConnectionTestResult:
-        """Test the connection to the PostgreSQL database with enhanced monitoring.
+        """Test the connection to PostgreSQL with resilience patterns.
 
-        Returns
+        Returns:
         -------
-            Result of the connection test
+            ConnectionTestResult: Result of the connection test
 
         """
-        self.validate_state(ConnectorState.CONFIGURED)
+        if not self.params:
+            return ConnectionTestResult(
+                success=False, message="Connector not configured"
+            )
+
+        start_time = time.time()
 
         try:
-            if self.params is None:
-                return ConnectionTestResult(False, "Not configured")
-
-            start_time = time.time()
-            conn = psycopg2.connect(
+            # Create a temporary connection for testing
+            test_conn = psycopg2.connect(
                 host=self.params.host,
                 port=self.params.port,
-                dbname=self.params.database,
+                database=self.params.database,
                 user=self.params.username,
                 password=self.params.password,
                 connect_timeout=self.params.connect_timeout,
@@ -266,135 +273,183 @@ class PostgresConnector(Connector):
                 sslmode=self.params.sslmode,
             )
 
-            cursor = conn.cursor()
-            cursor.execute("SELECT version()")
-            version_result = cursor.fetchone()
-            if version_result is None:
-                raise ConnectorError(
-                    self.name or "POSTGRES", "Failed to get PostgreSQL version"
-                )
-            version_info = version_result[0]
+            # Test basic query execution
+            cursor = test_conn.cursor()
+            cursor.execute("SELECT version(), current_database(), current_user;")
+            result = cursor.fetchone()
+
+            result[0] if result else "Unknown"
+            database_name = result[1] if result else "Unknown"
+            current_user = result[2] if result else "Unknown"
+
+            # Test schema access
             cursor.execute(
-                "SELECT current_database(), current_user, inet_server_addr(), inet_server_port()"
+                "SELECT count(*) FROM information_schema.tables WHERE table_schema = %s",
+                (self.params.schema,),
             )
-            db_result = cursor.fetchone()
-            if db_result is None:
-                raise ConnectorError(
-                    self.name or "POSTGRES", "Failed to get database information"
-                )
-            db_info = db_result
+            result = cursor.fetchone()
+            result[0] if result else 0
+
             cursor.close()
-            conn.close()
+            test_conn.close()
 
             connection_time = time.time() - start_time
 
+            # Create connection pool after successful test
             self._create_connection_pool()
             self.state = ConnectorState.READY
 
-            message = f"Connected to PostgreSQL {version_info} as {db_info[1]}@{db_info[0]} in {connection_time:.2f}s"
+            message = f"Successfully connected to PostgreSQL database '{database_name}' as user '{current_user}' in {connection_time:.3f}s"
             logger.info(message)
 
-            return ConnectionTestResult(True, message)
+            return ConnectionTestResult(success=True, message=message)
 
+        except psycopg2.OperationalError as e:
+            # Check if this is a retryable error (timeout, connection refused, etc.)
+            error_msg = str(e).lower()
+            if any(
+                keyword in error_msg
+                for keyword in [
+                    "timeout",
+                    "connection refused",
+                    "network",
+                    "unreachable",
+                ]
+            ):
+                # Let retryable errors bubble up to resilience layer
+                raise
+            else:
+                # Handle non-retryable operational errors (auth, invalid database, etc.)
+                return ConnectionTestResult(
+                    success=False, message=f"Connection failed: {str(e)}"
+                )
+        except psycopg2.Error as e:
+            return ConnectionTestResult(
+                success=False, message=f"PostgreSQL error: {str(e)}"
+            )
         except Exception as e:
-            self.state = ConnectorState.ERROR
-            error_msg = str(e)
-            logger.error(f"PostgreSQL connection test failed: {error_msg}")
-            return ConnectionTestResult(False, error_msg)
+            return ConnectionTestResult(
+                success=False, message=f"Unexpected error: {str(e)}"
+            )
 
+    @resilient_operation()
     def check_health(self) -> Dict[str, Any]:
-        """Comprehensive health check with PostgreSQL-specific metrics."""
-        start_time = time.time()
+        """Check connector health with enhanced PostgreSQL-specific metrics.
+
+        Returns:
+        -------
+            Dict[str, Any]: Health status and detailed metrics
+
+        """
+        health_info = {
+            "status": "unknown",
+            "timestamp": datetime.now().isoformat(),
+            "connector_type": "POSTGRES",
+            "checks": {},
+        }
 
         try:
-            if self.state != ConnectorState.READY:
-                test_result = self.test_connection()
-                if not test_result.success:
-                    return {
-                        "status": "unhealthy",
-                        "connected": False,
-                        "error": test_result.message,
-                        "response_time_ms": (time.time() - start_time) * 1000,
-                        "last_check": datetime.utcnow().isoformat(),
-                        "capabilities": {
-                            "incremental": False,
-                            "schema_discovery": False,
-                        },
-                    }
-
-            # Ensure params and connection pool are available
-            if self.params is None:
-                raise HealthCheckError(
-                    "Connector not configured", self.name or "POSTGRES"
+            if not self.params:
+                health_info.update(
+                    {"status": "unhealthy", "message": "Connector not configured"}
                 )
+                return health_info
 
-            # Test actual query execution
+            # Test connection
+            conn_test = self.test_connection()
+            health_info["checks"]["connection"] = {
+                "status": "healthy" if conn_test.success else "unhealthy",
+                "message": conn_test.message,
+            }
+
+            if not conn_test.success:
+                health_info["status"] = "unhealthy"
+                return health_info
+
+            # Ensure connection pool exists
             if self.connection_pool is None:
                 self._create_connection_pool()
 
             if self.connection_pool is None:
-                raise HealthCheckError(
-                    "Failed to create connection pool", self.name or "POSTGRES"
-                )
+                health_info["status"] = "unhealthy"
+                health_info["message"] = "Failed to create connection pool"
+                return health_info
 
+            # Get connection from pool
             conn = self.connection_pool.getconn()
-            try:
-                cursor = conn.cursor()
+            cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-                # Get database statistics
+            try:
+                # Database size check
                 cursor.execute(
                     """
-                    SELECT 
-                        pg_database_size(current_database()) as db_size_bytes,
-                        (SELECT count(*) FROM information_schema.tables WHERE table_schema = %s) as table_count,
-                        version() as version
+                    SELECT pg_size_pretty(pg_database_size(current_database())) as size,
+                           pg_database_size(current_database()) as size_bytes
+                """
+                )
+                db_size = cursor.fetchone()
+                health_info["checks"]["database_size"] = {
+                    "status": "healthy",
+                    "size_pretty": db_size["size"],
+                    "size_bytes": db_size["size_bytes"],
+                }
+
+                # Connection count check
+                cursor.execute(
+                    """
+                    SELECT count(*) as total_connections,
+                           count(*) FILTER (WHERE state = 'active') as active_connections,
+                           count(*) FILTER (WHERE state = 'idle') as idle_connections
+                    FROM pg_stat_activity
+                    WHERE datname = current_database()
+                """
+                )
+                conn_stats = cursor.fetchone()
+                health_info["checks"]["connections"] = {
+                    "status": "healthy",
+                    "total": conn_stats["total_connections"],
+                    "active": conn_stats["active_connections"],
+                    "idle": conn_stats["idle_connections"],
+                }
+
+                # Schema accessibility check
+                cursor.execute(
+                    """
+                    SELECT count(*) as table_count
+                    FROM information_schema.tables 
+                    WHERE table_schema = %s
                 """,
                     (self.params.schema,),
                 )
-
-                db_stats = cursor.fetchone()
-                cursor.close()
-
-                if not db_stats:
-                    raise HealthCheckError(
-                        "Failed to get database statistics", self.name or "POSTGRES"
-                    )
-
-                response_time = (time.time() - start_time) * 1000
-
-                return {
+                schema_info = cursor.fetchone()
+                health_info["checks"]["schema_access"] = {
                     "status": "healthy",
-                    "connected": True,
-                    "response_time_ms": response_time,
-                    "last_check": datetime.utcnow().isoformat(),
-                    "database_size_bytes": db_stats[0],
-                    "table_count": db_stats[1],
-                    "postgresql_version": db_stats[2],
                     "schema": self.params.schema,
-                    "capabilities": {
-                        "incremental": True,
-                        "schema_discovery": True,
-                        "batch_reading": True,
-                        "custom_queries": True,
-                    },
+                    "table_count": schema_info["table_count"],
                 }
 
+                # PostgreSQL version info
+                cursor.execute("SELECT version() as version")
+                version_info = cursor.fetchone()
+                health_info["checks"]["server_info"] = {
+                    "status": "healthy",
+                    "version": version_info["version"],
+                }
+
+                health_info["status"] = "healthy"
+                health_info["message"] = "All health checks passed"
+
             finally:
+                cursor.close()
                 self.connection_pool.putconn(conn)
 
         except Exception as e:
+            health_info["status"] = "unhealthy"
+            health_info["message"] = f"Health check failed: {str(e)}"
+            health_info["checks"]["error"] = {"status": "unhealthy", "error": str(e)}
             logger.error(f"PostgreSQL health check failed: {e}")
-            return {
-                "status": "unhealthy",
-                "connected": False,
-                "error": str(e),
-                "response_time_ms": (time.time() - start_time) * 1000,
-                "last_check": datetime.utcnow().isoformat(),
-                "capabilities": {
-                    "incremental": False,
-                    "schema_discovery": False,
-                },
-            }
+
+        return health_info
 
     def get_performance_metrics(self) -> Dict[str, Any]:
         """Get PostgreSQL-specific performance metrics."""
@@ -579,51 +634,87 @@ class PostgresConnector(Connector):
         finally:
             cursor.close()
 
-    def get_schema(self, object_name: str) -> Schema:
-        """Get schema for a table.
-
-        Args:
-        ----
-            object_name: Table name
-
-        Returns:
-        -------
-            Schema for the table
+    def _ensure_connection_pool_ready(self) -> None:
+        """Ensure connection pool exists and is ready for use.
 
         Raises:
         ------
-            ConnectorError: If schema retrieval fails
+            ConnectorError: If connection pool cannot be initialized
+        """
+        if self.connection_pool is None:
+            self._create_connection_pool()
+
+        if self.connection_pool is None:
+            raise ConnectorError(
+                self.name or "POSTGRES", "Connection pool initialization failed"
+            )
+
+    def _build_schema_columns(self, columns: List[tuple]) -> List[pa.Field]:
+        """Build PyArrow schema fields from PostgreSQL column information.
+
+        Args:
+        ----
+            columns: List of (column_name, pg_type) tuples
+
+        Returns:
+        -------
+            List of PyArrow fields
+        """
+        schema_columns = []
+        for col_name, pg_type in columns:
+            try:
+                arrow_type = self._pg_type_to_arrow(pg_type)
+                schema_columns.append(pa.field(col_name, arrow_type))
+            except Exception as e:
+                logger.warning(
+                    f"Could not convert PostgreSQL type '{pg_type}' for column '{col_name}': {e}"
+                )
+                # Fallback to string type
+                schema_columns.append(pa.field(col_name, pa.string()))
+        return schema_columns
+
+    @resilient_operation()
+    def get_schema(self, object_name: str) -> Schema:
+        """Get schema information for a table or view with resilience patterns.
+
+        Args:
+        ----
+            object_name: Name of the table or view
+
+        Returns:
+        -------
+            Schema: Schema information including columns and data types
 
         """
-        self.validate_state(ConnectorState.CONFIGURED)
+        if not self.params:
+            raise ConnectorError(self.name or "POSTGRES", "Connector not configured")
 
         try:
-            if self.connection_pool is None:
-                self._create_connection_pool()
-
-            if self.connection_pool is None:
-                raise ConnectorError(
-                    self.name or "POSTGRES", "Connection pool initialization failed"
-                )
+            # Ensure connection pool exists
+            self._ensure_connection_pool_ready()
+            assert self.connection_pool is not None  # Help type checker
 
             conn = self.connection_pool.getconn()
             try:
                 columns = self._fetch_table_columns(conn, object_name)
 
-                fields = [
-                    pa.field(name, self._pg_type_to_arrow(pg_type))
-                    for name, pg_type in columns
-                ]
+                if not columns:
+                    raise ConnectorError(
+                        self.name or "POSTGRES",
+                        f"Table or view '{object_name}' not found in schema '{self.params.schema}'",
+                    )
 
-                self.state = ConnectorState.READY
-                return Schema(pa.schema(fields))
+                schema_columns = self._build_schema_columns(columns)
+                return Schema(pa.schema(schema_columns))
+
             finally:
                 self.connection_pool.putconn(conn)
+
         except Exception as e:
-            self.state = ConnectorState.ERROR
             raise ConnectorError(
-                self.name or "POSTGRES", f"Schema retrieval failed: {str(e)}"
-            )
+                self.name or "POSTGRES",
+                f"Failed to get schema for '{object_name}': {str(e)}",
+            ) from e
 
     def _build_query(
         self,
@@ -703,6 +794,7 @@ class PostgresConnector(Connector):
 
             yield DataChunk(df)
 
+    @resilient_operation()
     def read(
         self,
         object_name: str,
@@ -710,27 +802,25 @@ class PostgresConnector(Connector):
         filters: Optional[Dict[str, Any]] = None,
         batch_size: int = 10000,
     ) -> Iterator[DataChunk]:
-        """Read data from a PostgreSQL table in chunks.
+        """Read data from PostgreSQL table or view with resilience patterns.
 
         Args:
         ----
-            object_name: Table name
-            columns: Optional list of columns to read
-            filters: Optional filters to apply
-            batch_size: Number of rows per batch
+            object_name: Name of the table or view to read from
+            columns: Optional list of columns to select
+            filters: Optional dictionary of filters to apply
+            batch_size: Number of rows to fetch per batch
 
         Yields:
         ------
-            DataChunk objects
-
-        Raises:
-        ------
-            ConnectorError: If reading fails
+            DataChunk: Chunks of data from the table/view
 
         """
-        self.validate_state(ConnectorState.CONFIGURED)
+        if not self.params:
+            raise ConnectorError(self.name or "POSTGRES", "Connector not configured")
 
         try:
+            # Ensure connection pool exists
             if self.connection_pool is None:
                 self._create_connection_pool()
 
@@ -740,24 +830,31 @@ class PostgresConnector(Connector):
                 )
 
             conn = self.connection_pool.getconn()
+
             try:
-                query, params = self._build_query(object_name, columns, filters)
+                # Build and execute query
+                query, query_params = self._build_query(object_name, columns, filters)
+                cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-                cursor = conn.cursor(
-                    name="sqlflow_cursor", cursor_factory=psycopg2.extras.DictCursor
-                )
-                cursor.itersize = batch_size
-                cursor.execute(query, params)
+                logger.info(f"Executing PostgreSQL query: {query}")
+                if query_params:
+                    logger.debug(f"Query parameters: {query_params}")
 
+                cursor.execute(query, query_params)
+
+                # Yield data in batches
                 yield from self._fetch_data_in_batches(cursor, batch_size)
 
                 cursor.close()
-                self.state = ConnectorState.READY
+
             finally:
                 self.connection_pool.putconn(conn)
+
         except Exception as e:
-            self.state = ConnectorState.ERROR
-            raise ConnectorError(self.name or "POSTGRES", f"Reading failed: {str(e)}")
+            raise ConnectorError(
+                self.name or "POSTGRES",
+                f"Failed to read from '{object_name}': {str(e)}",
+            ) from e
 
     def close(self) -> None:
         """Close the connection pool."""
@@ -867,6 +964,7 @@ class PostgresConnector(Connector):
         finally:
             self.connection_pool.putconn(conn)
 
+    @resilient_operation()
     def read_incremental(
         self,
         object_name: str,
@@ -875,50 +973,46 @@ class PostgresConnector(Connector):
         columns: Optional[List[str]] = None,
         batch_size: int = 10000,
     ) -> Iterator[DataChunk]:
-        """Read data incrementally from a PostgreSQL table.
+        """Read data incrementally from PostgreSQL table with resilience patterns.
 
         Args:
         ----
-            object_name: Table name to read from
+            object_name: Name of the table to read from
             cursor_field: Field to use for incremental loading
-            cursor_value: Last processed value for incremental loading
-            columns: Optional list of columns to read
-            batch_size: Number of rows per batch
+            cursor_value: Last processed value (start from this value)
+            columns: Optional list of columns to select
+            batch_size: Number of rows to fetch per batch
 
         Yields:
         ------
-            DataChunk objects with incremental data
-
-        Raises:
-        ------
-            ConnectorError: If incremental read fails
+            DataChunk: Chunks of incremental data
 
         """
-        self.validate_state(ConnectorState.CONFIGURED)
-
-        if self.params is None:
+        if not self.params:
             raise ConnectorError(self.name or "POSTGRES", "Connector not configured")
 
-        try:
-            if self.connection_pool is None:
-                self._create_connection_pool()
+        if not self.supports_incremental():
+            raise IncrementalError(
+                "Incremental loading not supported for this connector configuration",
+                self.name or "POSTGRES",
+            )
 
-            # Build and execute incremental query
+        try:
+            # Build incremental query
             base_query = self._build_incremental_query(
                 object_name, cursor_field, columns
             )
+
+            # Execute incremental query with cursor filtering
             yield from self._execute_incremental_query(
                 base_query, cursor_field, cursor_value, columns, batch_size
             )
 
-            self.state = ConnectorState.READY
-
         except Exception as e:
-            self.state = ConnectorState.ERROR
-            logger.error(f"Incremental read failed for {object_name}: {e}")
             raise ConnectorError(
-                self.name or "POSTGRES", f"Incremental read failed: {str(e)}"
-            )
+                self.name or "POSTGRES",
+                f"Failed to read incremental data from '{object_name}': {str(e)}",
+            ) from e
 
     def get_cursor_value(
         self, data_chunk: DataChunk, cursor_field: str
