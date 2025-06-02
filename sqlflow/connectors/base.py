@@ -248,6 +248,23 @@ class Connector(ABC):
         self.is_connected: bool = False
         self.health_status: str = "unknown"
         self._parameter_validator: Optional[ParameterValidator] = None
+        self.resilience_manager: Optional[Any] = (
+            None  # Will be ResilienceManager when configured
+        )
+
+    def configure_resilience(self, config: Any) -> None:
+        """Configure resilience patterns for this connector.
+
+        Args:
+        ----
+            config: ResilienceConfig instance with retry, circuit breaker,
+                   rate limiting, and recovery configurations
+        """
+        from sqlflow.connectors.resilience import ResilienceManager
+
+        self.resilience_manager = ResilienceManager(
+            config, self.name or self.__class__.__name__
+        )
 
     @abstractmethod
     def configure(self, params: Dict[str, Any]) -> None:

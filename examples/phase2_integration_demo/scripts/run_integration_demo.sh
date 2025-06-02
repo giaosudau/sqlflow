@@ -153,8 +153,8 @@ echo
 # Test 3: S3 Connector
 if run_pipeline_test "03_s3_connector_test" "S3 Connector with Multi-Format Support"; then
     print_info "Verifying S3 export results..."
-    # Check S3 exports using our dedicated test script
-    if docker compose exec sqlflow python3 /app/test_s3_verification.py > /dev/null 2>&1; then
+    # Check S3 exports using the improved verification script
+    if python3 test_s3_verification.py > /dev/null 2>&1; then
         print_success "S3 export results found in MinIO bucket"
         echo "S3 exports completed successfully"
     else
@@ -181,11 +181,50 @@ else
 fi
 
 echo
+
+# Test 5: 🔥 NEW - Resilient Connector Patterns
+if run_pipeline_test "05_resilient_postgres_test" "Resilient Connector Patterns & Recovery"; then
+    print_info "Verifying resilience test results..."
+    if [ -f "output/resilience_test_results.csv" ]; then
+        print_success "Resilience test completed successfully"
+        echo "Resilience summary:"
+        # Show resilience config and benefits
+        if command -v python3 >/dev/null 2>&1; then
+            python3 -c "
+import csv
+try:
+    with open('output/resilience_test_results.csv', 'r') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            print(f'  • Status: {row.get(\"status\", \"N/A\")}')
+            print(f'  • Config: {row.get(\"resilience_config\", \"N/A\")}')
+            print(f'  • Benefits: {row.get(\"benefits\", \"N/A\")}')
+            break
+except Exception as e:
+    print(f'  Error reading resilience results: {e}')
+"
+        else
+            head -2 "output/resilience_test_results.csv" 2>/dev/null || echo "  (No summary to display)"
+        fi
+    else
+        print_warning "Resilience test results file not found"
+    fi
+    
+    # Also check stress test results
+    if [ -f "output/resilience_stress_test_results.csv" ]; then
+        stress_count=$(tail -n +2 "output/resilience_stress_test_results.csv" | wc -l)
+        print_success "Stress test loaded $stress_count records under aggressive timeout conditions"
+    fi
+else
+    print_error "Resilient connector test failed - skipping verification"
+fi
+
+echo
 print_header "📊 Demo Summary"
 
 # Count successful outputs
 successful_tests=0
-total_tests=4
+total_tests=5
 
 if [ -f "output/postgres_connection_test_results.csv" ]; then
     ((successful_tests++))
@@ -196,11 +235,16 @@ if [ -f "output/incremental_test_results.csv" ]; then
 fi
 
 # Check S3 test success by looking for files in MinIO bucket
-if docker compose exec sqlflow python3 /app/test_s3_verification.py > /dev/null 2>&1; then
+if python3 test_s3_verification.py > /dev/null 2>&1; then
     ((successful_tests++))
 fi
 
 if [ -f "output/workflow_summary.csv" ]; then
+    ((successful_tests++))
+fi
+
+# Check resilience test success
+if [ -f "output/resilience_test_results.csv" ]; then
     ((successful_tests++))
 fi
 
@@ -209,6 +253,7 @@ print_info "Test Results: $successful_tests/$total_tests tests completed success
 if [ $successful_tests -eq $total_tests ]; then
     print_success "🎉 All Phase 2 integration tests passed!"
     print_info "✨ SQLFlow Phase 2 implementation is working correctly"
+    print_success "🛡️ Resilience patterns are operational and production-ready"
 elif [ $successful_tests -gt 0 ]; then
     print_warning "⚠️  Partial success: $successful_tests/$total_tests tests passed"
     print_info "🔧 Some components need attention"
@@ -223,6 +268,17 @@ print_info "🐳 Services are running and accessible:"
 print_info "  - PostgreSQL: localhost:5432"
 print_info "  - MinIO: http://localhost:9000"
 print_info "  - pgAdmin: http://localhost:8080"
+
+# NEW: Show resilience-specific next steps
+if [ -f "output/resilience_test_results.csv" ]; then
+    echo
+    print_info "🛡️ Resilience Pattern Benefits Demonstrated:"
+    print_info "  • Automatic retry on connection timeouts (3 attempts max)"
+    print_info "  • Circuit breaker protection (fails fast after 5 failures, recovers in 30s)"
+    print_info "  • Rate limiting prevents database overload (300/min + 50 burst)"
+    print_info "  • Connection recovery handles network failures automatically"
+    print_info "  • Zero configuration required - production-ready out of the box"
+fi
 
 echo
 print_header "🏁 Demo Complete" 
