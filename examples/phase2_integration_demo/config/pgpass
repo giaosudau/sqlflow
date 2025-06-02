@@ -1,0 +1,3 @@
+postgres:5432:demo:sqlflow:sqlflow123
+postgres:5432:postgres:postgres:postgres
+postgres:5432:*:sqlflow:sqlflow123 

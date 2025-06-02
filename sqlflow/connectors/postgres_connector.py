@@ -686,7 +686,21 @@ class PostgresConnector(Connector):
             if not batch:
                 break
 
-            df = pd.DataFrame(batch)
+            # Handle DictCursor results properly
+            if batch and hasattr(batch[0], "keys"):
+                # Convert DictRow objects to regular dictionaries
+                batch_data = [dict(row) for row in batch]
+                df = pd.DataFrame(batch_data)
+            else:
+                # Fallback for regular cursor results
+                df = pd.DataFrame(batch)
+
+                # Get column names from cursor description if available
+                if cursor.description:
+                    column_names = [desc.name for desc in cursor.description]
+                    if hasattr(df, "columns") and len(df.columns) > 0:
+                        df.columns = column_names[: len(df.columns)]
+
             yield DataChunk(df)
 
     def read(

@@ -1,0 +1,218 @@
+-- SQLFlow Phase 2 Demo: Multi-Connector Workflow
+-- Demonstrates complete PostgreSQL → Transform → S3 pipeline with incremental loading (self-contained)
+
+-- Step 1: Load fresh customer data incrementally from PostgreSQL
+SOURCE customers_fresh TYPE POSTGRES PARAMS {
+    "host": "postgres",
+    "port": 5432,
+    "database": "demo",
+    "username": "sqlflow",
+    "password": "sqlflow123",
+    "table": "customers",
+    "schema": "public"
+};
+
+-- Step 2: Load fresh order data incrementally from PostgreSQL
+SOURCE orders_fresh TYPE POSTGRES PARAMS {
+    "host": "postgres",
+    "port": 5432,
+    "database": "demo",
+    "username": "sqlflow",
+    "password": "sqlflow123",
+    "table": "orders",
+    "schema": "public"
+};
+
+-- Step 3: Load product data (full refresh since it changes less frequently)
+SOURCE products_fresh TYPE POSTGRES PARAMS {
+    "host": "postgres",
+    "port": 5432,
+    "database": "demo",
+    "username": "sqlflow",
+    "password": "sqlflow123",
+    "table": "products",
+    "schema": "public"
+};
+
+-- Load all data into staging tables (self-contained)
+LOAD staging_customers_fresh FROM customers_fresh;
+LOAD staging_orders_fresh FROM orders_fresh;
+LOAD staging_products_fresh FROM products_fresh;
+
+-- Step 4: Create enriched customer profiles with order history
+CREATE TABLE enriched_customers AS
+SELECT 
+    c.customer_id,
+    c.first_name,
+    c.last_name,
+    c.email,
+    c.phone,
+    c.city,
+    c.state,
+    c.zip_code,
+    c.country,
+    c.created_at as customer_since,
+    c.updated_at as last_updated,
+    
+    -- Order statistics
+    COUNT(o.order_id) as lifetime_orders,
+    COALESCE(SUM(o.total_amount), 0) as lifetime_value,
+    COALESCE(AVG(o.total_amount), 0) as avg_order_value,
+    COALESCE(MAX(o.order_date), CAST(c.created_at AS date)) as last_order_date,
+    COALESCE(MIN(o.order_date), CAST(c.created_at AS date)) as first_order_date,
+    
+    -- Customer segmentation
+    CASE 
+        WHEN COUNT(o.order_id) = 0 THEN 'Prospect'
+        WHEN COUNT(o.order_id) = 1 THEN 'New Customer'
+        WHEN COUNT(o.order_id) BETWEEN 2 AND 5 THEN 'Regular Customer'
+        WHEN COUNT(o.order_id) BETWEEN 6 AND 10 THEN 'Loyal Customer'
+        ELSE 'VIP Customer'
+    END as customer_segment,
+    
+    CASE 
+        WHEN COALESCE(SUM(o.total_amount), 0) = 0 THEN 'No Spend'
+        WHEN COALESCE(SUM(o.total_amount), 0) < 100 THEN 'Low Value'
+        WHEN COALESCE(SUM(o.total_amount), 0) < 500 THEN 'Medium Value'
+        WHEN COALESCE(SUM(o.total_amount), 0) < 1000 THEN 'High Value'
+        ELSE 'Premium Value'
+    END as value_segment,
+    
+    -- Recency analysis
+    CASE 
+        WHEN MAX(o.order_date) IS NULL THEN 'Never Ordered'
+        WHEN MAX(o.order_date) >= CURRENT_DATE - INTERVAL '30 days' THEN 'Active'
+        WHEN MAX(o.order_date) >= CURRENT_DATE - INTERVAL '90 days' THEN 'Recent'
+        WHEN MAX(o.order_date) >= CURRENT_DATE - INTERVAL '365 days' THEN 'Dormant'
+        ELSE 'Inactive'
+    END as recency_segment
+
+FROM staging_customers_fresh c
+LEFT JOIN staging_orders_fresh o ON c.customer_id = o.customer_id
+GROUP BY c.customer_id, c.first_name, c.last_name, c.email, c.phone, 
+         c.city, c.state, c.zip_code, c.country, c.created_at, c.updated_at;
+
+-- Step 5: Create order analytics with product information
+CREATE TABLE order_analytics AS
+SELECT 
+    o.order_id,
+    o.customer_id,
+    o.order_date,
+    o.total_amount,
+    o.status,
+    o.created_at,
+    o.updated_at,
+    
+    -- Customer information
+    c.first_name || ' ' || c.last_name as customer_name,
+    c.email as customer_email,
+    c.city as customer_city,
+    c.state as customer_state,
+    
+    -- Time-based analysis
+    EXTRACT(year FROM o.order_date) as order_year,
+    EXTRACT(month FROM o.order_date) as order_month,
+    EXTRACT(quarter FROM o.order_date) as order_quarter,
+    EXTRACT(dow FROM o.order_date) as order_day_of_week,
+    
+    CASE EXTRACT(dow FROM o.order_date)
+        WHEN 0 THEN 'Sunday'
+        WHEN 1 THEN 'Monday'
+        WHEN 2 THEN 'Tuesday'
+        WHEN 3 THEN 'Wednesday'
+        WHEN 4 THEN 'Thursday'
+        WHEN 5 THEN 'Friday'
+        WHEN 6 THEN 'Saturday'
+    END as order_day_name,
+    
+    -- Order categorization
+    CASE 
+        WHEN o.total_amount < 50 THEN 'Small Order'
+        WHEN o.total_amount < 200 THEN 'Medium Order'
+        WHEN o.total_amount < 500 THEN 'Large Order'
+        ELSE 'Premium Order'
+    END as order_size_category
+
+FROM staging_orders_fresh o
+JOIN staging_customers_fresh c ON o.customer_id = c.customer_id;
+
+-- Step 6: Create daily sales summary
+CREATE TABLE daily_sales_summary AS
+SELECT 
+    order_date,
+    COUNT(*) as total_orders,
+    SUM(total_amount) as total_revenue,
+    AVG(total_amount) as avg_order_value,
+    MIN(total_amount) as min_order_value,
+    MAX(total_amount) as max_order_value,
+    COUNT(DISTINCT customer_id) as unique_customers,
+    
+    -- Running totals
+    SUM(COUNT(*)) OVER (ORDER BY order_date) as cumulative_orders,
+    SUM(SUM(total_amount)) OVER (ORDER BY order_date) as cumulative_revenue
+
+FROM staging_orders_fresh
+GROUP BY order_date
+ORDER BY order_date;
+
+-- Step 7: Export enriched data to S3 in multiple formats
+
+-- Export enriched customers to S3 (partitioned by segment)
+EXPORT SELECT * FROM enriched_customers TO 's3://sqlflow-demo/analytics/enriched_customers/' TYPE S3 OPTIONS { "file_format": "parquet", "partition_by": "customer_segment,value_segment" };
+
+-- Export order analytics to S3 (partitioned by year and month)
+EXPORT SELECT * FROM order_analytics TO 's3://sqlflow-demo/analytics/order_analytics/' TYPE S3 OPTIONS { "file_format": "parquet", "partition_by": "order_year,order_month" };
+
+-- Export daily sales summary to S3
+EXPORT SELECT * FROM daily_sales_summary TO 's3://sqlflow-demo/analytics/daily_sales_summary.parquet' TYPE S3 OPTIONS { "file_format": "parquet" };
+
+-- Step 8: Create summary reports for local analysis
+
+-- Customer segment distribution
+CREATE TABLE customer_segment_report AS
+SELECT 
+    customer_segment,
+    value_segment,
+    recency_segment,
+    COUNT(*) as customer_count,
+    SUM(lifetime_value) as total_lifetime_value,
+    AVG(lifetime_value) as avg_lifetime_value,
+    AVG(lifetime_orders) as avg_orders_per_customer
+FROM enriched_customers
+GROUP BY customer_segment, value_segment, recency_segment
+ORDER BY customer_segment, value_segment, recency_segment;
+
+-- Monthly sales trends
+CREATE TABLE monthly_sales_report AS
+SELECT 
+    order_year,
+    order_month,
+    COUNT(*) as total_orders,
+    SUM(total_amount) as total_revenue,
+    AVG(total_amount) as avg_order_value,
+    COUNT(DISTINCT customer_id) as unique_customers
+FROM order_analytics
+GROUP BY order_year, order_month
+ORDER BY order_year, order_month;
+
+-- Export summary reports
+EXPORT SELECT * FROM customer_segment_report TO 'output/customer_segment_report.csv' TYPE CSV OPTIONS { "header": true };
+
+EXPORT SELECT * FROM monthly_sales_report TO 'output/monthly_sales_report.csv' TYPE CSV OPTIONS { "header": true };
+
+-- Step 9: Create final workflow summary
+CREATE TABLE workflow_summary AS
+SELECT 
+    'Multi-Connector Workflow' as workflow_name,
+    CURRENT_TIMESTAMP as execution_time,
+    (SELECT COUNT(*) FROM staging_customers_fresh) as customers_processed,
+    (SELECT COUNT(*) FROM staging_orders_fresh) as orders_processed,
+    (SELECT COUNT(*) FROM staging_products_fresh) as products_processed,
+    (SELECT COUNT(*) FROM enriched_customers) as enriched_customers_created,
+    (SELECT COUNT(*) FROM order_analytics) as order_analytics_created,
+    (SELECT COUNT(*) FROM daily_sales_summary) as daily_summaries_created,
+    'PostgreSQL → DuckDB → S3' as data_flow,
+    'Incremental loading with automatic watermarks' as key_features;
+
+-- Export workflow summary
+EXPORT SELECT * FROM workflow_summary TO 'output/workflow_summary.csv' TYPE CSV OPTIONS { "header": true }; 

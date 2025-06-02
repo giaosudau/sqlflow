@@ -1471,8 +1471,18 @@ class ExecutionPlanBuilder:
     def _generate_source_definition_step(
         self, step: SourceDefinitionStep
     ) -> Dict[str, Any]:
-        """Generate an execution step for a source definition."""
+        """Generate an execution step for a source definition with industry-standard parameters."""
         step_id = self.step_id_map.get(id(step), f"source_{step.name}")
+
+        # Extract industry-standard parameters from SOURCE params
+        params = step.params.copy()
+        sync_mode = params.get("sync_mode", "full_refresh")
+        cursor_field = params.get("cursor_field")
+        primary_key = params.get("primary_key", [])
+
+        # Ensure primary_key is always a list for consistency
+        if isinstance(primary_key, str):
+            primary_key = [primary_key]
 
         # Check if this is a profile-based source definition (FROM syntax)
         if step.is_from_profile:
@@ -1483,17 +1493,26 @@ class ExecutionPlanBuilder:
                 "name": step.name,
                 "is_from_profile": True,
                 "profile_connector_name": step.profile_connector_name,
-                "query": step.params,  # These are the OPTIONS for the source
+                "query": params,  # These are the OPTIONS for the source
+                # Industry-standard parameters for incremental loading
+                "sync_mode": sync_mode,
+                "cursor_field": cursor_field,
+                "primary_key": primary_key,
                 "depends_on": [],
             }
         else:
-            # Handle standard SOURCE syntax
+            # Handle standard SOURCE syntax with enhanced parameter propagation
             return {
                 "id": step_id,
                 "type": "source_definition",
                 "name": step.name,
-                "source_connector_type": step.connector_type,  # Use source_connector_type for backward compatibility
-                "query": step.params,
+                "connector_type": step.connector_type,  # Add connector_type at top level
+                "source_connector_type": step.connector_type,  # Keep for backward compatibility
+                "query": params,  # All SOURCE params including industry-standard ones
+                # Industry-standard parameters promoted to top level for easy access
+                "sync_mode": sync_mode,
+                "cursor_field": cursor_field,
+                "primary_key": primary_key,
                 "depends_on": [],
             }
 

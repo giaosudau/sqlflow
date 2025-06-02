@@ -903,6 +903,7 @@ class Parser:
                 TokenType.GREATER_EQUAL,
                 TokenType.LESS_EQUAL,
                 TokenType.NOT_EQUAL,
+                TokenType.CONCAT,  # SQL concatenation operator ||
             ):
                 # Remove any trailing space from previous token
                 if formatted_parts:
@@ -951,7 +952,19 @@ class Parser:
 
         # Fix any remaining function call spacing issues
         # Match common SQL functions followed by space and parenthesis
-        sql_functions = ["COUNT", "SUM", "AVG", "MIN", "MAX", "DISTINCT"]
+        sql_functions = [
+            "COUNT",
+            "SUM",
+            "AVG",
+            "MIN",
+            "MAX",
+            "DISTINCT",
+            "UPPER",
+            "LOWER",
+            "SUBSTR",
+            "LENGTH",
+            "TRIM",
+        ]
         for func in sql_functions:
             sql = re.sub(rf"{func}\s+\(", f"{func}(", sql, flags=re.IGNORECASE)
 

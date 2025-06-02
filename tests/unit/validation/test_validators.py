@@ -76,14 +76,17 @@ class TestConnectorValidation:
         source = SourceDefinitionStep(
             name="users",
             connector_type="POSTGRES",
-            params={"table": "users"},  # Missing required 'connection'
+            params={"table": "users"},  # Missing required connection params
             line_number=4,
         )
         pipeline.add_step(source)
 
         errors = validate_connectors(pipeline)
         assert len(errors) == 1
-        assert "Required field 'connection' is missing" in errors[0].message
+        assert (
+            "Either 'connection' (connection string) or 'host' (individual parameters) must be provided"
+            in errors[0].message
+        )
         assert errors[0].error_type == "Parameter Error"
 
     def test_skip_profile_based_connectors(self):

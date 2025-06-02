@@ -219,7 +219,9 @@ class ExportStep(PipelineStep):
             errors.append("EXPORT directive requires a destination URI")
         if not self.connector_type:
             errors.append("EXPORT directive requires a connector TYPE")
-        if not self.options:
+        if self.options is None or (
+            isinstance(self.options, dict) and len(self.options) == 0
+        ):
             errors.append("EXPORT directive requires OPTIONS")
         return errors
 

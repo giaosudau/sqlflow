@@ -1,0 +1,89 @@
+-- SQLFlow Phase 2 Demo: Incremental Loading Test
+-- Tests automatic watermark-based incremental loading (self-contained)
+
+-- Test 1: Load customer data for this test (self-contained)
+SOURCE customers_for_incremental TYPE POSTGRES PARAMS {
+    "host": "postgres",
+    "port": 5432,
+    "database": "demo",
+    "username": "sqlflow",
+    "password": "sqlflow123",
+    "table": "customers"
+};
+
+-- Load customer data into this test's staging table
+LOAD staging_customers_incremental FROM customers_for_incremental;
+
+-- Test 2: Initial incremental load with cursor field
+SOURCE incremental_data TYPE POSTGRES PARAMS {
+    "host": "postgres",
+    "port": 5432,
+    "database": "demo",
+    "username": "sqlflow",
+    "password": "sqlflow123",
+    "table": "incremental_test_data",
+    "schema": "public"
+};
+
+-- Load incremental data (should only load new/updated records)
+LOAD staging_incremental_data FROM incremental_data;
+
+-- Test 3: Orders table with incremental loading
+SOURCE orders_incremental TYPE POSTGRES PARAMS {
+    "host": "postgres",
+    "port": 5432,
+    "database": "demo",
+    "username": "sqlflow",
+    "password": "sqlflow123",
+    "table": "orders"
+};
+
+-- Load orders incrementally
+LOAD staging_orders_incremental FROM orders_incremental;
+
+-- Test 4: Create incremental loading summary
+CREATE TABLE incremental_test_summary AS
+SELECT 
+    'Incremental Loading Test' as test_name,
+    COUNT(*) as total_records,
+    COUNT(DISTINCT customer_id) as unique_customers,
+    MIN(order_date) as earliest_order,
+    MAX(order_date) as latest_order,
+    CURRENT_TIMESTAMP as test_timestamp
+FROM staging_orders_incremental;
+
+-- Test 5: Create customer order summary (using this test's customer data)
+CREATE TABLE customer_order_summary AS
+SELECT 
+    c.customer_id,
+    c.first_name,
+    c.last_name,
+    COUNT(o.order_id) as order_count,
+    COALESCE(SUM(o.total_amount), 0) as total_spent
+FROM staging_customers_incremental c
+LEFT JOIN staging_orders_incremental o ON c.customer_id = o.customer_id
+GROUP BY c.customer_id, c.first_name, c.last_name
+ORDER BY total_spent DESC;
+
+-- Export incremental test results
+EXPORT SELECT 
+    test_name,
+    total_records,
+    unique_customers,
+    earliest_order,
+    latest_order,
+    test_timestamp
+FROM incremental_test_summary 
+TO 'output/incremental_test_results.csv' 
+TYPE CSV OPTIONS { "header": true };
+
+-- Export customer summary
+EXPORT SELECT 
+    customer_id,
+    first_name,
+    last_name,
+    order_count,
+    total_spent
+FROM customer_order_summary 
+TO 'output/customer_order_summary.csv' 
+TYPE CSV OPTIONS { "header": true }; 

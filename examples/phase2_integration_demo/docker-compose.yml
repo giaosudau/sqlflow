@@ -1,0 +1,222 @@
+services:
+  # SQLFlow service for running pipelines and tests
+  sqlflow:
+    build:
+      context: ../..  # Build from SQLFlow root directory
+      dockerfile: examples/phase2_integration_demo/Dockerfile
+    image: sqlflow-phase2-demo:latest
+    container_name: sqlflow-demo
+    depends_on:
+      - postgres
+      - minio
+    volumes:
+      - ./pipelines:/app/pipelines
+      - ./data:/app/data
+      - ./profiles:/app/profiles
+      - ./output:/app/output
+      - ./target:/app/target
+      - ./scripts:/app/scripts
+      - ../..:/sqlflow_source  # Mount source for development
+    environment:
+      # SQLFlow configuration
+      - SQLFLOW_LOG_LEVEL=INFO
+      - SQLFLOW_PROFILE=docker
+      
+      # PostgreSQL connection
+      - POSTGRES_HOST=postgres
+      - POSTGRES_DB=demo
+      - POSTGRES_USER=sqlflow
+      - POSTGRES_PASSWORD=sqlflow123
+      
+      # MinIO/S3 configuration
+      - AWS_ACCESS_KEY_ID=minioadmin
+      - AWS_SECRET_ACCESS_KEY=minioadmin
+      - AWS_ENDPOINT_URL=http://minio:9000
+      - S3_BUCKET=sqlflow-demo
+      
+      # Demo configuration
+      - DEMO_MODE=true
+      - BENCHMARK_MODE=true
+    ports:
+      - "8000:8000"  # Optional: SQLFlow API/web interface
+    networks:
+      - sqlflow-network
+    restart: unless-stopped
+    tty: true
+    stdin_open: true
+
+  # PostgreSQL database service
+  postgres:
+    image: postgres:14-alpine
+    container_name: sqlflow-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./init-scripts/postgres:/docker-entrypoint-initdb.d
+      - ./config/postgres.conf:/etc/postgresql/postgresql.conf:ro
+    command: >
+      postgres
+      -c shared_preload_libraries=pg_stat_statements
+      -c max_connections=200
+      -c shared_buffers=256MB
+      -c effective_cache_size=1GB
+      -c maintenance_work_mem=64MB
+      -c checkpoint_completion_target=0.9
+      -c wal_buffers=16MB
+      -c default_statistics_target=100
+      -c random_page_cost=1.1
+      -c effective_io_concurrency=200
+      -c work_mem=4MB
+      -c min_wal_size=1GB
+      -c max_wal_size=4GB
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - sqlflow-network
+    restart: unless-stopped
+
+  # MinIO service (S3-compatible storage)
+  minio:
+    image: minio/minio:RELEASE.2024-01-16T16-07-38Z
+    container_name: sqlflow-minio
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_DOMAIN: minio
+      MINIO_REGION_NAME: us-east-1
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"  # API
+      - "9001:9001"  # Console
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - sqlflow-network
+    restart: unless-stopped
+
+  # Initialize MinIO buckets and sample data
+  minio-init:
+    image: minio/mc:RELEASE.2024-01-13T08-44-48Z
+    container_name: sqlflow-minio-init
+    depends_on:
+      - minio
+    environment:
+      - MC_HOST_myminio=http://minioadmin:minioadmin@minio:9000
+    entrypoint: >
+      /bin/sh -c "
+      echo 'Waiting for MinIO to be ready...';
+      sleep 5;
+      
+      echo 'Creating MinIO alias...';
+      mc alias set myminio http://minio:9000 minioadmin minioadmin;
+      
+      echo 'Creating buckets...';
+      mc mb myminio/sqlflow-demo --ignore-existing;
+      mc mb myminio/analytics --ignore-existing;
+      mc mb myminio/backups --ignore-existing;
+      mc mb myminio/staging --ignore-existing;
+      
+      echo 'Setting bucket policies...';
+      mc anonymous set public myminio/sqlflow-demo;
+      mc anonymous set public myminio/analytics;
+      
+      echo 'Creating test data structure...';
+      mc cp /dev/null myminio/sqlflow-demo/sales/README.txt;
+      mc cp /dev/null myminio/analytics/reports/README.txt;
+      
+      echo 'MinIO initialization completed successfully!';
+      exit 0;
+      "
+    networks:
+      - sqlflow-network
+
+  # pgAdmin for database management
+  pgadmin:
+    image: dpage/pgadmin4:8.2
+    container_name: sqlflow-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@sqlflow.com
+      PGADMIN_DEFAULT_PASSWORD: sqlflow123
+      PGADMIN_CONFIG_ENHANCED_COOKIE_PROTECTION: 'True'
+      PGADMIN_CONFIG_LOGIN_BANNER: '"SQLFlow Phase 2 Integration Demo"'
+      PGADMIN_CONFIG_CONSOLE_LOG_LEVEL: 20
+    ports:
+      - "8080:80"
+    volumes:
+      - pgadmin-data:/var/lib/pgadmin
+      - ./config/pgadmin_servers.json:/pgadmin4/servers.json:ro
+      - ./config/pgpass:/var/lib/pgadmin/storage/admin_sqlflow.com/.pgpass:ro
+    depends_on:
+      - postgres
+    networks:
+      - sqlflow-network
+    restart: unless-stopped
+
+  # Redis for caching and session management (optional)
+  redis:
+    image: redis:7-alpine
+    container_name: sqlflow-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - sqlflow-network
+    restart: unless-stopped
+
+  # Optional: Mock REST API for testing resilience patterns
+  mockapi:
+    image: mockserver/mockserver:mockserver-5.15.0
+    container_name: sqlflow-mockapi
+    environment:
+      MOCKSERVER_SERVER_PORT: 1080
+      MOCKSERVER_LOG_LEVEL: INFO
+      MOCKSERVER_INITIALIZATION_JSON_PATH: /config/mockserver-expectations.json
+    ports:
+      - "1080:1080"
+    volumes:
+      - ./config/mockserver-expectations.json:/config/mockserver-expectations.json:ro
+    networks:
+      - sqlflow-network
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+    driver: local
+    name: sqlflow_postgres_data
+  minio-data:
+    driver: local
+    name: sqlflow_minio_data
+  pgadmin-data:
+    driver: local
+    name: sqlflow_pgadmin_data
+  redis-data:
+    driver: local
+    name: sqlflow_redis_data
+
+networks:
+  sqlflow-network:
+    name: sqlflow-demo-network
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.25.0.0/16 

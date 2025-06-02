@@ -77,6 +77,7 @@ class TokenType(Enum):
     SEMICOLON = auto()
     EQUALS = auto()  # For assignment operations
     PIPE = auto()  # For variable default values
+    CONCAT = auto()  # For SQL string concatenation operator ||
     DOLLAR = auto()  # For variable references
     LEFT_BRACE = auto()
     RIGHT_BRACE = auto()
@@ -180,6 +181,9 @@ class Lexer:
             (TokenType.GREATER_EQUAL, re.compile(r">=")),
             (TokenType.LESS_EQUAL, re.compile(r"<=")),
             (TokenType.NOT_EQUAL, re.compile(r"!=")),
+            (TokenType.CONCAT, re.compile(r"\|\|")),  # SQL concatenation operator ||
+            # Handle ${var} or ${var|default} style variables (must come before individual operators)
+            (TokenType.VARIABLE, re.compile(r"\$\{[^}]+\}")),
             # Single char operators
             (TokenType.GREATER_THAN, re.compile(r">")),
             (TokenType.LESS_THAN, re.compile(r"<")),
@@ -193,8 +197,6 @@ class Lexer:
             (TokenType.COMMA, re.compile(r",")),
             (TokenType.SEMICOLON, re.compile(r";")),
             (TokenType.DOT, re.compile(r"\.")),
-            # Handle ${var} or ${var|default} style variables
-            (TokenType.VARIABLE, re.compile(r"\$\{[^}]+\}")),
             (
                 TokenType.STRING,
                 re.compile(r'"(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)*\''),

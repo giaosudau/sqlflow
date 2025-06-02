@@ -787,10 +787,9 @@ class LocalExecutor(BaseExecutor):
         """
         # Step 2: Initialize ConnectorEngine if not already initialized
         if not hasattr(self, "connector_engine") or self.connector_engine is None:
-            from sqlflow.connectors.connector_engine import ConnectorEngine
-
-            self.connector_engine = ConnectorEngine()
-            logger.debug("Initialized ConnectorEngine")
+            # Use the proper initialization method that passes profile configuration
+            self.connector_engine = self._create_connector_engine()
+            logger.debug("Initialized ConnectorEngine with profile configuration")
 
         # Step 3: Register the connector with ConnectorEngine
         connector_type = source_definition.get(
@@ -1633,3 +1632,16 @@ class LocalExecutor(BaseExecutor):
                 logger.debug(f"Registered UDF: {udf_name}")
             except Exception as e:
                 logger.warning(f"Failed to register UDF {udf_name}: {e}")
+
+    def _create_connector_engine(self) -> Any:
+        """Create and initialize the connector engine."""
+        from sqlflow.connectors.connector_engine import ConnectorEngine
+
+        engine = ConnectorEngine()
+
+        # Pass profile configuration to connector engine for access to connector configs
+        if hasattr(self, "profile") and self.profile:
+            engine.profile_config = self.profile
+            logger.debug("Passed profile configuration to ConnectorEngine")
+
+        return engine
