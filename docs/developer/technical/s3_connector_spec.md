@@ -1,485 +1,368 @@
-# Enhanced S3 Connector Specification
+# Enhanced S3 Connector Technical Specification
 
 **Document Version:** 1.0  
 **Date:** January 2025  
 **Task:** 2.3 - Enhanced S3 Connector  
-**Status:** In Development - Documentation Phase
+**Status:** Phase 2.3.1 - Documentation
 
 ---
 
-## Executive Summary
+## Overview
 
-This specification defines the enhanced S3 connector for SQLFlow, implementing intelligent cost management, partition awareness, and comprehensive file format support. The connector is designed to optimize cloud storage costs while providing high-performance data access with industry-standard parameter compatibility.
+The Enhanced S3 Connector implements industry-standard parameter compatibility with advanced cost management, partition awareness, and multi-format support for production-ready S3 data operations.
 
-## Goals
+## Key Features
 
-1. **Cost Management**: Prevent unexpected charges with intelligent spending limits and sampling
-2. **Partition Awareness**: Efficient data reading using S3 key patterns and partition pruning
-3. **Format Flexibility**: Support for multiple file formats (CSV, Parquet, JSON, JSONL, TSV)
-4. **Performance Optimization**: Intelligent file discovery and parallel processing
-5. **Industry Standards**: Compatible with Airbyte/Fivetran S3 parameter conventions
-6. **Development Workflow**: Data sampling and cost controls for development environments
-7. **Security**: Comprehensive IAM and encryption support
-8. **Monitoring**: Real-time cost tracking and performance metrics
+### 1. Cost Management
+- **Spending Limits**: Configurable cost limits with automatic enforcement
+- **Real-time Monitoring**: Track data scanned, requests made, and estimated costs
+- **Development Sampling**: Reduce costs with configurable sampling rates
+- **Performance Metrics**: Monitor operation costs and optimization opportunities
 
-## Key Features Implemented
+### 2. Partition Awareness
+- **Automatic Detection**: Detect Hive-style and date-based partition patterns
+- **Optimized Scanning**: Reduce scan costs by >70% using partition pruning
+- **Intelligent Filtering**: Generate optimized prefixes for incremental loading
+- **Pattern Recognition**: Support for custom partition schemes
 
-### 1. Industry-Standard Parameter Support
+### 3. Multiple File Format Support
+- **Format Support**: CSV, Parquet, JSON, JSONL, TSV, Avro
+- **Compression**: GZIP, Snappy, LZ4, BROTLI compression support
+- **Schema Evolution**: Handle schema changes across file formats
+- **Performance Optimization**: Format-specific optimizations
 
-**Basic S3 Configuration:**
-```sql
-SOURCE s3_data TYPE S3 PARAMS {
-  "bucket": "analytics-data",
-  "access_key_id": "${AWS_ACCESS_KEY_ID}",
-  "secret_access_key": "${AWS_SECRET_ACCESS_KEY}",
-  "region": "us-east-1",
-  "path_prefix": "events/",
-  "file_format": "parquet",
-  "sync_mode": "incremental",
-  "cursor_field": "event_timestamp"
-};
-```
+### 4. Industry-Standard Parameters
+- **Airbyte Compatibility**: Direct parameter mapping from Airbyte configurations
+- **Fivetran Compatibility**: Support for Fivetran-style parameter naming
+- **Backward Compatibility**: Existing SQLFlow configurations continue to work
+- **Parameter Precedence**: New parameter names take precedence over legacy names
 
-**Advanced Configuration with Cost Management:**
-```sql
-SOURCE s3_events TYPE S3 PARAMS {
-  "bucket": "analytics-data",
-  "access_key_id": "${AWS_ACCESS_KEY_ID}",
-  "secret_access_key": "${AWS_SECRET_ACCESS_KEY}",
-  "region": "us-east-1",
-  "path_prefix": "events/year=2024/",
-  "file_format": "parquet",
-  "sync_mode": "incremental",
-  "cursor_field": "event_timestamp",
-  
-  -- Partition awareness
-  "partition_keys": ["year", "month", "day"],
-  "partition_filter": "year >= 2024 AND month >= 01",
-  
-  -- Cost management
-  "cost_limit_usd": 10.00,
-  "max_files_per_run": 1000,
-  "max_data_size_gb": 50.0,
-  
-  -- Development features
-  "dev_sampling": 0.1,
-  "dev_max_files": 10,
-  
-  -- Performance optimization
-  "batch_size": 10000,
-  "parallel_workers": 4,
-  "compression": "gzip",
-  
-  -- Security
-  "use_ssl": true,
-  "server_side_encryption": "AES256"
-};
-```
+## Technical Architecture
 
-### 2. Cost Management Features
-
-**Intelligent Spending Controls:**
-- **Cost Limits**: Hard stops at configured USD spending limits
-- **Data Size Limits**: Prevent processing unexpectedly large datasets
-- **File Count Limits**: Control the number of files processed per run
-- **Development Sampling**: Process only a percentage of data in dev environments
-- **Cost Estimation**: Pre-run cost estimation with user confirmation
-
-**Cost Tracking:**
-```python
-# Cost tracking per operation
-{
-    "estimated_cost_usd": 2.45,
-    "actual_cost_usd": 2.31,
-    "data_scanned_gb": 245.6,
-    "files_processed": 1250,
-    "cost_per_gb": 0.0094,
-    "cost_savings_from_partitioning": 15.67
-}
-```
-
-### 3. Partition Awareness
-
-**Automatic Partition Detection:**
-- Detects Hive-style partitions (`year=2024/month=01/day=15/`)
-- Supports custom partition patterns
-- Automatic partition pruning based on cursor values
-- Partition metadata caching for performance
-
-**Partition-Optimized Incremental Loading:**
-```sql
--- Automatically generates efficient S3 key patterns
--- Original: s3://bucket/events/
--- Optimized: s3://bucket/events/year=2024/month=01/day>=15/
--- Result: 95% reduction in files scanned
-```
-
-**Supported Partition Patterns:**
-- **Hive-style**: `year=2024/month=01/day=15/`
-- **Date-based**: `2024/01/15/`
-- **Custom**: `region=us-east/env=prod/`
-- **Mixed**: `year=2024/region=us-east/type=events/`
-
-### 4. Multiple File Format Support
-
-**Supported Formats:**
-- **CSV**: Standard CSV with configurable delimiters and headers
-- **Parquet**: Columnar format with predicate pushdown
-- **JSON**: Standard JSON objects (one per file)
-- **JSONL**: JSON Lines (one JSON object per line)
-- **TSV**: Tab-separated values
-- **Avro**: Binary format with schema evolution support
-
-**Format-Specific Optimizations:**
-```python
-# Parquet optimizations
-{
-    "predicate_pushdown": True,
-    "column_projection": ["user_id", "event_time", "event_type"],
-    "row_group_filtering": True,
-    "bloom_filter_usage": True
-}
-
-# CSV optimizations  
-{
-    "header_detection": True,
-    "delimiter_detection": True,
-    "encoding_detection": True,
-    "compression_detection": True
-}
-```
-
-### 5. Intelligent File Discovery
-
-**Smart Pattern Matching:**
-- Automatic file pattern detection
-- Efficient prefix-based filtering
-- Regex pattern support for complex file naming
-- Metadata-based filtering (size, modification time)
-
-**Discovery Optimization:**
-```python
-# Before: List all files, then filter
-# After: Use intelligent key prefixes
-# Result: 90% reduction in S3 API calls
-```
-
-### 6. Performance Features
-
-**Parallel Processing:**
-- Configurable worker threads for concurrent file processing
-- Intelligent work distribution based on file sizes
-- Memory-optimized streaming for large files
-- Automatic retry with exponential backoff
-
-**Caching and Optimization:**
-- File metadata caching
-- Partition information caching  
-- Connection pooling for S3 clients
-- Intelligent chunk size optimization
-
-## Implementation Details
-
-### 1. Cost Management Implementation
+### Cost Management Implementation
 
 ```python
 class S3CostManager:
-    def __init__(self, cost_limit_usd: float):
-        self.cost_limit_usd = cost_limit_usd
-        self.current_cost = 0.0
-        
-    def estimate_cost(self, files: List[S3Object]) -> float:
-        """Estimate cost before processing."""
-        total_size_gb = sum(f.size for f in files) / (1024**3)
-        return total_size_gb * self.COST_PER_GB_USD
+    """Advanced cost tracking and limit enforcement."""
+    
+    COST_PER_GB_REQUEST = 0.0004  # USD per GB for GET requests
+    COST_PER_1000_REQUESTS = 0.0004  # USD per 1000 GET requests
+    
+    def estimate_cost(self, files: List[S3Object]) -> Dict[str, float]:
+        """Estimate total operation cost before execution."""
         
     def check_cost_limit(self, estimated_cost: float) -> bool:
-        """Check if operation would exceed cost limit."""
-        return (self.current_cost + estimated_cost) <= self.cost_limit_usd
+        """Prevent operations exceeding cost limits."""
+        
+    def track_operation(self, data_size_bytes: int, num_requests: int) -> None:
+        """Real-time cost tracking during operations."""
 ```
 
-### 2. Partition Awareness Implementation
+### Partition Management Implementation
 
 ```python
 class S3PartitionManager:
-    def detect_partition_pattern(self, s3_keys: List[str]) -> PartitionPattern:
-        """Automatically detect partition patterns."""
-        # Detect Hive-style partitions
-        # Detect date-based partitions
-        # Detect custom patterns
+    """Intelligent partition detection and optimization."""
+    
+    def detect_partition_pattern(self, s3_keys: List[str]) -> Optional[PartitionPattern]:
+        """Automatically detect partition schemes."""
         
-    def build_optimized_prefix(self, cursor_value: Any) -> str:
-        """Build S3 prefix that minimizes files scanned."""
-        # Convert cursor value to partition filters
-        # Generate optimal S3 key prefix
-        # Return optimized prefix
+    def build_optimized_prefix(self, base_prefix: str, cursor_value: Any, cursor_field: str) -> str:
+        """Generate partition-aware prefixes for efficient scanning."""
+        
+    def estimate_scan_reduction(self, pattern: PartitionPattern, filter_criteria: Dict) -> float:
+        """Calculate expected cost reduction from partition pruning."""
 ```
 
-### 3. Multi-Format Processing
+### Format-Specific Optimizations
 
 ```python
-class S3FileProcessor:
-    def get_processor(self, file_format: str) -> FileProcessor:
-        """Get appropriate processor for file format."""
-        processors = {
-            "csv": CSVProcessor(),
-            "parquet": ParquetProcessor(),
-            "json": JSONProcessor(),
-            "jsonl": JSONLProcessor(),
-            "avro": AvroProcessor(),
-        }
-        return processors[file_format]
+class S3FormatHandler:
+    """Format-specific reading and writing optimizations."""
+    
+    def read_parquet_optimized(self, buffer: io.BytesIO, filters: Dict) -> Iterator[DataChunk]:
+        """Parquet reading with pushdown filters and column pruning."""
         
-    def process_file(self, s3_object: S3Object) -> Iterator[DataChunk]:
-        """Process file based on format."""
-        processor = self.get_processor(s3_object.format)
-        return processor.process_stream(s3_object.stream)
+    def read_csv_streaming(self, buffer: io.BytesIO, batch_size: int) -> Iterator[DataChunk]:
+        """Memory-efficient CSV reading with streaming."""
+        
+    def write_with_compression(self, data: DataChunk, format: str, compression: str) -> bytes:
+        """Optimized writing with format-specific compression."""
 ```
 
-## Usage Examples
+## Parameter Specification
 
-### 1. Basic Data Lake Access
+### Required Parameters
 
-```sql
-SOURCE raw_events TYPE S3 PARAMS {
-  "bucket": "data-lake",
-  "path_prefix": "raw/events/",
-  "file_format": "parquet",
-  "access_key_id": "${AWS_ACCESS_KEY_ID}",
-  "secret_access_key": "${AWS_SECRET_ACCESS_KEY}",
-  "region": "us-west-2"
-};
+| Parameter | Type | Description | Example |
+|-----------|------|-------------|---------|
+| `bucket` | string | S3 bucket name | `"analytics-data"` |
 
-LOAD events FROM raw_events;
+### Optional Parameters
 
-CREATE TABLE daily_events AS
-SELECT 
-    DATE(event_timestamp) as event_date,
-    event_type,
-    COUNT(*) as event_count
-FROM events 
-GROUP BY 1, 2;
+#### Connection & Authentication
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `region` | string | `"us-east-1"` | AWS region |
+| `access_key_id` | string | `None` | AWS access key ID |
+| `secret_access_key` | string | `None` | AWS secret access key |
+| `session_token` | string | `None` | AWS session token |
+| `endpoint_url` | string | `None` | Custom S3 endpoint (for MinIO, etc.) |
+| `use_ssl` | boolean | `true` | Use SSL/TLS for connections |
+
+#### File Operations
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `path_prefix` | string | `""` | S3 key prefix for filtering |
+| `file_format` | string | `"csv"` | File format: csv, parquet, json, jsonl, tsv, avro |
+| `compression` | string | `None` | Compression: gzip, snappy, lz4, brotli |
+
+#### Cost Management
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `cost_limit_usd` | float | `100.0` | Maximum cost per operation (USD) |
+| `max_files_per_run` | integer | `10000` | Maximum files to process per run |
+| `max_data_size_gb` | float | `1000.0` | Maximum data to scan per run (GB) |
+| `dev_sampling` | float | `None` | Sampling rate for development (0.0-1.0) |
+| `dev_max_files` | integer | `None` | Max files for development |
+
+#### Partition Awareness
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `partition_keys` | array | `None` | Partition column names |
+| `partition_filter` | object | `None` | Partition filter criteria |
+
+#### Performance
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `batch_size` | integer | `10000` | Rows per batch |
+| `parallel_workers` | integer | `4` | Parallel processing workers |
+
+#### Format-Specific Parameters
+
+**CSV Parameters:**
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `csv_delimiter` | string | `","` | CSV field delimiter |
+| `csv_header` | boolean | `true` | First row contains headers |
+| `csv_encoding` | string | `"utf-8"` | Character encoding |
+
+**Parquet Parameters:**
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `parquet_columns` | array | `None` | Columns to read (column pruning) |
+| `parquet_filters` | array | `None` | Pushdown filters |
+
+**JSON Parameters:**
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `json_flatten` | boolean | `true` | Flatten nested JSON |
+| `json_max_depth` | integer | `10` | Maximum nesting depth |
+
+## Backward Compatibility
+
+### Legacy Parameter Mapping
+
+| Legacy Parameter | New Parameter | Notes |
+|-----------------|---------------|-------|
+| `prefix` | `path_prefix` | Automatically mapped |
+| `format` | `file_format` | Automatically mapped |
+| `access_key` | `access_key_id` | Automatically mapped |
+| `secret_key` | `secret_access_key` | Automatically mapped |
+
+### Migration Examples
+
+**Legacy Configuration:**
+```json
+{
+    "bucket": "my-bucket",
+    "prefix": "data/",
+    "format": "csv",
+    "access_key": "AKIA...",
+    "secret_key": "xyz..."
+}
 ```
 
-### 2. Cost-Controlled Incremental Loading
-
-```sql
-SOURCE incremental_logs TYPE S3 PARAMS {
-  "bucket": "app-logs",
-  "path_prefix": "logs/year=2024/",
-  "file_format": "jsonl",
-  "sync_mode": "incremental",
-  "cursor_field": "timestamp",
-  "partition_keys": ["year", "month", "day", "hour"],
-  
-  -- Cost controls
-  "cost_limit_usd": 5.00,
-  "max_data_size_gb": 10.0,
-  
-  -- Development sampling
-  "dev_sampling": 0.05,
-  "dev_max_files": 5,
-  
-  "access_key_id": "${AWS_ACCESS_KEY_ID}",
-  "secret_access_key": "${AWS_SECRET_ACCESS_KEY}",
-  "region": "us-east-1"
-};
-
-LOAD app_logs FROM incremental_logs MODE APPEND;
+**New Configuration (backward compatible):**
+```json
+{
+    "bucket": "my-bucket",
+    "path_prefix": "data/",
+    "file_format": "csv",
+    "access_key_id": "AKIA...",
+    "secret_access_key": "xyz...",
+    "cost_limit_usd": 50.0,
+    "partition_keys": ["year", "month", "day"]
+}
 ```
 
-### 3. Multi-Format Data Processing
+## Cost Management Examples
 
-```sql
--- CSV files
-SOURCE csv_data TYPE S3 PARAMS {
-  "bucket": "uploads",
-  "path_prefix": "csv/",
-  "file_format": "csv",
-  "csv_delimiter": ",",
-  "csv_header": true,
-  "csv_encoding": "utf-8"
-};
-
--- Parquet files with column projection
-SOURCE parquet_data TYPE S3 PARAMS {
-  "bucket": "analytics",
-  "path_prefix": "processed/",
-  "file_format": "parquet", 
-  "parquet_columns": ["user_id", "event_time", "revenue"],
-  "parquet_filters": [["revenue", ">", 0]]
-};
-
--- JSON Lines files
-SOURCE jsonl_data TYPE S3 PARAMS {
-  "bucket": "streams",
-  "path_prefix": "events/",
-  "file_format": "jsonl",
-  "json_flatten": true,
-  "json_max_depth": 3
-};
+### Development Environment
+```json
+{
+    "bucket": "analytics-data",
+    "path_prefix": "events/",
+    "file_format": "parquet",
+    "cost_limit_usd": 5.0,
+    "dev_sampling": 0.1,
+    "dev_max_files": 100
+}
 ```
 
-### 4. Development Environment Configuration
-
-```sql
-SOURCE dev_s3_data TYPE S3 PARAMS {
-  "bucket": "production-data",
-  "path_prefix": "events/year=2024/month=01/",
-  "file_format": "parquet",
-  
-  -- Development-specific settings
-  "dev_sampling": 0.01,        -- Process only 1% of data
-  "dev_max_files": 10,         -- Limit to 10 files max
-  "cost_limit_usd": 1.00,      -- Strict cost control
-  
-  "access_key_id": "${AWS_ACCESS_KEY_ID}",
-  "secret_access_key": "${AWS_SECRET_ACCESS_KEY}",
-  "region": "us-east-1"
-};
+### Production Environment
+```json
+{
+    "bucket": "analytics-data",
+    "path_prefix": "events/",
+    "file_format": "parquet",
+    "cost_limit_usd": 500.0,
+    "max_data_size_gb": 1000.0,
+    "partition_keys": ["year", "month", "day"],
+    "partition_filter": {
+        "year": "2024",
+        "month": ["01", "02", "03"]
+    }
+}
 ```
+
+## Partition Awareness Examples
+
+### Hive-Style Partitions
+```
+s3://bucket/data/year=2024/month=01/day=15/file1.parquet
+s3://bucket/data/year=2024/month=01/day=16/file2.parquet
+```
+
+**Configuration:**
+```json
+{
+    "bucket": "bucket",
+    "path_prefix": "data/",
+    "partition_keys": ["year", "month", "day"],
+    "partition_filter": {"year": "2024", "month": "01"}
+}
+```
+
+### Date-Based Partitions
+```
+s3://bucket/events/2024/01/15/events.json
+s3://bucket/events/2024/01/16/events.json
+```
+
+**Configuration:**
+```json
+{
+    "bucket": "bucket",
+    "path_prefix": "events/",
+    "file_format": "json",
+    "sync_mode": "incremental",
+    "cursor_field": "event_timestamp"
+}
+```
+
+## Performance Expectations
+
+### Cost Reduction Targets
+- **Partition Pruning**: >70% reduction in scan costs
+- **Column Pruning**: >50% reduction for wide tables
+- **Development Sampling**: >90% cost reduction in dev environments
+- **Format Optimization**: 5-10x performance improvement with Parquet
+
+### Scalability Targets
+- **File Count**: Support for >100,000 files per bucket
+- **Data Volume**: Handle >1TB datasets efficiently
+- **Concurrent Operations**: Support for parallel processing
+- **Memory Usage**: Constant memory usage regardless of dataset size
 
 ## Error Handling
 
-### 1. Cost Limit Errors
-
-**Cost Limit Exceeded:**
-```
-CostLimitError: Estimated cost $12.45 exceeds limit $10.00
-Suggestions:
-- Increase cost_limit_usd to at least $12.45
-- Add partition filters to reduce data scanned
-- Use dev_sampling to process subset of data
-- Increase path_prefix specificity
+### Cost Limit Enforcement
+```python
+class CostLimitError(ConnectorError):
+    """Raised when operations would exceed cost limits."""
+    
+    def __init__(self, estimated_cost: float, limit: float):
+        message = f"Operation cost ${estimated_cost:.2f} exceeds limit ${limit:.2f}"
+        super().__init__("S3", message)
 ```
 
-### 2. Partition Errors
-
-**Invalid Partition Filter:**
-```
-PartitionError: Partition filter 'invalid_column > 100' references unknown partition key
-Available partition keys: ['year', 'month', 'day', 'region']
-```
-
-### 3. File Format Errors
-
-**Unsupported Format:**
-```
-FormatError: File format 'xlsx' not supported
-Supported formats: ['csv', 'parquet', 'json', 'jsonl', 'tsv', 'avro']
+### Partition Error Handling
+```python
+class PartitionError(ConnectorError):
+    """Raised for partition-related issues."""
+    
+    def __init__(self, partition_issue: str):
+        message = f"Partition error: {partition_issue}"
+        super().__init__("S3", message)
 ```
 
-## Performance Considerations
-
-### 1. Cost Optimization
-
-- **Partition Pruning**: Use partition filters to reduce data scanned by up to 95%
-- **Column Projection**: Specify only needed columns for Parquet files
-- **File Size Optimization**: Process larger files more efficiently than many small files
-- **Sampling**: Use development sampling to reduce costs during testing
-
-### 2. Performance Optimization
-
-- **Parallel Processing**: Configure workers based on available memory and CPU
-- **Batch Size**: Optimize batch size for memory usage vs. performance
-- **Connection Pooling**: Reuse S3 connections for better throughput
-- **Caching**: Enable metadata caching for repeated access patterns
-
-### 3. Memory Management
-
-- **Streaming Processing**: Process files without loading entirely into memory
-- **Chunk Size**: Configure chunk size based on available memory
-- **Format-Specific**: Use format-specific optimizations (e.g., Parquet row groups)
-- **Garbage Collection**: Proper cleanup of temporary objects
-
-## Security Features
-
-### 1. Authentication Methods
-
-- **Access Keys**: Standard AWS access key and secret key
-- **IAM Roles**: Use IAM roles for EC2/container environments
-- **STS Tokens**: Support for temporary security tokens
-- **Cross-Account**: Support for cross-account bucket access
-
-### 2. Encryption Support
-
-- **Server-Side Encryption**: Support for SSE-S3, SSE-KMS, SSE-C
-- **Client-Side Encryption**: Optional client-side encryption
-- **In-Transit**: TLS encryption for all S3 communications
-- **Key Management**: Integration with AWS KMS for key management
-
-### 3. Access Control
-
-- **Bucket Policies**: Respect S3 bucket policies and ACLs
-- **IAM Permissions**: Minimum required permissions documentation
-- **VPC Endpoints**: Support for VPC endpoint access
-- **Audit Logging**: Comprehensive access logging
+### Format Error Handling
+```python
+class FormatError(ConnectorError):
+    """Raised for file format issues."""
+    
+    def __init__(self, format_issue: str):
+        message = f"Format error: {format_issue}"
+        super().__init__("S3", message)
+```
 
 ## Testing Strategy
 
-### 1. Unit Tests
-
-- Cost calculation accuracy
+### Unit Tests
+- Parameter validation for all supported configurations
+- Cost estimation accuracy
 - Partition pattern detection
-- File format processing
-- Error handling scenarios
+- Format-specific reading/writing
+- Error handling for edge cases
 
-### 2. Integration Tests
-
-- Real S3 bucket access with various configurations
-- Multi-format file processing
-- Cost limit enforcement
+### Integration Tests
+- End-to-end operations with real S3/MinIO
+- Cost limit enforcement under load
 - Partition pruning effectiveness
+- Multi-format compatibility
+- Performance benchmarking
 
-### 3. Performance Tests
+### Demo Scenarios
+- Development environment with cost controls
+- Production environment with partitioning
+- Multi-format data pipeline
+- Cost optimization demonstrations
+- Migration from legacy configurations
 
-- Large dataset processing (>100GB)
-- High file count scenarios (>10K files)
-- Concurrent access patterns
-- Memory usage optimization
+## Success Criteria
 
-## Migration from Other Platforms
+### Technical Criteria
+- ✅ All pytest tests passing (>90% coverage)
+- ✅ Cost management prevents unexpected charges
+- ✅ Partition awareness reduces scan costs by >70%
+- ✅ Multi-format support works reliably
+- ✅ Backward compatibility maintained
 
-### From Airbyte S3 Source
+### Performance Criteria
+- ✅ Memory usage remains constant for streaming operations
+- ✅ Parallel processing improves throughput
+- ✅ Format-specific optimizations provide measurable benefits
+- ✅ Cost estimation accuracy within 10% of actual costs
 
-```yaml
-# Airbyte configuration
-bucket: analytics-data
-aws_access_key_id: AKIA...
-aws_secret_access_key: secret...
-path_prefix: events/
-file_format: parquet
-```
+### Demo Criteria
+- ✅ Cost controls prevent runaway operations
+- ✅ Partition optimization visibly reduces costs
+- ✅ Multi-format pipeline works end-to-end
+- ✅ Migration scenarios work seamlessly
+- ✅ Error handling provides clear guidance
 
-```sql
--- Direct SQLFlow equivalent
-SOURCE s3_data TYPE S3 PARAMS {
-  "bucket": "analytics-data",
-  "access_key_id": "AKIA...",
-  "secret_access_key": "secret...",
-  "path_prefix": "events/",
-  "file_format": "parquet"
-};
-```
+## Implementation Timeline
 
-### Enhanced Features vs. Standard S3 Connectors
+- **Day 1**: Documentation complete
+- **Day 2-4**: Implementation with testing
+- **Day 4**: Testing validation
+- **Day 5**: Demo verification and commit
 
-| Feature | Standard S3 | Enhanced S3 | Benefit |
-|---------|-------------|-------------|---------|
-| Cost Control | None | Built-in limits | Prevent surprise charges |
-| Partition Awareness | Manual | Automatic | 95% scan reduction |
-| Format Support | Basic | Advanced | Production-ready |
-| Development Mode | None | Sampling + limits | Safe development |
-| Performance | Basic | Optimized | 10x faster processing |
-| Error Handling | Basic | Comprehensive | Better debugging |
+## References
 
-## Next Steps
-
-1. **Task 2.3.2**: Implementation of core S3 connector functionality
-2. **Task 2.3.3**: Integration with cost management and partition awareness
-3. **Task 2.3.4**: Testing with real S3 data and performance validation
-4. **Task 2.3.5**: Demo creation and documentation finalization
-
-## Conclusion
-
-The Enhanced S3 Connector provides enterprise-grade S3 data access with intelligent cost management, partition awareness, and comprehensive format support. By focusing on cost optimization and performance, it enables organizations to efficiently process cloud storage data while maintaining strict cost controls and development workflow support. 
+- [AWS S3 Pricing](https://aws.amazon.com/s3/pricing/)
+- [Parquet Format Specification](https://parquet.apache.org/docs/)
+- [Hive Partitioning Documentation](https://cwiki.apache.org/confluence/display/Hive/LanguageManual+DDL#LanguageManualDDL-PartitionedTables)
+- [SQLFlow Testing Standards](docs/04_testing_standards.md)
+- [Task 2.3 Implementation Plan](sqlflow_connector_implementation_tasks.md#task-23-enhanced-s3-connector) 

@@ -28,6 +28,10 @@ from sqlflow.connectors.base import (
 )
 from sqlflow.connectors.data_chunk import DataChunk
 from sqlflow.connectors.registry import register_connector, register_export_connector
+from sqlflow.connectors.resilience import (
+    FILE_RESILIENCE_CONFIG,
+    resilient_operation,
+)
 from sqlflow.core.errors import ConnectorError
 from sqlflow.logging import get_logger
 
@@ -76,7 +80,7 @@ class PartitionPattern:
 
 
 class S3ParameterValidator(ParameterValidator):
-    """Parameter validator for S3 connector."""
+    """Enhanced parameter validator for S3 connector."""
 
     def __init__(self):
         super().__init__("S3")
@@ -86,11 +90,12 @@ class S3ParameterValidator(ParameterValidator):
         return ["bucket"]
 
     def _get_optional_params(self) -> Dict[str, Any]:
-        """Get optional parameters with defaults."""
+        """Get optional parameters with defaults for S3 connector."""
         return {
             **super()._get_optional_params(),
             "region": "us-east-1",
             "path_prefix": "",
+            "key": None,  # Specific S3 object key
             "file_format": "csv",
             "compression": None,
             "sync_mode": "full_refresh",
@@ -124,6 +129,32 @@ class S3ParameterValidator(ParameterValidator):
             "json_flatten": True,
             "json_max_depth": 10,
         }
+
+    def _validate_param_type(self, key: str, value: Any) -> Any:
+        """Validate individual parameter type with S3-specific handling."""
+        # Handle S3-specific parameters before base validation
+        if key == "partition_keys":
+            if value is None:
+                return None
+            if isinstance(value, str):
+                # Convert comma-separated string to list
+                return [k.strip() for k in value.split(",")]
+            elif isinstance(value, list):
+                return value
+            else:
+                raise ParameterError(
+                    "partition_keys must be a list or comma-separated string"
+                )
+
+        if key == "partition_filter":
+            if value is None:
+                return None
+            if not isinstance(value, dict):
+                raise ParameterError("partition_filter must be a dictionary")
+            return value
+
+        # Fall back to base validation for other parameters
+        return super()._validate_param_type(key, value)
 
     def validate(self, params: Dict[str, Any]) -> Dict[str, Any]:  # noqa: C901
         """Validate S3 parameters with enhanced checks."""
@@ -394,20 +425,37 @@ class S3Connector(Connector, ExportConnector):
         self.content_type: Optional[str] = None
         self.filename_template: str = "{prefix}{uuid}.{format}"
         self.use_multipart: bool = True
+        self.key: Optional[str] = None
 
     def configure(self, params: Dict[str, Any]) -> None:
         """Configure the enhanced S3 connector with industry-standard parameters."""
         try:
             # Check for mock mode for testing (backward compatibility)
             self.mock_mode = params.get("mock_mode", False)
-            if self.mock_mode:
-                logger.debug("Using S3 connector in mock mode (dry run)")
-                self.state = ConnectorState.CONFIGURED
-                return
 
-            # Validate parameters using standardized framework
+            # Debug logging to see what parameters are passed
+            logger.debug(
+                f"S3 connector configure called with params: {list(params.keys())}"
+            )
+            if "key" in params:
+                logger.info(f"S3 connector received key parameter: {params['key']}")
+
+            # Always validate parameters even in mock mode
             validated_params = self.validate_params(params)
             self.params = validated_params
+
+            # Debug logging after validation
+            if "key" in validated_params:
+                logger.info(
+                    f"S3 connector validated key parameter: {validated_params['key']}"
+                )
+
+            if self.mock_mode:
+                logger.debug("Using S3 connector in mock mode (dry run)")
+                # Configure resilience patterns even in mock mode for testing
+                self.configure_resilience(FILE_RESILIENCE_CONFIG)
+                self.state = ConnectorState.CONFIGURED
+                return
 
             # Set up cost management
             cost_limit = validated_params.get("cost_limit_usd", 100.0)
@@ -416,8 +464,16 @@ class S3Connector(Connector, ExportConnector):
             # Configure legacy parameters for backward compatibility
             self._configure_legacy_params(validated_params)
 
+            # Debug logging after legacy params configuration
+            logger.debug(
+                f"S3 connector after legacy config - key: {self.key}, prefix: {self.prefix}"
+            )
+
             # Initialize S3 client
             self._initialize_s3_client()
+
+            # Configure resilience patterns for file operations
+            self.configure_resilience(FILE_RESILIENCE_CONFIG)
 
             self.state = ConnectorState.CONFIGURED
             logger.info(
@@ -436,6 +492,7 @@ class S3Connector(Connector, ExportConnector):
         """Configure legacy parameters for backward compatibility."""
         self.bucket = params["bucket"]
         self.prefix = params.get("path_prefix", "")
+        self.key = params.get("key")
         self.region = params.get("region", "us-east-1")
         self.access_key = params.get("access_key_id")
         self.secret_key = params.get("secret_access_key")
@@ -491,6 +548,7 @@ class S3Connector(Connector, ExportConnector):
         """Check if connector supports incremental loading."""
         return True
 
+    @resilient_operation()
     def test_connection(self) -> ConnectionTestResult:
         """Test the connection to S3 with enhanced validation."""
         self.validate_state(ConnectorState.CONFIGURED)
@@ -528,11 +586,16 @@ class S3Connector(Connector, ExportConnector):
             return ConnectionTestResult(True, message)
 
         except Exception as e:
-            self.state = ConnectorState.ERROR
+            # Only set state to ERROR if resilience patterns are not configured
+            # This allows retries to work properly
+            if not hasattr(self, "resilience_manager") or not self.resilience_manager:
+                self.state = ConnectorState.ERROR
+
             error_msg = str(e)
             logger.error(f"S3 connection test failed: {error_msg}")
             return ConnectionTestResult(False, error_msg)
 
+    @resilient_operation()
     def check_health(self) -> Dict[str, Any]:
         """Comprehensive health check with S3-specific metrics."""
         start_time = time.time()
@@ -629,12 +692,35 @@ class S3Connector(Connector, ExportConnector):
                 },
             }
 
+    @resilient_operation()
     def discover(self) -> List[str]:
         """Discover available S3 objects with cost management and partition awareness."""
         self.validate_state(ConnectorState.CONFIGURED)
 
+        logger.info(
+            f"S3 discover called - key: {self.key}, prefix: {self.prefix}, mock_mode: {self.mock_mode}"
+        )
+
         if self.mock_mode:
             return ["mock/file1.csv", "mock/file2.csv", "mock/file3.csv"]
+
+        # If a specific key is configured, return just that key
+        if self.key:
+            logger.info(f"S3 connector configured with specific key: {self.key}")
+            try:
+                # Verify the key exists
+                if self.s3_client and self.bucket:
+                    logger.info(f"Checking if key exists: {self.bucket}/{self.key}")
+                    self.s3_client.head_object(Bucket=self.bucket, Key=self.key)
+                    logger.info(f"Using specific S3 key: {self.key}")
+                    return [self.key]
+            except Exception as e:
+                logger.warning(f"Configured key '{self.key}' not found: {e}")
+                # Fall through to normal discovery
+        else:
+            logger.info(
+                f"No specific key configured, using prefix discovery with prefix: '{self.prefix}'"
+            )
 
         try:
             if not self.s3_client or not self.bucket:
@@ -722,16 +808,20 @@ class S3Connector(Connector, ExportConnector):
 
     def _apply_development_sampling(self, objects: List[str]) -> List[str]:
         """Apply development sampling if configured."""
-        if not self.params or not self.params.get("dev_sampling"):
+        if not self.params or not self.params.get("dev_sampling") or not objects:
             return objects
 
         import random
 
         sampling_rate = float(self.params["dev_sampling"])
         sample_count = max(1, int(len(objects) * sampling_rate))
+
+        # Ensure we don't try to sample more than available
+        sample_count = min(sample_count, len(objects))
+
         sampled_objects = random.sample(objects, sample_count)
         logger.info(
-            f"Applied {sampling_rate*100:.1f}% sampling: {sample_count} objects selected"
+            f"Applied {sampling_rate*100:.1f}% sampling: {sample_count} objects selected from {len(objects)} total"
         )
         return sampled_objects
 
@@ -936,6 +1026,7 @@ class S3Connector(Connector, ExportConnector):
             empty_df = pd.DataFrame()
             yield DataChunk(pa.Table.from_pandas(empty_df))
 
+    @resilient_operation()
     def read(  # noqa: C901
         self,
         object_name: str,
@@ -947,7 +1038,7 @@ class S3Connector(Connector, ExportConnector):
 
         Args:
         ----
-            object_name: S3 object key or URI
+            object_name: S3 object key or URI (ignored if specific key is configured)
             columns: Optional list of columns to read
             filters: Optional filters (not implemented for S3)
             batch_size: Number of rows per batch
@@ -962,6 +1053,13 @@ class S3Connector(Connector, ExportConnector):
 
         """
         self.validate_state(ConnectorState.CONFIGURED)
+
+        # Use configured key if available, otherwise use object_name
+        actual_object_name = self.key if self.key else object_name
+
+        logger.info(f"S3 read called with object_name: {object_name}")
+        logger.info(f"S3 connector bucket: {self.bucket}, key: {self.key}")
+        logger.info(f"Using actual object name: {actual_object_name}")
 
         if self.mock_mode:
             # Return mock data
@@ -981,48 +1079,96 @@ class S3Connector(Connector, ExportConnector):
             if not self.s3_client or not self.bucket:
                 raise ConnectorError(self.name or "S3", "S3 client not initialized")
 
-            bucket_name, key = self._parse_s3_uri(object_name)
+            bucket_name, key = self._parse_s3_uri(actual_object_name)
+            logger.info(f"Parsed S3 URI - bucket: {bucket_name}, key: {key}")
 
-            # Get object metadata for cost estimation
-            obj_response = self.s3_client.head_object(Bucket=bucket_name, Key=key)
-            obj_size = obj_response.get("ContentLength", 0)
+            # Check if this is a single object or if we need to use discovery
+            try:
+                # Try to read as a single object first
+                logger.info(f"Attempting to head object: s3://{bucket_name}/{key}")
+                obj_response = self.s3_client.head_object(Bucket=bucket_name, Key=key)
+                obj_size = obj_response.get("ContentLength", 0)
 
-            # Check cost limits
-            if self.cost_manager:
-                size_gb = obj_size / (1024**3)
-                estimated_cost = size_gb * self.cost_manager.COST_PER_GB_REQUEST
+                # Check cost limits
+                if self.cost_manager:
+                    size_gb = obj_size / (1024**3)
+                    estimated_cost = size_gb * self.cost_manager.COST_PER_GB_REQUEST
 
-                if not self.cost_manager.check_cost_limit(estimated_cost):
-                    raise CostLimitError(
-                        f"Reading object would cost ${estimated_cost:.4f}, "
-                        f"exceeding limit ${self.cost_manager.cost_limit_usd:.2f}"
+                    if not self.cost_manager.check_cost_limit(estimated_cost):
+                        raise CostLimitError(
+                            f"Reading object would cost ${estimated_cost:.4f}, "
+                            f"exceeding limit ${self.cost_manager.cost_limit_usd:.2f}"
+                        )
+
+                # Read the single object
+                response = self.s3_client.get_object(Bucket=bucket_name, Key=key)
+
+                # Handle compression
+                body = response["Body"]
+                if response.get("ContentEncoding") == "gzip":
+                    import gzip
+
+                    body = gzip.GzipFile(fileobj=body)
+
+                buffer = io.BytesIO(body.read())
+
+                # Track operation cost
+                if self.cost_manager:
+                    self.cost_manager.track_operation(obj_size, 1)
+
+                # Read based on format
+                if self.format == "parquet":
+                    yield from self._read_parquet(buffer, columns, batch_size)
+                elif self.format in ["csv", "tsv", "json", "jsonl"]:
+                    yield from self._read_pandas_format(
+                        buffer, self.format, columns, batch_size
+                    )
+                else:
+                    raise FormatError(f"Unsupported file format: {self.format}")
+
+            except Exception as single_object_error:
+                # If reading as single object fails and no specific key is configured,
+                # fall back to discovery mode
+                if not self.key and "404" in str(single_object_error):
+                    logger.info(
+                        f"Single object not found, falling back to discovery mode for prefix: {key}"
                     )
 
-            # Read the object
-            response = self.s3_client.get_object(Bucket=bucket_name, Key=key)
+                    # Use discovery to find all objects
+                    discovered_objects = self.discover()
 
-            # Handle compression
-            body = response["Body"]
-            if response.get("ContentEncoding") == "gzip":
-                import gzip
+                    if not discovered_objects:
+                        raise ConnectorError(
+                            self.name or "S3",
+                            f"No objects found with prefix '{key}' in bucket '{bucket_name}'",
+                        )
 
-                body = gzip.GzipFile(fileobj=body)
+                    logger.info(
+                        f"Found {len(discovered_objects)} objects via discovery, reading all"
+                    )
 
-            buffer = io.BytesIO(body.read())
-
-            # Track operation cost
-            if self.cost_manager:
-                self.cost_manager.track_operation(obj_size, 1)
-
-            # Read based on format
-            if self.format == "parquet":
-                yield from self._read_parquet(buffer, columns, batch_size)
-            elif self.format in ["csv", "tsv", "json", "jsonl"]:
-                yield from self._read_pandas_format(
-                    buffer, self.format, columns, batch_size
-                )
-            else:
-                raise FormatError(f"Unsupported file format: {self.format}")
+                    # Read all discovered objects
+                    for obj_key in discovered_objects:
+                        try:
+                            logger.info(f"Reading discovered object: {obj_key}")
+                            # Recursively call read for each discovered object
+                            # Set a temporary key to avoid infinite recursion
+                            original_key = self.key
+                            self.key = obj_key
+                            try:
+                                yield from self.read(
+                                    obj_key, columns, filters, batch_size
+                                )
+                            finally:
+                                self.key = original_key
+                        except Exception as obj_error:
+                            logger.warning(
+                                f"Failed to read object {obj_key}: {obj_error}"
+                            )
+                            continue
+                else:
+                    # Re-raise the original error if it's not a 404 or if a specific key was configured
+                    raise single_object_error
 
             self.state = ConnectorState.READY
 
@@ -1030,8 +1176,17 @@ class S3Connector(Connector, ExportConnector):
             raise
         except Exception as e:
             self.state = ConnectorState.ERROR
+            # Initialize variables for error logging if they weren't set
+            try:
+                bucket_name, key = self._parse_s3_uri(actual_object_name)
+            except Exception:
+                bucket_name, key = "unknown", "unknown"
+            logger.error(
+                f"S3 read failed for object_name: {object_name}, actual_object_name: {actual_object_name}, bucket: {bucket_name}, key: {key}, error: {str(e)}"
+            )
             raise ConnectorError(self.name or "S3", f"Reading failed: {str(e)}")
 
+    @resilient_operation()
     def read_incremental(
         self,
         object_name: str,
@@ -1042,6 +1197,20 @@ class S3Connector(Connector, ExportConnector):
     ) -> Iterator[DataChunk]:
         """Read data incrementally from S3 with partition awareness."""
         self.validate_state(ConnectorState.CONFIGURED)
+
+        # Handle mock mode
+        if self.mock_mode:
+            logger.info("S3 incremental read in mock mode")
+            # Generate mock incremental data
+            mock_data = {
+                "timestamp": ["2024-01-15", "2024-01-16", "2024-01-17"],
+                "id": [1, 2, 3],
+                "value": [100, 200, 300],
+            }
+            df = pd.DataFrame(mock_data)
+            table = pa.Table.from_pandas(df)
+            yield DataChunk(table)
+            return
 
         try:
             # Build optimized prefix using partition awareness
@@ -1112,6 +1281,17 @@ class S3Connector(Connector, ExportConnector):
             for obj in page.get("Contents", []):
                 if self._should_include_object(obj, cursor_value, cursor_field):
                     candidate_objects.append(obj["Key"])
+
+        # Detect partition patterns if not already detected
+        if not self.partition_manager.detected_pattern and candidate_objects:
+            self.partition_manager.detected_pattern = (
+                self.partition_manager.detect_partition_pattern(candidate_objects)
+            )
+            if self.partition_manager.detected_pattern:
+                pattern = self.partition_manager.detected_pattern
+                logger.info(
+                    f"Detected {pattern.pattern_type} partition pattern with keys: {pattern.keys}"
+                )
 
         return candidate_objects
 

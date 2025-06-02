@@ -141,6 +141,26 @@ class RetryHandler:
                     if hasattr(exception, "response") and exception.response:
                         status_code = exception.response.status_code
                         return 500 <= status_code < 600
+
+                # Special handling for AWS ClientError - check error codes
+                try:
+                    from botocore.exceptions import ClientError
+
+                    if isinstance(exception, ClientError):
+                        error_code = exception.response.get("Error", {}).get("Code", "")
+                        # Retry on specific AWS error codes
+                        retryable_codes = {
+                            "SlowDown",  # S3 throttling
+                            "ServiceUnavailable",  # Service temporarily unavailable
+                            "InternalError",  # AWS internal error
+                            "RequestTimeout",  # Request timeout
+                            "ThrottledResponse",  # General throttling
+                            "RequestLimitExceeded",  # Rate limit exceeded
+                        }
+                        return error_code in retryable_codes
+                except ImportError:
+                    pass
+
                 return True
 
         return False
@@ -653,11 +673,25 @@ API_RESILIENCE_CONFIG = ResilienceConfig(
     ),
 )
 
+# Try to import AWS/S3 specific exceptions
+try:
+    from botocore.exceptions import BotoCoreError, ClientError, EndpointConnectionError
+
+    AWS_EXCEPTIONS = [ClientError, EndpointConnectionError, BotoCoreError]
+except ImportError:
+    AWS_EXCEPTIONS = []
+
 FILE_RESILIENCE_CONFIG = ResilienceConfig(
     retry=RetryConfig(
         max_attempts=4,
         initial_delay=0.5,
-        retry_on_exceptions=[IOError, OSError, ConnectionError],
+        retry_on_exceptions=[
+            IOError,
+            OSError,
+            ConnectionError,
+            TimeoutError,
+            *AWS_EXCEPTIONS,  # Include AWS/S3 specific exceptions
+        ],
     ),
     circuit_breaker=CircuitBreakerConfig(failure_threshold=10, recovery_timeout=15.0),
     rate_limit=RateLimitConfig(max_requests_per_minute=1000, burst_size=100),
