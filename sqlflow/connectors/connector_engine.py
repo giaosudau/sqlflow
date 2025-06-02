@@ -332,10 +332,16 @@ class ConnectorEngine:
     def _write_export_data(self, export_connector, destination, data):
         try:
             logger.debug("Writing data to destination: %s", destination)
+            logger.debug("Export connector type: %s", type(export_connector).__name__)
+            logger.debug(
+                "Data chunk type: %s, rows: %d",
+                type(data).__name__,
+                len(data.pandas_df) if hasattr(data, "pandas_df") else 0,
+            )
             export_connector.write(destination, data)
-            logger.debug("Data export successful")
+            logger.debug("Data export successful to destination: %s", destination)
         except Exception as e:
-            logger.debug("Error writing data: %s", str(e))
+            logger.error("Error writing data to %s: %s", destination, str(e))
             raise ConnectorError(export_connector.name, f"Writing failed: {str(e)}")
 
     def export_data(

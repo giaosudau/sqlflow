@@ -703,7 +703,7 @@ class Parser:
         destination_uri_token = self._consume(
             TokenType.STRING, "Expected destination URI string after 'TO'"
         )
-        destination_uri = destination_uri_token.value.strip('"')
+        destination_uri = destination_uri_token.value.strip("\"'")
 
         # Fix variable references in the destination URI
         destination_uri = self._fix_variable_references(destination_uri)

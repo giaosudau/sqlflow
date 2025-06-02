@@ -137,10 +137,10 @@ echo
 # Test 2: Incremental Loading
 if run_pipeline_test "02_incremental_loading_test" "Incremental Loading with Watermarks"; then
     print_info "Verifying incremental loading results..."
-    if [ -f "output/incremental_loading_results.csv" ]; then
+    if [ -f "output/incremental_test_results.csv" ]; then
         print_success "Incremental loading results file created successfully"
         echo "Results preview:"
-        head -5 "output/incremental_loading_results.csv" 2>/dev/null || echo "  (No data to preview)"
+        head -5 "output/incremental_test_results.csv" 2>/dev/null || echo "  (No data to preview)"
     else
         print_warning "Incremental loading results file not found"
     fi
@@ -153,12 +153,12 @@ echo
 # Test 3: S3 Connector
 if run_pipeline_test "03_s3_connector_test" "S3 Connector with Multi-Format Support"; then
     print_info "Verifying S3 export results..."
-    if [ -f "output/s3_export_summary.csv" ]; then
-        print_success "S3 export results file created successfully"
-        echo "Results preview:"
-        head -5 "output/s3_export_summary.csv" 2>/dev/null || echo "  (No data to preview)"
+    # Check S3 exports using our dedicated test script
+    if docker compose exec sqlflow python3 /app/test_s3_verification.py > /dev/null 2>&1; then
+        print_success "S3 export results found in MinIO bucket"
+        echo "S3 exports completed successfully"
     else
-        print_warning "S3 export results file not found"
+        print_warning "S3 export results not found in MinIO bucket"
     fi
 else
     print_error "S3 connector test failed - skipping verification"
@@ -191,11 +191,12 @@ if [ -f "output/postgres_connection_test_results.csv" ]; then
     ((successful_tests++))
 fi
 
-if [ -f "output/incremental_loading_results.csv" ]; then
+if [ -f "output/incremental_test_results.csv" ]; then
     ((successful_tests++))
 fi
 
-if [ -f "output/s3_export_summary.csv" ]; then
+# Check S3 test success by looking for files in MinIO bucket
+if docker compose exec sqlflow python3 /app/test_s3_verification.py > /dev/null 2>&1; then
     ((successful_tests++))
 fi
 

@@ -64,13 +64,16 @@ class CSVExportConnector(ExportConnector):
         self.state = ConnectorState.READY
         return ConnectionTestResult(True)
 
-    def write(self, destination: str, data: DataChunk) -> None:
+    def write(
+        self, object_name: str, data_chunk: DataChunk, mode: str = "append"
+    ) -> None:
         """Write data to a CSV file.
 
         Args:
         ----
-            destination: Destination file path
-            data: Data to write
+            object_name: Destination file path
+            data_chunk: Data to write
+            mode: Write mode (not used for CSV files)
 
         Raises:
         ------
@@ -80,22 +83,22 @@ class CSVExportConnector(ExportConnector):
         self.validate_state(ConnectorState.CONFIGURED)
 
         # Check if the destination path still contains variable references
-        if "${" in destination and "}" in destination:
+        if "${" in object_name and "}" in object_name:
             logger.warning(
-                f"Destination path contains unsubstituted variables: {destination}"
+                f"Destination path contains unsubstituted variables: {object_name}"
             )
 
         try:
-            directory = os.path.dirname(os.path.abspath(destination))
+            directory = os.path.dirname(os.path.abspath(object_name))
             if directory:
                 os.makedirs(directory, exist_ok=True)
 
             # Get DataFrame from DataChunk
-            df = data.pandas_df
+            df = data_chunk.pandas_df
 
             # Write DataFrame to CSV
             df.to_csv(
-                path_or_buf=destination,
+                path_or_buf=object_name,
                 index=False,
                 header=self.header,
                 sep=self.delimiter,
@@ -105,6 +108,6 @@ class CSVExportConnector(ExportConnector):
             )
 
         except Exception as e:
-            error_msg = f"Error writing CSV to {destination}: {str(e)}"
+            error_msg = f"Error writing CSV to {object_name}: {str(e)}"
             logger.error(error_msg)
-            raise ConnectorError(error_msg) from e
+            raise ConnectorError(self.name or "CSV_EXPORT", error_msg) from e

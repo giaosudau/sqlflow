@@ -400,8 +400,15 @@ class LocalExecutor(BaseExecutor):
 
         """
         try:
+            # Initialize ConnectorEngine if not already initialized
+            if not hasattr(self, "connector_engine") or self.connector_engine is None:
+                self.connector_engine = self._create_connector_engine()
+                logger.debug("Initialized ConnectorEngine for export operation")
+
             # Prepare export parameters
-            destination, options, connector_type = self._prepare_export_parameters(step)
+            destination_uri, options, connector_type = self._prepare_export_parameters(
+                step
+            )
 
             # Resolve the source table and data
             source_table, data_chunk = self._resolve_export_source(step)
@@ -418,7 +425,7 @@ class LocalExecutor(BaseExecutor):
 
             # Create parent directory if needed
             if connector_type.upper() == "CSV":
-                dirname = os.path.dirname(destination)
+                dirname = os.path.dirname(destination_uri)
                 if dirname:
                     os.makedirs(dirname, exist_ok=True)
 
@@ -428,24 +435,24 @@ class LocalExecutor(BaseExecutor):
                 self.connector_engine.export_data(
                     data=data_chunk,
                     connector_type=connector_type,
-                    destination=destination,
+                    destination=destination_uri,
                     options=options,
                 )
                 # User-friendly message with row count
-                filename = os.path.basename(destination)
+                filename = os.path.basename(destination_uri)
                 print(f"📤 Exported {filename} ({row_count:,} rows)")
-                logger.debug(f"Exported data to: {destination}")
+                logger.debug(f"Exported data to: {destination_uri}")
             else:
                 # For tests without a real connector engine, simulate the export
                 # Create a mock file if it's a CSV export
                 if (
                     connector_type.upper() == "CSV"
-                    and os.path.splitext(destination)[1].lower() == ".csv"
+                    and os.path.splitext(destination_uri)[1].lower() == ".csv"
                 ):
-                    self._create_mock_csv_file(destination, data_chunk)
-                    filename = os.path.basename(destination)
+                    self._create_mock_csv_file(destination_uri, data_chunk)
+                    filename = os.path.basename(destination_uri)
                     print(f"📤 Exported {filename} ({row_count:,} rows)")
-                    logger.debug(f"Created export file: {destination}")
+                    logger.debug(f"Created export file: {destination_uri}")
 
             return {"status": "success"}
         except Exception as e:
@@ -1546,8 +1553,15 @@ class LocalExecutor(BaseExecutor):
         options = {}
         connector_type = step.get("source_connector_type", "CSV")
 
-        # Substitute variables in destination_uri
-        if "query" in step and "destination_uri" in step["query"]:
+        # Handle different step formats
+        # 1. Test format: step directly has "destination" and "format"
+        if "destination" in step:
+            destination_uri = self._substitute_variables(step["destination"])
+            if "format" in step:
+                connector_type = step["format"].upper()
+
+        # 2. AST/pipeline format: step has "query" with nested fields
+        elif "query" in step and "destination_uri" in step["query"]:
             original_destination = step["query"]["destination_uri"]
             substituted_destination = self._substitute_variables(original_destination)
             step["query"]["destination_uri"] = substituted_destination
