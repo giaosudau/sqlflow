@@ -1258,6 +1258,9 @@ class S3Connector(Connector, ExportConnector):
         self, object_name: str, data_chunk: DataChunk, mode: str = "append"
     ) -> None:
         """Write data to S3 with enhanced error handling."""
+        logger.debug(f"S3 write called with object_name: {object_name}, mode: {mode}")
+        logger.debug(f"Current S3 connector bucket: {self.bucket}")
+
         if self.mock_mode:
             logger.debug(
                 f"[MOCK] Would write {len(data_chunk.pandas_df)} rows to {object_name}"
@@ -1265,14 +1268,46 @@ class S3Connector(Connector, ExportConnector):
             return
 
         try:
-            # Generate a unique key for the file
-            file_uuid = str(uuid.uuid4())
-            key = self._generate_key(file_uuid)
+            # Parse S3 URI to get bucket and key
+            if object_name.startswith("s3://"):
+                logger.debug(f"Parsing S3 URI: {object_name}")
+                bucket_name, key = self._parse_s3_uri(object_name)
+                logger.debug(f"Parsed bucket: {bucket_name}, key: {key}")
 
-            # Use existing export functionality
-            self._export_data(data_chunk, key)
+                # Use the provided bucket if specified in URI, otherwise use configured bucket
+                target_bucket = bucket_name if bucket_name else self.bucket
+                if not target_bucket:
+                    raise ConnectorError(
+                        self.name or "S3",
+                        f"No bucket specified in URI '{object_name}' and no bucket configured",
+                    )
+
+                logger.debug(f"Target bucket: {target_bucket}")
+
+                # Temporarily override bucket for this operation
+                original_bucket = self.bucket
+                self.bucket = target_bucket
+
+                try:
+                    # Use the exact key from the URI
+                    logger.debug(f"Exporting data to S3 with key: {key}")
+                    self._export_data(data_chunk, key)
+                    logger.debug(
+                        f"Successfully exported to S3: s3://{target_bucket}/{key}"
+                    )
+                finally:
+                    # Restore original bucket
+                    self.bucket = original_bucket
+            else:
+                # Not an S3 URI - use legacy behavior with UUID
+                logger.debug(f"Using legacy export with UUID for: {object_name}")
+                file_uuid = str(uuid.uuid4())
+                key = self._generate_key(file_uuid)
+                logger.debug(f"Generated key: {key}")
+                self._export_data(data_chunk, key)
 
         except Exception as e:
+            logger.error(f"S3 write failed for {object_name}: {str(e)}")
             raise ConnectorError(self.name or "S3", f"Write failed: {str(e)}")
 
     def close(self) -> None:
