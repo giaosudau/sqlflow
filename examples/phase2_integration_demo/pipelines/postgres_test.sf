@@ -1,0 +1,1 @@
+SOURCE test_source TYPE POSTGRES PARAMS { "connection": "postgresql://sqlflow:sqlflow123@postgres:5432/demo", "table": "customers" }; LOAD test_data FROM test_source;

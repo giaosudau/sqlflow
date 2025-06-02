@@ -191,26 +191,65 @@ CSV_SCHEMA = ConnectorSchema(
 
 POSTGRES_SCHEMA = ConnectorSchema(
     name="POSTGRES",
-    description="PostgreSQL database connector",
+    description="PostgreSQL database connector with industry-standard parameters",
     fields=[
+        # Core connection parameters (host is required unless connection string is provided)
         FieldSchema(
-            name="connection",
-            required=True,
+            name="host",
+            required=False,  # Made optional - validation will check this conditionally
             field_type="string",
-            description="PostgreSQL connection string",
-            pattern=r"^postgresql://.*",
+            description="PostgreSQL server hostname or IP address",
         ),
         FieldSchema(
-            name="table",
-            required=True,
+            name="port",
+            required=False,
+            field_type="integer",
+            description="PostgreSQL server port (default: 5432)",
+        ),
+        # Database name - support both legacy and industry-standard naming
+        FieldSchema(
+            name="database",
+            required=False,
             field_type="string",
-            description="Table name to read from or write to",
+            description="Database name (industry-standard parameter)",
+        ),
+        FieldSchema(
+            name="dbname",
+            required=False,
+            field_type="string",
+            description="Database name (legacy parameter for backward compatibility)",
+        ),
+        # Username - support both legacy and industry-standard naming
+        FieldSchema(
+            name="username",
+            required=False,
+            field_type="string",
+            description="Database username (industry-standard parameter)",
+        ),
+        FieldSchema(
+            name="user",
+            required=False,
+            field_type="string",
+            description="Database username (legacy parameter for backward compatibility)",
+        ),
+        FieldSchema(
+            name="password",
+            required=False,
+            field_type="string",
+            description="Database password",
         ),
         FieldSchema(
             name="schema",
             required=False,
             field_type="string",
-            description="Database schema name",
+            description="Database schema name (default: public)",
+        ),
+        # Data source parameters
+        FieldSchema(
+            name="table",
+            required=False,
+            field_type="string",
+            description="Table name to read from",
         ),
         FieldSchema(
             name="query",
@@ -218,8 +257,119 @@ POSTGRES_SCHEMA = ConnectorSchema(
             field_type="string",
             description="Custom SQL query (alternative to table)",
         ),
+        # Incremental loading parameters (industry-standard)
+        FieldSchema(
+            name="sync_mode",
+            required=False,
+            field_type="string",
+            description="Synchronization mode for incremental loading",
+            allowed_values=["full_refresh", "incremental"],
+        ),
+        FieldSchema(
+            name="cursor_field",
+            required=False,
+            field_type="string",
+            description="Cursor field for incremental loading (e.g., timestamp, id)",
+        ),
+        FieldSchema(
+            name="primary_key",
+            required=False,
+            field_type="string",
+            description="Primary key field(s) for incremental loading",
+        ),
+        # Connection management parameters
+        FieldSchema(
+            name="connect_timeout",
+            required=False,
+            field_type="integer",
+            description="Connection timeout in seconds (default: 10)",
+        ),
+        FieldSchema(
+            name="application_name",
+            required=False,
+            field_type="string",
+            description="Application name for connection identification (default: sqlflow)",
+        ),
+        FieldSchema(
+            name="min_connections",
+            required=False,
+            field_type="integer",
+            description="Minimum connections in pool (default: 1)",
+        ),
+        FieldSchema(
+            name="max_connections",
+            required=False,
+            field_type="integer",
+            description="Maximum connections in pool (default: 5)",
+        ),
+        FieldSchema(
+            name="sslmode",
+            required=False,
+            field_type="string",
+            description="SSL mode for connection (default: prefer)",
+            allowed_values=[
+                "disable",
+                "allow",
+                "prefer",
+                "require",
+                "verify-ca",
+                "verify-full",
+            ],
+        ),
+        # Performance parameters (industry-standard)
+        FieldSchema(
+            name="batch_size",
+            required=False,
+            field_type="integer",
+            description="Number of records to process in each batch (default: 10000)",
+        ),
+        FieldSchema(
+            name="timeout_seconds",
+            required=False,
+            field_type="integer",
+            description="Timeout for operations in seconds (default: 300)",
+        ),
+        FieldSchema(
+            name="max_retries",
+            required=False,
+            field_type="integer",
+            description="Maximum number of retry attempts (default: 3)",
+        ),
+        # Legacy connection string support (for backward compatibility)
+        FieldSchema(
+            name="connection",
+            required=False,
+            field_type="string",
+            description="PostgreSQL connection string (legacy parameter)",
+            pattern=r"^postgresql://.*",
+        ),
     ],
 )
+
+
+# Custom validator function for PostgreSQL schema that checks conditional requirements
+def validate_postgres_params(params: Dict[str, Any]) -> List[str]:
+    """Custom validation for PostgreSQL parameters.
+
+    Ensures either connection string OR individual connection parameters are provided.
+    """
+    # First run standard validation
+    errors = POSTGRES_SCHEMA.validate(params)
+
+    # Filter out the "Required field 'host' is missing" error - we'll handle this conditionally
+    errors = [err for err in errors if "Required field 'host' is missing" not in err]
+
+    # Check conditional requirements
+    has_connection_string = params.get("connection")
+    has_individual_params = params.get("host")
+
+    if not has_connection_string and not has_individual_params:
+        errors.append(
+            "Either 'connection' (connection string) or 'host' (individual parameters) must be provided"
+        )
+
+    return errors
+
 
 S3_SCHEMA = ConnectorSchema(
     name="S3",

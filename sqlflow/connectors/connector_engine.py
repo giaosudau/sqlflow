@@ -20,6 +20,7 @@ class ConnectorEngine:
     def __init__(self):
         """Initialize a ConnectorEngine."""
         self.registered_connectors: Dict[str, Dict[str, Any]] = {}
+        self.profile_config: Optional[Dict[str, Any]] = None
         logger.debug("ConnectorEngine initialized")
 
     def register_connector(
@@ -250,9 +251,15 @@ class ConnectorEngine:
         export_connector_class = get_export_connector_class(connector_type)
         export_connector = export_connector_class()
         export_connector.name = f"{connector_type}_EXPORT"
+
+        # Merge profile connector configuration for specific connector types
+        final_options = self._merge_profile_connector_config(
+            connector_type, options or {}
+        )
+
         try:
-            logger.debug("Configuring export connector with options: %s", options or {})
-            export_connector.configure(options or {})
+            logger.debug("Configuring export connector with options: %s", final_options)
+            export_connector.configure(final_options)
             logger.debug("Export connector configured successfully")
         except Exception as e:
             logger.debug("Error configuring export connector: %s", str(e))
@@ -260,6 +267,50 @@ class ConnectorEngine:
                 export_connector.name, f"Configuration failed: {str(e)}"
             )
         return export_connector
+
+    def _merge_profile_connector_config(
+        self, connector_type: str, export_options: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Merge profile-based connector configuration with export-specific options.
+
+        This ensures that export connectors like S3 get access to profile-configured
+        connection parameters (bucket, credentials, etc.) while still allowing
+        export-specific options to override or supplement them.
+
+        Args:
+        ----
+            connector_type: The type of connector (e.g., 'S3', 'POSTGRES')
+            export_options: Export-specific options from the EXPORT statement
+
+        Returns:
+        -------
+            Merged configuration dictionary
+        """
+        # Start with export options as base
+        final_options = export_options.copy()
+
+        # For S3 connector, merge profile S3 configuration
+        if connector_type.upper() == "S3":
+            # Try to get S3 config from profile (if available via executor)
+            if hasattr(self, "profile_config") and self.profile_config:
+                profile_s3_config = self.profile_config.get("connectors", {}).get(
+                    "s3", {}
+                )
+                if profile_s3_config:
+                    logger.debug(f"Found S3 profile configuration: {profile_s3_config}")
+
+                    # Merge profile config first, then export options override
+                    merged_config = profile_s3_config.copy()
+                    merged_config.update(final_options)
+                    final_options = merged_config
+
+                    logger.debug(f"Merged S3 configuration: {final_options}")
+                else:
+                    logger.debug("No S3 configuration found in profile")
+            else:
+                logger.debug("No profile configuration available for S3 connector")
+
+        return final_options
 
     def _test_export_connector_connection(self, export_connector):
         try:
@@ -294,23 +345,103 @@ class ConnectorEngine:
         connector_type: str,
         options: Optional[Dict[str, Any]] = None,
     ) -> None:
-        """Export data using an export connector."""
+        """Export data using an export connector with smart destination detection."""
         logger.debug(
             "Exporting data to '%s' using connector type '%s'",
             destination,
             connector_type,
         )
         logger.debug("Export options: %s", options)
+
         try:
             if not isinstance(data, DataChunk):
                 logger.debug("Converting data to DataChunk")
                 data = DataChunk(data)
-            logger.debug("Getting export connector class for '%s'", connector_type)
+
+            # Smart connector selection based on destination URI
+            actual_connector_type = self._detect_connector_type_from_destination(
+                destination, connector_type, options
+            )
+
+            if actual_connector_type != connector_type:
+                logger.info(
+                    f"Auto-detected connector type '{actual_connector_type}' for destination '{destination}' "
+                    f"(original type: '{connector_type}')"
+                )
+
+            logger.debug(
+                "Getting export connector class for '%s'", actual_connector_type
+            )
             export_connector = self._get_or_create_export_connector(
-                connector_type, options
+                actual_connector_type, options
             )
             self._test_export_connector_connection(export_connector)
             self._write_export_data(export_connector, destination, data)
         except Exception as e:
             logger.debug("Export failed: %s", str(e))
             raise ConnectorError(f"{connector_type}_EXPORT", f"Export failed: {str(e)}")
+
+    def _detect_connector_type_from_destination(
+        self,
+        destination: str,
+        original_type: str,
+        options: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        """Detect the appropriate connector type based on destination URI patterns.
+
+        This enables smart connector selection - for example, s3:// URIs automatically
+        use the S3 connector regardless of the specified TYPE.
+
+        Args:
+        ----
+            destination: The destination URI
+            original_type: The originally specified connector type
+            options: Export options that may influence connector selection
+
+        Returns:
+        -------
+            The actual connector type to use
+        """
+        # S3 URI detection - any s3:// URI should use S3 connector
+        if destination.startswith("s3://"):
+            logger.debug(f"Detected S3 URI: {destination} - using S3 connector")
+
+            # Merge the original type as format if it's a file format
+            if original_type.upper() in ["CSV", "PARQUET", "JSON"]:
+                options = options or {}
+                if "file_format" not in options:
+                    options["file_format"] = original_type.lower()
+                    logger.debug(
+                        f"Added file format '{original_type.lower()}' to S3 options"
+                    )
+
+            return "S3"
+
+        # GCS URI detection - any gs:// URI should use GCS connector (if available)
+        elif destination.startswith("gs://"):
+            logger.debug(f"Detected GCS URI: {destination}")
+            # For now, fall back to original type since GCS connector may not be implemented
+            return original_type
+
+        # Azure Blob detection - any azure:// or abfss:// URI
+        elif destination.startswith(("azure://", "abfss://", "wasbs://")):
+            logger.debug(f"Detected Azure URI: {destination}")
+            # For now, fall back to original type since Azure connector may not be implemented
+            return original_type
+
+        # HTTP/HTTPS URIs might use REST connector
+        elif destination.startswith(("http://", "https://")):
+            logger.debug(f"Detected HTTP URI: {destination}")
+            # Check if REST connector is available, otherwise use original
+            from sqlflow.connectors.registry import EXPORT_CONNECTOR_REGISTRY
+
+            if "REST" in EXPORT_CONNECTOR_REGISTRY:
+                return "REST"
+            return original_type
+
+        # File paths - use original type (CSV, PARQUET, etc.)
+        else:
+            logger.debug(
+                f"Using original connector type '{original_type}' for destination: {destination}"
+            )
+            return original_type

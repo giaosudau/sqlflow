@@ -4,7 +4,7 @@ from typing import List, Set
 
 from ..parser.ast import LoadStep, Pipeline, SourceDefinitionStep
 from .errors import ValidationError
-from .schemas import CONNECTOR_SCHEMAS
+from .schemas import CONNECTOR_SCHEMAS, validate_postgres_params
 
 
 def validate_connectors(pipeline: Pipeline) -> List[ValidationError]:
@@ -41,9 +41,12 @@ def validate_connectors(pipeline: Pipeline) -> List[ValidationError]:
                 errors.append(error)
                 continue
 
-            # Validate connector parameters
-            schema = CONNECTOR_SCHEMAS[connector_type]
-            param_errors = schema.validate(step.params)
+            # Use custom validation for PostgreSQL, standard validation for others
+            if connector_type == "POSTGRES":
+                param_errors = validate_postgres_params(step.params)
+            else:
+                schema = CONNECTOR_SCHEMAS[connector_type]
+                param_errors = schema.validate(step.params)
 
             for param_error in param_errors:
                 error = ValidationError(

@@ -1,0 +1,47 @@
+-- SQLFlow Phase 2 Demo: Basic PostgreSQL Connector Test
+-- Tests PostgreSQL connectivity with enhanced connector parameters
+
+-- Test 1: Basic PostgreSQL connection with individual parameters
+SOURCE customers_basic TYPE POSTGRES PARAMS {
+    "host": "postgres",
+    "port": 5432,
+    "database": "demo",
+    "username": "sqlflow",
+    "password": "sqlflow123",
+    "table": "customers"
+};
+
+-- Load data into DuckDB for processing
+LOAD staging_customers_basic FROM customers_basic;
+
+-- Test 2: Verify with different table
+SOURCE orders_basic TYPE POSTGRES PARAMS {
+    "host": "postgres",
+    "port": 5432,
+    "database": "demo",
+    "username": "sqlflow",
+    "password": "sqlflow123",
+    "table": "orders"
+};
+
+-- Load orders data
+LOAD staging_orders_basic FROM orders_basic;
+
+-- Test 3: Create summary for verification
+CREATE TABLE postgres_connection_test_results AS
+SELECT 
+    'PostgreSQL Basic Test' as test_name,
+    COUNT(*) as customer_count,
+    (SELECT COUNT(*) FROM staging_orders_basic) as order_count,
+    CURRENT_TIMESTAMP as test_timestamp
+FROM staging_customers_basic;
+
+-- Test 4: Export results to verify connectivity
+EXPORT SELECT 
+    test_name,
+    customer_count,
+    order_count,
+    test_timestamp
+FROM postgres_connection_test_results 
+TO 'output/postgres_connection_test_results.csv' 
+TYPE CSV OPTIONS { "header": true }; 

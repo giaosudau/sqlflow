@@ -1,0 +1,49 @@
+-- SQLFlow Phase 2 Demo: S3 Connector Test
+-- Tests S3 connector with MinIO, cost management, and multi-format support (self-contained)
+
+-- Load customer data for this test (self-contained)
+SOURCE customers_for_s3 TYPE POSTGRES PARAMS {
+    "host": "postgres",
+    "port": 5432,
+    "database": "demo",
+    "username": "sqlflow",
+    "password": "sqlflow123",
+    "table": "customers"
+};
+
+-- Load customer data into this test's staging table
+LOAD staging_customers_s3 FROM customers_for_s3;
+
+-- Load order data for this test (self-contained)
+SOURCE orders_for_s3 TYPE POSTGRES PARAMS {
+    "host": "postgres",
+    "port": 5432,
+    "database": "demo",
+    "username": "sqlflow",
+    "password": "sqlflow123",
+    "table": "orders"
+};
+
+-- Load order data into this test's staging table
+LOAD staging_orders_s3 FROM orders_for_s3;
+
+-- Test 1: Export data to S3 in CSV format
+EXPORT SELECT customer_id, first_name, last_name, email, city, state, created_at FROM staging_customers_s3 TO 's3://sqlflow-demo/exports/customers.csv' TYPE S3 OPTIONS { "file_format": "csv", "header": true };
+
+-- Test 2: Export data to S3 in Parquet format (more efficient)
+EXPORT SELECT order_id, customer_id, order_date, total_amount, status, created_at, updated_at FROM staging_orders_s3 TO 's3://sqlflow-demo/exports/orders.parquet' TYPE S3 OPTIONS { "file_format": "parquet" };
+
+-- Test 3: Export data to S3 in JSON format
+EXPORT SELECT 1 as product_id, 'Laptop Pro' as product_name, 'Electronics' as category, 1299.99 as price, 50 as stock_quantity TO 's3://sqlflow-demo/exports/products.json' TYPE S3 OPTIONS { "file_format": "json" };
+
+-- Test 4: Export partitioned data to S3
+EXPORT SELECT customer_id, first_name, last_name, email, EXTRACT(YEAR FROM created_at) as year, EXTRACT(MONTH FROM created_at) as month FROM staging_customers_s3 TO 's3://sqlflow-demo/exports/customers_partitioned.parquet' TYPE S3 OPTIONS { "file_format": "parquet", "partition_by": "year,month" };
+
+-- Test 5: Export aggregated analytics to S3
+EXPORT SELECT state, COUNT(*) as customer_count, COUNT(DISTINCT city) as city_count, MIN(created_at) as first_customer, MAX(created_at) as latest_customer FROM staging_customers_s3 GROUP BY state ORDER BY customer_count DESC TO 's3://sqlflow-demo/analytics/customer_by_state.csv' TYPE S3 OPTIONS { "file_format": "csv", "header": true };
+
+-- Test 6: Export cost-optimized summary (smaller file for cost management)
+EXPORT SELECT 'S3 Export Test' as test_name, COUNT(DISTINCT customer_id) as total_customers, COUNT(DISTINCT state) as states_covered, CURRENT_TIMESTAMP as export_timestamp FROM staging_customers_s3 TO 's3://sqlflow-demo/reports/s3_test_summary.csv' TYPE S3 OPTIONS { "file_format": "csv", "header": true };
+
+-- Test 7: Export large dataset in compressed format
+EXPORT SELECT c.customer_id, c.first_name, c.last_name, c.email, c.state, COALESCE(o.order_count, 0) as order_count, COALESCE(o.total_spent, 0.00) as total_spent FROM staging_customers_s3 c LEFT JOIN (SELECT customer_id, COUNT(*) as order_count, SUM(total_amount) as total_spent FROM staging_orders_s3 GROUP BY customer_id) o ON c.customer_id = o.customer_id TO 's3://sqlflow-demo/exports/customer_analytics.parquet' TYPE S3 OPTIONS { "file_format": "parquet", "compression": "snappy" }; 
