@@ -1141,7 +1141,7 @@ class ShopifyConnector(Connector):
         ]
         for col in timestamp_cols:
             if col in df.columns:
-                df[col] = pd.to_datetime(df[col], errors="coerce")
+                df[col] = pd.to_datetime(df[col], errors="coerce", utc=True)
 
         # Convert numeric columns
         numeric_cols = [
@@ -1177,7 +1177,7 @@ class ShopifyConnector(Connector):
         timestamp_cols = ["created_at", "updated_at"]
         for col in timestamp_cols:
             if col in df.columns:
-                df[col] = pd.to_datetime(df[col], errors="coerce")
+                df[col] = pd.to_datetime(df[col], errors="coerce", utc=True)
 
         # Convert numeric columns
         numeric_cols = ["id", "orders_count"]
@@ -1196,7 +1196,7 @@ class ShopifyConnector(Connector):
         timestamp_cols = ["created_at", "updated_at", "published_at"]
         for col in timestamp_cols:
             if col in df.columns:
-                df[col] = pd.to_datetime(df[col], errors="coerce")
+                df[col] = pd.to_datetime(df[col], errors="coerce", utc=True)
 
         # Convert numeric columns
         numeric_cols = ["id"]
@@ -1235,16 +1235,23 @@ class ShopifyConnector(Connector):
             # Convert timestamp to ISO format for Shopify API compatibility
             if pd.api.types.is_datetime64_any_dtype(chunk.pandas_df[cursor_field]):
                 if pd.notna(max_value):
+                    # Handle pandas Timestamp objects
+                    if hasattr(max_value, "to_pydatetime"):
+                        # Convert pandas Timestamp to datetime
+                        dt_value = max_value.to_pydatetime()
+                    else:
+                        dt_value = max_value
+
                     # Ensure timezone-aware datetime for Shopify API
-                    if hasattr(max_value, "tz") and max_value.tz is None:
+                    if dt_value.tzinfo is None:
                         # Localize to UTC if no timezone info
-                        max_value = max_value.tz_localize("UTC")
-                    elif hasattr(max_value, "tz") and max_value.tz is not None:
+                        dt_value = dt_value.replace(tzinfo=timezone.utc)
+                    else:
                         # Convert to UTC if different timezone
-                        max_value = max_value.tz_convert("UTC")
+                        dt_value = dt_value.astimezone(timezone.utc)
 
                     # Return in Shopify API format (ISO 8601 with Z suffix)
-                    iso_timestamp = max_value.isoformat().replace("+00:00", "Z")
+                    iso_timestamp = dt_value.isoformat().replace("+00:00", "Z")
                     logger.debug(f"Extracted cursor value (timestamp): {iso_timestamp}")
                     return iso_timestamp
 
