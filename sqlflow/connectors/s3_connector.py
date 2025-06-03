@@ -143,14 +143,14 @@ class S3ParameterValidator(ParameterValidator):
                 return value
             else:
                 raise ParameterError(
-                    "partition_keys must be a list or comma-separated string"
+                    "partition_keys must be a list or comma-separated string", "S3"
                 )
 
         if key == "partition_filter":
             if value is None:
                 return None
             if not isinstance(value, dict):
-                raise ParameterError("partition_filter must be a dictionary")
+                raise ParameterError("partition_filter must be a dictionary", "S3")
             return value
 
         # Fall back to base validation for other parameters
@@ -182,7 +182,8 @@ class S3ParameterValidator(ParameterValidator):
         if file_format not in supported_formats:
             raise ParameterError(
                 f"File format '{file_format}' not supported. "
-                f"Supported formats: {supported_formats}"
+                f"Supported formats: {supported_formats}",
+                "S3",
             )
         validated["file_format"] = file_format
 
@@ -195,7 +196,7 @@ class S3ParameterValidator(ParameterValidator):
             if validated.get("max_files_per_run") is not None:
                 validated["max_files_per_run"] = int(validated["max_files_per_run"])
         except (ValueError, TypeError) as e:
-            raise ParameterError(f"Invalid cost limit parameter: {e}")
+            raise ParameterError(f"Invalid cost limit parameter: {e}", "S3")
 
         # Validate development parameters
         if validated.get("dev_sampling") is not None:
@@ -203,11 +204,13 @@ class S3ParameterValidator(ParameterValidator):
                 dev_sampling = float(validated["dev_sampling"])
                 if not 0 < dev_sampling <= 1:
                     raise ParameterError(
-                        "dev_sampling must be between 0 and 1 (exclusive of 0)"
+                        "dev_sampling must be between 0 and 1 (exclusive of 0)", "S3"
                     )
                 validated["dev_sampling"] = dev_sampling
             except (ValueError, TypeError):
-                raise ParameterError("dev_sampling must be a float between 0 and 1")
+                raise ParameterError(
+                    "dev_sampling must be a float between 0 and 1", "S3"
+                )
 
         return validated
 

@@ -289,18 +289,47 @@ class ConnectorEngine:
         # Start with export options as base
         final_options = export_options.copy()
 
+        # Debug logging to see what we're working with
+        logger.debug(
+            f"_merge_profile_connector_config called with connector_type: {connector_type}"
+        )
+        logger.debug(f"export_options: {export_options}")
+        logger.debug(f"profile_config available: {hasattr(self, 'profile_config')}")
+        if hasattr(self, "profile_config"):
+            logger.debug(f"profile_config type: {type(self.profile_config)}")
+            logger.debug(
+                f"profile_config keys: {list(self.profile_config.keys()) if self.profile_config else 'None'}"
+            )
+            if self.profile_config and "connectors" in self.profile_config:
+                logger.debug(
+                    f"connectors in profile: {list(self.profile_config['connectors'].keys())}"
+                )
+
         # For S3 connector, merge profile S3 configuration
         if connector_type.upper() == "S3":
             # Try to get S3 config from profile (if available via executor)
             if hasattr(self, "profile_config") and self.profile_config:
-                profile_s3_config = self.profile_config.get("connectors", {}).get(
-                    "s3", {}
-                )
+                connectors_config = self.profile_config.get("connectors", {})
+                logger.debug(f"Connectors config: {connectors_config}")
+
+                # Try both "s3" and "S3" keys for case-insensitive lookup
+                profile_s3_config = connectors_config.get("s3", {})
+                if not profile_s3_config:
+                    profile_s3_config = connectors_config.get("S3", {})
+
                 if profile_s3_config:
                     logger.debug(f"Found S3 profile configuration: {profile_s3_config}")
 
+                    # For S3 connector, we need to extract params if they are nested
+                    if "params" in profile_s3_config:
+                        logger.debug("S3 config has nested 'params', extracting...")
+                        s3_params = profile_s3_config["params"]
+                    else:
+                        logger.debug("S3 config is flat, using directly")
+                        s3_params = profile_s3_config
+
                     # Merge profile config first, then export options override
-                    merged_config = profile_s3_config.copy()
+                    merged_config = s3_params.copy()
                     merged_config.update(final_options)
                     final_options = merged_config
 
