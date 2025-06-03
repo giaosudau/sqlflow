@@ -1,3 +1,4 @@
+# SQLFlow Comment Triggered Tests - Updated workflow for proper PR checkout
 name: Comment Triggered Tests
 
 on:
