@@ -231,19 +231,45 @@ else
     print_warning "⚠️ S3 test data setup failed, proceeding with mock mode"
 fi
 
-if run_pipeline_test "pipelines/06_enhanced_s3_connector_demo.sf" "Enhanced S3 Connector with Cost Management & Partition Awareness"; then
+if run_pipeline_test "06_enhanced_s3_connector_demo" "Enhanced S3 Connector with Cost Management & Partition Awareness"; then
     print_info "Verifying enhanced S3 connector results..."
     
     # Check for output files created by the enhanced S3 connector
     enhanced_s3_files=0
-    for file in output/enhanced_s3_*.csv output/s3_*.csv; do
-        if [ -f "$file" ]; then
-            ((enhanced_s3_files++))
-            filename=$(basename "$file")
-            filesize=$(stat -f%z "$file" 2>/dev/null || stat -c%s "$file" 2>/dev/null || echo "unknown")
-            print_success "Found enhanced S3 output: $filename (${filesize} bytes)"
-        fi
-    done
+    
+    # Check for enhanced_s3_*.csv files
+    if ls output/enhanced_s3_*.csv 1> /dev/null 2>&1; then
+        for file in output/enhanced_s3_*.csv; do
+            if [ -f "$file" ]; then
+                ((enhanced_s3_files++))
+                filename=$(basename "$file")
+                # Use more reliable file size detection
+                if command -v stat >/dev/null 2>&1; then
+                    filesize=$(stat -f%z "$file" 2>/dev/null || stat -c%s "$file" 2>/dev/null || echo "unknown")
+                else
+                    filesize="unknown"
+                fi
+                print_success "Found enhanced S3 output: $filename (${filesize} bytes)"
+            fi
+        done
+    fi
+    
+    # Check for s3_*.csv files
+    if ls output/s3_*.csv 1> /dev/null 2>&1; then
+        for file in output/s3_*.csv; do
+            if [ -f "$file" ]; then
+                ((enhanced_s3_files++))
+                filename=$(basename "$file")
+                # Use more reliable file size detection
+                if command -v stat >/dev/null 2>&1; then
+                    filesize=$(stat -f%z "$file" 2>/dev/null || stat -c%s "$file" 2>/dev/null || echo "unknown")
+                else
+                    filesize="unknown"
+                fi
+                print_success "Found enhanced S3 output: $filename (${filesize} bytes)"
+            fi
+        done
+    fi
     
     if [ $enhanced_s3_files -gt 0 ]; then
         print_success "Enhanced S3 connector created $enhanced_s3_files output file(s)"
@@ -298,11 +324,21 @@ fi
 
 # Check enhanced S3 test success (either output files or successful pipeline run)
 enhanced_s3_files=0
-for file in output/enhanced_s3_*.csv output/s3_*.csv; do
-    if [ -f "$file" ]; then
-        ((enhanced_s3_files++))
-    fi
-done
+# Use safer file counting that won't fail if no files match
+if ls output/enhanced_s3_*.csv 1> /dev/null 2>&1; then
+    for file in output/enhanced_s3_*.csv; do
+        if [ -f "$file" ]; then
+            ((enhanced_s3_files++))
+        fi
+    done
+fi
+if ls output/s3_*.csv 1> /dev/null 2>&1; then
+    for file in output/s3_*.csv; do
+        if [ -f "$file" ]; then
+            ((enhanced_s3_files++))
+        fi
+    done
+fi
 if [ $enhanced_s3_files -gt 0 ]; then
     ((successful_tests++))
 fi
