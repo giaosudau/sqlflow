@@ -7,7 +7,7 @@ implementation plan in docs/developer/technical/implementation/shopify_connector
 import json
 import re
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Iterator, List, Optional
 from urllib.parse import urljoin
 
@@ -466,11 +466,15 @@ class ShopifyConnector(Connector):
                             pa.field("customer_first_name", pa.string()),
                             pa.field("customer_last_name", pa.string()),
                             # Financial data (enhanced for SME requirements)
-                            pa.field("total_price", pa.string()),  # Keep as string for precision
+                            pa.field(
+                                "total_price", pa.string()
+                            ),  # Keep as string for precision
                             pa.field("subtotal_price", pa.string()),
                             pa.field("total_tax", pa.string()),
                             pa.field("total_discounts", pa.string()),
-                            pa.field("total_refunded", pa.string()),  # New: refund tracking
+                            pa.field(
+                                "total_refunded", pa.string()
+                            ),  # New: refund tracking
                             pa.field("currency", pa.string()),
                             # Order status
                             pa.field("financial_status", pa.string()),
@@ -809,13 +813,13 @@ class ShopifyConnector(Connector):
                 params["fulfillment_status"] = ",".join(fulfillment_filter)
             else:
                 params["fulfillment_status"] = fulfillment_filter
-                
+
         # Include fulfillments and refunds for SME analytics if enabled
         if self.params.get("include_fulfillments", True):
             # Note: We'll fetch fulfillments via separate API calls for each order
             # to avoid hitting the fulfillments_limit in the orders endpoint
             pass
-            
+
         if self.params.get("include_refunds", True):
             # Note: We'll fetch refunds via separate API calls for each order
             # to get detailed refund information
@@ -963,11 +967,11 @@ class ShopifyConnector(Connector):
         customer = order.get("customer") or {}
         billing_address = order.get("billing_address") or {}
         shipping_address = order.get("shipping_address") or {}
-        
+
         # Extract fulfillment data for SME analytics
         fulfillments = order.get("fulfillments", [])
         fulfillment_data = fulfillments[0] if fulfillments else {}
-        
+
         # Extract refund data for financial accuracy
         refunds = order.get("refunds", [])
         total_refunded = sum(float(refund.get("amount", "0")) for refund in refunds)
@@ -1036,7 +1040,9 @@ class ShopifyConnector(Connector):
                     "line_item_grams": line_item.get("grams"),
                     "line_item_requires_shipping": line_item.get("requires_shipping"),
                     "line_item_taxable": line_item.get("taxable"),
-                    "line_item_fulfillment_service": line_item.get("fulfillment_service"),
+                    "line_item_fulfillment_service": line_item.get(
+                        "fulfillment_service"
+                    ),
                 }
             )
         else:
@@ -1126,12 +1132,12 @@ class ShopifyConnector(Connector):
 
         # Convert timestamps
         timestamp_cols = [
-            "created_at", 
-            "updated_at", 
-            "processed_at", 
+            "created_at",
+            "updated_at",
+            "processed_at",
             "cancelled_at",
             "fulfillment_created_at",
-            "fulfillment_updated_at"
+            "fulfillment_updated_at",
         ]
         for col in timestamp_cols:
             if col in df.columns:
@@ -1150,7 +1156,7 @@ class ShopifyConnector(Connector):
         for col in numeric_cols:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors="coerce")
-                
+
         # Convert boolean columns
         boolean_cols = [
             "line_item_requires_shipping",
@@ -1201,22 +1207,79 @@ class ShopifyConnector(Connector):
         return df
 
     def get_cursor_value(self, chunk: DataChunk, cursor_field: str) -> Optional[Any]:
-        """Extract cursor value from data chunk."""
+        """Extract cursor value from data chunk for watermark management.
+
+        Enhanced for Phase 1 Day 3 - Incremental Loading Integration:
+        - Proper timezone handling for Shopify API compatibility
+        - Robust timestamp parsing and normalization
+        - SME-friendly error handling and logging
+        """
         if chunk.pandas_df.empty:
+            logger.debug("Empty data chunk, no cursor value to extract")
             return None
 
         if cursor_field not in chunk.pandas_df.columns:
+            logger.warning(
+                f"Cursor field '{cursor_field}' not found in data chunk columns: {list(chunk.pandas_df.columns)}"
+            )
             return None
 
-        # Return the maximum value for cursor field
-        max_value = chunk.pandas_df[cursor_field].max()
+        # Return the maximum value for cursor field (for incremental loading)
+        try:
+            max_value = chunk.pandas_df[cursor_field].max()
 
-        # Convert timestamp to ISO format for Shopify API
-        if pd.api.types.is_datetime64_any_dtype(chunk.pandas_df[cursor_field]):
-            if pd.notna(max_value):
-                return max_value.isoformat() + "Z"
+            if pd.isna(max_value):
+                logger.debug(f"All values in cursor field '{cursor_field}' are null")
+                return None
 
-        return max_value
+            # Convert timestamp to ISO format for Shopify API compatibility
+            if pd.api.types.is_datetime64_any_dtype(chunk.pandas_df[cursor_field]):
+                if pd.notna(max_value):
+                    # Ensure timezone-aware datetime for Shopify API
+                    if hasattr(max_value, "tz") and max_value.tz is None:
+                        # Localize to UTC if no timezone info
+                        max_value = max_value.tz_localize("UTC")
+                    elif hasattr(max_value, "tz") and max_value.tz is not None:
+                        # Convert to UTC if different timezone
+                        max_value = max_value.tz_convert("UTC")
+
+                    # Return in Shopify API format (ISO 8601 with Z suffix)
+                    iso_timestamp = max_value.isoformat().replace("+00:00", "Z")
+                    logger.debug(f"Extracted cursor value (timestamp): {iso_timestamp}")
+                    return iso_timestamp
+
+            # For string timestamps, validate and normalize format
+            if isinstance(max_value, str):
+                try:
+                    # Parse the timestamp and ensure UTC timezone
+                    parsed_dt = datetime.fromisoformat(max_value.replace("Z", "+00:00"))
+                    # Convert to UTC and format for Shopify API
+                    if parsed_dt.tzinfo is None:
+                        # Assume UTC if no timezone info
+                        parsed_dt = parsed_dt.replace(tzinfo=timezone.utc)
+                    else:
+                        # Convert to UTC
+                        parsed_dt = parsed_dt.astimezone(timezone.utc)
+                    iso_timestamp = parsed_dt.isoformat().replace("+00:00", "Z")
+                    logger.debug(
+                        f"Extracted cursor value (parsed string): {iso_timestamp}"
+                    )
+                    return iso_timestamp
+                except (ValueError, AttributeError) as e:
+                    logger.warning(
+                        f"Could not parse cursor value as datetime: {max_value}, error: {e}"
+                    )
+                    return max_value
+
+            # For other data types, return as-is
+            logger.debug(f"Extracted cursor value (raw): {max_value}")
+            return max_value
+
+        except Exception as e:
+            logger.error(
+                f"Error extracting cursor value from field '{cursor_field}': {e}"
+            )
+            return None
 
     def close(self) -> None:
         """Clean up connector resources."""
@@ -1230,26 +1293,28 @@ class ShopifyConnector(Connector):
         order_id = order.get("id")
         if not order_id:
             return order
-            
+
         enhanced_order = order.copy()
-        
+
         try:
             # Fetch detailed fulfillments if enabled
             if self.params.get("include_fulfillments", True):
                 fulfillments = self._fetch_order_fulfillments(order_id)
                 enhanced_order["fulfillments"] = fulfillments
-                
-            # Fetch detailed refunds if enabled  
+
+            # Fetch detailed refunds if enabled
             if self.params.get("include_refunds", True):
                 refunds = self._fetch_order_refunds(order_id)
                 enhanced_order["refunds"] = refunds
-                
+
         except Exception as e:
-            logger.warning(f"Failed to enhance order {order_id} with fulfillments/refunds: {e}")
+            logger.warning(
+                f"Failed to enhance order {order_id} with fulfillments/refunds: {e}"
+            )
             # Continue with original order data if enhancement fails
-            
+
         return enhanced_order
-        
+
     def _fetch_order_fulfillments(self, order_id: int) -> List[Dict[str, Any]]:
         """Fetch detailed fulfillment data for an order."""
         try:
@@ -1259,7 +1324,7 @@ class ShopifyConnector(Connector):
         except Exception as e:
             logger.warning(f"Failed to fetch fulfillments for order {order_id}: {e}")
             return []
-            
+
     def _fetch_order_refunds(self, order_id: int) -> List[Dict[str, Any]]:
         """Fetch detailed refund data for an order."""
         try:
