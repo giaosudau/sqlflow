@@ -335,52 +335,93 @@ fi
 echo
 print_header "📊 Demo Summary"
 
+# DEBUG: Temporarily disable exit on error for demo summary to prevent CI failures
+set +e
+echo "[DEBUG] Starting Demo Summary section"
+
 # Count successful outputs
 successful_tests=0
 total_tests=6  # Updated to include the new enhanced S3 test
 
+echo "[DEBUG] Checking postgres results file..."
 if [ -f "output/postgres_connection_test_results.csv" ]; then
     ((successful_tests++))
+    echo "[DEBUG] Postgres test: SUCCESS"
+else
+    echo "[DEBUG] Postgres test: NO RESULTS FILE"
 fi
 
+echo "[DEBUG] Checking incremental loading results file..."
 if [ -f "output/incremental_test_results.csv" ]; then
     ((successful_tests++))
+    echo "[DEBUG] Incremental loading test: SUCCESS"
+else
+    echo "[DEBUG] Incremental loading test: NO RESULTS FILE"
 fi
 
+echo "[DEBUG] Checking S3 test success via MinIO bucket..."
 # Check S3 test success by looking for files in MinIO bucket
 if docker compose exec sqlflow python3 -c "import boto3; s3 = boto3.client('s3', endpoint_url='http://minio:9000', aws_access_key_id='minioadmin', aws_secret_access_key='minioadmin'); response = s3.list_objects_v2(Bucket='sqlflow-demo', Prefix='exports/'); exit(0 if response.get('Contents') else 1)" > /dev/null 2>&1; then
     ((successful_tests++))
+    echo "[DEBUG] S3 test: SUCCESS (MinIO bucket has exports)"
+else
+    echo "[DEBUG] S3 test: NO EXPORTS IN MINIO BUCKET (or docker command failed)"
 fi
 
+echo "[DEBUG] Checking workflow summary file..."
 if [ -f "output/workflow_summary.csv" ]; then
     ((successful_tests++))
+    echo "[DEBUG] Multi-connector workflow test: SUCCESS"
+else
+    echo "[DEBUG] Multi-connector workflow test: NO RESULTS FILE"
 fi
 
+echo "[DEBUG] Checking resilience test results file..."
 # Check resilience test success
 if [ -f "output/resilience_test_results.csv" ]; then
     ((successful_tests++))
+    echo "[DEBUG] Resilience test: SUCCESS"
+else
+    echo "[DEBUG] Resilience test: NO RESULTS FILE"
 fi
 
+echo "[DEBUG] Checking enhanced S3 test success via output files..."
 # Check enhanced S3 test success (either output files or successful pipeline run)
 enhanced_s3_files=0
 # Use safer file counting that won't fail if no files match
 if ls output/enhanced_s3_*.csv 1> /dev/null 2>&1; then
+    echo "[DEBUG] Found enhanced_s3_*.csv files"
     for file in output/enhanced_s3_*.csv; do
         if [ -f "$file" ]; then
             ((enhanced_s3_files++))
+            echo "[DEBUG] Found enhanced S3 file: $(basename "$file")"
         fi
     done
+else
+    echo "[DEBUG] No enhanced_s3_*.csv files found"
 fi
 if ls output/s3_*.csv 1> /dev/null 2>&1; then
+    echo "[DEBUG] Found s3_*.csv files"
     for file in output/s3_*.csv; do
         if [ -f "$file" ]; then
             ((enhanced_s3_files++))
+            echo "[DEBUG] Found S3 file: $(basename "$file")"
         fi
     done
+else
+    echo "[DEBUG] No s3_*.csv files found"
 fi
 if [ $enhanced_s3_files -gt 0 ]; then
     ((successful_tests++))
+    echo "[DEBUG] Enhanced S3 test: SUCCESS ($enhanced_s3_files files found)"
+else
+    echo "[DEBUG] Enhanced S3 test: NO OUTPUT FILES FOUND"
 fi
+
+echo "[DEBUG] Final test count: $successful_tests/$total_tests"
+
+# DEBUG: Re-enable exit on error
+set -e
 
 print_info "Test Results: $successful_tests/$total_tests tests completed successfully"
 
