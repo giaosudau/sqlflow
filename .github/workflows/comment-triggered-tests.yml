@@ -78,14 +78,14 @@ jobs:
           COMMENT_LOWER=$(echo "$COMMENT" | tr '[:upper:]' '[:lower:]')
           
           # Check for integration test trigger
-          if echo "$COMMENT_LOWER" | grep -q "/test integration"; then
+          if echo "$COMMENT_LOWER" | grep -qE "/test integration|test it|run tests"; then
             echo "run-integration=true" >> $GITHUB_OUTPUT
           else
             echo "run-integration=false" >> $GITHUB_OUTPUT
           fi
           
-          # Check for performance test trigger
-          if echo "$COMMENT_LOWER" | grep -q "/test performance"; then
+          # Check for performance test trigger - also triggered by simple commands
+          if echo "$COMMENT_LOWER" | grep -qE "/test performance|test it|run tests"; then
             echo "run-performance=true" >> $GITHUB_OUTPUT
           else
             echo "run-performance=false" >> $GITHUB_OUTPUT
