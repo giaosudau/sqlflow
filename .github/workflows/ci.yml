@@ -23,6 +23,19 @@ on:
       - 'requirements*.txt'
       - '.github/workflows/ci.yml'
       - 'examples/**'
+  workflow_dispatch:
+    inputs:
+      test_type:
+        description: 'Run unit tests manually'
+        required: false
+        default: 'unit'
+        type: choice
+        options:
+        - unit
+
+permissions:
+  contents: read
+  actions: read
 
 jobs:
   test:
@@ -63,11 +76,14 @@ jobs:
         run: |
           flake8 --ignore=E501,E221,E222,E223,E224,E303,E301,E302,E402,F401,F841,E741,W291,W293,D100,D101,W503,W504,E203 --max-complexity=10 .
 
-      - name: Run tests with coverage
+      - name: Run comprehensive tests with coverage
         run: |
-          pytest --cov=sqlflow --cov-branch --cov-report=xml --maxfail=3 -q --disable-warnings
+          # Run unit tests and local integration tests with comprehensive coverage
+          python -m pytest tests/unit/ tests/integration/ -k "not external_services" \
+            --cov=sqlflow --cov-branch --cov-report=xml --cov-report=term \
+            --maxfail=3 -q --disable-warnings
 
-      - name: Run example demo scripts
+      - name: Run basic example demo scripts
         run: |
           chmod +x ./run_all_examples.sh
           ./run_all_examples.sh

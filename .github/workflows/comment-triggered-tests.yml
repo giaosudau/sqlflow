@@ -1,0 +1,197 @@
+name: Comment Triggered Tests
+
+on:
+  issue_comment:
+    types: [created]
+
+# Ensure we have proper permissions
+permissions:
+  contents: read
+  pull-requests: write  # Need write to add reactions
+  statuses: write      # Need write to update PR status
+  actions: read
+  issues: read
+
+jobs:
+  # Process the comment and determine which tests to run
+  process-comment:
+    runs-on: ubuntu-latest
+    # Only run on PR comments, not issue comments
+    if: ${{ github.event.issue.pull_request && contains(github.event.comment.body, '/test') }}
+    outputs:
+      run-integration: ${{ steps.check-trigger.outputs.run-integration }}
+      run-performance: ${{ steps.check-trigger.outputs.run-performance }}
+    steps:
+      - name: Add initial reaction
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const comment_id = context.payload.comment.id;
+            await github.rest.reactions.createForIssueComment({
+              owner,
+              repo,
+              comment_id,
+              content: 'eyes'
+            });
+
+      - name: Check comment triggers
+        id: check-trigger
+        run: |
+          COMMENT="${{ github.event.comment.body }}"
+          # Convert to lowercase for case-insensitive matching
+          COMMENT_LOWER=$(echo "$COMMENT" | tr '[:upper:]' '[:lower:]')
+          
+          # Check for integration test trigger
+          if echo "$COMMENT_LOWER" | grep -q "/test integration"; then
+            echo "run-integration=true" >> $GITHUB_OUTPUT
+          else
+            echo "run-integration=false" >> $GITHUB_OUTPUT
+          fi
+          
+          # Check for performance test trigger
+          if echo "$COMMENT_LOWER" | grep -q "/test performance"; then
+            echo "run-performance=true" >> $GITHUB_OUTPUT
+          else
+            echo "run-performance=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Update reaction on success
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const comment_id = context.payload.comment.id;
+            // Remove eyes reaction
+            const reactions = await github.rest.reactions.listForIssueComment({
+              owner,
+              repo,
+              comment_id
+            });
+            for (const reaction of reactions.data) {
+              if (reaction.content === 'eyes') {
+                await github.rest.reactions.deleteForIssueComment({
+                  owner,
+                  repo,
+                  comment_id,
+                  reaction_id: reaction.id
+                });
+              }
+            }
+            // Add rocket reaction
+            await github.rest.reactions.createForIssueComment({
+              owner,
+              repo,
+              comment_id,
+              content: 'rocket'
+            });
+
+  # Integration testing job - triggered by comment
+  integration-test:
+    needs: process-comment
+    if: needs.process-comment.outputs.run-integration == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .[all]
+
+      - name: Run Phase 2 Integration Demo with shared utilities
+        env:
+          CI: true
+        run: |
+          cd examples/phase2_integration_demo
+          
+          # Source the shared CI utilities
+          source scripts/ci_utils.sh
+          
+          # Set up trap for cleanup
+          trap cleanup_on_exit INT TERM
+          
+          # Run complete integration test workflow
+          if run_complete_integration_test 120; then
+            echo "Integration demo completed successfully"
+          else
+            echo "Integration demo failed"
+            exit 1
+          fi
+      
+      - name: Run integration tests with real services and coverage
+        env:
+          INTEGRATION_TESTS: true
+          CI: true
+        run: |
+          # Run integration tests that require external services with coverage
+          python -m pytest tests/integration/ -k "external_services" \
+            --cov=sqlflow --cov-append --cov-report=xml --cov-report=term \
+            -v --tb=short
+
+      - name: Upload external services coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
+          verbose: true
+          flags: external-services
+
+      - name: Stop Phase 2 Integration Demo Services
+        if: always()
+        env:
+          CI: true
+        run: |
+          cd examples/phase2_integration_demo
+          source scripts/ci_utils.sh
+          stop_docker_services
+
+  # Performance testing job - triggered by comment
+  performance-test:
+    needs: process-comment
+    if: needs.process-comment.outputs.run-performance == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .[all]
+
+      - name: Run performance tests with coverage
+        env:
+          INTEGRATION_TESTS: true
+        run: |
+          # Run performance tests with coverage if they exist
+          python -m pytest tests/integration/ -k "performance" \
+            --cov=sqlflow --cov-append --cov-report=xml --cov-report=term \
+            -v --tb=short || echo "No performance tests found"
+
+      - name: Upload performance test coverage to Codecov
+        if: success()
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
+          verbose: true
+          flags: performance 
