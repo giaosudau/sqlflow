@@ -224,6 +224,13 @@ fi
 echo
 
 # Test 6: 🚀 NEW - Enhanced S3 Connector Demo
+print_info "🛠️ Setting up Enhanced S3 test data..."
+if python3 scripts/setup_s3_test_data.py; then
+    print_success "✅ S3 test data setup completed"
+else
+    print_warning "⚠️ S3 test data setup failed, proceeding with mock mode"
+fi
+
 if run_pipeline_test "pipelines/06_enhanced_s3_connector_demo.sf" "Enhanced S3 Connector with Cost Management & Partition Awareness"; then
     print_info "Verifying enhanced S3 connector results..."
     
