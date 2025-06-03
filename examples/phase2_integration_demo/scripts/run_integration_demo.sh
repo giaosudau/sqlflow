@@ -234,42 +234,73 @@ fi
 if run_pipeline_test "06_enhanced_s3_connector_demo" "Enhanced S3 Connector with Cost Management & Partition Awareness"; then
     print_info "Verifying enhanced S3 connector results..."
     
+    # DEBUG: Temporarily disable exit on error to capture exact failure point
+    set +e
+    
+    # DEBUG: Add detailed logging for CI debugging
+    echo "[DEBUG] Starting Enhanced S3 Connector verification"
+    echo "[DEBUG] Current working directory: $(pwd)"
+    echo "[DEBUG] Listing output directory contents:"
+    ls -la output/ 2>/dev/null || echo "[DEBUG] No output directory found"
+    
     # Check for output files created by the enhanced S3 connector
     enhanced_s3_files=0
     
+    echo "[DEBUG] Checking for enhanced_s3_*.csv files"
     # Check for enhanced_s3_*.csv files
     if ls output/enhanced_s3_*.csv 1> /dev/null 2>&1; then
+        echo "[DEBUG] Found enhanced_s3_*.csv files"
         for file in output/enhanced_s3_*.csv; do
+            echo "[DEBUG] Processing file: $file"
             if [ -f "$file" ]; then
                 ((enhanced_s3_files++))
                 filename=$(basename "$file")
+                echo "[DEBUG] File exists: $filename"
                 # Use more reliable file size detection
                 if command -v stat >/dev/null 2>&1; then
                     filesize=$(stat -f%z "$file" 2>/dev/null || stat -c%s "$file" 2>/dev/null || echo "unknown")
+                    echo "[DEBUG] File size: $filesize"
                 else
                     filesize="unknown"
+                    echo "[DEBUG] stat command not available"
                 fi
                 print_success "Found enhanced S3 output: $filename (${filesize} bytes)"
+            else
+                echo "[DEBUG] File does not exist: $file"
             fi
         done
+    else
+        echo "[DEBUG] No enhanced_s3_*.csv files found"
     fi
     
+    echo "[DEBUG] Checking for s3_*.csv files"
     # Check for s3_*.csv files
     if ls output/s3_*.csv 1> /dev/null 2>&1; then
+        echo "[DEBUG] Found s3_*.csv files"
         for file in output/s3_*.csv; do
+            echo "[DEBUG] Processing file: $file"
             if [ -f "$file" ]; then
                 ((enhanced_s3_files++))
                 filename=$(basename "$file")
+                echo "[DEBUG] File exists: $filename"
                 # Use more reliable file size detection
                 if command -v stat >/dev/null 2>&1; then
                     filesize=$(stat -f%z "$file" 2>/dev/null || stat -c%s "$file" 2>/dev/null || echo "unknown")
+                    echo "[DEBUG] File size: $filesize"
                 else
                     filesize="unknown"
+                    echo "[DEBUG] stat command not available"
                 fi
                 print_success "Found enhanced S3 output: $filename (${filesize} bytes)"
+            else
+                echo "[DEBUG] File does not exist: $file"
             fi
         done
+    else
+        echo "[DEBUG] No s3_*.csv files found"
     fi
+    
+    echo "[DEBUG] Total enhanced_s3_files count: $enhanced_s3_files"
     
     if [ $enhanced_s3_files -gt 0 ]; then
         print_success "Enhanced S3 connector created $enhanced_s3_files output file(s)"
@@ -283,12 +314,20 @@ if run_pipeline_test "06_enhanced_s3_connector_demo" "Enhanced S3 Connector with
         print_warning "No enhanced S3 output files found"
     fi
     
+    echo "[DEBUG] Starting MinIO bucket verification"
     # Verify S3 exports in MinIO using enhanced verification
     if docker compose exec sqlflow python3 -c "import boto3; s3 = boto3.client('s3', endpoint_url='http://minio:9000', aws_access_key_id='minioadmin', aws_secret_access_key='minioadmin'); response = s3.list_objects_v2(Bucket='sqlflow-demo', Prefix='exports/'); exit(0 if response.get('Contents') else 1)" > /dev/null 2>&1; then
+        echo "[DEBUG] MinIO bucket verification successful"
         print_success "Enhanced S3 exports verified in MinIO bucket"
     else
+        echo "[DEBUG] MinIO bucket verification failed or skipped"
         print_info "Enhanced S3 demo completed (mock mode or MinIO verification skipped)"
     fi
+    
+    echo "[DEBUG] Enhanced S3 Connector verification completed successfully"
+    
+    # DEBUG: Re-enable exit on error
+    set -e
 else
     print_error "Enhanced S3 connector test failed - skipping verification"
 fi

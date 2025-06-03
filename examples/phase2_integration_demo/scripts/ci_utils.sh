@@ -255,10 +255,14 @@ run_integration_demo() {
     
     if [ -f "./scripts/run_integration_demo.sh" ]; then
         chmod +x ./scripts/run_integration_demo.sh
+        echo "[DEBUG] About to execute integration demo script"
         if ./scripts/run_integration_demo.sh; then
+            echo "[DEBUG] Integration demo script returned success (exit code 0)"
             print_success "Integration demo completed successfully!"
             return 0
         else
+            local exit_code=$?
+            echo "[DEBUG] Integration demo script failed with exit code: $exit_code"
             print_error "Integration demo failed"
             return 1
         fi
