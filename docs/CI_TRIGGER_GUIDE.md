@@ -526,4 +526,19 @@ The new comment-triggered approach provides better visibility, control, and coll
 4. Proceed with release if all tests pass
 
 The new manual-only approach is much more reliable and gives you complete control over when expensive tests run! 🚀 
->>>>>>> 119a6b8 (Refactor CI workflow to remove comment-triggered tests - Updated the CI configuration to eliminate integration and performance tests triggered by comments, transitioning to a manual dispatch model for better control and reliability. Revised documentation to reflect the new testing approach and clarified test types and costs. All tests passing, ensuring robust CI functionality.)
+
+## How to Trigger Tests by PR Comment
+
+You can now trigger integration and performance tests directly from a pull request by commenting:
+
+- `/test integration` — Runs integration tests
+- `/test performance` — Runs performance tests
+- `/test all` — Runs both integration and performance tests
+
+**How to use:**
+1. Open your pull request on GitHub
+2. Add a comment with one of the above commands
+3. The CI workflow will be triggered for the selected test type
+4. Results will appear in the Actions tab and as PR checks
+
+> This feature is powered by the [peter-evans/workflow-dispatch](https://github.com/peter-evans/workflow-dispatch) GitHub Action. 

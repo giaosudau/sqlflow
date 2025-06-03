@@ -1,0 +1,49 @@
+name: PR Comment Trigger
+
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  dispatch:
+    if: |
+      github.event.issue.pull_request &&
+      (
+        contains(github.event.comment.body, '/test integration') ||
+        contains(github.event.comment.body, '/test performance') ||
+        contains(github.event.comment.body, '/test all')
+      )
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch CI workflow for integration tests
+        if: contains(github.event.comment.body, '/test integration')
+        uses: peter-evans/workflow-dispatch@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          workflow: ci.yml
+          ref: ${{ github.event.issue.pull_request.head.ref }}
+          inputs: |
+            test_type=integration
+
+      - name: Dispatch CI workflow for performance tests
+        if: contains(github.event.comment.body, '/test performance')
+        uses: peter-evans/workflow-dispatch@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          workflow: ci.yml
+          ref: ${{ github.event.issue.pull_request.head.ref }}
+          inputs: |
+            test_type=performance
+
+      - name: Dispatch CI workflow for all tests
+        if: contains(github.event.comment.body, '/test all')
+        uses: peter-evans/workflow-dispatch@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          workflow: ci.yml
+          ref: ${{ github.event.issue.pull_request.head.ref }}
+          inputs: |
+            test_type=all 
