@@ -248,94 +248,14 @@ def validate_source_parameters(source_step: SourceDefinitionStep) -> List[Valida
 
 ### 3. Enhanced Validation Infrastructure
 
-#### Validation Cache (`sqlflow/cli/validation_cache.py`)
-
-**Cache Implementation:**
-```python
-class ValidationCache:
-    """Validation result caching for improved performance."""
-    
-    def __init__(self, project_dir: str):
-        self.project_dir = Path(project_dir)
-        self.cache_dir = self.project_dir / ".sqlflow" / "validation_cache"
-        self.cache_dir.mkdir(parents=True, exist_ok=True)
-    
-    def get_cache_key(self, pipeline_path: str) -> str:
-        """Generate cache key based on file path and content hash."""
-        with open(pipeline_path, 'r') as f:
-            content = f.read()
-        
-        content_hash = hashlib.md5(content.encode()).hexdigest()
-        file_hash = hashlib.md5(pipeline_path.encode()).hexdigest()
-        
-        return f"{file_hash}_{content_hash}"
-    
-    def get_cached_result(self, pipeline_path: str) -> Optional[List[ValidationError]]:
-        """Get cached validation result if available and valid."""
-        cache_key = self.get_cache_key(pipeline_path)
-        cache_file = self.cache_dir / f"{cache_key}.json"
-        
-        if not cache_file.exists():
-            return None
-        
-        try:
-            with open(cache_file, 'r') as f:
-                data = json.load(f)
-            
-            # Verify file modification time
-            file_mtime = os.path.getmtime(pipeline_path)
-            if data.get("file_mtime") != file_mtime:
-                return None
-            
-            # Deserialize errors
-            errors = []
-            for error_data in data.get("errors", []):
-                errors.append(ValidationError(
-                    message=error_data["message"],
-                    line=error_data["line"],
-                    error_type=error_data["error_type"]
-                ))
-            
-            return errors
-        
-        except Exception:
-            return None
-    
-    def cache_result(self, pipeline_path: str, errors: List[ValidationError]) -> None:
-        """Cache validation result."""
-        cache_key = self.get_cache_key(pipeline_path)
-        cache_file = self.cache_dir / f"{cache_key}.json"
-        
-        # Serialize errors
-        error_data = []
-        for error in errors:
-            error_data.append({
-                "message": error.message,
-                "line": error.line,
-                "error_type": error.error_type
-            })
-        
-        data = {
-            "file_mtime": os.path.getmtime(pipeline_path),
-            "errors": error_data,
-            "cached_at": time.time()
-        }
-        
-        with open(cache_file, 'w') as f:
-            json.dump(data, f, indent=2)
-```
-
 #### CLI Integration (`sqlflow/cli/pipeline.py`)
 
 **Enhanced Pipeline Commands:**
 ```python
 def validate_pipeline_command(args: argparse.Namespace) -> None:
-    """Validate pipeline with caching support."""
+    """Validate pipeline."""
     try:
-        if args.use_cache:
-            errors = validate_pipeline_with_caching(args.pipeline_file, args.project_dir)
-        else:
-            errors = validate_pipeline_direct(args.pipeline_file, args.project_dir)
+        errors = validate_pipeline(args.pipeline_file)
         
         if errors:
             print(f"❌ Validation failed with {len(errors)} error(s):")
@@ -414,17 +334,12 @@ def test_airbyte_compatibility():
 
 ## Performance Optimizations
 
-### 1. Validation Caching
-- **File-based caching**: Stores validation results with content hashes
-- **Invalidation on change**: Automatically detects file modifications
-- **Performance improvement**: 70%+ faster subsequent validations
-
-### 2. Incremental Loading
+### 1. Incremental Loading
 - **Automatic watermarks**: Zero-configuration cursor field management
 - **Efficient MERGE operations**: Optimized upsert logic
 - **Batch processing**: Handles large datasets efficiently
 
-### 3. Memory Management
+### 2. Memory Management
 - **Streaming execution**: Processes data in chunks
 - **Connection pooling**: Reuses database connections
 - **Resource cleanup**: Automatic cleanup of temporary objects
@@ -533,3 +448,31 @@ def execute_with_debug(self, operation: dict) -> dict:
 5. **Deploy gradually**: Update production pipelines incrementally
 
 This implementation provides a solid foundation for Phase 1 enhanced features while maintaining compatibility and performance. The comprehensive testing ensures reliability, and the caching infrastructure improves developer experience significantly. 
+
+def validate_pipeline(file_path: str) -> List[ValidationError]:
+    """Validate a pipeline file.
+    
+    Args:
+        file_path: Path to the pipeline file to validate
+        
+    Returns:
+        List of validation errors (empty if valid)
+        
+    Raises:
+        typer.Exit: If pipeline file cannot be read
+    """
+    try:
+        # Read and validate pipeline
+        pipeline_text = _read_pipeline_file(file_path)
+        errors = _parse_and_validate_pipeline(pipeline_text, file_path)
+        return errors
+    except typer.Exit:
+        raise
+    except Exception as e:
+        return [ValidationError(
+            message=f"Validation failed: {str(e)}",
+            line=1,
+            error_type="Internal Error"
+        )]
+
+errors = validate_pipeline(args.pipeline_file) 

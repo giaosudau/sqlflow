@@ -43,7 +43,7 @@ SHOPIFY_PARAMETER_SCHEMA = {
         "shop_domain": {
             "type": "string",
             "description": "Shopify shop domain (e.g., 'mystore.myshopify.com')",
-            "pattern": r"^[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]\.myshopify\.com$",
+            "pattern": r"^(?!-)([a-z0-9-]{3,63})(?<!-)\.myshopify\.com$",
         },
         "access_token": {
             "type": "string",
@@ -159,27 +159,25 @@ class ShopifyParameterValidator(ParameterValidator):
         logger.info("Shopify connector parameters validated successfully")
         return validated
 
-    def _validate_shop_domain(self, domain: str) -> None:
-        """Validate shop domain format and security."""
-        # Remove protocol if present
-        domain = domain.replace("https://", "").replace("http://", "")
+    def _validate_shop_domain(self, shop_domain: str) -> None:
+        """Validate shop domain format.
 
-        # Add .myshopify.com if not present
-        if not domain.endswith(".myshopify.com"):
-            domain = f"{domain}.myshopify.com"
+        Args:
+            shop_domain: The shop domain to validate
 
-        # Validate domain format against injection attacks
-        pattern = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]\.myshopify\.com$")
-        if not pattern.match(domain):
+        Raises:
+            ParameterError: If domain format is invalid
+        """
+        # Shopify shop domain pattern: allows letters, numbers, hyphens, underscores
+        # Length: 1-63 characters before .myshopify.com
+        pattern = r"^(?!-)([a-z0-9-]{3,63})(?<!-)\.myshopify\.com$"
+
+        if not re.match(pattern, shop_domain):
             raise ParameterError(
-                f"Invalid shop domain format: {domain}. Must be format: 'storename.myshopify.com'",
+                f"Invalid shop domain format: {shop_domain}. "
+                f"Shop domain must be in format 'shop-name.myshopify.com' where "
+                f"shop-name contains only letters, numbers, hyphens, and underscores (1-63 chars).",
                 "SHOPIFY",
-            )
-
-        # Prevent domain injection attacks
-        if ".." in domain or domain.count(".") != 2:
-            raise ParameterError(
-                "Potential domain injection detected in shop_domain", "SHOPIFY"
             )
 
     def _validate_access_token(self, token: str) -> None:
@@ -573,24 +571,60 @@ class ShopifyConnector(Connector):
 
         return None
 
-    def read(self, stream: str) -> Iterator[DataChunk]:
-        """Read data from Shopify object in full refresh mode."""
+    def read(
+        self,
+        object_name: str,
+        columns: Optional[List[str]] = None,
+        filters: Optional[Dict[str, Any]] = None,
+        batch_size: int = 10000,
+    ) -> Iterator[DataChunk]:
+        """Read data from Shopify object in full refresh mode.
+
+        Args:
+        ----
+            object_name: Name of the Shopify object (orders, customers, products)
+            columns: Optional list of columns to read (ignored for Shopify API)
+            filters: Optional filters to apply (ignored for Shopify API)
+            batch_size: Number of rows per batch (ignored, using Shopify API limits)
+
+        Yields:
+        ------
+            DataChunk objects containing Shopify data
+        """
         self.validate_state(ConnectorState.CONFIGURED)
 
-        if stream == "orders":
+        if object_name == "orders":
             yield from self._read_orders(sync_mode="full_refresh")
-        elif stream == "customers":
+        elif object_name == "customers":
             yield from self._read_customers(sync_mode="full_refresh")
-        elif stream == "products":
+        elif object_name == "products":
             yield from self._read_products(sync_mode="full_refresh")
         else:
-            logger.warning(f"Unknown stream: {stream}, returning empty data")
+            logger.warning(f"Unknown object: {object_name}, returning empty data")
             yield DataChunk(pd.DataFrame())
 
     def read_incremental(
-        self, stream: str, cursor_field: str, cursor_value: Optional[Any] = None
+        self,
+        object_name: str,
+        cursor_field: str,
+        cursor_value: Optional[Any] = None,
+        columns: Optional[List[str]] = None,
+        batch_size: int = 10000,
     ) -> Iterator[DataChunk]:
-        """Read data from Shopify object in incremental mode."""
+        """Read data from Shopify object in incremental mode.
+
+        Args:
+        ----
+            object_name: Name of the Shopify object (orders, customers, products)
+            cursor_field: Field to use for incremental loading (typically 'updated_at')
+            cursor_value: Last cursor value for incremental loading
+            columns: Optional list of columns to read (ignored for Shopify API)
+            batch_size: Number of rows per batch (ignored, using Shopify API limits)
+
+        Yields:
+        ------
+            DataChunk objects containing incremental Shopify data
+        """
         self.validate_state(ConnectorState.CONFIGURED)
 
         # Apply lookback window if cursor_value provided
@@ -613,20 +647,20 @@ class ShopifyConnector(Connector):
         else:
             adjusted_cursor_str = cursor_value
 
-        if stream == "orders":
+        if object_name == "orders":
             yield from self._read_orders(
                 sync_mode="incremental", cursor_value=adjusted_cursor_str
             )
-        elif stream == "customers":
+        elif object_name == "customers":
             yield from self._read_customers(
                 sync_mode="incremental", cursor_value=adjusted_cursor_str
             )
-        elif stream == "products":
+        elif object_name == "products":
             yield from self._read_products(
                 sync_mode="incremental", cursor_value=adjusted_cursor_str
             )
         else:
-            logger.warning(f"Unknown stream: {stream}, returning empty data")
+            logger.warning(f"Unknown object: {object_name}, returning empty data")
             yield DataChunk(pd.DataFrame())
 
     def _read_orders(

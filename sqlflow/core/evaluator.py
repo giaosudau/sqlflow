@@ -5,7 +5,7 @@ This module provides a class to evaluate conditional expressions with variable s
 
 import ast
 import re
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from sqlflow.core.variable_substitution import VariableSubstitutionEngine
 from sqlflow.logging import get_logger
@@ -31,16 +31,26 @@ class EvaluationError(Exception):
 class ConditionEvaluator:
     """Evaluates conditional expressions with variable substitution."""
 
-    def __init__(self, variables: Dict[str, Any]):
+    def __init__(
+        self,
+        variables: Dict[str, Any],
+        substitution_engine: Optional[VariableSubstitutionEngine] = None,
+    ):
         """Initialize with a variables dictionary.
 
         Args:
         ----
             variables: Dictionary of variable names to values
+            substitution_engine: Optional VariableSubstitutionEngine to use for substitution.
+                                If not provided, creates a backward-compatible one.
 
         """
         self.variables = variables
-        self.substitution_engine = VariableSubstitutionEngine(variables)
+        if substitution_engine is not None:
+            self.substitution_engine = substitution_engine
+        else:
+            # Backward compatibility: create engine with just variables
+            self.substitution_engine = VariableSubstitutionEngine(variables)
         # Define operators that are allowed
         self.operators = {
             # Comparison operators
@@ -74,8 +84,11 @@ class ConditionEvaluator:
             EvaluationError: If the condition cannot be evaluated
 
         """
+        logger.debug(f"Evaluating condition: '{condition}'")
+
         # First substitute variables using centralized engine
         substituted_condition = self._substitute_variables(condition)
+        logger.debug(f"After substitution: '{substituted_condition}'")
 
         # Detect accidental use of '=' instead of '==' (not part of '==', '!=', '>=', '<=')
         if re.search(r"(?<![=!<>])=(?![=])", substituted_condition):
@@ -90,10 +103,13 @@ class ConditionEvaluator:
         substituted_condition = re.sub(r"(?i)\btrue\b", "True", substituted_condition)
         substituted_condition = re.sub(r"(?i)\bfalse\b", "False", substituted_condition)
 
+        logger.debug(f"After true/false replacement: '{substituted_condition}'")
+
         try:
             # Safe evaluation using Python's ast module
             return self._safe_eval(substituted_condition)
         except Exception as e:
+            logger.debug(f"Error during evaluation: {e}")
             raise EvaluationError(
                 f"Failed to evaluate condition: {condition}. Error: {str(e)}"
             )

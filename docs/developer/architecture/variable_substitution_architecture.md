@@ -62,11 +62,14 @@ We have **two variable substitution systems** that need to be unified:
 - ✅ Add comprehensive validation
 - ✅ Comprehensive test coverage (27 tests passing)
 
-### Phase 2: Migrate Planner ⚡ **READY TO START**
-- Update `Planner.create_plan()` to use `VariableSubstitutionEngine`
-- Maintain exact priority order: CLI > Profile > SET variables > Environment > Defaults
-- Remove dependency on legacy `VariableContext` and `VariableSubstitutor`
-- Ensure all existing tests continue to pass
+### Phase 2: Migrate Planner ✅ **COMPLETED**
+- ✅ Update `Planner.create_plan()` to use `VariableSubstitutionEngine`
+- ✅ Maintain exact priority order: CLI > Profile > SET variables > Environment > Defaults
+- ✅ Remove dependency on legacy `VariableContext` and `VariableSubstitutor`
+- ✅ Ensure all existing tests continue to pass
+- ✅ Fix conditional evaluation variable substitution issues
+- ✅ Clean up debug output and use proper logging
+- ✅ Complete integration testing with conditional pipelines
 
 ### Phase 3: Deprecate Legacy System (TODO)
 - Mark `VariableContext` and `VariableSubstitutor` as deprecated
@@ -121,17 +124,15 @@ substitutor = VariableSubstitutor(context)
 
 ## Current Status
 
-- ✅ **Validation**: Using modern system
+- ✅ **Validation**: Using modern system  
 - ✅ **Compilation**: Using modern system  
 - ✅ **Execution**: Using modern system
-- ⚠️ **Planning**: Still using legacy system (needs migration)
+- ✅ **Planning**: Now using modern system with priority-based resolution
 - ✅ **Testing**: Comprehensive coverage added (27 tests)
 - ✅ **Priority Support**: Fully implemented and tested
+- ✅ **Conditional Evaluation**: Fixed variable substitution issues
+- ✅ **Integration**: Complete conditional pipeline testing passes
 
 ## Next Steps
 
-1. ✅ ~~Extend `VariableSubstitutionEngine` with priority support~~ **COMPLETED**
-2. ⚡ **Migrate `Planner` to use modern system** - **READY TO START**
-3. Add deprecation warnings to legacy system
-4. Update documentation and examples
-5. Add architecture tests 
+1. ✅ ~~Extend `

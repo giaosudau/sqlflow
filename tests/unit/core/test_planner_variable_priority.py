@@ -13,6 +13,15 @@ import os
 import pytest
 
 from sqlflow.core.planner import Planner
+from sqlflow.parser.ast import (
+    ConditionalBlockStep,
+    ConditionalBranchStep,
+    LoadStep,
+    Pipeline,
+    SetStep,
+    SourceDefinitionStep,
+    SQLBlockStep,
+)
 from sqlflow.parser.parser import Parser
 
 
@@ -266,3 +275,219 @@ class TestVariableValidationBehavior:
         assert len(plan) == 1
         sql_query = plan[0]["query"]
         assert "'us west 2'" in sql_query
+
+    def test_planner_creates_plan_with_modern_variable_substitution_engine(self):
+        """Test that planner correctly uses modern VariableSubstitutionEngine instead of legacy system."""
+        # Arrange
+        pipeline = Pipeline()
+
+        # Add a source and load step that uses variables
+        source_step = SourceDefinitionStep(
+            name="test_source",
+            connector_type="CSV",
+            params={"path": "${data_path}/test.csv"},
+            line_number=1,
+        )
+        pipeline.add_step(source_step)
+
+        load_step = LoadStep(
+            table_name="test_table", source_name="test_source", line_number=2
+        )
+        pipeline.add_step(load_step)
+
+        # Act - create plan with CLI and profile variables
+        cli_variables = {"data_path": "/cli/path"}
+        profile_variables = {"data_path": "/profile/path"}
+
+        planner = Planner()
+        execution_plan = planner.create_plan(
+            pipeline, variables=cli_variables, profile_variables=profile_variables
+        )
+
+        # Assert - CLI variables should take priority
+        # Find the source definition step in the plan
+        source_ops = [
+            op for op in execution_plan if op.get("type") == "source_definition"
+        ]
+        assert len(source_ops) == 1
+
+        # The path should use CLI variable (highest priority)
+        source_query = source_ops[0]["query"]
+        assert source_query["path"] == "/cli/path/test.csv"
+
+    def test_conditional_evaluation_with_priority_based_variables(self):
+        """Test that conditional evaluation properly uses priority-based variable resolution."""
+        # Arrange
+        pipeline = Pipeline()
+
+        # Add SET step with default
+        set_step = SetStep(
+            variable_name="deploy_env",
+            variable_value="${deploy_env|development}",
+            line_number=1,
+        )
+        pipeline.add_step(set_step)
+
+        # Create conditional based on deploy_env
+        prod_step = SQLBlockStep(
+            table_name="prod_data",
+            sql_query="SELECT * FROM production_table",
+            line_number=3,
+        )
+
+        dev_step = SQLBlockStep(
+            table_name="dev_data",
+            sql_query="SELECT * FROM development_table",
+            line_number=6,
+        )
+
+        if_branch = ConditionalBranchStep(
+            condition="${deploy_env} == 'production'", steps=[prod_step], line_number=2
+        )
+
+        conditional_block = ConditionalBlockStep(
+            branches=[if_branch], else_branch=[dev_step], line_number=2
+        )
+        pipeline.add_step(conditional_block)
+
+        # Act & Assert - test CLI variable override
+        cli_variables = {"deploy_env": "production"}
+        profile_variables = {"deploy_env": "staging"}  # Should be ignored
+
+        planner = Planner()
+        execution_plan = planner.create_plan(
+            pipeline, variables=cli_variables, profile_variables=profile_variables
+        )
+
+        # Should use CLI variable and take production branch
+        transform_ops = [op for op in execution_plan if op.get("type") == "transform"]
+        assert len(transform_ops) == 1
+        assert transform_ops[0]["query"] == "SELECT * FROM production_table"
+
+    def test_string_variable_quoting_in_conditional_expressions(self):
+        """Test that string variables are properly quoted in conditional expressions to avoid syntax errors."""
+        # Arrange - this tests the specific bug that was fixed
+        pipeline = Pipeline()
+
+        # Create conditional with string variable that needs quoting
+        us_step = SQLBlockStep(
+            table_name="us_data", sql_query="SELECT * FROM us_sales", line_number=3
+        )
+
+        global_step = SQLBlockStep(
+            table_name="global_data",
+            sql_query="SELECT * FROM global_sales",
+            line_number=6,
+        )
+
+        # This condition was causing the original error: ${target_region|global} == 'us-east'
+        # The variable substitution was producing: global == 'us-east' (unquoted)
+        # instead of: 'global' == 'us-east' (quoted)
+        if_branch = ConditionalBranchStep(
+            condition="${target_region|global} == 'us-east'",
+            steps=[us_step],
+            line_number=2,
+        )
+
+        conditional_block = ConditionalBlockStep(
+            branches=[if_branch], else_branch=[global_step], line_number=2
+        )
+        pipeline.add_step(conditional_block)
+
+        # Act - this should not raise a syntax error anymore
+        planner = Planner()
+        execution_plan = planner.create_plan(pipeline, variables={})
+
+        # Assert - should use the default value "global" and take else branch
+        transform_ops = [op for op in execution_plan if op.get("type") == "transform"]
+        assert len(transform_ops) == 1
+        assert transform_ops[0]["query"] == "SELECT * FROM global_sales"
+
+    def test_hyphenated_string_variable_handling_in_conditionals(self):
+        """Test that hyphenated string variables are properly handled in conditionals."""
+        # Arrange - test variables with hyphens that could be parsed as subtraction
+        pipeline = Pipeline()
+
+        east_step = SQLBlockStep(
+            table_name="east_data", sql_query="SELECT * FROM east_region", line_number=3
+        )
+
+        other_step = SQLBlockStep(
+            table_name="other_data",
+            sql_query="SELECT * FROM other_region",
+            line_number=6,
+        )
+
+        # Variable with hyphen that could be misinterpreted as "us - east"
+        if_branch = ConditionalBranchStep(
+            condition="${region} == 'us-east'", steps=[east_step], line_number=2
+        )
+
+        conditional_block = ConditionalBlockStep(
+            branches=[if_branch], else_branch=[other_step], line_number=2
+        )
+        pipeline.add_step(conditional_block)
+
+        # Act - test with hyphenated variable value
+        variables = {"region": "us-east"}
+
+        planner = Planner()
+        execution_plan = planner.create_plan(pipeline, variables=variables)
+
+        # Assert - should properly match the hyphenated value
+        transform_ops = [op for op in execution_plan if op.get("type") == "transform"]
+        assert len(transform_ops) == 1
+        assert transform_ops[0]["query"] == "SELECT * FROM east_region"
+
+    def test_environment_variable_integration_in_conditional_planning(self):
+        """Test that environment variables are properly integrated in conditional planning."""
+        # Arrange
+        import os
+
+        original_env = os.environ.get("SQLFLOW_TEST_ENV")
+        os.environ["SQLFLOW_TEST_ENV"] = "test_environment"
+
+        try:
+            pipeline = Pipeline()
+
+            test_step = SQLBlockStep(
+                table_name="test_data",
+                sql_query="SELECT * FROM test_table",
+                line_number=3,
+            )
+
+            prod_step = SQLBlockStep(
+                table_name="prod_data",
+                sql_query="SELECT * FROM prod_table",
+                line_number=6,
+            )
+
+            # Condition that uses environment variable
+            if_branch = ConditionalBranchStep(
+                condition="${SQLFLOW_TEST_ENV} == 'test_environment'",
+                steps=[test_step],
+                line_number=2,
+            )
+
+            conditional_block = ConditionalBlockStep(
+                branches=[if_branch], else_branch=[prod_step], line_number=2
+            )
+            pipeline.add_step(conditional_block)
+
+            # Act - no CLI variables provided, should use environment variable
+            planner = Planner()
+            execution_plan = planner.create_plan(pipeline, variables={})
+
+            # Assert - should use environment variable and take test branch
+            transform_ops = [
+                op for op in execution_plan if op.get("type") == "transform"
+            ]
+            assert len(transform_ops) == 1
+            assert transform_ops[0]["query"] == "SELECT * FROM test_table"
+
+        finally:
+            # Cleanup
+            if original_env is not None:
+                os.environ["SQLFLOW_TEST_ENV"] = original_env
+            else:
+                os.environ.pop("SQLFLOW_TEST_ENV", None)

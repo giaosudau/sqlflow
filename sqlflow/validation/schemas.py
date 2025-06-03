@@ -655,7 +655,7 @@ SHOPIFY_SCHEMA = ConnectorSchema(
             required=True,
             field_type="string",
             description="Shopify shop domain (e.g., 'mystore.myshopify.com')",
-            pattern=r"^[a-zA-Z0-9-]+\.myshopify\.com$",
+            pattern=r"^(?!-)([a-z0-9-]{3,63})(?<!-)\.myshopify\.com$",
         ),
         FieldSchema(
             name="access_token",

@@ -32,7 +32,7 @@ SELECT
     product_title,
     COUNT(*) as order_count,
     SUM(quantity) as total_quantity,
-    SUM(CAST(price AS DECIMAL) * quantity) as total_revenue
+    SUM(CAST(line_item_price AS DECIMAL) * quantity) as total_revenue
 FROM orders
 WHERE line_item_id IS NOT NULL
 GROUP BY product_title

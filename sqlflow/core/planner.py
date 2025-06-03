@@ -1026,8 +1026,17 @@ class ExecutionPlanBuilder:
                     f"Added pipeline-defined variable for conditional evaluation: {var_name}={var_value}"
                 )
 
-        # Create evaluator with complete variable set
-        evaluator = ConditionEvaluator(all_variables)
+        # Create a modern VariableSubstitutionEngine with priority-based resolution
+        # Note: We don't have access to CLI/profile variables here, so we use all_variables as CLI variables
+        substitution_engine = VariableSubstitutionEngine(
+            cli_variables=all_variables,
+            profile_variables={},
+            set_variables=defined_vars,
+        )
+
+        # Create evaluator with complete variable set and modern substitution engine
+        logger.debug(f"Creating ConditionEvaluator with variables: {all_variables}")
+        evaluator = ConditionEvaluator(all_variables, substitution_engine)
 
         flattened_pipeline = Pipeline()
         for step in pipeline.steps:
@@ -1085,6 +1094,7 @@ class ExecutionPlanBuilder:
         self, branch: ConditionalBranchStep, evaluator: ConditionEvaluator
     ) -> Optional[List[PipelineStep]]:
         """Try to evaluate a condition branch and return steps if condition is true."""
+        logger.debug(f"Branch condition from AST: '{branch.condition}'")
         try:
             # Do NOT catch EvaluationError here - let it propagate up with line information
             condition_result = evaluator.evaluate(branch.condition)

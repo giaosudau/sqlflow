@@ -74,15 +74,12 @@ Based on user feedback analysis and industry best practices, this design follows
 - ✅ All tests follow Python best practices with proper fixtures and assertions
 
 **CLI Integration - COMPLETED:**
-- ✅ `ValidationCache` class for file-based caching with modification time tracking
 - ✅ `validation_helpers.py` with pipeline validation, error formatting, and CLI utilities
-- ✅ Smart caching system stores results in `target/validation/` directory
 - ✅ Rich error formatting with emoji indicators and actionable suggestions
 - ✅ 27 comprehensive tests covering all CLI validation functionality
 - ✅ **NEW**: Dedicated `sqlflow pipeline validate` command for single/bulk validation
 - ✅ **NEW**: Integration into `sqlflow pipeline run` (always validates before execution)
 - ✅ **NEW**: Integration into `sqlflow pipeline compile` (validates by default with --skip-validation option)
-- ✅ **NEW**: Smart caching with --clear-cache option
 - ✅ **NEW**: Comprehensive error reporting and user feedback
 - ✅ **NEW**: Enhanced aggregated error reporting that displays all validation errors grouped by type
 - ✅ **NEW**: Improved CLI option naming (--skip-validation instead of --no-validate) for better clarity
@@ -571,58 +568,7 @@ class Parser:
 
 **MVP Performance Approach:**
 - Single-pass validation (parse + validate simultaneously)
-- Smart caching for unchanged files
 - Early termination on first N errors (configurable, default: 10)
-
-**Smart Caching Implementation:**
-```python
-class ValidationCache:
-    """Simple file-based validation cache"""
-    
-    def __init__(self, cache_dir: str = ".sqlflow_cache"):
-        self.cache_dir = Path(cache_dir)
-        self.cache_dir.mkdir(exist_ok=True)
-    
-    def get_cached_result(self, file_path: str) -> Optional[List[ValidationError]]:
-        """Get cached validation result if file unchanged"""
-        cache_file = self._get_cache_file(file_path)
-        if not cache_file.exists():
-            return None
-            
-        file_mtime = Path(file_path).stat().st_mtime
-        cache_mtime = cache_file.stat().st_mtime
-        
-        if file_mtime > cache_mtime:
-            return None  # File newer than cache
-            
-        # Load cached result
-        with open(cache_file, 'r') as f:
-            cached_data = json.load(f)
-            return [ValidationError(**error) for error in cached_data]
-    
-    def store_result(self, file_path: str, errors: List[ValidationError]):
-        """Store validation result in cache"""
-        cache_file = self._get_cache_file(file_path)
-        with open(cache_file, 'w') as f:
-            json.dump([asdict(error) for error in errors], f)
-
-# Usage in CLI
-def validate_pipeline_with_caching(file_path: str) -> List[ValidationError]:
-    cache = ValidationCache()
-    
-    # Check cache first
-    cached_errors = cache.get_cached_result(file_path)
-    if cached_errors is not None:
-        return cached_errors
-    
-    # Validate and cache
-    with open(file_path, 'r') as f:
-        content = f.read()
-    
-    errors = validate_pipeline(content)
-    cache.store_result(file_path, errors)
-    return errors
-```
 
 **Future Optimizations:**
 - Parallel validation for independent statement types
@@ -718,7 +664,7 @@ The CLI now provides comprehensive error reporting that displays all validation 
 from sqlflow.validation import AggregatedValidationError
 
 try:
-    errors = validate_pipeline_with_caching(pipeline_file)
+    errors = validate_pipeline(pipeline_file)
     if errors:
         # All errors are collected and displayed together
         # Grouped by type: Connector Errors, Parameter Errors, Reference Errors
@@ -730,14 +676,14 @@ except AggregatedValidationError as e:
     typer.echo(str(e), err=True)  # Shows all errors grouped by type
 ```
 
+**Usage in CLI:**
 ```python
-# sqlflow/cli/commands/validate.py
 @click.command()
 @click.argument('pipeline_file')
 def validate(pipeline_file: str):
     """Validate a SQLFlow pipeline without executing it"""
     try:
-        errors = validate_pipeline_with_caching(pipeline_file)
+        errors = validate_pipeline(pipeline_file)
         
         if errors:
             # Enhanced error formatting with grouping by type
@@ -758,7 +704,7 @@ def run(pipeline_file: str):
     """Run a SQLFlow pipeline (includes validation)"""
     # Always validate before running with comprehensive error reporting
     try:
-        errors = validate_pipeline_with_caching(pipeline_file)
+        errors = validate_pipeline(pipeline_file)
         
         if errors:
             # Show all errors grouped by type
@@ -790,7 +736,7 @@ def compile_pipeline(
     """Compile pipeline with optional validation skip for CI/CD scenarios."""
     if not skip_validation:
         # Comprehensive validation with all errors reported
-        errors = validate_pipeline_with_caching(pipeline_path)
+        errors = validate_pipeline(pipeline_path)
         if errors:
             # Show all validation errors grouped by type
             typer.echo("❌ Validation failed. Aborting compilation.", err=True)
