@@ -146,6 +146,14 @@ To run both integration and performance tests:
 
 ## Comment Requirements
 
+### Where to Comment
+**✅ Pull Request Comments Only**: Comment triggers only work on **Pull Request** comments, not issue comments.
+
+To trigger tests:
+1. Go to your **Pull Request**
+2. Add a comment with the trigger command
+3. The tests will run on the PR's branch/commit
+
 ### Who Can Trigger Tests
 Only repository collaborators can trigger tests via comments:
 - ✅ Repository owners
