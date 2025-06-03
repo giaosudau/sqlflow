@@ -1,0 +1,6 @@
+# Ignore debug outputs
+*.log
+*.tmp
+*.debug
+__pycache__/
+*.pyc

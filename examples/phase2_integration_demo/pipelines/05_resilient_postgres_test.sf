@@ -111,7 +111,7 @@ LOAD staging_connection_stress FROM connection_stress_test;
 -- =============================================================================
 
 -- Create comprehensive resilience test results
-CREATE TABLE resilience_test_results AS
+CREATE OR REPLACE TABLE resilience_test_results AS
 SELECT 
     'Resilient PostgreSQL Test' as test_name,
     

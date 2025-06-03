@@ -97,7 +97,9 @@ class ParameterValidator:
         # Check required parameters
         missing = set(self.required_params) - set(params.keys())
         if missing:
-            raise ParameterError(f"Missing required parameters: {missing}")
+            raise ParameterError(
+                f"Missing required parameters: {missing}", self.connector_type
+            )
 
         # Validate parameter types
         validated = {}
@@ -126,7 +128,8 @@ class ParameterValidator:
                         continue
                 # If no type worked, raise error
                 raise ParameterError(
-                    f"Parameter '{key}' must be one of {expected_type.__args__}"
+                    f"Parameter '{key}' must be one of {expected_type.__args__}",
+                    self.connector_type,
                 )
 
             # Handle List types (e.g., List[str])
@@ -136,7 +139,9 @@ class ParameterValidator:
                     if isinstance(value, str):
                         return [value]
                     else:
-                        raise ParameterError(f"Parameter '{key}' must be a list")
+                        raise ParameterError(
+                            f"Parameter '{key}' must be a list", self.connector_type
+                        )
                 return value
 
         # Handle simple types
@@ -149,13 +154,16 @@ class ParameterValidator:
 
         # Special handling for dict types - they shouldn't be converted to strings automatically
         if target_type == str and isinstance(value, dict):
-            raise ParameterError(f"Cannot convert dict to string: {value}")
+            raise ParameterError(
+                f"Cannot convert dict to string: {value}", self.connector_type
+            )
 
         try:
             return target_type(value)
         except (ValueError, TypeError):
             raise ParameterError(
-                f"Cannot convert {type(value).__name__} to {target_type.__name__}"
+                f"Cannot convert {type(value).__name__} to {target_type.__name__}",
+                self.connector_type,
             )
 
     def _get_required_params(self) -> List[str]:
