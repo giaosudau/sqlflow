@@ -125,6 +125,9 @@ class LocalExecutor(BaseExecutor):
 
         try:
             return Project(project_dir, profile_name or "dev")
+        except ValueError:
+            # Re-raise ValueError (profile validation errors) to maintain test expectations
+            raise
         except Exception as e:
             logger.debug(f"Could not create project from {project_dir}: {e}")
             return None

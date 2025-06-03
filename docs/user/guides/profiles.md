@@ -18,6 +18,119 @@ By using profiles, you can:
 - Ensure consistent settings across pipeline runs
 - Customize resources for different environments
 
+## Profile Format Specification
+
+SQLFlow profiles must follow a specific YAML structure. The basic format is:
+
+```yaml
+# Required: Engine configuration
+engines:
+  duckdb:
+    mode: memory|persistent  # Required: DuckDB mode
+    path: "path/to/db.duckdb"  # Required for persistent mode
+    memory_limit: 2GB  # Optional: Memory limit (default: 2GB)
+
+# Optional: Logging configuration
+log_level: info  # Optional: debug, info, warning, error
+log_file: "logs/sqlflow.log"  # Optional: Log to file
+
+# Optional: Module-specific log levels
+module_log_levels:
+  sqlflow.core.engines: info
+  sqlflow.connectors: debug
+
+# Optional: Variables available to pipelines
+variables:
+  environment: development
+  data_dir: "data"
+  output_dir: "output"
+
+# Optional: Connector configurations
+connectors:
+  postgres:
+    type: POSTGRES
+    params:
+      host: "localhost"
+      port: 5432
+      dbname: "mydb"
+      user: "username"
+      password: "password"
+```
+
+### Required Fields
+
+| Field | Description | Values |
+|-------|-------------|---------|
+| `engines.duckdb.mode` | DuckDB operation mode | `memory` or `persistent` |
+| `engines.duckdb.path` | Database file path | Required when `mode: persistent` |
+
+### Optional Fields
+
+| Field | Description | Default |
+|-------|-------------|---------|
+| `engines.duckdb.memory_limit` | Memory limit for DuckDB | `2GB` |
+| `log_level` | Global log level | `info` |
+| `log_file` | Log output file | Console only |
+| `variables` | Pipeline variables | `{}` |
+| `connectors` | Connector configurations | `{}` |
+
+## Profile Validation
+
+SQLFlow automatically validates profile structure when loading. Common validation errors and fixes:
+
+### ❌ Nested Profile Format (Deprecated)
+```yaml
+# INCORRECT - Don't use profile name as wrapper
+dev:
+  engines:
+    duckdb:
+      mode: memory
+```
+
+### ✅ Correct Profile Format
+```yaml
+# CORRECT - Direct structure
+engines:
+  duckdb:
+    mode: memory
+```
+
+### ❌ Missing Path for Persistent Mode
+```yaml
+# INCORRECT - Missing path
+engines:
+  duckdb:
+    mode: persistent
+    # Missing path field!
+```
+
+### ✅ Persistent Mode with Path
+```yaml
+# CORRECT - Path specified
+engines:
+  duckdb:
+    mode: persistent
+    path: "target/production.db"
+```
+
+### ❌ Deprecated Field Names
+```yaml
+# INCORRECT - Old field name
+engines:
+  duckdb:
+    mode: persistent
+    database_path: "target/db.duckdb"  # Should be 'path'
+```
+
+### ✅ Current Field Names
+```yaml
+# CORRECT - Current field name
+engines:
+  duckdb:
+    mode: persistent
+    path: "target/db.duckdb"
+```
+
 ## Default Profiles
 
 A new SQLFlow project comes with a `profiles/dev.yml` file that configures the development environment:
@@ -69,128 +182,224 @@ variables:
 # Connector configurations
 connectors:
   postgres:
-    default:
-      host: "db.example.com"
+    type: POSTGRES
+    params:
+      host: "localhost"
       port: 5432
+      dbname: "warehouse"
       user: "sqlflow"
-      password: "${DB_PASSWORD}"  # Can reference env variables
+  
   s3:
-    default:
+    type: S3
+    params:
       region: "us-east-1"
       access_key: "${AWS_ACCESS_KEY}"
       secret_key: "${AWS_SECRET_KEY}"
+      bucket: "data-lake"
 ```
 
-## Using Profiles with CLI
+## DuckDB Persistence Modes
 
-Specify which profile to use when running a pipeline:
+### Memory Mode (Default)
+- **Use case**: Development and testing
+- **Performance**: Fast execution
+- **Persistence**: Data lost when SQLFlow exits
+- **Configuration**:
+  ```yaml
+  engines:
+    duckdb:
+      mode: memory
+      memory_limit: 2GB
+  ```
 
+### Persistent Mode
+- **Use case**: Production and data persistence
+- **Performance**: Slower but reliable
+- **Persistence**: Data saved to disk file
+- **Configuration**:
+  ```yaml
+  engines:
+    duckdb:
+      mode: persistent
+      path: target/production.db  # Required!
+      memory_limit: 4GB
+  ```
+
+## Using Profiles
+
+### Running with a Profile
 ```bash
-# Development (in-memory, fast)
+# Use default 'dev' profile
 sqlflow pipeline run my_pipeline
 
-# Production (persistent storage)
+# Use specific profile
 sqlflow pipeline run my_pipeline --profile production
+
+# List pipelines with specific profile
+sqlflow pipeline list --profile test
 ```
 
-If no profile is specified, SQLFlow uses the `dev` profile by default.
+### Profile Discovery
+SQLFlow looks for profiles in this order:
+1. `profiles/<profile_name>.yml` in current directory
+2. `profiles/<profile_name>.yml` in parent directories (up to project root)
 
 ## Environment Variables in Profiles
 
-You can reference environment variables in your profiles using the `${ENV_VAR}` syntax:
+Profiles support environment variable substitution:
 
 ```yaml
-# profiles/production.yml
-connectors:
-  postgres:
-    default:
-      host: "${DB_HOST|localhost}"
-      user: "${DB_USER|postgres}"
-      password: "${DB_PASSWORD}"
-```
-
-The environment variables will be resolved at runtime.
-
-## Multiple Named Connections
-
-Profiles can define multiple named connections for the same connector type:
-
-```yaml
-# profiles/production.yml
-connectors:
-  postgres:
-    analytics_db:
-      host: "analytics.example.com"
-      user: "analyst"
-      password: "${ANALYTICS_DB_PASSWORD}"
-    customer_db:
-      host: "customers.example.com"
-      user: "service"
-      password: "${CUSTOMER_DB_PASSWORD}"
-```
-
-Reference these in your pipelines:
-
-```sql
-SOURCE customers TYPE POSTGRES(customer_db) PARAMS {
-  "query": "SELECT * FROM customers"
-};
-```
-
-## Best Practices for Profiles
-
-1. **Keep sensitive data out of profiles**: Use environment variables for credentials
-2. **Create profiles for each environment**: At minimum, `dev`, `test`, and `production`
-3. **Organize profiles by purpose**: Consider creating task-specific profiles like `etl`, `reporting`
-4. **Set appropriate resources**: Adjust memory limits based on environment capabilities
-5. **Version control profiles**: Include profiles in version control, but exclude any with secrets
-
-## Example: Complete Production Profile
-
-```yaml
-# profiles/production.yml
-
-# Engine configuration
 engines:
   duckdb:
     mode: persistent
-    path: "/data/sqlflow/production.db"
-    memory_limit: 8GB
-    
-# Logging
-log_level: info
-log_file: "/var/log/sqlflow/production.log"
-    
-# Default variables
+    path: "${DB_PATH:-target/default.db}"  # With default fallback
+
 variables:
-  environment: "production"
-  data_date: "${DATA_DATE}"
-  s3_bucket: "company-production-data"
-  
-# Connector configurations
+  api_key: "${API_KEY}"  # Required environment variable
+  database_url: "${DATABASE_URL}"
+
 connectors:
   postgres:
-    default:
-      host: "${DB_HOST}"
-      port: 5432
-      user: "${DB_USER}"
-      password: "${DB_PASSWORD}"
-      database: "production"
-      sslmode: "require"
-  s3:
-    default:
-      region: "us-east-1"
-      access_key: "${AWS_ACCESS_KEY}"
-      secret_key: "${AWS_SECRET_KEY}"
-  rest_api:
-    notification_service:
-      base_url: "https://api.example.com/v1"
-      auth_token: "${API_TOKEN}"
+    type: POSTGRES
+    params:
+      host: "${POSTGRES_HOST}"
+      password: "${POSTGRES_PASSWORD}"
 ```
 
-## Related Resources
+## Best Practices
 
-- [Getting Started Guide](../getting_started.md)
-- [Working with Variables](variables.md)
-- [Logging Configuration](logging.md)
-- [Connector Reference](../reference/connectors.md) 
+### Profile Organization
+- Use descriptive profile names: `dev`, `test`, `staging`, `production`
+- Keep sensitive data in environment variables
+- Document required environment variables
+
+### Development Workflow
+```yaml
+# profiles/dev.yml - Fast development
+engines:
+  duckdb:
+    mode: memory
+    memory_limit: 2GB
+log_level: debug
+```
+
+### Production Deployment
+```yaml
+# profiles/production.yml - Reliable production
+engines:
+  duckdb:
+    mode: persistent
+    path: "/data/production.db"
+    memory_limit: 8GB
+log_level: warning
+log_file: "/logs/sqlflow.log"
+```
+
+### Testing Configuration
+```yaml
+# profiles/test.yml - Isolated testing
+engines:
+  duckdb:
+    mode: persistent  # Keep test data for debugging
+    path: "target/test.db"
+    memory_limit: 1GB
+log_level: debug
+```
+
+## Troubleshooting Profiles
+
+### Common Errors
+
+**Error**: `Invalid profile structure`
+```
+Solution: Check profile format against specification above
+```
+
+**Error**: `DuckDB persistent mode requires 'path' field`
+```yaml
+# Fix: Add path field
+engines:
+  duckdb:
+    mode: persistent
+    path: "target/mydb.duckdb"  # Add this line
+```
+
+**Error**: `Profile not found`
+```
+Solution: Ensure profiles/<name>.yml exists in project directory
+```
+
+### Validation Messages
+
+SQLFlow provides helpful validation messages:
+
+```
+Profile 'dev' uses deprecated nested format. 
+Please update profiles/dev.yml to remove the 'dev:' wrapper.
+```
+
+```
+Profile 'prod' uses deprecated 'database_path' field. 
+Please rename it to 'path' in profiles/prod.yml
+```
+
+### Migration from Old Format
+
+If you have profiles in the old format, update them:
+
+```yaml
+# OLD FORMAT (deprecated)
+my_profile:
+  engines:
+    duckdb:
+      database_path: "target/db.duckdb"
+```
+
+```yaml
+# NEW FORMAT (current)
+engines:
+  duckdb:
+    mode: persistent
+    path: "target/db.duckdb"
+```
+
+## Advanced Configuration
+
+### Multiple Connectors
+```yaml
+connectors:
+  warehouse:
+    type: POSTGRES
+    params:
+      host: "warehouse.company.com"
+      dbname: "analytics"
+  
+  data_lake:
+    type: S3
+    params:
+      bucket: "company-data-lake"
+      region: "us-west-2"
+```
+
+### Environment-Specific Variables
+```yaml
+variables:
+  # Development
+  debug_mode: true
+  sample_data: true
+  
+  # Data sources
+  customers_table: "dev_customers"
+  orders_table: "dev_orders"
+```
+
+### Performance Tuning
+```yaml
+engines:
+  duckdb:
+    mode: persistent
+    path: "/fast-ssd/production.db"
+    memory_limit: 16GB  # Increase for large datasets
+```
+
+For more advanced configuration options, see the [SQLFlow Configuration Reference](../reference/configuration.md). 
