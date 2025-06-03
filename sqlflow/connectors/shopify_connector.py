@@ -1206,6 +1206,53 @@ class ShopifyConnector(Connector):
 
         return df
 
+    def _process_datetime_cursor(self, max_value, cursor_field: str) -> Optional[str]:
+        """Process datetime cursor value for Shopify API compatibility."""
+        if pd.notna(max_value):
+            # Handle pandas Timestamp objects
+            if hasattr(max_value, "to_pydatetime"):
+                # Convert pandas Timestamp to datetime
+                dt_value = max_value.to_pydatetime()
+            else:
+                dt_value = max_value
+
+            # Ensure timezone-aware datetime for Shopify API
+            if dt_value.tzinfo is None:
+                # Localize to UTC if no timezone info
+                dt_value = dt_value.replace(tzinfo=timezone.utc)
+            else:
+                # Convert to UTC if different timezone
+                dt_value = dt_value.astimezone(timezone.utc)
+
+            # Return in Shopify API format (ISO 8601 with Z suffix)
+            iso_timestamp = dt_value.isoformat().replace("+00:00", "Z")
+            logger.debug(f"Extracted cursor value (timestamp): {iso_timestamp}")
+            return iso_timestamp
+        return None
+
+    def _process_string_cursor(
+        self, max_value: str, cursor_field: str
+    ) -> Optional[str]:
+        """Process string cursor value, validating and normalizing timestamp format."""
+        try:
+            # Parse the timestamp and ensure UTC timezone
+            parsed_dt = datetime.fromisoformat(max_value.replace("Z", "+00:00"))
+            # Convert to UTC and format for Shopify API
+            if parsed_dt.tzinfo is None:
+                # Assume UTC if no timezone info
+                parsed_dt = parsed_dt.replace(tzinfo=timezone.utc)
+            else:
+                # Convert to UTC
+                parsed_dt = parsed_dt.astimezone(timezone.utc)
+            iso_timestamp = parsed_dt.isoformat().replace("+00:00", "Z")
+            logger.debug(f"Extracted cursor value (parsed string): {iso_timestamp}")
+            return iso_timestamp
+        except (ValueError, AttributeError) as e:
+            logger.warning(
+                f"Could not parse cursor value as datetime: {max_value}, error: {e}"
+            )
+            return max_value
+
     def get_cursor_value(self, chunk: DataChunk, cursor_field: str) -> Optional[Any]:
         """Extract cursor value from data chunk for watermark management.
 
@@ -1234,49 +1281,11 @@ class ShopifyConnector(Connector):
 
             # Convert timestamp to ISO format for Shopify API compatibility
             if pd.api.types.is_datetime64_any_dtype(chunk.pandas_df[cursor_field]):
-                if pd.notna(max_value):
-                    # Handle pandas Timestamp objects
-                    if hasattr(max_value, "to_pydatetime"):
-                        # Convert pandas Timestamp to datetime
-                        dt_value = max_value.to_pydatetime()
-                    else:
-                        dt_value = max_value
-
-                    # Ensure timezone-aware datetime for Shopify API
-                    if dt_value.tzinfo is None:
-                        # Localize to UTC if no timezone info
-                        dt_value = dt_value.replace(tzinfo=timezone.utc)
-                    else:
-                        # Convert to UTC if different timezone
-                        dt_value = dt_value.astimezone(timezone.utc)
-
-                    # Return in Shopify API format (ISO 8601 with Z suffix)
-                    iso_timestamp = dt_value.isoformat().replace("+00:00", "Z")
-                    logger.debug(f"Extracted cursor value (timestamp): {iso_timestamp}")
-                    return iso_timestamp
+                return self._process_datetime_cursor(max_value, cursor_field)
 
             # For string timestamps, validate and normalize format
             if isinstance(max_value, str):
-                try:
-                    # Parse the timestamp and ensure UTC timezone
-                    parsed_dt = datetime.fromisoformat(max_value.replace("Z", "+00:00"))
-                    # Convert to UTC and format for Shopify API
-                    if parsed_dt.tzinfo is None:
-                        # Assume UTC if no timezone info
-                        parsed_dt = parsed_dt.replace(tzinfo=timezone.utc)
-                    else:
-                        # Convert to UTC
-                        parsed_dt = parsed_dt.astimezone(timezone.utc)
-                    iso_timestamp = parsed_dt.isoformat().replace("+00:00", "Z")
-                    logger.debug(
-                        f"Extracted cursor value (parsed string): {iso_timestamp}"
-                    )
-                    return iso_timestamp
-                except (ValueError, AttributeError) as e:
-                    logger.warning(
-                        f"Could not parse cursor value as datetime: {max_value}, error: {e}"
-                    )
-                    return max_value
+                return self._process_string_cursor(max_value, cursor_field)
 
             # For other data types, return as-is
             logger.debug(f"Extracted cursor value (raw): {max_value}")

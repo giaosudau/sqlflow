@@ -459,8 +459,8 @@ class TestShopifyConnector:
 
         # Verify enhanced line item data
         assert flattened_row["line_item_grams"] == 500
-        assert flattened_row["line_item_requires_shipping"] == True
-        assert flattened_row["line_item_taxable"] == True
+        assert flattened_row["line_item_requires_shipping"] is True
+        assert flattened_row["line_item_taxable"] is True
         assert flattened_row["line_item_fulfillment_service"] == "manual"
 
     def test_schema_includes_enhanced_fields(self):

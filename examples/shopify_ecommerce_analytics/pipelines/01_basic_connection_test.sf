@@ -8,7 +8,7 @@ SOURCE shopify_store TYPE SHOPIFY PARAMS {
 };
 
 -- Test connection by loading a few orders
-LOAD recent_orders FROM shopify_store OBJECT "orders" LIMIT 5;
+LOAD orders FROM shopify_store;
 
 -- Basic data exploration
 CREATE TABLE order_summary AS
@@ -18,7 +18,7 @@ SELECT
     SUM(CAST(total_price AS DECIMAL)) as total_revenue,
     MIN(created_at) as earliest_order,
     MAX(created_at) as latest_order
-FROM recent_orders;
+FROM orders;
 
 -- Export the results
 EXPORT SELECT * FROM order_summary 
@@ -32,6 +32,6 @@ EXPORT SELECT
     total_price,
     currency,
     created_at
-FROM recent_orders 
+FROM orders 
 TO "output/sample_orders.csv" 
 TYPE CSV OPTIONS { "header": true }; 

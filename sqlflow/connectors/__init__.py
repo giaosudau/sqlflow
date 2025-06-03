@@ -7,11 +7,13 @@ This package provides connectors for various data sources and destinations:
 - REST APIs (rest_connector)
 - S3 object storage (s3_connector)
 - Google Sheets (google_sheets_connector)
+- Shopify e-commerce (shopify_connector)
 
 Some connectors have external dependencies that must be installed separately:
 - PostgreSQL connector requires psycopg2-binary
 - S3 connector requires boto3
 - Google Sheets connector requires google-api-python-client, google-auth
+- Shopify connector requires requests
 
 Connectors are automatically registered when this package is imported.
 """
@@ -73,5 +75,10 @@ except ImportError:
 
 try:
     from sqlflow.connectors import google_sheets_connector
+except ImportError:
+    pass
+
+try:
+    from sqlflow.connectors import shopify_connector
 except ImportError:
     pass

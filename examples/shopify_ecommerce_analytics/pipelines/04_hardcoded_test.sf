@@ -1,0 +1,17 @@
+-- Hardcoded values test (no variable substitution)
+SOURCE shopify_store TYPE SHOPIFY PARAMS {
+    "shop_domain": "test.myshopify.com",
+    "access_token": "dummy_token_for_testing",
+    "sync_mode": "full_refresh"
+};
+
+-- Test basic loading
+LOAD orders FROM shopify_store;
+
+-- Simple test query
+CREATE TABLE order_count AS
+SELECT COUNT(*) as total_orders FROM orders;
+
+EXPORT SELECT * FROM order_count 
+TO "output/order_count.csv" 
+TYPE CSV OPTIONS { "header": true }; 
