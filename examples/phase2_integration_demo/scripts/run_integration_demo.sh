@@ -155,8 +155,8 @@ echo
 # Test 3: S3 Connector
 if run_pipeline_test "03_s3_connector_test" "S3 Connector with Multi-Format Support"; then
     print_info "Verifying S3 export results..."
-    # Check S3 exports using the improved verification script
-    if python3 test_s3_verification.py > /dev/null 2>&1; then
+    # Check S3 exports by looking for actual export files in MinIO bucket
+    if docker compose exec sqlflow python3 -c "import boto3; s3 = boto3.client('s3', endpoint_url='http://minio:9000', aws_access_key_id='minioadmin', aws_secret_access_key='minioadmin'); response = s3.list_objects_v2(Bucket='sqlflow-demo', Prefix='exports/'); exit(0 if response.get('Contents') else 1)" > /dev/null 2>&1; then
         print_success "S3 export results found in MinIO bucket"
         echo "S3 exports completed successfully"
     else
@@ -225,7 +225,7 @@ echo
 
 # Test 6: 🚀 NEW - Enhanced S3 Connector Demo
 print_info "🛠️ Setting up Enhanced S3 test data..."
-if python3 scripts/setup_s3_test_data.py; then
+if docker compose exec sqlflow python3 scripts/setup_s3_test_data.py; then
     print_success "✅ S3 test data setup completed"
 else
     print_warning "⚠️ S3 test data setup failed, proceeding with mock mode"
@@ -258,7 +258,7 @@ if run_pipeline_test "pipelines/06_enhanced_s3_connector_demo.sf" "Enhanced S3 C
     fi
     
     # Verify S3 exports in MinIO using enhanced verification
-    if python3 test_s3_verification.py > /dev/null 2>&1; then
+    if docker compose exec sqlflow python3 -c "import boto3; s3 = boto3.client('s3', endpoint_url='http://minio:9000', aws_access_key_id='minioadmin', aws_secret_access_key='minioadmin'); response = s3.list_objects_v2(Bucket='sqlflow-demo', Prefix='exports/'); exit(0 if response.get('Contents') else 1)" > /dev/null 2>&1; then
         print_success "Enhanced S3 exports verified in MinIO bucket"
     else
         print_info "Enhanced S3 demo completed (mock mode or MinIO verification skipped)"
@@ -283,7 +283,7 @@ if [ -f "output/incremental_test_results.csv" ]; then
 fi
 
 # Check S3 test success by looking for files in MinIO bucket
-if python3 test_s3_verification.py > /dev/null 2>&1; then
+if docker compose exec sqlflow python3 -c "import boto3; s3 = boto3.client('s3', endpoint_url='http://minio:9000', aws_access_key_id='minioadmin', aws_secret_access_key='minioadmin'); response = s3.list_objects_v2(Bucket='sqlflow-demo', Prefix='exports/'); exit(0 if response.get('Contents') else 1)" > /dev/null 2>&1; then
     ((successful_tests++))
 fi
 
