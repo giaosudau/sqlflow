@@ -22,6 +22,8 @@ jobs:
       run-integration: ${{ steps.check-trigger.outputs.run-integration }}
       run-performance: ${{ steps.check-trigger.outputs.run-performance }}
       pr-sha: ${{ steps.get-pr-info.outputs.pr-sha }}
+      pr-ref: ${{ steps.get-pr-info.outputs.pr-ref }}
+      pr-repo: ${{ steps.get-pr-info.outputs.pr-repo }}
     steps:
       - name: Add initial reaction
         uses: actions/github-script@v7
@@ -44,15 +46,28 @@ jobs:
             const { owner, repo } = context.repo;
             const issue_number = context.issue.number;
             
-            // Get PR information
-            const pr = await github.rest.pulls.get({
-              owner,
-              repo,
-              pull_number: issue_number
-            });
-            
-            console.log(`PR head SHA: ${pr.data.head.sha}`);
-            core.setOutput('pr-sha', pr.data.head.sha);
+            try {
+              // Get PR information
+              const pr = await github.rest.pulls.get({
+                owner,
+                repo,
+                pull_number: issue_number
+              });
+              
+              console.log('PR Information:');
+              console.log(`- Head SHA: ${pr.data.head.sha}`);
+              console.log(`- Head Ref: ${pr.data.head.ref}`);
+              console.log(`- Head Repo: ${pr.data.head.repo.full_name}`);
+              console.log(`- Base Repo: ${pr.data.base.repo.full_name}`);
+              
+              core.setOutput('pr-sha', pr.data.head.sha);
+              core.setOutput('pr-ref', pr.data.head.ref);
+              core.setOutput('pr-repo', pr.data.head.repo.full_name);
+              
+            } catch (error) {
+              console.error('Error getting PR information:', error);
+              core.setFailed(`Failed to get PR information: ${error.message}`);
+            }
 
       - name: Check comment triggers
         id: check-trigger
@@ -112,10 +127,47 @@ jobs:
     if: needs.process-comment.outputs.run-integration == 'true'
     runs-on: ubuntu-latest
     steps:
+      - name: Get PR details for checkout
+        id: pr-details
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            
+            // Get PR information
+            const pr = await github.rest.pulls.get({
+              owner,
+              repo,
+              pull_number: issue_number
+            });
+            
+            console.log(`PR head SHA: ${pr.data.head.sha}`);
+            console.log(`PR head repo: ${pr.data.head.repo.full_name}`);
+            console.log(`PR head ref: ${pr.data.head.ref}`);
+            
+            core.setOutput('pr-sha', pr.data.head.sha);
+            core.setOutput('pr-repo', pr.data.head.repo.full_name);
+            core.setOutput('pr-ref', pr.data.head.ref);
+
       - uses: actions/checkout@v4
         with:
+          repository: ${{ steps.pr-details.outputs.pr-repo }}
+          ref: ${{ steps.pr-details.outputs.pr-sha }}
           fetch-depth: 0
-          ref: ${{ needs.process-comment.outputs.pr-sha }}
+
+      - name: Debug - Check current directory and contents
+        run: |
+          echo "Current working directory:"
+          pwd
+          echo "Contents of current directory:"
+          ls -la
+          echo "Contents of examples directory (if it exists):"
+          ls -la examples/ || echo "examples directory not found"
+          echo "Git status:"
+          git status
+          echo "Git log (last commit):"
+          git log -1 --oneline
 
       - name: Set up Python 3.10
         uses: actions/setup-python@v5
@@ -132,6 +184,13 @@ jobs:
         env:
           CI: true
         run: |
+          if [ ! -d "examples/phase2_integration_demo" ]; then
+            echo "❌ ERROR: examples/phase2_integration_demo directory not found"
+            echo "Available directories in examples:"
+            ls -la examples/ 2>/dev/null || echo "examples directory not found"
+            exit 1
+          fi
+          
           cd examples/phase2_integration_demo
           
           # Source the shared CI utilities
@@ -171,9 +230,13 @@ jobs:
         env:
           CI: true
         run: |
-          cd examples/phase2_integration_demo
-          source scripts/ci_utils.sh
-          stop_docker_services
+          if [ -d "examples/phase2_integration_demo" ]; then
+            cd examples/phase2_integration_demo
+            source scripts/ci_utils.sh
+            stop_docker_services
+          else
+            echo "Skipping cleanup - directory not found"
+          fi
 
   # Performance testing job - triggered by comment
   performance-test:
@@ -181,10 +244,47 @@ jobs:
     if: needs.process-comment.outputs.run-performance == 'true'
     runs-on: ubuntu-latest
     steps:
+      - name: Get PR details for checkout
+        id: pr-details
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            
+            // Get PR information
+            const pr = await github.rest.pulls.get({
+              owner,
+              repo,
+              pull_number: issue_number
+            });
+            
+            console.log(`PR head SHA: ${pr.data.head.sha}`);
+            console.log(`PR head repo: ${pr.data.head.repo.full_name}`);
+            console.log(`PR head ref: ${pr.data.head.ref}`);
+            
+            core.setOutput('pr-sha', pr.data.head.sha);
+            core.setOutput('pr-repo', pr.data.head.repo.full_name);
+            core.setOutput('pr-ref', pr.data.head.ref);
+
       - uses: actions/checkout@v4
         with:
+          repository: ${{ steps.pr-details.outputs.pr-repo }}
+          ref: ${{ steps.pr-details.outputs.pr-sha }}
           fetch-depth: 0
-          ref: ${{ needs.process-comment.outputs.pr-sha }}
+
+      - name: Debug - Check current directory and contents
+        run: |
+          echo "Current working directory:"
+          pwd
+          echo "Contents of current directory:"
+          ls -la
+          echo "Contents of examples directory (if it exists):"
+          ls -la examples/ || echo "examples directory not found"
+          echo "Git status:"
+          git status
+          echo "Git log (last commit):"
+          git log -1 --oneline
 
       - name: Set up Python 3.10
         uses: actions/setup-python@v5
