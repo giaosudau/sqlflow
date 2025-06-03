@@ -25,6 +25,8 @@ on:
       - 'examples/**'
   issue_comment:
     types: [created]
+  pull_request_target:
+    types: [opened, synchronize]
   workflow_dispatch:
     inputs:
       test_type:
@@ -101,11 +103,12 @@ jobs:
   # Check if comment triggers integration tests
   check-comment:
     runs-on: ubuntu-latest
-    if: github.event_name == 'issue_comment'
+    if: github.event_name == 'issue_comment' && github.event.issue.pull_request != null
     outputs:
       run-integration: ${{ steps.check.outputs.run-integration }}
       run-performance: ${{ steps.check.outputs.run-performance }}
       run-all: ${{ steps.check.outputs.run-all }}
+      pr-number: ${{ steps.check.outputs.pr-number }}
     steps:
       - name: Check comment content
         id: check
@@ -119,15 +122,32 @@ jobs:
             
             console.log(`Comment: "${comment}"`);
             console.log(`Author association: ${context.payload.comment.author_association}`);
+            console.log(`Event name: ${context.eventName}`);
+            
+            // Set PR number for later use
+            if (context.payload.issue && context.payload.issue.number) {
+              core.setOutput('pr-number', context.payload.issue.number);
+            }
             
             if (!isCollaborator) {
               console.log('Comment author is not a collaborator, ignoring');
+              core.setOutput('run-integration', 'false');
+              core.setOutput('run-performance', 'false');
+              core.setOutput('run-all', 'false');
               return;
             }
             
-            core.setOutput('run-integration', comment.includes('/test integration') || comment.includes('/test all'));
-            core.setOutput('run-performance', comment.includes('/test performance') || comment.includes('/test all'));
-            core.setOutput('run-all', comment.includes('/test all'));
+            const runIntegration = comment.includes('/test integration') || comment.includes('/test all');
+            const runPerformance = comment.includes('/test performance') || comment.includes('/test all');
+            const runAll = comment.includes('/test all');
+            
+            console.log(`Run integration: ${runIntegration}`);
+            console.log(`Run performance: ${runPerformance}`);
+            console.log(`Run all: ${runAll}`);
+            
+            core.setOutput('run-integration', runIntegration.toString());
+            core.setOutput('run-performance', runPerformance.toString());
+            core.setOutput('run-all', runAll.toString());
 
   # Integration testing - triggered by comment or manual dispatch
   integration-test:
@@ -138,7 +158,31 @@ jobs:
       (github.event_name == 'workflow_dispatch' && (inputs.test_type == 'integration' || inputs.test_type == 'all'))
 
     steps:
+      - name: Get PR info for comment
+        if: github.event_name == 'issue_comment'
+        id: pr-info
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.issue.number
+            });
+            core.setOutput('pr-ref', pr.head.ref);
+            core.setOutput('pr-sha', pr.head.sha);
+            core.setOutput('pr-repo', pr.head.repo.full_name);
+
       - uses: actions/checkout@v3
+        if: github.event_name == 'issue_comment'
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ steps.pr-info.outputs.pr-repo }}
+          ref: ${{ steps.pr-info.outputs.pr-sha }}
+          fetch-depth: 0
+
+      - uses: actions/checkout@v3
+        if: github.event_name != 'issue_comment'
         with:
           fetch-depth: 0
 
@@ -229,8 +273,11 @@ jobs:
             
             const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
             
+            // Use the issue number from the original comment event
+            const issueNumber = context.payload.issue ? context.payload.issue.number : context.issue.number;
+            
             github.rest.issues.createComment({
-              issue_number: context.issue.number,
+              issue_number: issueNumber,
               owner: context.repo.owner,
               repo: context.repo.repo,
               body: `${status}\n\n[View run details](${runUrl})`
@@ -245,7 +292,31 @@ jobs:
       (github.event_name == 'workflow_dispatch' && (inputs.test_type == 'performance' || inputs.test_type == 'all'))
 
     steps:
+      - name: Get PR info for comment
+        if: github.event_name == 'issue_comment'
+        id: pr-info
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.issue.number
+            });
+            core.setOutput('pr-ref', pr.head.ref);
+            core.setOutput('pr-sha', pr.head.sha);
+            core.setOutput('pr-repo', pr.head.repo.full_name);
+
       - uses: actions/checkout@v3
+        if: github.event_name == 'issue_comment'
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ steps.pr-info.outputs.pr-repo }}
+          ref: ${{ steps.pr-info.outputs.pr-sha }}
+          fetch-depth: 0
+
+      - uses: actions/checkout@v3
+        if: github.event_name != 'issue_comment'
         with:
           fetch-depth: 0
 
@@ -307,9 +378,18 @@ jobs:
             
             const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
             
+            // Use the issue number from the original comment event
+            const issueNumber = context.payload.issue ? context.payload.issue.number : context.issue.number;
+            
             github.rest.issues.createComment({
-              issue_number: context.issue.number,
+              issue_number: issueNumber,
               owner: context.repo.owner,
               repo: context.repo.repo,
               body: `${status}\n\n[View run details](${runUrl})`
             });
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+  actions: read
