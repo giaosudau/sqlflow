@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Optional
 from sqlflow.core.dependencies import DependencyResolver
 from sqlflow.core.errors import PlanningError
 from sqlflow.core.evaluator import ConditionEvaluator, EvaluationError
-from sqlflow.core.variables import VariableContext, VariableSubstitutor
+from sqlflow.core.variable_substitution import VariableSubstitutionEngine
 from sqlflow.logging import get_logger
 from sqlflow.parser.ast import (
     ConditionalBlockStep,
@@ -60,21 +60,33 @@ class ExecutionPlanBuilder:
         """
         logger.debug("Validating variable references in pipeline")
 
-        # Get effective variables (provided + defined in pipeline)
-        effective_variables = self._get_effective_variables(pipeline, variables)
+        # Extract SET variables from pipeline for priority-based validation
+        set_variables = self._extract_set_defined_variables(pipeline)
+
+        # Create a modern VariableSubstitutionEngine for validation
+        # Use the variables dict as CLI variables for validation purposes
+        engine = VariableSubstitutionEngine(
+            cli_variables=variables,  # Use provided variables as CLI variables
+            profile_variables={},  # No profile variables available at this level
+            set_variables=set_variables,
+        )
 
         # Extract all referenced variables
         referenced_vars = self._collect_all_referenced_variables(pipeline)
 
-        # Log variable reference report
-        self._log_variable_reference_report(
-            referenced_vars, effective_variables, pipeline
-        )
+        # Log variable reference report using the modern system
+        self._log_modern_variable_reference_report(referenced_vars, engine, pipeline)
 
-        # Check for missing vars and invalid defaults
-        missing_vars = self._find_missing_vars(
-            referenced_vars, effective_variables, pipeline
-        )
+        # Check for missing variables directly from the collected variables
+        # This is more reliable than using the serialized pipeline text
+        missing_vars = []
+        for var in referenced_vars:
+            value = engine._get_variable_value(var)
+            has_default = self._has_default_in_pipeline(var, pipeline)
+            if value is None and not has_default:
+                missing_vars.append(var)
+
+        # Check for invalid defaults (this logic can remain the same)
         invalid_defaults = self._find_invalid_defaults(referenced_vars, pipeline)
 
         # Handle missing variables - log and raise error
@@ -91,10 +103,109 @@ class ExecutionPlanBuilder:
         if invalid_defaults:
             self._raise_invalid_defaults_error(invalid_defaults)
 
-        # Verify all variable values
-        self._verify_variable_values(referenced_vars, variables, pipeline)
+        # Verify all variable values using modern engine
+        self._verify_variable_values_modern(referenced_vars, engine, pipeline)
 
         logger.info("Variable validation completed successfully")
+
+    def _serialize_pipeline_for_validation(self, pipeline: Pipeline) -> str:
+        """Serialize pipeline steps to text for variable validation."""
+        texts = []
+        for step in pipeline.steps:
+            if hasattr(step, "sql_query") and step.sql_query:
+                texts.append(step.sql_query)
+            # Add more step types as needed for comprehensive validation
+        return "\n".join(texts)
+
+    def _log_modern_variable_reference_report(
+        self,
+        referenced_vars: set,
+        engine: VariableSubstitutionEngine,
+        pipeline: Pipeline,
+    ) -> None:
+        """Log a detailed report of all variable references using the modern engine."""
+        logger.debug("----- Variable Reference Report -----")
+        for var in sorted(referenced_vars):
+            value = engine._get_variable_value(var)
+            if value is not None:
+                logger.debug(f"  ✓ ${{{var}}} = '{value}'")
+            elif self._has_default_in_pipeline(var, pipeline):
+                logger.debug(f"  ✓ ${{{var}}} = [Using default value]")
+            else:
+                logger.debug(f"  ✗ ${{{var}}} = UNDEFINED")
+        logger.debug("-----------------------------------")
+
+    def _verify_variable_values_modern(
+        self,
+        referenced_vars: set,
+        engine: VariableSubstitutionEngine,
+        pipeline: Pipeline,
+    ) -> None:
+        """Verify that all variable values are valid using the modern engine."""
+        logger.debug("Verifying all variable values using modern engine")
+        invalid_vars = []
+
+        for var in referenced_vars:
+            value = engine._get_variable_value(var)
+            if value is not None:
+                # Empty values are now allowed (behavior change)
+                if value == "":
+                    # Just log a warning but don't treat as invalid
+                    logger.debug(f"Found empty value for variable: ${{{var}}}")
+                # Add more validation logic here as needed
+            elif self._has_default_in_pipeline(var, pipeline):
+                # Variable has a default value which is used in the absence of a provided value
+                logger.debug(f"Using default value for variable: ${{{var}}}")
+
+        if invalid_vars:
+            error_msg = "Invalid variable values detected:\n" + "\n".join(
+                f"  - {err}" for err in invalid_vars
+            )
+            error_msg += "\n\nPlease provide valid values for these variables."
+
+            # Add additional debugging info about where variables are used
+            error_msg += "\n\nVariable reference locations:"
+            for var in [v.split()[0].strip("${}") for v in invalid_vars]:
+                locations = self._find_variable_reference_locations(var, pipeline)
+                if locations:
+                    error_msg += f"\n  ${{{var}}} referenced at: {', '.join(locations)}"
+
+            logger.warning(f"Variable value validation failed: {error_msg}")
+            raise PlanningError(error_msg)
+
+        logger.debug("All variable values verified successfully using modern engine")
+
+    def _raise_missing_variables_error(
+        self, missing_vars: List[str], pipeline: Pipeline
+    ) -> None:
+        """Raise PlanningError with details about missing variables."""
+        # Skip logging here - the calling function already logs missing variables
+        error_msg = "Pipeline references undefined variables:\n" + "".join(
+            f"  - ${{{var}}} is used but not defined\n" for var in missing_vars
+        )
+        error_msg += "\nPlease define these variables using SET statements or provide them when running the pipeline."
+
+        # Add reference locations for better context
+        error_msg += "\n\nVariable reference locations:"
+        for var in missing_vars:
+            locations = self._find_variable_reference_locations(var, pipeline)
+            if locations:
+                error_msg += f"\n  ${{{var}}} referenced at: {', '.join(locations)}"
+
+        # Raise PlanningError without additional logging
+        raise PlanningError(error_msg)
+
+    def _raise_invalid_defaults_error(self, invalid_defaults: List[str]) -> None:
+        """Raise PlanningError with details about invalid default values."""
+        # Skip logging here - just raise the error
+        error_msg = (
+            "Invalid default values for variables (must not contain spaces unless quoted):\n"
+            + "".join(f"  - {expr}\n" for expr in invalid_defaults)
+        )
+        error_msg += (
+            '\nDefault values with spaces must be quoted, e.g. ${var|"us-east"}'
+        )
+        raise PlanningError(error_msg)
 
     def _get_effective_variables(
         self, pipeline: Pipeline, variables: Dict[str, Any]
@@ -147,55 +258,6 @@ class ExecutionPlanBuilder:
         elif isinstance(step, SetStep):
             # Check for variables in variable values
             self._extract_variable_references(step.variable_value, referenced_vars)
-
-    def _log_variable_reference_report(
-        self,
-        referenced_vars: set,
-        effective_variables: Dict[str, Any],
-        pipeline: Pipeline,
-    ) -> None:
-        """Log a detailed report of all variable references and their status."""
-        logger.debug("----- Variable Reference Report -----")
-        for var in sorted(referenced_vars):
-            if var in effective_variables:
-                logger.debug(f"  ✓ ${{{var}}} = '{effective_variables[var]}'")
-            elif self._has_default_in_pipeline(var, pipeline):
-                logger.debug(f"  ✓ ${{{var}}} = [Using default value]")
-            else:
-                logger.debug(f"  ✗ ${{{var}}} = UNDEFINED")
-        logger.debug("-----------------------------------")
-
-    def _raise_missing_variables_error(
-        self, missing_vars: List[str], pipeline: Pipeline
-    ) -> None:
-        """Raise PlanningError with details about missing variables."""
-        # Skip logging here - the calling function already logs missing variables
-        error_msg = "Pipeline references undefined variables:\n" + "".join(
-            f"  - ${{{var}}} is used but not defined\n" for var in missing_vars
-        )
-        error_msg += "\nPlease define these variables using SET statements or provide them when running the pipeline."
-
-        # Add reference locations for better context
-        error_msg += "\n\nVariable reference locations:"
-        for var in missing_vars:
-            locations = self._find_variable_reference_locations(var, pipeline)
-            if locations:
-                error_msg += f"\n  ${{{var}}} referenced at: {', '.join(locations)}"
-
-        # Raise PlanningError without additional logging
-        raise PlanningError(error_msg)
-
-    def _raise_invalid_defaults_error(self, invalid_defaults: List[str]) -> None:
-        """Raise PlanningError with details about invalid default values."""
-        # Skip logging here - just raise the error
-        error_msg = (
-            "Invalid default values for variables (must not contain spaces unless quoted):\n"
-            + "".join(f"  - {expr}\n" for expr in invalid_defaults)
-        )
-        error_msg += (
-            '\nDefault values with spaces must be quoted, e.g. ${var|"us-east"}'
-        )
-        raise PlanningError(error_msg)
 
     def _find_missing_vars(self, referenced_vars, variables, pipeline):
         return [
@@ -1672,37 +1734,46 @@ class Planner:
             The execution plan as a list of operation dictionaries
 
         Priority order for variable substitution:
-        1. SET variables in pipeline (lowest priority)
+        1. CLI variables (highest priority)
         2. Profile variables (medium priority)
-        3. CLI variables (highest priority)
-        4. Default values in ${var|default} expressions (only used when no other value is found)
+        3. SET variables in pipeline (lower priority)
+        4. Environment variables (fallback)
+        5. Default values in ${var|default} expressions (only used when no other value is found)
 
         """
         # First extract SET variables including default values from the pipeline
         set_variables = self.builder._extract_set_defined_variables(pipeline)
         logger.debug(f"SET variables with defaults from pipeline: {set_variables}")
 
-        # Create a VariableContext with all sources following priority order
-        var_context = VariableContext(
+        # Create VariableSubstitutionEngine with priority-based resolution
+        engine = VariableSubstitutionEngine(
             cli_variables=variables,
             profile_variables=profile_variables,
             set_variables=set_variables,
         )
 
-        # Build the plan using the extracted variables
-        execution_plan = self.builder.build_plan(
-            pipeline, var_context.get_all_variables()
-        )
+        # Build the plan using all variables for validation purposes
+        # For backward compatibility with builder expectations, provide merged variables
+        all_variables = {}
+        if set_variables:
+            all_variables.update(set_variables)
+        if profile_variables:
+            all_variables.update(profile_variables)
+        if variables:
+            all_variables.update(variables)
 
-        # Create a VariableSubstitutor and apply substitution to the plan
-        substitutor = VariableSubstitutor(var_context)
-        execution_plan = substitutor.substitute_any(execution_plan)
+        execution_plan = self.builder.build_plan(pipeline, all_variables)
 
-        # Check for any unresolved variables and log warnings
-        if var_context.has_unresolved_variables():
-            unresolved = var_context.get_unresolved_variables()
+        # Apply variable substitution to the execution plan using the modern engine
+        execution_plan = engine.substitute(execution_plan)
+
+        # Check for any missing variables and log warnings
+        # Convert the plan back to text to validate variable usage
+        plan_text = json.dumps(execution_plan)
+        missing_vars = engine.validate_required_variables(plan_text)
+        if missing_vars:
             logger.warning(
-                f"Plan contains unresolved variables: {', '.join(unresolved)}"
+                f"Plan contains unresolved variables: {', '.join(missing_vars)}"
             )
 
         return execution_plan
