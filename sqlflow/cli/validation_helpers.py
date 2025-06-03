@@ -1,7 +1,6 @@
 """Helper functions for CLI validation integration.
 
-Provides utilities for validating pipelines with caching and formatting errors
-for CLI output.
+Provides utilities for validating pipelines and formatting errors for CLI output.
 """
 
 import os
@@ -10,7 +9,6 @@ from typing import List
 
 import typer
 
-from sqlflow.cli.validation_cache import ValidationCache
 from sqlflow.core.variable_substitution import VariableSubstitutionEngine
 from sqlflow.logging import get_logger
 from sqlflow.parser.parser import Parser
@@ -160,15 +158,12 @@ def _parse_and_validate_pipeline(
     return errors
 
 
-def validate_pipeline_with_caching(
-    pipeline_path: str, project_dir: str = "."
-) -> List[ValidationError]:
-    """Validate a pipeline file with smart caching.
+def validate_pipeline(pipeline_path: str) -> List[ValidationError]:
+    """Validate a pipeline file.
 
     Args:
     ----
         pipeline_path: Path to the pipeline file
-        project_dir: Project directory (defaults to current directory)
 
     Returns:
     -------
@@ -180,22 +175,9 @@ def validate_pipeline_with_caching(
 
     """
     try:
-        # Initialize cache
-        cache = ValidationCache(project_dir)
-
-        # Check cache first
-        cached_errors = cache.get_cached_errors(pipeline_path)
-        if cached_errors is not None:
-            logger.debug("Using cached validation results for %s", pipeline_path)
-            return cached_errors
-
         # Read and validate pipeline
         pipeline_text = _read_pipeline_file(pipeline_path)
         errors = _parse_and_validate_pipeline(pipeline_text, pipeline_path)
-
-        # Cache the results
-        cache.store_errors(pipeline_path, errors)
-
         return errors
 
     except typer.Exit:
@@ -354,7 +336,7 @@ def validate_and_exit_on_error(
         typer.Exit: If validation fails (exit code 1)
 
     """
-    errors = validate_pipeline_with_caching(pipeline_path)
+    errors = validate_pipeline(pipeline_path)
 
     if errors:
         print_validation_summary(errors, pipeline_name, quiet=quiet)

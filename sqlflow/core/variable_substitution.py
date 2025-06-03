@@ -145,22 +145,21 @@ class VariableSubstitutionEngine:
     def _substitute_string(self, text: str) -> str:
         """Substitute variables in a string.
 
-        Supports both ${var} and ${var|default} patterns.
-        Checks explicit variables first, then environment variables.
-
         Args:
-            text: String with variable placeholders
+            text: String containing variable references
 
         Returns:
             String with variables substituted
         """
-        if not text:
-            return text
-
-        logger.debug(f"Substituting variables in: {text}")
+        logger.debug(f"Substituting variables in text: {text[:100]}...")
 
         def replace_variable(match: re.Match) -> str:
             var_expr = match.group(1)
+
+            # Get local context around the variable (50 chars before and after)
+            start_pos = max(0, match.start() - 50)
+            end_pos = min(len(text), match.end() + 50)
+            local_context = text[start_pos:end_pos]
 
             # Handle expressions with defaults: ${var|default}
             if "|" in var_expr:
@@ -175,25 +174,25 @@ class VariableSubstitutionEngine:
                 value = self._get_variable_value(var_name)
                 if value is not None:
                     logger.debug(f"Using variable ${{{var_name}}} = '{value}'")
-                    return self._format_value_for_context(value, text)
+                    return self._format_value_for_context(value, local_context)
                 else:
                     logger.debug(
                         f"Using default value '{default_value}' for variable ${{{var_name}}}"
                     )
-                    return self._format_value_for_context(default_value, text)
+                    return self._format_value_for_context(default_value, local_context)
             else:
                 # Simple variable reference: ${var}
                 var_name = var_expr.strip()
                 value = self._get_variable_value(var_name)
                 if value is not None:
                     logger.debug(f"Using variable ${{{var_name}}} = '{value}'")
-                    return self._format_value_for_context(value, text)
+                    return self._format_value_for_context(value, local_context)
                 else:
                     logger.warning(
                         f"Variable '{var_name}' not found in variables or environment and no default provided"
                     )
                     # In condition contexts, treat missing variables as None
-                    if self._is_condition_context(text):
+                    if self._is_condition_context(local_context):
                         logger.debug(
                             f"Treating missing variable ${{{var_name}}} as None in condition context"
                         )
@@ -219,12 +218,25 @@ class VariableSubstitutionEngine:
         """
         str_value = str(value)
 
+        # Don't add quotes in JSON contexts (contains quotes and colons)
+        if self._is_json_context(context):
+            return str_value
+
         # If this looks like a condition context (contains ==, !=, etc.)
         # and the value is a string that could cause parsing issues, quote it
-        if self._is_condition_context(context) and self._needs_quoting(str_value):
-            return f"'{str_value}'"
+        is_condition = self._is_condition_context(context)
+        needs_quotes = self._needs_quoting(str_value)
+
+        if is_condition and needs_quotes:
+            result = f"'{str_value}'"
+            return result
 
         return str_value
+
+    def _is_json_context(self, text: str) -> bool:
+        """Check if the text appears to be a JSON context."""
+        # Look for JSON-like patterns: quotes and colons
+        return '"' in text and ":" in text
 
     def _is_condition_context(self, text: str) -> bool:
         """Check if the text appears to be a condition expression."""
@@ -255,7 +267,15 @@ class VariableSubstitutionEngine:
         if " " in value:
             return True
 
-        return False
+        # Quote if it's not a pure numeric value (int, float, etc.)
+        # This ensures that string values like "global", "test", etc. are properly quoted
+        try:
+            # Try to parse as a number (int or float)
+            float(value)
+            return False  # It's a number, no quotes needed
+        except ValueError:
+            # It's not a number, so it should be quoted in conditional contexts
+            return True
 
     def _substitute_dict(self, data_dict: Dict[str, Any]) -> Dict[str, Any]:
         """Substitute variables in a dictionary recursively."""

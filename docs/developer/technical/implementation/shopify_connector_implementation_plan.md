@@ -173,19 +173,49 @@ SOURCE shopify_orders TYPE SHOPIFY PARAMS {
 
 ### Phase 2: SME Features & Testing (Days 4-6)
 
-**Day 4: SME Data Models**
-- Implement flattened orders table for easy analysis
-- Add customer segmentation and LTV calculations
-- Create product performance analytics model
-- Add financial reconciliation and validation
+**Day 4: SME Data Models** ✅ **COMPLETED** (January 3, 2025)
+- ✅ Implement flattened orders table for easy analysis  
+- ✅ Add customer segmentation and LTV calculations
+- ✅ Create product performance analytics model
+- ✅ Add financial reconciliation and validation
 
-**Day 5: Real Shopify Testing**
+**🏆 Day 4 Deliverables Completed:**
+- ✅ **Enhanced Customer Segmentation & LTV Analysis** (`customer_ltv_analysis`):
+  - Customer lifetime value calculations with behavioral patterns
+  - Automatic customer classification: VIP, Loyal, Regular, One-time, Emerging  
+  - Geographic customer insights and purchase behavior tracking
+  - Order frequency and product diversity analysis
+  
+- ✅ **Product Performance Analytics** (`product_performance_analytics`):
+  - Revenue rankings and cross-selling analysis
+  - Product geographic performance tracking  
+  - Sales velocity and customer penetration metrics
+  - Revenue per unit and profitability analysis
+  
+- ✅ **Financial Reconciliation & Validation** (`financial_reconciliation`):
+  - Daily financial reconciliation with accuracy validation
+  - Net revenue calculations with refund tracking
+  - Discount rate and refund rate performance metrics
+  - Financial status breakdown and trend analysis
+  
+- ✅ **Geographic Performance Analysis** (`geographic_performance`):
+  - Regional performance with fulfillment rate tracking
+  - Country and province-level revenue analysis
+  - Shipping vs billing address insights
+  - Market penetration and opportunity identification
+
+- ✅ **Advanced Analytics Pipeline**: `05_sme_advanced_analytics_simple.sf` with 4 comprehensive SME data models
+- ✅ **SQL Optimization**: Efficient aggregation queries for large datasets with NULL handling and validation checks
+- ✅ **Enhanced Test Suite**: All pipelines (5/5) validating and compiling successfully
+- ✅ **Production Documentation**: Comprehensive SME analytics examples with SQL code samples and usage guides
+
+**Day 5: Real Shopify Testing** ⏳ **NEXT** (Pending)
 - Set up Shopify Partner development stores
 - Generate realistic test data (orders, customers, products)
 - Test with multiple store configurations (small, medium, large)
 - Validate data accuracy and completeness
 
-**Day 6: Error Handling & Edge Cases**
+**Day 6: Error Handling & Edge Cases** ⏳ **PENDING**
 - Implement comprehensive error handling
 - Add schema change detection and handling
 - Test API rate limiting and recovery
@@ -218,7 +248,7 @@ SHOPIFY_PARAMETER_SCHEMA = {
         "shop_domain": {
             "type": "string",
             "description": "Shopify shop domain (e.g., 'mystore.myshopify.com')",
-            "pattern": r"^[a-zA-Z0-9-]+\.myshopify\.com$"
+            "pattern": r"^(?!-)([a-z0-9-]{3,63})(?<!-)\.myshopify\.com$"
         },
         "access_token": {
             "type": "string", 

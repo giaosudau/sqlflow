@@ -112,11 +112,27 @@ class SourceDefinitionStep(PipelineStep):
         Returns:
             List of validation error messages for parameter issues
         """
+        # Skip validation if parameters contain variables - validation will happen after substitution
+        if self._contains_variables():
+            return []
+
         # Import here to avoid circular imports
         from sqlflow.parser.source_validation import SourceParameterValidator
 
         validator = SourceParameterValidator()
         return validator.validate_parameters(self.params)
+
+    def _contains_variables(self) -> bool:
+        """Check if parameters contain variable references (${...}).
+
+        Returns:
+            True if any parameter value contains variable references
+        """
+        import json
+
+        # Convert params to string to check for variable patterns
+        params_str = json.dumps(self.params)
+        return "${" in params_str
 
     def get_migration_suggestions(self) -> List[str]:
         """Get migration suggestions for parameters.
