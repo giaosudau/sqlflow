@@ -10,10 +10,12 @@ import typer
 
 from sqlflow import __version__
 from sqlflow.cli import connect
+from sqlflow.cli.commands.env import app as env_app
 from sqlflow.cli.commands.udf import app as udf_app
 from sqlflow.cli.pipeline import pipeline_app
 from sqlflow.logging import configure_logging, suppress_third_party_loggers
 from sqlflow.project import Project
+from sqlflow.utils.env import setup_environment
 
 app = typer.Typer(
     help="SQLFlow - SQL-based data pipeline tool.",
@@ -23,6 +25,7 @@ app = typer.Typer(
 app.add_typer(pipeline_app, name="pipeline")
 app.add_typer(connect.app, name="connect")
 app.add_typer(udf_app, name="udf")
+app.add_typer(env_app, name="env")
 
 
 def version_callback(value: bool):
@@ -45,11 +48,21 @@ def main(
     ),
 ):
     """SQLFlow CLI main entrypoint."""
+    # Load .env file from project directory early in the process
+    env_loaded = setup_environment()
+
     # Configure logging based on command line flags
     configure_logging(verbose=verbose, quiet=quiet)
 
     # Suppress noisy third-party logs
     suppress_third_party_loggers()
+
+    # Only log .env loading after logging is configured
+    if env_loaded and verbose:
+        from sqlflow.logging import get_logger
+
+        logger = get_logger(__name__)
+        logger.debug("Environment variables loaded from .env file")
 
 
 def generate_sample_data(data_dir: str):
@@ -474,6 +487,29 @@ The project includes realistic sample datasets:
 - `data/orders.csv` - 5,000 order records  
 - `data/products.csv` - 500 product records
 
+## Environment Variables
+
+SQLFlow automatically loads environment variables from a `.env` file in the project root.
+This allows you to use `${{VARIABLE_NAME}}` syntax in your pipelines.
+
+```bash
+# Create a .env file template
+sqlflow env template
+
+# Check .env file status
+sqlflow env check
+
+# List available environment variables
+sqlflow env list
+```
+
+Example `.env` file:
+```
+DATABASE_URL=postgresql://user:pass@localhost/db
+API_KEY=your_api_key_here
+ENVIRONMENT=development
+```
+
 ## Profiles
 
 - `dev` - In-memory mode (fast, no persistence)
@@ -485,6 +521,7 @@ Use `--profile prod` to save results permanently.
 
 ```
 {project_name}/
+├── .env            # Environment variables (create with 'sqlflow env template')
 ├── data/           # Input data files
 ├── pipelines/      # SQLFlow pipeline files (.sf)
 ├── profiles/       # Environment configurations
@@ -493,10 +530,11 @@ Use `--profile prod` to save results permanently.
 
 ## Next Steps
 
-1. Explore the sample pipelines in `pipelines/`
-2. Modify them for your use case
-3. Add your own data files to the `data/` directory
-4. Create new pipelines with the `.sf` extension
+1. Create a `.env` file with `sqlflow env template`
+2. Explore the sample pipelines in `pipelines/`
+3. Modify them for your use case
+4. Add your own data files to the `data/` directory
+5. Create new pipelines with the `.sf` extension
 
 For more information, visit: https://github.com/sqlflow/sqlflow
 """
@@ -557,51 +595,73 @@ def show_logging_status():
         typer.echo(f"  {name}: {info['level']}")
 
 
+def _show_help_message():
+    """Show the main help message."""
+    print("SQLFlow - SQL-based data pipeline tool.")
+    print("\nCommands:")
+    print("  pipeline    Work with SQLFlow pipelines.")
+    print("  connect     Manage and test connection profiles.")
+    print("  udf         Manage Python User-Defined Functions.")
+    print("  env         Manage environment variables and .env files.")
+    print("  init        Initialize a new SQLFlow project.")
+    print("  logging_status  Show the current logging configuration.")
+    print("\nOptions:")
+    print("  --version   Show version and exit.")
+    print("  --quiet     Reduce output to essential information only.")
+    print("  --verbose   Enable verbose output with technical details.")
+    print("  --help      Show this message and exit.")
+
+
+def _show_command_help(command: str):
+    """Show help for a specific command."""
+    if command == "pipeline":
+        print("\nPipeline Commands:")
+        print("  list        List available pipelines.")
+        print("  compile     Compile a pipeline.")
+        print("  run         Run a pipeline.")
+        print("  validate    Validate a pipeline.")
+    elif command == "connect":
+        print("\nConnect Commands:")
+        print("  list        List available connections.")
+        print("  test        Test a connection.")
+    elif command == "udf":
+        print("\nUDF Commands:")
+        print("  list        List available Python UDFs.")
+        print("  info        Show detailed information about a specific UDF.")
+    elif command == "env":
+        print("\nEnv Commands:")
+        print("  list        List environment variables.")
+        print("  get         Get a specific environment variable.")
+        print("  check       Check .env file status.")
+        print("  template    Create a .env file template.")
+    elif command == "init":
+        print("\nInit Options:")
+        print("  --minimal   Create minimal project without sample data.")
+        print("  --demo      Initialize and run demo pipeline immediately.")
+
+
+def _handle_help_request() -> int:
+    """Handle help requests and return appropriate exit code."""
+    _show_help_message()
+
+    if len(sys.argv) == 1:
+        # No arguments provided, exit with standard help code
+        return 0
+
+    # Check if help is requested for a specific command
+    if len(sys.argv) > 2 and ("--help" in sys.argv or "-h" in sys.argv):
+        command = sys.argv[1]
+        _show_command_help(command)
+        return 0
+
+    return 0
+
+
 def cli():
     """Entry point for the command line."""
     # Fix for the help command issue with Typer
     if len(sys.argv) == 1 or "--help" in sys.argv or "-h" in sys.argv:
-        print("SQLFlow - SQL-based data pipeline tool.")
-        print("\nCommands:")
-        print("  pipeline    Work with SQLFlow pipelines.")
-        print("  connect     Manage and test connection profiles.")
-        print("  udf         Manage Python User-Defined Functions.")
-        print("  init        Initialize a new SQLFlow project.")
-        print("  logging_status  Show the current logging configuration.")
-        print("\nOptions:")
-        print("  --version   Show version and exit.")
-        print("  --quiet     Reduce output to essential information only.")
-        print("  --verbose   Enable verbose output with technical details.")
-        print("  --help      Show this message and exit.")
-
-        if len(sys.argv) == 1:
-            # No arguments provided, exit with standard help code
-            return 0
-
-        # Check if help is requested for a specific command
-        if len(sys.argv) > 2 and ("--help" in sys.argv or "-h" in sys.argv):
-            command = sys.argv[1]
-            if command == "pipeline":
-                print("\nPipeline Commands:")
-                print("  list        List available pipelines.")
-                print("  compile     Compile a pipeline.")
-                print("  run         Run a pipeline.")
-                print("  validate    Validate a pipeline.")
-            elif command == "connect":
-                print("\nConnect Commands:")
-                print("  list        List available connections.")
-                print("  test        Test a connection.")
-            elif command == "udf":
-                print("\nUDF Commands:")
-                print("  list        List available Python UDFs.")
-                print("  info        Show detailed information about a specific UDF.")
-            elif command == "init":
-                print("\nInit Options:")
-                print("  --minimal   Create minimal project without sample data.")
-                print("  --demo      Initialize and run demo pipeline immediately.")
-            return 0
-
-        return 0
+        return _handle_help_request()
 
     # For non-help commands, attempt to run the app
     try:

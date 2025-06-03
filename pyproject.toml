@@ -44,6 +44,7 @@ dependencies = [
     "pyyaml>=6.0",
     "typing-extensions>=4.0.0",
     "pyarrow>=10.0.0",  # Analytics-ready by default - key differentiator vs competitors
+    "python-dotenv>=1.0.0",  # Environment variable loading from .env files
 ]
 
 # Optional dependencies - granular structure inspired by dbt, airflow, and airbyte

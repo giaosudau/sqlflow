@@ -67,14 +67,9 @@ def calculate_tax_default(price: float) -> float:
         "id": "INTEGER",
         "customer_id": "INTEGER",
         "product": "VARCHAR",
-        "original_price": "DOUBLE",
-        "price_with_tax": "DOUBLE",
-        "price_with_custom_tax": "DOUBLE",
-        "discounted_price": "DOUBLE",
+        "price": "DOUBLE",
         "quantity": "INTEGER",
         "date": "VARCHAR",
-        # Also include the price column that gets created/renamed
-        "price": "DOUBLE",
         # New calculated columns
         "total": "DOUBLE",
         "tax": "DOUBLE",
@@ -94,10 +89,6 @@ def add_sales_metrics(df: pd.DataFrame) -> pd.DataFrame:
 
     """
     result = df.copy()
-
-    # Ensure 'price' column exists - use original_price if price doesn't exist
-    if "price" not in result.columns and "original_price" in result.columns:
-        result["price"] = result["original_price"]
 
     # Convert Decimal to float if needed
     if "price" in result.columns and result["price"].dtype == "object":

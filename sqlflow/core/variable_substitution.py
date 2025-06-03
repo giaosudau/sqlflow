@@ -2,9 +2,13 @@
 
 This module provides a unified interface for variable substitution across the entire codebase,
 eliminating code duplication and ensuring consistent behavior.
+
+Environment variables are automatically available in variable substitution, providing
+seamless integration with .env files and system environment variables.
 """
 
 import keyword
+import os
 import re
 from typing import Any, Dict, List, Optional
 
@@ -14,7 +18,12 @@ logger = get_logger(__name__)
 
 
 class VariableSubstitutionEngine:
-    """Centralized engine for variable substitution with consistent behavior."""
+    """Centralized engine for variable substitution with consistent behavior.
+
+    Supports both explicit variables and automatic environment variable lookup.
+    When a variable is not found in the provided variables dictionary,
+    the engine will check environment variables as a fallback.
+    """
 
     # Compile regex patterns once for better performance
     VARIABLE_PATTERN = re.compile(r"\$\{([^}]+)\}")
@@ -24,9 +33,31 @@ class VariableSubstitutionEngine:
         """Initialize the substitution engine.
 
         Args:
-            variables: Dictionary of variable name-value pairs
+            variables: Dictionary of variable name-value pairs.
+                      Environment variables are automatically available as fallback.
         """
         self.variables = variables or {}
+
+    def _get_variable_value(self, var_name: str) -> Optional[str]:
+        """Get variable value from explicit variables or environment variables.
+
+        Args:
+            var_name: Name of the variable to look up
+
+        Returns:
+            Variable value if found, None otherwise
+        """
+        # First check explicit variables (highest priority)
+        if var_name in self.variables:
+            return self.variables[var_name]
+
+        # Then check environment variables (fallback)
+        env_value = os.environ.get(var_name)
+        if env_value is not None:
+            logger.debug(f"Using environment variable ${{{var_name}}} = '{env_value}'")
+            return env_value
+
+        return None
 
     def substitute(self, data: Any) -> Any:
         """Substitute variables in any data structure.
@@ -50,6 +81,7 @@ class VariableSubstitutionEngine:
         """Substitute variables in a string.
 
         Supports both ${var} and ${var|default} patterns.
+        Checks explicit variables first, then environment variables.
 
         Args:
             text: String with variable placeholders
@@ -74,8 +106,9 @@ class VariableSubstitutionEngine:
                 # Remove quotes from default value if present
                 default_value = self._unquote_value(default_value)
 
-                if var_name in self.variables:
-                    value = self.variables[var_name]
+                # Check explicit variables first, then environment variables
+                value = self._get_variable_value(var_name)
+                if value is not None:
                     logger.debug(f"Using variable ${{{var_name}}} = '{value}'")
                     return self._format_value_for_context(value, text)
                 else:
@@ -86,13 +119,13 @@ class VariableSubstitutionEngine:
             else:
                 # Simple variable reference: ${var}
                 var_name = var_expr.strip()
-                if var_name in self.variables:
-                    value = self.variables[var_name]
+                value = self._get_variable_value(var_name)
+                if value is not None:
                     logger.debug(f"Using variable ${{{var_name}}} = '{value}'")
                     return self._format_value_for_context(value, text)
                 else:
                     logger.warning(
-                        f"Variable '{var_name}' not found and no default provided"
+                        f"Variable '{var_name}' not found in variables or environment and no default provided"
                     )
                     # In condition contexts, treat missing variables as None
                     if self._is_condition_context(text):
@@ -193,6 +226,8 @@ class VariableSubstitutionEngine:
     ) -> List[str]:
         """Validate that all required variables are available.
 
+        Checks both explicit variables and environment variables.
+
         Args:
             text: Text to check for variable references
             required_vars: Optional list of required variable names
@@ -214,13 +249,17 @@ class VariableSubstitutionEngine:
             else:
                 var_name = var_expr.strip()
 
-            if var_name not in self.variables:
+            # Check if variable is available (explicit or environment)
+            if self._get_variable_value(var_name) is None:
                 missing_vars.append(var_name)
 
         # Also check explicitly required variables
         if required_vars:
             for var_name in required_vars:
-                if var_name not in self.variables and var_name not in missing_vars:
+                if (
+                    self._get_variable_value(var_name) is None
+                    and var_name not in missing_vars
+                ):
                     missing_vars.append(var_name)
 
         return list(set(missing_vars))  # Remove duplicates

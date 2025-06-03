@@ -217,31 +217,40 @@ def _compile_pipeline_to_plan(
             all_variables.update(variables)
             logger.debug(f"Added CLI variables for compilation: {variables}")
 
-        # Apply variable substitution if we have any variables
-        if all_variables:
-            from sqlflow.core.variable_substitution import VariableSubstitutionEngine
+        # Apply variable substitution - the engine will automatically check environment variables
+        from sqlflow.core.variable_substitution import VariableSubstitutionEngine
 
-            engine = VariableSubstitutionEngine(all_variables)
-            pipeline_text = engine.substitute(pipeline_text)
+        engine = VariableSubstitutionEngine(all_variables)
+        pipeline_text = engine.substitute(pipeline_text)
 
-            logger.debug("Applied variable substitution before compilation")
+        logger.debug("Applied variable substitution before compilation")
 
-            # Log any missing variables (those without defaults)
-            missing_vars = engine.validate_required_variables(pipeline_text)
-            if missing_vars:
-                logger.warning(
-                    f"Missing variables during compilation: {', '.join(missing_vars)}"
-                )
+        # Log any missing variables (those without defaults)
+        missing_vars = engine.validate_required_variables(pipeline_text)
+        if missing_vars:
+            logger.warning(
+                f"Missing variables during compilation: {', '.join(missing_vars)}"
+            )
 
         # Parse the pipeline (now with variables substituted)
         parser = Parser()
         pipeline = parser.parse(pipeline_text)
 
+        # Include environment variables for planner validation
+        # Environment variables should have the lowest priority
+        planner_variables = dict(os.environ)
+
+        # Add profile variables (higher priority than environment)
+        if profile_variables:
+            planner_variables.update(profile_variables)
+
+        # Add CLI variables (highest priority)
+        if variables:
+            planner_variables.update(variables)
+
         # Create a plan with planner
         planner = Planner()
-        operations = planner.create_plan(
-            pipeline, variables=variables, profile_variables=profile_variables
-        )
+        operations = planner.create_plan(pipeline, variables=planner_variables)
 
         # Save the plan if requested
         if save_plan:
@@ -520,6 +529,11 @@ def compile_pipeline(
     By default, validation is performed before compilation to catch errors early.
     Use --skip-validation to skip validation for CI/CD performance scenarios.
     """
+    # Load .env file from project directory early in the process
+    from sqlflow.utils.env import setup_environment
+
+    setup_environment()
+
     # Configure logging based on command-specific flags
     configure_logging(verbose=verbose, quiet=quiet)
 
@@ -1198,13 +1212,21 @@ def _get_execution_operations(
             parser = Parser()
             pipeline = parser.parse(pipeline_text)
 
+            # Include environment variables for planner validation
+            # Environment variables should have the lowest priority
+            planner_variables = dict(os.environ)
+
+            # Add profile variables (higher priority than environment)
+            if profile_variables:
+                planner_variables.update(profile_variables)
+
+            # Add CLI variables (highest priority)
+            if variables:
+                planner_variables.update(variables)
+
             # Create execution plan with planner
             planner = Planner()
-
-            # Pass variables to the planner (though they're already substituted)
-            operations = planner.create_plan(
-                pipeline, variables=variables, profile_variables=profile_variables
-            )
+            operations = planner.create_plan(pipeline, variables=planner_variables)
 
             return operations
         except Exception as e:
@@ -1559,6 +1581,11 @@ def run_pipeline(
 
     Validation is always performed before execution to catch errors early.
     """
+    # Load .env file from project directory early in the process
+    from sqlflow.utils.env import setup_environment
+
+    setup_environment()
+
     # Configure logging based on command-specific flags
     configure_logging(verbose=verbose, quiet=quiet)
 
