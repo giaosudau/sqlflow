@@ -21,6 +21,7 @@ jobs:
     outputs:
       run-integration: ${{ steps.check-trigger.outputs.run-integration }}
       run-performance: ${{ steps.check-trigger.outputs.run-performance }}
+      pr-sha: ${{ steps.get-pr-info.outputs.pr-sha }}
     steps:
       - name: Add initial reaction
         uses: actions/github-script@v7
@@ -34,6 +35,24 @@ jobs:
               comment_id,
               content: 'eyes'
             });
+
+      - name: Get PR information
+        id: get-pr-info
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            
+            // Get PR information
+            const pr = await github.rest.pulls.get({
+              owner,
+              repo,
+              pull_number: issue_number
+            });
+            
+            console.log(`PR head SHA: ${pr.data.head.sha}`);
+            core.setOutput('pr-sha', pr.data.head.sha);
 
       - name: Check comment triggers
         id: check-trigger
@@ -93,13 +112,13 @@ jobs:
     if: needs.process-comment.outputs.run-integration == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ needs.process-comment.outputs.pr-sha }}
 
       - name: Set up Python 3.10
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.10'
           cache: 'pip'
@@ -162,13 +181,13 @@ jobs:
     if: needs.process-comment.outputs.run-performance == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ needs.process-comment.outputs.pr-sha }}
 
       - name: Set up Python 3.10
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.10'
           cache: 'pip'
