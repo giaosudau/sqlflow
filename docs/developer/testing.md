@@ -278,3 +278,41 @@ Solutions:
 1. Always use `finally` blocks to ensure cleanup happens
 2. Close connections before attempting to delete files
 3. Add retry logic for file operations that might fail due to locks 
+
+## Integration Testing with External Services
+
+For comprehensive guidance on integration testing with external services (PostgreSQL, MinIO, Redis), see:
+
+**[Integration Testing with External Services](testing/integration_testing_with_external_services.md)**
+
+This guide covers:
+- Setting up external service tests with Docker
+- Using the root-level integration test runner (`./run_integration_tests.sh`)
+- Writing resilience tests with real services
+- Best practices for service availability checking
+- Troubleshooting common issues
+- CI integration patterns
+
+### Quick Start for External Service Tests
+
+```bash
+# Run all external service tests
+./run_integration_tests.sh
+
+# Run specific connector tests
+./run_integration_tests.sh -k postgres
+
+# Quick smoke tests only
+./run_integration_tests.sh --quick
+```
+
+### Test Categories
+
+SQLFlow uses different types of integration tests:
+
+| Type | Description | Example |
+|------|-------------|---------|
+| **Local Integration** | Tests without external dependencies | CSV file processing |
+| **External Service** | Tests with real services | PostgreSQL connector with real DB |
+| **Mock Integration** | Tests with mocked services | API connector with mock server |
+| **End-to-end** | Complete pipeline tests | Full analytics workflow 

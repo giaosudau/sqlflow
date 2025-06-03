@@ -50,8 +50,7 @@ dependencies = [
 [project.optional-dependencies]
 # Database connectors - PostgreSQL
 postgres = [
-    "psycopg2-binary>=2.9.0; platform_machine != 'aarch64'",
-    "psycopg2>=2.9.0; platform_machine == 'aarch64'",
+    "psycopg2-binary>=2.9.0",
 ]
 
 # AWS cloud dependencies
@@ -68,14 +67,7 @@ gcp = [
     "google-cloud-storage>=2.0.0",
 ]
 
-# Testing dependencies
-test = [
-    "pytest>=7.0.0",
-    "pytest-cov>=4.1.0",
-    "mock>=5.0.0",
-]
-
-# Development dependencies (code quality, formatting, etc.)
+# Development dependencies (code quality, formatting, testing, etc.)
 dev = [
     "black>=23.0.0",
     "ruff>=0.1.0",
@@ -85,6 +77,10 @@ dev = [
     "flake8>=6.0.0",
     "autoflake>=2.0.0",
     "coverage>=7.0.0",
+    "pytest>=7.0.0",
+    "pytest-cov>=4.1.0",
+    "mock>=5.0.0",
+    "sqlflow-core[aws,gcp,postgres]",
 ]
 
 # Documentation
@@ -101,7 +97,7 @@ cloud = [
 
 # Complete set - everything for development and CI
 all = [
-    "sqlflow-core[postgres,cloud,test,dev,docs]",
+    "sqlflow-core[postgres,cloud,dev,docs]",
 ]
 
 [project.urls]
@@ -150,9 +146,15 @@ disallow_untyped_defs = true
 disallow_incomplete_defs = true
 
 [tool.pytest.ini_options]
-addopts = "-ra -q"
+minversion = "6.0"
+addopts = "-ra -q --strict-markers"
 testpaths = [
     "tests",
+]
+markers = [
+    "external_services: marks tests as requiring external services (deselect with '-k \"not external_services\"')",
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
 ]
 
 [tool.coverage.run]

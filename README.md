@@ -375,6 +375,52 @@ A: Yes. All tables are persisted to disk, making debugging and data examination 
 **Q: Can I use SQLFlow in CI/CD?**  
 A: Absolutely. SQLFlow is a CLI tool designed for automation. Use `sqlflow pipeline validate` and `sqlflow pipeline run` in your CI/CD scripts for automated testing and deployment.
 
+## Testing
+
+SQLFlow uses a comprehensive testing strategy with both unit and integration tests.
+
+### Quick Testing Commands
+
+```bash
+# Run all unit tests
+pytest tests/unit/ -v
+
+# Run local integration tests (no external services)
+pytest tests/integration/ -k "not external_services" -v
+
+# Run external service integration tests (requires Docker)
+./run_integration_tests.sh
+
+# Run tests with coverage
+./run_integration_tests.sh --coverage
+```
+
+### Integration Testing with External Services
+
+SQLFlow provides a comprehensive integration test runner for tests that require external services:
+
+```bash
+# Start services, run all external tests, and cleanup
+./run_integration_tests.sh
+
+# Run specific tests
+./run_integration_tests.sh -k postgres -v
+
+# Quick smoke tests
+./run_integration_tests.sh --quick
+
+# Keep services running for debugging
+./run_integration_tests.sh --keep-services
+```
+
+The integration test runner:
+- Automatically manages Docker services (PostgreSQL, MinIO, Redis)
+- Reuses shared CI utilities to follow DRY principles
+- Provides comprehensive options for filtering and debugging
+- Works consistently across local development and CI environments
+
+For detailed testing guidelines, see [Testing Documentation](docs/developer/testing.md).
+
 ---
 
 <div align="center">

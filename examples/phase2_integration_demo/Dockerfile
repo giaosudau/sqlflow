@@ -47,7 +47,10 @@ RUN mkdir -p /app/pipelines /app/data /app/profiles /app/output /app/target /app
 
 # Copy demo configuration and scripts (from the demo subdirectory)
 COPY examples/phase2_integration_demo/pipelines /app/pipelines/
-COPY examples/phase2_integration_demo/data /app/data/
+# Copy data directory only if it exists (data is typically created dynamically by scripts)
+RUN if [ -d "/sqlflow_source/examples/phase2_integration_demo/data" ]; then \
+      cp -r /sqlflow_source/examples/phase2_integration_demo/data/* /app/data/ 2>/dev/null || true; \
+    fi
 COPY examples/phase2_integration_demo/profiles /app/profiles/
 COPY examples/phase2_integration_demo/scripts /app/scripts/
 

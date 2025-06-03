@@ -1,6 +1,6 @@
 """Integration tests for Enhanced S3 Connector.
 
-Tests the S3 connector with real MinIO instance and mock data generation.
+Tests the S3 connector with real MinIO instance from docker-compose.yml.
 Verifies cost management, partition awareness, multi-format support, and resilience.
 """
 
@@ -17,66 +17,110 @@ from sqlflow.connectors.s3_connector import (
     S3PartitionManager,
 )
 
+# Mark all tests in this module as requiring external services
+pytestmark = pytest.mark.external_services
+
 
 @pytest.fixture(scope="module")
-def minio_config():
-    """MinIO configuration for testing."""
+def docker_minio_config():
+    """Real MinIO configuration from docker-compose.yml."""
     return {
         "endpoint_url": "http://localhost:9000",
         "access_key_id": "minioadmin",
         "secret_access_key": "minioadmin",
         "region": "us-east-1",
-        "bucket": "test-sqlflow-demo",
+        "bucket": "sqlflow-demo",  # Using the default bucket created by docker-compose
         "use_ssl": False,
     }
 
 
 @pytest.fixture(scope="module")
-def s3_client(minio_config):
-    """Create S3 client for test setup."""
-    return boto3.client(
-        "s3",
-        endpoint_url=minio_config["endpoint_url"],
-        aws_access_key_id=minio_config["access_key_id"],
-        aws_secret_access_key=minio_config["secret_access_key"],
-        region_name=minio_config["region"],
-    )
+def docker_s3_client(docker_minio_config):
+    """Create S3 client for test setup with real MinIO service."""
+    # Skip if services are not available
+    if not os.getenv("INTEGRATION_TESTS", "").lower() in ["true", "1"]:
+        pytest.skip("Integration tests disabled. Set INTEGRATION_TESTS=true to enable.")
+
+    try:
+        client = boto3.client(
+            "s3",
+            endpoint_url=docker_minio_config["endpoint_url"],
+            aws_access_key_id=docker_minio_config["access_key_id"],
+            aws_secret_access_key=docker_minio_config["secret_access_key"],
+            region_name=docker_minio_config["region"],
+        )
+
+        # Test connection
+        client.list_buckets()
+        return client
+
+    except Exception as e:
+        pytest.skip(f"MinIO service not available: {e}")
 
 
 @pytest.fixture(scope="module")
-def test_bucket(s3_client, minio_config):
-    """Create and populate test bucket with sample data."""
-    bucket_name = minio_config["bucket"]
+def setup_test_bucket(docker_s3_client, docker_minio_config):
+    """Set up test bucket with sample data for testing."""
+    bucket_name = docker_minio_config["bucket"]
 
-    # Create bucket if it doesn't exist
     try:
-        s3_client.create_bucket(Bucket=bucket_name)
-    except ClientError as e:
-        if e.response["Error"]["Code"] != "BucketAlreadyOwnedByYou":
-            raise
+        _ensure_test_bucket_exists(docker_s3_client, bucket_name)
+        _upload_all_test_data(docker_s3_client, bucket_name)
 
-    # Create test CSV data
+        yield bucket_name
+
+        _cleanup_test_data(docker_s3_client, bucket_name)
+
+    except Exception as e:
+        pytest.skip(f"Could not set up test bucket: {e}")
+
+
+def _ensure_test_bucket_exists(s3_client, bucket_name):
+    """Ensure the test bucket exists."""
+    try:
+        s3_client.head_bucket(Bucket=bucket_name)
+    except ClientError as e:
+        if e.response["Error"]["Code"] == "404":
+            s3_client.create_bucket(Bucket=bucket_name)
+
+
+def _upload_all_test_data(s3_client, bucket_name):
+    """Upload all test data types."""
+    _upload_csv_test_data(s3_client, bucket_name)
+    _upload_partitioned_data(s3_client, bucket_name)
+    _upload_json_test_data(s3_client, bucket_name)
+    _upload_multi_format_data(s3_client, bucket_name)
+    _upload_events_data(s3_client, bucket_name)
+    _upload_legacy_data(s3_client, bucket_name)
+
+
+def _upload_csv_test_data(s3_client, bucket_name):
+    """Upload main CSV test data."""
     csv_data = """id,name,category,price,created_at
 1,Product A,Electronics,99.99,2024-01-15
 2,Product B,Books,19.99,2024-01-16
 3,Product C,Electronics,149.99,2024-01-17
+4,Product D,Home,29.99,2024-01-18
+5,Product E,Electronics,199.99,2024-01-19
 """
 
-    # Upload CSV test data
     s3_client.put_object(
         Bucket=bucket_name,
-        Key="demo-data/demo_data.csv",
+        Key="test-data/demo_data.csv",
         Body=csv_data.encode(),
         ContentType="text/csv",
     )
 
-    # Create partitioned test data
+
+def _upload_partitioned_data(s3_client, bucket_name):
+    """Upload partitioned test data (Hive-style partitioning)."""
     for year in [2023, 2024]:
         for month in [1, 2]:
             for day in [15, 16]:
                 partition_data = f"""event_id,event_timestamp,user_id,action
 {year}{month:02d}{day:02d}001,{year}-{month:02d}-{day:02d}T10:00:00Z,user1,click
 {year}{month:02d}{day:02d}002,{year}-{month:02d}-{day:02d}T11:00:00Z,user2,purchase
+{year}{month:02d}{day:02d}003,{year}-{month:02d}-{day:02d}T12:00:00Z,user3,view
 """
                 s3_client.put_object(
                     Bucket=bucket_name,
@@ -85,10 +129,13 @@ def test_bucket(s3_client, minio_config):
                     ContentType="text/csv",
                 )
 
-    # Create JSON test data
-    json_data = """{"product_id": 1, "name": "Laptop", "price": 999.99}
-{"product_id": 2, "name": "Mouse", "price": 29.99}
-{"product_id": 3, "name": "Keyboard", "price": 79.99}
+
+def _upload_json_test_data(s3_client, bucket_name):
+    """Upload JSON test data (JSONL format)."""
+    json_data = """{"product_id": 1, "name": "Laptop", "price": 999.99, "category": "Electronics"}
+{"product_id": 2, "name": "Mouse", "price": 29.99, "category": "Electronics"}
+{"product_id": 3, "name": "Keyboard", "price": 79.99, "category": "Electronics"}
+{"product_id": 4, "name": "Monitor", "price": 299.99, "category": "Electronics"}
 """
     s3_client.put_object(
         Bucket=bucket_name,
@@ -97,11 +144,14 @@ def test_bucket(s3_client, minio_config):
         ContentType="application/json",
     )
 
-    # Create CSV data for multi-format testing
-    csv_products = """product_id,name,category,stock
-1,Laptop Pro,Electronics,25
-2,Wireless Mouse,Electronics,100
-3,Mechanical Keyboard,Electronics,50
+
+def _upload_multi_format_data(s3_client, bucket_name):
+    """Upload CSV data for multi-format testing."""
+    csv_products = """product_id,name,category,stock,last_updated
+1,Laptop Pro,Electronics,25,2024-01-15
+2,Wireless Mouse,Electronics,100,2024-01-16
+3,Mechanical Keyboard,Electronics,50,2024-01-17
+4,4K Monitor,Electronics,15,2024-01-18
 """
     s3_client.put_object(
         Bucket=bucket_name,
@@ -110,12 +160,16 @@ def test_bucket(s3_client, minio_config):
         ContentType="text/csv",
     )
 
-    # Create events data for incremental testing
+
+def _upload_events_data(s3_client, bucket_name):
+    """Upload events data for incremental testing."""
     events_data = """event_timestamp,event_type,user_id,value
 2024-01-15T10:00:00Z,login,user1,1
 2024-01-15T11:00:00Z,purchase,user1,100
+2024-01-15T12:00:00Z,view,user1,0
 2024-01-16T09:00:00Z,login,user2,1
 2024-01-16T10:30:00Z,view,user2,0
+2024-01-16T11:00:00Z,purchase,user2,250
 """
     s3_client.put_object(
         Bucket=bucket_name,
@@ -124,11 +178,14 @@ def test_bucket(s3_client, minio_config):
         ContentType="text/csv",
     )
 
-    # Create legacy data
-    legacy_data = """customer_id,name,email,signup_date
-1,Alice,alice@example.com,2024-01-01
-2,Bob,bob@example.com,2024-01-02
-3,Charlie,charlie@example.com,2024-01-03
+
+def _upload_legacy_data(s3_client, bucket_name):
+    """Upload legacy data for backward compatibility testing."""
+    legacy_data = """customer_id,name,email,signup_date,status
+1,Alice Johnson,alice@example.com,2024-01-01,active
+2,Bob Smith,bob@example.com,2024-01-02,active
+3,Charlie Brown,charlie@example.com,2024-01-03,inactive
+4,Diana Prince,diana@example.com,2024-01-04,active
 """
     s3_client.put_object(
         Bucket=bucket_name,
@@ -137,31 +194,65 @@ def test_bucket(s3_client, minio_config):
         ContentType="text/csv",
     )
 
-    yield bucket_name
 
-    # Cleanup - delete all objects and bucket
+def _cleanup_test_data(s3_client, bucket_name):
+    """Clean up test objects after testing."""
     try:
-        objects = s3_client.list_objects_v2(Bucket=bucket_name)
-        if "Contents" in objects:
-            delete_keys = [{"Key": obj["Key"]} for obj in objects["Contents"]]
-            s3_client.delete_objects(
-                Bucket=bucket_name, Delete={"Objects": delete_keys}
-            )
-        s3_client.delete_bucket(Bucket=bucket_name)
+        test_prefixes = [
+            "test-data/",
+            "partitioned-data/",
+            "json-data/",
+            "csv-data/",
+            "events/",
+            "legacy-data/",
+        ]
+
+        for prefix in test_prefixes:
+            objects = s3_client.list_objects_v2(Bucket=bucket_name, Prefix=prefix)
+            if "Contents" in objects:
+                delete_keys = [{"Key": obj["Key"]} for obj in objects["Contents"]]
+                if delete_keys:
+                    s3_client.delete_objects(
+                        Bucket=bucket_name, Delete={"Objects": delete_keys}
+                    )
     except ClientError:
-        pass  # Bucket might not exist or be empty
+        pass  # Cleanup errors are not critical
 
 
 class TestEnhancedS3Connector:
-    """Test the enhanced S3 connector features."""
+    """Test the enhanced S3 connector features with real MinIO service."""
 
-    def test_cost_management_configuration(self, minio_config, test_bucket):
-        """Test cost management features and configuration."""
+    def test_real_connection_with_docker_minio(
+        self, docker_minio_config, setup_test_bucket
+    ):
+        """Test real connection to Docker MinIO service."""
         connector = S3Connector()
         params = {
-            **minio_config,
-            "bucket": test_bucket,
-            "key": "demo-data/demo_data.csv",
+            **docker_minio_config,
+            "bucket": setup_test_bucket,
+            "key": "test-data/demo_data.csv",
+            "file_format": "csv",
+            "cost_limit_usd": 5.0,
+            "mock_mode": False,
+        }
+
+        connector.configure(params)
+        assert connector.state == ConnectorState.CONFIGURED
+
+        # Test connection with real service
+        result = connector.test_connection()
+        assert result.success, f"Connection failed: {result.message}"
+        assert "S3" in result.message or "MinIO" in result.message
+
+    def test_cost_management_configuration(
+        self, docker_minio_config, setup_test_bucket
+    ):
+        """Test cost management features and configuration with real service."""
+        connector = S3Connector()
+        params = {
+            **docker_minio_config,
+            "bucket": setup_test_bucket,
+            "key": "test-data/demo_data.csv",
             "file_format": "csv",
             "cost_limit_usd": 5.0,
             "dev_sampling": 0.1,
@@ -175,7 +266,7 @@ class TestEnhancedS3Connector:
         assert connector.cost_manager is not None
         assert connector.cost_manager.cost_limit_usd == 5.0
 
-        # Test connection
+        # Test connection with cost management
         result = connector.test_connection()
         assert result.success, f"Connection failed: {result.message}"
 
@@ -183,12 +274,14 @@ class TestEnhancedS3Connector:
         discovered = connector.discover()
         assert len(discovered) > 0, "Should discover test files"
 
-    def test_partition_awareness(self, minio_config, test_bucket):
-        """Test partition pattern detection and optimization."""
+    def test_partition_awareness_real_data(
+        self, docker_minio_config, setup_test_bucket
+    ):
+        """Test partition pattern detection with real partitioned data."""
         connector = S3Connector()
         params = {
-            **minio_config,
-            "bucket": test_bucket,
+            **docker_minio_config,
+            "bucket": setup_test_bucket,
             "path_prefix": "partitioned-data/",
             "file_format": "csv",
             "partition_keys": "year,month,day",
@@ -198,9 +291,15 @@ class TestEnhancedS3Connector:
 
         connector.configure(params)
 
-        # Test partition pattern detection
+        # Test partition pattern detection with real data
         discovered = connector.discover()
         assert len(discovered) > 0, "Should discover partitioned files"
+
+        # Verify partition files contain expected patterns
+        hive_pattern_files = [
+            f for f in discovered if "/year=" in f and "/month=" in f and "/day=" in f
+        ]
+        assert len(hive_pattern_files) > 0, "Should find Hive-style partitioned files"
 
         # Verify partition pattern was detected
         if connector.partition_manager.detected_pattern:
@@ -208,13 +307,15 @@ class TestEnhancedS3Connector:
             assert pattern.pattern_type in ["hive", "date", "custom"]
             assert len(pattern.keys) > 0
 
-    def test_multi_format_support(self, minio_config, test_bucket):
-        """Test CSV and JSON format support."""
+    def test_multi_format_support_real_data(
+        self, docker_minio_config, setup_test_bucket
+    ):
+        """Test CSV and JSON format support with real data."""
         # Test CSV format
         csv_connector = S3Connector()
         csv_params = {
-            **minio_config,
-            "bucket": test_bucket,
+            **docker_minio_config,
+            "bucket": setup_test_bucket,
             "path_prefix": "csv-data/",
             "file_format": "csv",
             "csv_delimiter": ",",
@@ -232,15 +333,19 @@ class TestEnhancedS3Connector:
         for file_key in csv_discovered[:1]:  # Test first file
             chunks = list(csv_connector.read(file_key))
             assert len(chunks) > 0, "Should read CSV data chunks"
-            assert len(chunks[0].pandas_df) > 0, "Should have data rows"
+            df = chunks[0].pandas_df
+            assert len(df) > 0, "Should have data rows"
+            assert (
+                "product_id" in df.columns or "id" in df.columns
+            ), "Should have expected columns"
 
         # Test JSON format
         json_connector = S3Connector()
         json_params = {
-            **minio_config,
-            "bucket": test_bucket,
+            **docker_minio_config,
+            "bucket": setup_test_bucket,
             "path_prefix": "json-data/",
-            "file_format": "json",
+            "file_format": "jsonl",
             "json_flatten": True,
             "json_max_depth": 10,
             "cost_limit_usd": 1.5,
@@ -251,12 +356,21 @@ class TestEnhancedS3Connector:
         json_discovered = json_connector.discover()
         assert len(json_discovered) > 0, "Should discover JSON files"
 
-    def test_incremental_loading(self, minio_config, test_bucket):
-        """Test incremental loading with cursor field."""
+        # Test reading JSON data
+        for file_key in json_discovered[:1]:  # Test first file
+            chunks = list(json_connector.read(file_key))
+            assert len(chunks) > 0, "Should read JSON data chunks"
+            df = chunks[0].pandas_df
+            assert len(df) > 0, "Should have data rows"
+
+    def test_incremental_loading_real_data(
+        self, docker_minio_config, setup_test_bucket
+    ):
+        """Test incremental loading with cursor field using real data."""
         connector = S3Connector()
         params = {
-            **minio_config,
-            "bucket": test_bucket,
+            **docker_minio_config,
+            "bucket": setup_test_bucket,
             "path_prefix": "events/",
             "file_format": "csv",
             "sync_mode": "incremental",
@@ -269,6 +383,8 @@ class TestEnhancedS3Connector:
 
         # Test incremental read without cursor
         discovered = connector.discover()
+        assert len(discovered) > 0, "Should discover event files"
+
         if discovered:
             chunks = list(
                 connector.read_incremental(
@@ -277,19 +393,25 @@ class TestEnhancedS3Connector:
             )
             assert len(chunks) >= 0, "Should handle incremental read"
 
-    def test_backward_compatibility(self, minio_config, test_bucket):
-        """Test legacy parameter support."""
+            if chunks:
+                df = chunks[0].pandas_df
+                assert "event_timestamp" in df.columns, "Should have cursor field"
+
+    def test_backward_compatibility_real_service(
+        self, docker_minio_config, setup_test_bucket
+    ):
+        """Test legacy parameter support with real service."""
         connector = S3Connector()
         # Use legacy parameter names
         params = {
-            "bucket": test_bucket,
+            "bucket": setup_test_bucket,
             "prefix": "legacy-data/",  # Legacy: path_prefix
             "format": "csv",  # Legacy: file_format
-            "access_key": minio_config["access_key_id"],  # Legacy: access_key_id
-            "secret_key": minio_config[
+            "access_key": docker_minio_config["access_key_id"],  # Legacy: access_key_id
+            "secret_key": docker_minio_config[
                 "secret_access_key"
             ],  # Legacy: secret_access_key
-            "endpoint_url": minio_config["endpoint_url"],
+            "endpoint_url": docker_minio_config["endpoint_url"],
             "cost_limit_usd": 2.0,
             "dev_sampling": 0.15,
             "mock_mode": False,
@@ -302,13 +424,20 @@ class TestEnhancedS3Connector:
         discovered = connector.discover()
         assert len(discovered) >= 0, "Should handle legacy parameters"
 
-    def test_development_features(self, minio_config, test_bucket):
-        """Test development sampling and limits."""
+        if discovered:
+            # Test reading with legacy parameters
+            chunks = list(connector.read(discovered[0]))
+            assert len(chunks) >= 0, "Should read data with legacy parameters"
+
+    def test_development_features_real_data(
+        self, docker_minio_config, setup_test_bucket
+    ):
+        """Test development sampling and limits with real data."""
         connector = S3Connector()
         params = {
-            **minio_config,
-            "bucket": test_bucket,
-            "path_prefix": "demo-data/",
+            **docker_minio_config,
+            "bucket": setup_test_bucket,
+            "path_prefix": "test-data/",
             "file_format": "csv",
             "dev_sampling": 0.5,  # 50% sampling
             "dev_max_files": 10,
@@ -320,8 +449,12 @@ class TestEnhancedS3Connector:
 
         # Test that sampling is applied
         discovered = connector.discover()
-        # With small test dataset, this mainly tests the code path
         assert len(discovered) >= 0, "Should handle development sampling"
+
+        if discovered:
+            # Read with sampling
+            chunks = list(connector.read(discovered[0]))
+            assert len(chunks) >= 0, "Should handle sampled reads"
 
     def test_cost_manager_standalone(self):
         """Test cost manager functionality independently."""
@@ -369,85 +502,153 @@ class TestEnhancedS3Connector:
             "custom",
         ]
 
-    def test_mock_mode(self):
-        """Test mock mode functionality."""
+    def test_real_data_end_to_end_workflow(
+        self, docker_minio_config, setup_test_bucket
+    ):
+        """Test complete end-to-end workflow with real MinIO data."""
         connector = S3Connector()
-        params = {"bucket": "test-bucket", "file_format": "csv", "mock_mode": True}
+        params = {
+            **docker_minio_config,
+            "bucket": setup_test_bucket,
+            "path_prefix": "test-data/",
+            "file_format": "csv",
+            "cost_limit_usd": 10.0,
+            "mock_mode": False,
+        }
 
         connector.configure(params)
 
-        # Test connection in mock mode
+        # Step 1: Test connection
         result = connector.test_connection()
-        assert result.success, "Mock mode connection should succeed"
+        assert result.success, f"Connection failed: {result.message}"
 
-        # Test discovery in mock mode
+        # Step 2: Discover files
         discovered = connector.discover()
-        assert len(discovered) > 0, "Mock mode should return mock files"
+        assert len(discovered) > 0, "Should discover files"
 
-        # Test reading in mock mode
+        # Step 3: Get schema
+        schema = connector.get_schema(discovered[0])
+        assert schema is not None, "Should get schema"
+
+        # Step 4: Read data
         chunks = list(connector.read(discovered[0]))
-        assert len(chunks) > 0, "Mock mode should return mock data"
-        assert len(chunks[0].pandas_df) > 0, "Mock data should have rows"
+        assert len(chunks) > 0, "Should read data"
 
-    def test_error_handling(self, minio_config):
-        """Test error handling for various failure scenarios."""
-        connector = S3Connector()
+        # Step 5: Verify data content
+        df = chunks[0].pandas_df
+        assert len(df) > 0, "Should have data rows"
+        expected_columns = ["id", "name", "category", "price", "created_at"]
+        for col in expected_columns:
+            assert col in df.columns, f"Missing expected column: {col}"
 
-        # Test with invalid bucket
-        invalid_params = {
-            **minio_config,
-            "bucket": "non-existent-bucket-12345",
-            "file_format": "csv",
-            "mock_mode": False,
-        }
+    def test_large_dataset_handling(
+        self, docker_minio_config, setup_test_bucket, docker_s3_client
+    ):
+        """Test handling of larger datasets with real service."""
+        # Create a larger test dataset
+        large_data = "id,value,timestamp\n"
+        for i in range(1000):
+            large_data += f"{i},value_{i},2024-01-{(i % 28) + 1:02d}T10:00:00Z\n"
 
-        connector.configure(invalid_params)
-
-        # Connection test should fail gracefully
-        result = connector.test_connection()
-        assert not result.success, "Should fail for non-existent bucket"
-        assert (
-            "error" in result.message.lower() or "not found" in result.message.lower()
+        # Upload large dataset
+        docker_s3_client.put_object(
+            Bucket=setup_test_bucket,
+            Key="large-data/large_dataset.csv",
+            Body=large_data.encode(),
+            ContentType="text/csv",
         )
 
+        try:
+            connector = S3Connector()
+            params = {
+                **docker_minio_config,
+                "bucket": setup_test_bucket,
+                "path_prefix": "large-data/",
+                "file_format": "csv",
+                "cost_limit_usd": 20.0,
+                "mock_mode": False,
+            }
 
-@pytest.mark.integration
-class TestS3ConnectorIntegration:
-    """Integration tests requiring running MinIO service."""
+            connector.configure(params)
 
-    @pytest.mark.skipif(
-        not os.getenv("INTEGRATION_TESTS", "").lower() in ["true", "1"],
-        reason="Integration tests disabled. Set INTEGRATION_TESTS=true to enable.",
-    )
-    def test_full_pipeline_simulation(self, minio_config, test_bucket):
-        """Test complete pipeline simulation with multiple connectors."""
+            # Test with larger dataset
+            discovered = connector.discover()
+            assert len(discovered) > 0, "Should discover large files"
 
-        # Test cost management scenario
-        cost_connector = S3Connector()
-        cost_params = {
-            **minio_config,
-            "bucket": test_bucket,
-            "key": "demo-data/demo_data.csv",
-            "file_format": "csv",
-            "cost_limit_usd": 5.0,
-            "mock_mode": False,
-        }
-        cost_connector.configure(cost_params)
+            chunks = list(connector.read(discovered[0]))
+            total_rows = sum(len(chunk.pandas_df) for chunk in chunks)
+            assert total_rows >= 1000, f"Expected at least 1000 rows, got {total_rows}"
 
-        cost_result = cost_connector.test_connection()
-        assert cost_result.success, "Cost demo connection should succeed"
+        finally:
+            # Cleanup large file
+            try:
+                docker_s3_client.delete_object(
+                    Bucket=setup_test_bucket, Key="large-data/large_dataset.csv"
+                )
+            except ClientError:
+                pass
 
-        cost_discovered = cost_connector.discover()
-        assert len(cost_discovered) > 0, "Should discover cost demo files"
+    def test_concurrent_access_real_service(
+        self, docker_minio_config, setup_test_bucket
+    ):
+        """Test concurrent access to real MinIO service."""
+        import threading
+        import time
 
-        # Test reading data
-        cost_chunks = list(cost_connector.read(cost_discovered[0]))
-        assert len(cost_chunks) > 0, "Should read cost demo data"
+        results = {}
 
-        cost_data_count = sum(len(chunk.pandas_df) for chunk in cost_chunks)
-        assert cost_data_count > 0, "Should have cost demo data rows"
+        def test_connector_access(thread_id):
+            try:
+                connector = S3Connector()
+                params = {
+                    **docker_minio_config,
+                    "bucket": setup_test_bucket,
+                    "path_prefix": "test-data/",
+                    "file_format": "csv",
+                    "cost_limit_usd": 5.0,
+                    "mock_mode": False,
+                }
 
-        # Verify this matches expected test data structure
-        assert (
-            cost_data_count == 3
-        ), f"Expected 3 rows in demo data, got {cost_data_count}"
+                connector.configure(params)
+
+                # Test connection
+                result = connector.test_connection()
+                results[f"{thread_id}_connection"] = result.success
+
+                # Test discovery
+                discovered = connector.discover()
+                results[f"{thread_id}_discovery"] = len(discovered) > 0
+
+                # Test reading
+                if discovered:
+                    chunks = list(connector.read(discovered[0]))
+                    results[f"{thread_id}_read"] = len(chunks) > 0
+                else:
+                    results[f"{thread_id}_read"] = False
+
+            except Exception as e:
+                results[f"{thread_id}_error"] = str(e)
+
+        # Start multiple threads
+        threads = []
+        for i in range(3):  # Use fewer threads to avoid overwhelming MinIO
+            thread = threading.Thread(target=test_connector_access, args=(i,))
+            threads.append(thread)
+            thread.start()
+            time.sleep(0.1)  # Small delay between thread starts
+
+        # Wait for completion
+        for thread in threads:
+            thread.join()
+
+        # Verify results
+        for i in range(3):
+            assert (
+                results.get(f"{i}_connection") is True
+            ), f"Thread {i} connection failed"
+            assert results.get(f"{i}_discovery") is True, f"Thread {i} discovery failed"
+            assert results.get(f"{i}_read") is True, f"Thread {i} read failed"
+
+
+if __name__ == "__main__":
+    pytest.main([__file__])

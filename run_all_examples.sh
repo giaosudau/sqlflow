@@ -70,6 +70,9 @@ fi
 print_success "✅ SQLFlow found at $SQLFLOW_PATH"
 echo ""
 
+# Export SQLFlow path so individual scripts can use it
+export SQLFLOW_OVERRIDE_PATH="$SQLFLOW_PATH"
+
 # Find all run.sh scripts in examples directories
 EXAMPLE_SCRIPTS=($(find examples -name "run.sh" -type f | sort))
 
@@ -100,10 +103,12 @@ for script in "${ALL_SCRIPTS[@]}"; do
     
     print_status "🏃 Running $script..."
     
-    # Change to script directory and run
+    # Change to script directory and run with environment variable
     cd "$REPO_ROOT/$script_dir"
     
-    if timeout 120 "./$script_name" > /dev/null 2>&1; then
+    # Run with timeout and capture output for debugging
+    # Note: timeout is not available on macOS by default, so we run without timeout
+    if bash -c "export SQLFLOW_OVERRIDE_PATH='$SQLFLOW_PATH'; ./$script_name" 2>&1; then
         print_success "✅ Success: $script"
         SUCCESSFUL_SCRIPTS+=("$script")
     else
