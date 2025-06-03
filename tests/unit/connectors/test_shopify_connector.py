@@ -371,6 +371,239 @@ class TestShopifyConnector:
         # Should clean up resources
         assert self.connector.shopify_client is None
 
+    def test_enhanced_data_mapping_with_fulfillments_and_refunds(self):
+        """Test enhanced data mapping with fulfillments and refunds for SME analytics."""
+        self.connector.configure(self.valid_params)
+        
+        # Mock order data with fulfillments and refunds
+        mock_order = {
+            "id": 12345,
+            "order_number": "1001",
+            "name": "#1001",
+            "email": "customer@example.com",
+            "total_price": "100.00",
+            "currency": "USD",
+            "financial_status": "paid",
+            "created_at": "2024-01-01T10:00:00Z",
+            "updated_at": "2024-01-01T10:00:00Z",
+            "customer": {
+                "id": 67890,
+                "email": "customer@example.com",
+                "first_name": "John",
+                "last_name": "Doe"
+            },
+            "billing_address": {
+                "country": "US",
+                "province": "CA",
+                "city": "San Francisco",
+                "zip": "94102"
+            },
+            "shipping_address": {
+                "country": "US",
+                "province": "CA", 
+                "city": "San Francisco",
+                "zip": "94102"
+            },
+            "fulfillments": [{
+                "id": 111,
+                "tracking_company": "UPS",
+                "tracking_number": "1Z999AA1234567890",
+                "tracking_url": "https://ups.com/track/1Z999AA1234567890",
+                "created_at": "2024-01-02T10:00:00Z",
+                "updated_at": "2024-01-02T10:00:00Z"
+            }],
+            "refunds": [{
+                "id": 222,
+                "amount": "10.00",
+                "created_at": "2024-01-03T10:00:00Z"
+            }],
+            "line_items": [{
+                "id": 333,
+                "product_id": 444,
+                "variant_id": 555,
+                "title": "Test Product",
+                "price": "50.00",
+                "quantity": 2,
+                "sku": "TEST-SKU",
+                "grams": 500,
+                "requires_shipping": True,
+                "taxable": True,
+                "fulfillment_service": "manual"
+            }]
+        }
+        
+        # Test flattened row creation
+        flattened_row = self.connector._create_flattened_order_row(
+            mock_order, mock_order["line_items"][0]
+        )
+        
+        # Verify order data
+        assert flattened_row["order_id"] == 12345
+        assert flattened_row["customer_email"] == "customer@example.com"
+        assert flattened_row["total_refunded"] == "10.0"
+        
+        # Verify geographic data
+        assert flattened_row["billing_country"] == "US"
+        assert flattened_row["billing_city"] == "San Francisco"
+        assert flattened_row["shipping_country"] == "US"
+        assert flattened_row["shipping_city"] == "San Francisco"
+        
+        # Verify fulfillment tracking
+        assert flattened_row["tracking_company"] == "UPS"
+        assert flattened_row["tracking_number"] == "1Z999AA1234567890"
+        assert flattened_row["tracking_url"] == "https://ups.com/track/1Z999AA1234567890"
+        
+        # Verify enhanced line item data
+        assert flattened_row["line_item_grams"] == 500
+        assert flattened_row["line_item_requires_shipping"] == True
+        assert flattened_row["line_item_taxable"] == True
+        assert flattened_row["line_item_fulfillment_service"] == "manual"
+
+    def test_schema_includes_enhanced_fields(self):
+        """Test that schema includes all enhanced fields for SME analytics."""
+        self.connector.configure(self.valid_params)
+        schema = self.connector.get_schema("orders")
+        
+        field_names = [field.name for field in schema.arrow_schema]
+        
+        # Verify enhanced financial fields
+        assert "total_refunded" in field_names
+        
+        # Verify enhanced geographic fields
+        assert "billing_country" in field_names
+        assert "billing_province" in field_names
+        assert "billing_city" in field_names
+        assert "billing_zip" in field_names
+        
+        # Verify fulfillment tracking fields
+        assert "tracking_company" in field_names
+        assert "tracking_number" in field_names
+        assert "tracking_url" in field_names
+        assert "fulfillment_created_at" in field_names
+        assert "fulfillment_updated_at" in field_names
+        
+        # Verify enhanced line item fields
+        assert "line_item_grams" in field_names
+        assert "line_item_requires_shipping" in field_names
+        assert "line_item_taxable" in field_names
+        assert "line_item_fulfillment_service" in field_names
+
+    def test_data_type_conversion_with_enhanced_fields(self):
+        """Test data type conversion includes new enhanced fields."""
+        import pandas as pd
+        
+        self.connector.configure(self.valid_params)
+        
+        # Create test DataFrame with enhanced fields
+        test_data = {
+            "order_id": ["12345"],
+            "created_at": ["2024-01-01T10:00:00Z"],
+            "fulfillment_created_at": ["2024-01-02T10:00:00Z"],
+            "line_item_grams": ["500"],
+            "line_item_requires_shipping": [True],
+            "line_item_taxable": [False]
+        }
+        df = pd.DataFrame(test_data)
+        
+        # Convert data types
+        converted_df = self.connector._convert_order_data_types(df)
+        
+        # Verify timestamp conversions
+        assert pd.api.types.is_datetime64_any_dtype(converted_df["created_at"])
+        assert pd.api.types.is_datetime64_any_dtype(converted_df["fulfillment_created_at"])
+        
+        # Verify numeric conversions
+        assert pd.api.types.is_numeric_dtype(converted_df["order_id"])
+        assert pd.api.types.is_numeric_dtype(converted_df["line_item_grams"])
+        
+        # Verify boolean conversions
+        assert converted_df["line_item_requires_shipping"].dtype == bool
+        assert converted_df["line_item_taxable"].dtype == bool
+
+    def test_order_enhancement_with_fulfillments_and_refunds(self):
+        """Test order enhancement with detailed fulfillment and refund data."""
+        self.connector.configure(self.valid_params)
+        
+        mock_order = {
+            "id": 12345,
+            "total_price": "100.00"
+        }
+        
+        # Mock API responses for fulfillments and refunds
+        with patch.object(self.connector, '_fetch_order_fulfillments') as mock_fulfillments:
+            with patch.object(self.connector, '_fetch_order_refunds') as mock_refunds:
+                mock_fulfillments.return_value = [{"id": 111, "tracking_number": "ABC123"}]
+                mock_refunds.return_value = [{"id": 222, "amount": "10.00"}]
+                
+                enhanced_order = self.connector._enhance_order_with_fulfillments_and_refunds(mock_order)
+                
+                assert "fulfillments" in enhanced_order
+                assert "refunds" in enhanced_order
+                assert enhanced_order["fulfillments"][0]["tracking_number"] == "ABC123"
+                assert enhanced_order["refunds"][0]["amount"] == "10.00"
+
+    @patch("requests.get")
+    def test_fetch_order_fulfillments(self, mock_get):
+        """Test fetching detailed fulfillment data for an order."""
+        mock_response = Mock()
+        mock_response.json.return_value = {
+            "fulfillments": [
+                {
+                    "id": 111,
+                    "tracking_company": "UPS",
+                    "tracking_number": "1Z999AA1234567890",
+                    "status": "success"
+                }
+            ]
+        }
+        mock_get.return_value = mock_response
+        
+        self.connector.configure(self.valid_params)
+        fulfillments = self.connector._fetch_order_fulfillments(12345)
+        
+        assert len(fulfillments) == 1
+        assert fulfillments[0]["tracking_company"] == "UPS"
+        assert fulfillments[0]["tracking_number"] == "1Z999AA1234567890"
+
+    @patch("requests.get")
+    def test_fetch_order_refunds(self, mock_get):
+        """Test fetching detailed refund data for an order."""
+        mock_response = Mock()
+        mock_response.json.return_value = {
+            "refunds": [
+                {
+                    "id": 222,
+                    "amount": "10.00",
+                    "reason": "customer_request",
+                    "created_at": "2024-01-03T10:00:00Z"
+                }
+            ]
+        }
+        mock_get.return_value = mock_response
+        
+        self.connector.configure(self.valid_params)
+        refunds = self.connector._fetch_order_refunds(12345)
+        
+        assert len(refunds) == 1
+        assert refunds[0]["amount"] == "10.00"
+        assert refunds[0]["reason"] == "customer_request"
+
+    def test_error_handling_for_fulfillment_fetch_failure(self):
+        """Test graceful error handling when fulfillment fetching fails."""
+        self.connector.configure(self.valid_params)
+        
+        with patch.object(self.connector, '_make_shopify_api_call', side_effect=Exception("API Error")):
+            fulfillments = self.connector._fetch_order_fulfillments(12345)
+            assert fulfillments == []  # Should return empty list on error
+
+    def test_error_handling_for_refund_fetch_failure(self):
+        """Test graceful error handling when refund fetching fails."""
+        self.connector.configure(self.valid_params)
+        
+        with patch.object(self.connector, '_make_shopify_api_call', side_effect=Exception("API Error")):
+            refunds = self.connector._fetch_order_refunds(12345)
+            assert refunds == []  # Should return empty list on error
+
 
 class TestShopifyParameterValidator:
     """Test suite for Shopify parameter validation."""

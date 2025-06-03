@@ -465,13 +465,12 @@ class ShopifyConnector(Connector):
                             pa.field("customer_email", pa.string()),
                             pa.field("customer_first_name", pa.string()),
                             pa.field("customer_last_name", pa.string()),
-                            # Financial data
-                            pa.field(
-                                "total_price", pa.string()
-                            ),  # Keep as string for precision
+                            # Financial data (enhanced for SME requirements)
+                            pa.field("total_price", pa.string()),  # Keep as string for precision
                             pa.field("subtotal_price", pa.string()),
                             pa.field("total_tax", pa.string()),
                             pa.field("total_discounts", pa.string()),
+                            pa.field("total_refunded", pa.string()),  # New: refund tracking
                             pa.field("currency", pa.string()),
                             # Order status
                             pa.field("financial_status", pa.string()),
@@ -481,7 +480,22 @@ class ShopifyConnector(Connector):
                             pa.field("created_at", pa.timestamp("s")),
                             pa.field("updated_at", pa.timestamp("s")),
                             pa.field("processed_at", pa.timestamp("s")),
-                            # Line item details (flattened)
+                            # Geographic data (enhanced for SME regional analysis)
+                            pa.field("billing_country", pa.string()),
+                            pa.field("billing_province", pa.string()),
+                            pa.field("billing_city", pa.string()),
+                            pa.field("billing_zip", pa.string()),
+                            pa.field("shipping_country", pa.string()),
+                            pa.field("shipping_province", pa.string()),
+                            pa.field("shipping_city", pa.string()),
+                            pa.field("shipping_zip", pa.string()),
+                            # Fulfillment tracking (SME operational metrics)
+                            pa.field("tracking_company", pa.string()),
+                            pa.field("tracking_number", pa.string()),
+                            pa.field("tracking_url", pa.string()),
+                            pa.field("fulfillment_created_at", pa.timestamp("s")),
+                            pa.field("fulfillment_updated_at", pa.timestamp("s")),
+                            # Line item details (flattened for SME analytics)
                             pa.field("line_item_id", pa.int64()),
                             pa.field("product_id", pa.int64()),
                             pa.field("variant_id", pa.int64()),
@@ -489,14 +503,14 @@ class ShopifyConnector(Connector):
                             pa.field("product_title", pa.string()),
                             pa.field("variant_title", pa.string()),
                             pa.field("vendor", pa.string()),
-                            pa.field("quantity", pa.int32()),
+                            pa.field("quantity", pa.int64()),
                             pa.field("line_item_price", pa.string()),
                             pa.field("line_total", pa.string()),
-                            # Geographic data
-                            pa.field("shipping_country", pa.string()),
-                            pa.field("shipping_province", pa.string()),
-                            pa.field("shipping_city", pa.string()),
-                            pa.field("shipping_zip", pa.string()),
+                            # Enhanced line item analytics for SME
+                            pa.field("line_item_grams", pa.int64()),
+                            pa.field("line_item_requires_shipping", pa.bool_()),
+                            pa.field("line_item_taxable", pa.bool_()),
+                            pa.field("line_item_fulfillment_service", pa.string()),
                         ]
                     )
                 )
@@ -795,6 +809,17 @@ class ShopifyConnector(Connector):
                 params["fulfillment_status"] = ",".join(fulfillment_filter)
             else:
                 params["fulfillment_status"] = fulfillment_filter
+                
+        # Include fulfillments and refunds for SME analytics if enabled
+        if self.params.get("include_fulfillments", True):
+            # Note: We'll fetch fulfillments via separate API calls for each order
+            # to avoid hitting the fulfillments_limit in the orders endpoint
+            pass
+            
+        if self.params.get("include_refunds", True):
+            # Note: We'll fetch refunds via separate API calls for each order
+            # to get detailed refund information
+            pass
 
         return params
 
@@ -936,8 +961,16 @@ class ShopifyConnector(Connector):
         """Create a single flattened row with order and line item data."""
         # Extract customer data
         customer = order.get("customer") or {}
-        order.get("billing_address") or {}
+        billing_address = order.get("billing_address") or {}
         shipping_address = order.get("shipping_address") or {}
+        
+        # Extract fulfillment data for SME analytics
+        fulfillments = order.get("fulfillments", [])
+        fulfillment_data = fulfillments[0] if fulfillments else {}
+        
+        # Extract refund data for financial accuracy
+        refunds = order.get("refunds", [])
+        total_refunded = sum(float(refund.get("amount", "0")) for refund in refunds)
 
         # Base order data
         row = {
@@ -950,11 +983,12 @@ class ShopifyConnector(Connector):
             "customer_email": customer.get("email") or order.get("email"),
             "customer_first_name": customer.get("first_name"),
             "customer_last_name": customer.get("last_name"),
-            # Financial data
+            # Financial data (enhanced for SME requirements)
             "total_price": order.get("total_price"),
             "subtotal_price": order.get("subtotal_price"),
             "total_tax": order.get("total_tax"),
             "total_discounts": order.get("total_discounts"),
+            "total_refunded": str(total_refunded),
             "currency": order.get("currency"),
             # Order status
             "financial_status": order.get("financial_status"),
@@ -964,11 +998,21 @@ class ShopifyConnector(Connector):
             "created_at": order.get("created_at"),
             "updated_at": order.get("updated_at"),
             "processed_at": order.get("processed_at"),
-            # Geographic data
+            # Geographic data (enhanced for SME regional analysis)
+            "billing_country": billing_address.get("country"),
+            "billing_province": billing_address.get("province"),
+            "billing_city": billing_address.get("city"),
+            "billing_zip": billing_address.get("zip"),
             "shipping_country": shipping_address.get("country"),
             "shipping_province": shipping_address.get("province"),
             "shipping_city": shipping_address.get("city"),
             "shipping_zip": shipping_address.get("zip"),
+            # Fulfillment tracking (SME operational metrics)
+            "tracking_company": fulfillment_data.get("tracking_company"),
+            "tracking_number": fulfillment_data.get("tracking_number"),
+            "tracking_url": fulfillment_data.get("tracking_url"),
+            "fulfillment_created_at": fulfillment_data.get("created_at"),
+            "fulfillment_updated_at": fulfillment_data.get("updated_at"),
         }
 
         # Add line item data if present
@@ -988,6 +1032,11 @@ class ShopifyConnector(Connector):
                         float(line_item.get("price", "0"))
                         * int(line_item.get("quantity", 0))
                     ),
+                    # Enhanced line item analytics for SME
+                    "line_item_grams": line_item.get("grams"),
+                    "line_item_requires_shipping": line_item.get("requires_shipping"),
+                    "line_item_taxable": line_item.get("taxable"),
+                    "line_item_fulfillment_service": line_item.get("fulfillment_service"),
                 }
             )
         else:
@@ -1004,6 +1053,10 @@ class ShopifyConnector(Connector):
                     "quantity": None,
                     "line_item_price": None,
                     "line_total": None,
+                    "line_item_grams": None,
+                    "line_item_requires_shipping": None,
+                    "line_item_taxable": None,
+                    "line_item_fulfillment_service": None,
                 }
             )
 
@@ -1072,7 +1125,14 @@ class ShopifyConnector(Connector):
             return df
 
         # Convert timestamps
-        timestamp_cols = ["created_at", "updated_at", "processed_at", "cancelled_at"]
+        timestamp_cols = [
+            "created_at", 
+            "updated_at", 
+            "processed_at", 
+            "cancelled_at",
+            "fulfillment_created_at",
+            "fulfillment_updated_at"
+        ]
         for col in timestamp_cols:
             if col in df.columns:
                 df[col] = pd.to_datetime(df[col], errors="coerce")
@@ -1085,10 +1145,20 @@ class ShopifyConnector(Connector):
             "product_id",
             "variant_id",
             "quantity",
+            "line_item_grams",
         ]
         for col in numeric_cols:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors="coerce")
+                
+        # Convert boolean columns
+        boolean_cols = [
+            "line_item_requires_shipping",
+            "line_item_taxable",
+        ]
+        for col in boolean_cols:
+            if col in df.columns:
+                df[col] = df[col].astype(bool, errors="ignore")
 
         return df
 
@@ -1152,3 +1222,50 @@ class ShopifyConnector(Connector):
         """Clean up connector resources."""
         self.shopify_client = None
         logger.info("Shopify connector closed and resources cleaned up")
+
+    def _enhance_order_with_fulfillments_and_refunds(
+        self, order: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Enhance order data with detailed fulfillments and refunds for SME analytics."""
+        order_id = order.get("id")
+        if not order_id:
+            return order
+            
+        enhanced_order = order.copy()
+        
+        try:
+            # Fetch detailed fulfillments if enabled
+            if self.params.get("include_fulfillments", True):
+                fulfillments = self._fetch_order_fulfillments(order_id)
+                enhanced_order["fulfillments"] = fulfillments
+                
+            # Fetch detailed refunds if enabled  
+            if self.params.get("include_refunds", True):
+                refunds = self._fetch_order_refunds(order_id)
+                enhanced_order["refunds"] = refunds
+                
+        except Exception as e:
+            logger.warning(f"Failed to enhance order {order_id} with fulfillments/refunds: {e}")
+            # Continue with original order data if enhancement fails
+            
+        return enhanced_order
+        
+    def _fetch_order_fulfillments(self, order_id: int) -> List[Dict[str, Any]]:
+        """Fetch detailed fulfillment data for an order."""
+        try:
+            endpoint = f"orders/{order_id}/fulfillments.json"
+            response = self._make_shopify_api_call(endpoint)
+            return response.get("fulfillments", [])
+        except Exception as e:
+            logger.warning(f"Failed to fetch fulfillments for order {order_id}: {e}")
+            return []
+            
+    def _fetch_order_refunds(self, order_id: int) -> List[Dict[str, Any]]:
+        """Fetch detailed refund data for an order."""
+        try:
+            endpoint = f"orders/{order_id}/refunds.json"
+            response = self._make_shopify_api_call(endpoint)
+            return response.get("refunds", [])
+        except Exception as e:
+            logger.warning(f"Failed to fetch refunds for order {order_id}: {e}")
+            return []
