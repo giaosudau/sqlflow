@@ -18,6 +18,7 @@ We have **two variable substitution systems** that need to be unified:
 2. **Modern System** (`sqlflow/core/variable_substitution.py`):
    - `VariableSubstitutionEngine`
    - Environment variable support
+   - **✅ NOW HAS priority-based variable resolution**
    - Simplified interface
    - Used by: validation, compilation, execution
 
@@ -30,36 +31,42 @@ We have **two variable substitution systems** that need to be unified:
 │                Variable Substitution Engine                 │
 ├─────────────────────────────────────────────────────────────┤
 │  Priority Order:                                           │
-│  1. Explicit variables (CLI/profile)                       │
-│  2. Environment variables                                   │
-│  3. Default values (${var|default})                        │
+│  1. CLI variables (highest priority)                       │
+│  2. Profile variables                                       │
+│  3. SET variables from pipeline                             │
+│  4. Environment variables                                   │
+│  5. Default values (${var|default})                        │
 ├─────────────────────────────────────────────────────────────┤
 │  Features:                                                  │
 │  ✅ Environment variable support                           │
 │  ✅ Default value handling                                 │
+│  ✅ Priority-based variable resolution                     │
 │  ✅ Context-aware formatting                               │
 │  ✅ Missing variable validation                            │
+│  ✅ Backward compatibility maintained                      │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 ### Integration Points
 
-1. **Validation** (`sqlflow/cli/validation_helpers.py`) ✅ Fixed
+1. **Validation** (`sqlflow/cli/validation_helpers.py`) ✅ Using modern system
 2. **Compilation** (`sqlflow/cli/pipeline.py`) ✅ Using modern system
 3. **Execution** (`sqlflow/core/executors/`) ✅ Using modern system
 4. **Planning** (`sqlflow/core/planner.py`) ⚠️ **Needs migration**
 
 ## Migration Plan
 
-### Phase 1: Extend VariableSubstitutionEngine ✅ COMPLETE
-- Add priority-based variable resolution
-- Maintain backward compatibility
-- Add comprehensive validation
+### Phase 1: Extend VariableSubstitutionEngine ✅ **COMPLETED**
+- ✅ Add priority-based variable resolution
+- ✅ Maintain backward compatibility  
+- ✅ Add comprehensive validation
+- ✅ Comprehensive test coverage (27 tests passing)
 
-### Phase 2: Migrate Planner (TODO)
-- Update `Planner` to use `VariableSubstitutionEngine`
-- Maintain priority order: CLI > Profile > SET variables > Environment > Defaults
-- Remove dependency on legacy system
+### Phase 2: Migrate Planner ⚡ **READY TO START**
+- Update `Planner.create_plan()` to use `VariableSubstitutionEngine`
+- Maintain exact priority order: CLI > Profile > SET variables > Environment > Defaults
+- Remove dependency on legacy `VariableContext` and `VariableSubstitutor`
+- Ensure all existing tests continue to pass
 
 ### Phase 3: Deprecate Legacy System (TODO)
 - Mark `VariableContext` and `VariableSubstitutor` as deprecated
@@ -70,14 +77,18 @@ We have **two variable substitution systems** that need to be unified:
 
 ### DO ✅
 ```python
-# Use the modern system
+# Use the modern system with priority support
 from sqlflow.core.variable_substitution import VariableSubstitutionEngine
 
-# With priority support
-all_variables = {}
-all_variables.update(profile_variables)  # Lower priority
-all_variables.update(cli_variables)      # Higher priority
+# Priority-aware initialization
+engine = VariableSubstitutionEngine(
+    cli_variables=cli_variables,      # Highest priority
+    profile_variables=profile_vars,   # Medium priority  
+    set_variables=set_vars           # Lower priority
+)
+result = engine.substitute(data)
 
+# Backward compatibility still works
 engine = VariableSubstitutionEngine(all_variables)
 result = engine.substitute(data)
 ```
@@ -96,9 +107,10 @@ substitutor = VariableSubstitutor(context)
 
 1. **Consistency**: Same behavior across all components
 2. **Environment Variables**: Automatic support everywhere
-3. **Maintainability**: Single place to fix bugs and add features
-4. **Testing**: Easier to test and validate behavior
-5. **Documentation**: Clear, unified patterns for developers
+3. **Priority Resolution**: Proper precedence handling
+4. **Maintainability**: Single place to fix bugs and add features
+5. **Testing**: Easier to test and validate behavior
+6. **Documentation**: Clear, unified patterns for developers
 
 ## Validation Strategy
 
@@ -113,12 +125,13 @@ substitutor = VariableSubstitutor(context)
 - ✅ **Compilation**: Using modern system  
 - ✅ **Execution**: Using modern system
 - ⚠️ **Planning**: Still using legacy system (needs migration)
-- ✅ **Testing**: Comprehensive coverage added
+- ✅ **Testing**: Comprehensive coverage added (27 tests)
+- ✅ **Priority Support**: Fully implemented and tested
 
 ## Next Steps
 
-1. Extend `VariableSubstitutionEngine` with priority support
-2. Migrate `Planner` to use modern system
+1. ✅ ~~Extend `VariableSubstitutionEngine` with priority support~~ **COMPLETED**
+2. ⚡ **Migrate `Planner` to use modern system** - **READY TO START**
 3. Add deprecation warnings to legacy system
 4. Update documentation and examples
 5. Add architecture tests 

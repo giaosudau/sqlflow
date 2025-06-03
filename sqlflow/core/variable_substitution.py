@@ -20,26 +20,66 @@ logger = get_logger(__name__)
 class VariableSubstitutionEngine:
     """Centralized engine for variable substitution with consistent behavior.
 
-    Supports both explicit variables and automatic environment variable lookup.
-    When a variable is not found in the provided variables dictionary,
-    the engine will check environment variables as a fallback.
+    Supports both explicit variables and automatic environment variable lookup with
+    priority-based resolution. Priority order:
+    1. CLI variables (highest priority)
+    2. Profile variables
+    3. SET variables from pipeline
+    4. Environment variables
+    5. Default values (${var|default})
     """
 
     # Compile regex patterns once for better performance
     VARIABLE_PATTERN = re.compile(r"\$\{([^}]+)\}")
     VARIABLE_WITH_DEFAULT_PATTERN = re.compile(r"\$\{([^|}]+)\|([^}]+)\}")
 
-    def __init__(self, variables: Optional[Dict[str, Any]] = None):
+    def __init__(
+        self,
+        variables: Optional[Dict[str, Any]] = None,
+        cli_variables: Optional[Dict[str, Any]] = None,
+        profile_variables: Optional[Dict[str, Any]] = None,
+        set_variables: Optional[Dict[str, Any]] = None,
+    ):
         """Initialize the substitution engine.
 
         Args:
-            variables: Dictionary of variable name-value pairs.
-                      Environment variables are automatically available as fallback.
+            variables: Dictionary of variable name-value pairs (for backward compatibility)
+            cli_variables: CLI variables (highest priority)
+            profile_variables: Profile variables (medium priority)
+            set_variables: SET variables from pipeline (lower priority)
+
+        Note: Environment variables are automatically available as fallback.
+        If only 'variables' is provided, it maintains backward compatibility.
         """
-        self.variables = variables or {}
+        # Backward compatibility: if only 'variables' provided, use it directly
+        if (
+            variables is not None
+            and cli_variables is None
+            and profile_variables is None
+            and set_variables is None
+        ):
+            self.variables = variables
+            self.cli_variables = None
+            self.profile_variables = None
+            self.set_variables = None
+            self._use_priority_mode = False
+        else:
+            # Priority mode: use separate variable sources
+            self.variables = {}  # Not used in priority mode
+            self.cli_variables = cli_variables or {}
+            self.profile_variables = profile_variables or {}
+            self.set_variables = set_variables or {}
+            self._use_priority_mode = True
 
     def _get_variable_value(self, var_name: str) -> Optional[str]:
-        """Get variable value from explicit variables or environment variables.
+        """Get variable value respecting priority order.
+
+        Priority order:
+        1. CLI variables (highest priority)
+        2. Profile variables
+        3. SET variables from pipeline
+        4. Environment variables
+        5. Default values handled separately
 
         Args:
             var_name: Name of the variable to look up
@@ -47,15 +87,40 @@ class VariableSubstitutionEngine:
         Returns:
             Variable value if found, None otherwise
         """
-        # First check explicit variables (highest priority)
-        if var_name in self.variables:
-            return self.variables[var_name]
+        if self._use_priority_mode:
+            # Priority-based resolution
+            # 1. CLI variables (highest priority)
+            if var_name in self.cli_variables:
+                return self.cli_variables[var_name]
 
-        # Then check environment variables (fallback)
-        env_value = os.environ.get(var_name)
-        if env_value is not None:
-            logger.debug(f"Using environment variable ${{{var_name}}} = '{env_value}'")
-            return env_value
+            # 2. Profile variables
+            if var_name in self.profile_variables:
+                return self.profile_variables[var_name]
+
+            # 3. SET variables from pipeline
+            if var_name in self.set_variables:
+                return self.set_variables[var_name]
+
+            # 4. Environment variables (fallback)
+            env_value = os.environ.get(var_name)
+            if env_value is not None:
+                logger.debug(
+                    f"Using environment variable ${{{var_name}}} = '{env_value}'"
+                )
+                return env_value
+        else:
+            # Backward compatibility mode
+            # First check explicit variables (highest priority)
+            if var_name in self.variables:
+                return self.variables[var_name]
+
+            # Then check environment variables (fallback)
+            env_value = os.environ.get(var_name)
+            if env_value is not None:
+                logger.debug(
+                    f"Using environment variable ${{{var_name}}} = '{env_value}'"
+                )
+                return env_value
 
         return None
 
@@ -218,8 +283,14 @@ class VariableSubstitutionEngine:
         Args:
             new_variables: New variables to add or update
         """
-        self.variables.update(new_variables)
-        logger.debug(f"Updated variables: {new_variables}")
+        if self._use_priority_mode:
+            # In priority mode, update CLI variables (highest priority)
+            self.cli_variables.update(new_variables)
+            logger.debug(f"Updated CLI variables: {new_variables}")
+        else:
+            # Backward compatibility mode
+            self.variables.update(new_variables)
+            logger.debug(f"Updated variables: {new_variables}")
 
     def validate_required_variables(
         self, text: str, required_vars: Optional[List[str]] = None
