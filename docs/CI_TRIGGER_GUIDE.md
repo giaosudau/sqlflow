@@ -3,8 +3,6 @@
 ## Overview
 
 SQLFlow's CI system is designed to be cost-effective and efficient:
-<<<<<<< HEAD
-<<<<<<< HEAD
 - **Unit tests**: Run automatically on every push/PR (fast, cheap)
 - **Integration tests**: Triggered via PR comments (expensive, thorough)
 - **Performance tests**: Triggered via PR comments (very expensive, comprehensive)
@@ -38,61 +36,10 @@ These run automatically on every push and pull request:
 
 #### Performance Tests
 **What runs:**
-=======
-- **Unit tests**: Run automatically on every push/PR
-- **Integration tests**: Triggered only by comments (expensive)
-- **Performance tests**: Triggered only by comments (very expensive)
-=======
-- **Unit tests**: Run automatically on every push/PR (fast, cheap)
-- **Integration tests**: Triggered via PR comments (expensive, thorough)
-- **Performance tests**: Triggered via PR comments (very expensive, comprehensive)
-
-## Test Types
-
-### 1. Automatic Tests (Always Run)
-These run automatically on every push and pull request:
-- ✅ Unit tests
-- ✅ Local integration tests (no external services)
-- ✅ Code formatting and linting (black, isort, flake8)
-- ✅ Basic example demos
-- ✅ Coverage reporting (~72% comprehensive coverage)
-
-**Duration**: 2-3 minutes
-**Cost**: Low (standard GitHub Actions minutes)
-
-### 2. Comment-Triggered Tests
-
-#### Integration Tests
-**What runs:**
-- Phase 2 Integration Demo with Docker services
-- External services integration tests (PostgreSQL, MinIO S3, Redis)
-- Real database and file system tests
-- Enhanced S3 Connector with cost management
-- Resilient connector patterns testing
-- Additional coverage reporting
-
-**Duration**: 5-10 minutes
-**Cost**: Medium (Docker + external services)
-
-#### Performance Tests
-<<<<<<< HEAD
-To run performance benchmarks:
-
-```
-/test performance
-```
-
-**What this runs:**
->>>>>>> ee78c2e (Enhance CI workflow with comment-triggered testing - Added support for integration and performance tests triggered by issue comments, allowing collaborators to run specific tests on demand. Introduced a new guide for triggering tests and improved feedback mechanisms with status comments and reactions. All tests passing, ensuring robust CI functionality.)
-=======
-**What runs:**
->>>>>>> 119a6b8 (Refactor CI workflow to remove comment-triggered tests - Updated the CI configuration to eliminate integration and performance tests triggered by comments, transitioning to a manual dispatch model for better control and reliability. Revised documentation to reflect the new testing approach and clarified test types and costs. All tests passing, ensuring robust CI functionality.)
 - Performance benchmarks
 - Memory usage tests
 - Large dataset handling tests
 - Performance regression detection
-<<<<<<< HEAD
-<<<<<<< HEAD
 - Stress testing
 
 **Duration**: 10-15 minutes
@@ -112,6 +59,12 @@ To run performance benchmarks:
    /test performance
    ```
 
+3. **Run Both (Simple Commands)**
+   ```
+   test it
+   run tests
+   ```
+
 ### Visual Guide
 
 ```
@@ -121,7 +74,7 @@ Pull Request → Conversation Tab → Add Comment
 │ Write                                         Preview   │
 ├─────────────────────────────────────────────────────────┤
 │                                                         │
-│ /test integration                                       │
+│ test it                                                 │
 │                                                         │
 │ ┌─────────────────┐                                     │
 │ │    Comment      │                                     │
@@ -136,6 +89,7 @@ Pull Request → Conversation Tab → Add Comment
 | `unit` | Automatic | 2-3 min | Development, quick checks |
 | `integration` | `/test integration` | 5-10 min | Feature testing, before merge |
 | `performance` | `/test performance` | 10-15 min | Performance validation |
+| `both` | `test it` or `run tests` | 15-25 min | Comprehensive testing |
 
 ## When to Use Comment Triggers
 
@@ -144,19 +98,6 @@ Pull Request → Conversation Tab → Add Comment
 - ✅ Modifying database interaction code
 - ✅ Changing Docker configurations
 - ✅ Working on external service integrations
-<<<<<<< HEAD
-<<<<<<< HEAD
-- ✅ Testing Enhanced S3 Connector features
-- ✅ Validating resilient patterns
-- ✅ Before merging feature PRs
-
-### Use `/test performance` when:
-=======
-- ✅ Before merging critical features
-
-#### Use `/test performance` when:
->>>>>>> ee78c2e (Enhance CI workflow with comment-triggered testing - Added support for integration and performance tests triggered by issue comments, allowing collaborators to run specific tests on demand. Introduced a new guide for triggering tests and improved feedback mechanisms with status comments and reactions. All tests passing, ensuring robust CI functionality.)
-=======
 - ✅ Testing Enhanced S3 Connector features
 - ✅ Validating resilient patterns
 - ✅ Before merging feature PRs
@@ -167,6 +108,13 @@ Pull Request → Conversation Tab → Add Comment
 - ✅ Changing memory management
 - ✅ Before releasing new versions
 - ✅ After significant architecture changes
+
+### Use `test it` or `run tests` when:
+- ✅ You want to run comprehensive testing (both integration + performance)
+- ✅ You're not sure which specific test type you need
+- ✅ You want maximum confidence before merging
+- ✅ Simple, easy-to-remember command
+- ✅ Perfect for final validation before release
 
 ## Cost Optimization
 
@@ -227,15 +175,6 @@ Pull Request → Conversation Tab → Add Comment
 
 ## Quick Reference
 
-<<<<<<< HEAD
-| Command | Duration | Cost | When to Use |
-|---------|----------|------|-------------|
-| *Automatic* | 2-3 min | Low | Every change |
-| `/test integration` | 5-10 min | Medium | External services |
-| `/test performance` | 10-15 min | High | Performance critical |
-| `/test all` | 15-25 min | Very High | Major releases | 
->>>>>>> ee78c2e (Enhance CI workflow with comment-triggered testing - Added support for integration and performance tests triggered by issue comments, allowing collaborators to run specific tests on demand. Introduced a new guide for triggering tests and improved feedback mechanisms with status comments and reactions. All tests passing, ensuring robust CI functionality.)
-=======
 | Action | Method | Duration | Cost |
 |--------|--------|----------|------|
 | **Development Testing** | Automatic (push/PR) | 2-3 min | Low |
@@ -262,10 +201,25 @@ Pull Request → Conversation Tab → Add Comment
 1. All feature PRs merged and passing
 2. Run both test types on final PR:
    ```
+   test it
+   ```
+   OR the traditional way:
+   ```
    /test integration
    /test performance
    ```
 3. Verify all systems working correctly
 4. Proceed with release if all tests pass
+
+### Quick Testing (Simple Commands)
+1. Want to test everything quickly?
+   ```
+   test it
+   ```
+2. Alternative simple command:
+   ```
+   run tests
+   ```
+3. Both commands trigger comprehensive testing (integration + performance)
 
 The new comment-triggered approach provides better visibility, control, and collaboration while maintaining security! 🚀 
