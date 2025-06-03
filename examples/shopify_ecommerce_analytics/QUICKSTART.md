@@ -25,23 +25,19 @@ export SHOPIFY_TOKEN="shpat_abc123..."        # Replace with your token
 
 # Navigate to the example and test
 cd examples/shopify_ecommerce_analytics
-./run_shopify_test.sh
+./test_shopify_connector.sh
 ```
 
 **Expected Output:**
 ```
-🛍️  Shopify E-commerce Analytics Test
-======================================
-✅ Found Shopify credentials for: mystore.myshopify.com
+🧪 SQLFlow Shopify Connector Test Suite
+========================================
 
-🔗 Testing Shopify connection...
-🎉 Success! Connection test completed.
-
-Data found:
-data_type,records_found
-orders,3
-customers,2
-products,5
+✅ SHOPIFY connector registered: True
+✅ SHOPIFY validation schema available: True
+✅ Pipeline validation working (hardcoded and environment variables)
+✅ Compilation working
+✅ All tests completed successfully!
 ```
 
 ## 3. Check Your Data

@@ -5,6 +5,7 @@ from sqlflow.validation.schemas import (
     CSV_SCHEMA,
     POSTGRES_SCHEMA,
     S3_SCHEMA,
+    SHOPIFY_SCHEMA,
     ConnectorSchema,
     FieldSchema,
 )
@@ -241,9 +242,53 @@ class TestBuiltInSchemas:
         assert len(errors) == 1
         assert "must be one of" in errors[0]
 
+    def test_shopify_schema_valid_params(self):
+        """Test Shopify schema with valid parameters."""
+        params = {
+            "shop_domain": "mystore.myshopify.com",
+            "access_token": "shpat_abcdef1234567890123456789012345678901234567890",
+            "sync_mode": "incremental",
+            "cursor_field": "updated_at",
+            "flatten_line_items": True,
+        }
+
+        errors = SHOPIFY_SCHEMA.validate(params)
+        assert len(errors) == 0
+
+    def test_shopify_schema_missing_required(self):
+        """Test Shopify schema with missing required parameters."""
+        params = {"shop_domain": "mystore.myshopify.com"}  # Missing access_token
+
+        errors = SHOPIFY_SCHEMA.validate(params)
+        assert len(errors) == 1
+        assert "Required field 'access_token' is missing" in errors[0]
+
+    def test_shopify_schema_invalid_domain(self):
+        """Test Shopify schema with invalid shop domain."""
+        params = {
+            "shop_domain": "invalid-domain.com",
+            "access_token": "shpat_abcdef1234567890123456789012345678901234567890",
+        }
+
+        errors = SHOPIFY_SCHEMA.validate(params)
+        assert len(errors) == 1
+        assert "does not match required pattern" in errors[0]
+
+    def test_shopify_schema_invalid_sync_mode(self):
+        """Test Shopify schema with invalid sync mode."""
+        params = {
+            "shop_domain": "mystore.myshopify.com",
+            "access_token": "shpat_abcdef1234567890123456789012345678901234567890",
+            "sync_mode": "invalid_mode",
+        }
+
+        errors = SHOPIFY_SCHEMA.validate(params)
+        assert len(errors) == 1
+        assert "must be one of" in errors[0]
+
     def test_connector_schemas_registry(self):
         """Test that all expected connectors are in the registry."""
-        expected_connectors = {"CSV", "POSTGRES", "S3"}
+        expected_connectors = {"CSV", "POSTGRES", "S3", "SHOPIFY"}
         actual_connectors = set(CONNECTOR_SCHEMAS.keys())
 
         assert actual_connectors == expected_connectors

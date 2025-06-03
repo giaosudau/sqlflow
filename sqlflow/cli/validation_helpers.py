@@ -4,14 +4,18 @@ Provides utilities for validating pipelines with caching and formatting errors
 for CLI output.
 """
 
+import os
 from pathlib import Path
 from typing import List
 
 import typer
 
 from sqlflow.cli.validation_cache import ValidationCache
+from sqlflow.core.variable_substitution import VariableSubstitutionEngine
 from sqlflow.logging import get_logger
 from sqlflow.parser.parser import Parser
+from sqlflow.project import Project
+from sqlflow.validation import AggregatedValidationError
 from sqlflow.validation.errors import ValidationError
 
 logger = get_logger(__name__)
@@ -46,6 +50,59 @@ def _read_pipeline_file(pipeline_path: str) -> str:
         raise typer.Exit(1)
 
 
+def _get_profile_variables() -> dict:
+    """Get profile variables from the current project.
+
+    Returns:
+    -------
+        Dictionary of profile variables, empty if none found
+    """
+    try:
+        project_dir = os.getcwd()
+        project = Project(project_dir)
+        profile_dict = project.get_profile()
+        return (
+            profile_dict.get("variables", {}) if isinstance(profile_dict, dict) else {}
+        )
+    except Exception as e:
+        logger.debug(f"Could not load profile variables: {e}")
+        return {}
+
+
+def _apply_variable_substitution(pipeline_text: str, profile_variables: dict) -> str:
+    """Apply variable substitution to pipeline text.
+
+    Args:
+    ----
+        pipeline_text: Pipeline content to process
+        profile_variables: Variables from the project profile
+
+    Returns:
+    -------
+        Pipeline text with variables substituted
+    """
+    # Combine all variables with proper priority
+    all_variables = {}
+
+    # Add profile variables (lower priority)
+    if profile_variables:
+        all_variables.update(profile_variables)
+        logger.debug(f"Added profile variables for validation: {profile_variables}")
+
+    # Create substitution engine that also checks environment variables
+    engine = VariableSubstitutionEngine(all_variables)
+    result = engine.substitute(pipeline_text)
+
+    logger.debug("Applied variable substitution for validation")
+
+    # Log any missing variables (those without defaults)
+    missing_vars = engine.validate_required_variables(pipeline_text)
+    if missing_vars:
+        logger.debug(f"Missing variables during validation: {', '.join(missing_vars)}")
+
+    return result
+
+
 def _parse_and_validate_pipeline(
     pipeline_text: str, pipeline_path: str
 ) -> List[ValidationError]:
@@ -65,34 +122,9 @@ def _parse_and_validate_pipeline(
     errors = []
 
     try:
-        # Get profile variables for validation
-        import os
-
-        from sqlflow.project import Project
-
-        project_dir = os.getcwd()
-        project = Project(project_dir)
-        profile_dict = project.get_profile()
-        profile_variables = (
-            profile_dict.get("variables", {}) if isinstance(profile_dict, dict) else {}
-        )
-
-        # Substitute variables in pipeline text for validation
-        if profile_variables:
-            from sqlflow.core.variables import VariableContext, VariableSubstitutor
-
-            var_context = VariableContext(profile_variables=profile_variables)
-            substitutor = VariableSubstitutor(var_context)
-            pipeline_text = substitutor.substitute_string(pipeline_text)
-
-            logger.debug("Applied variable substitution for validation")
-
-            # Log any unresolved variables (but don't fail validation for them)
-            if var_context.has_unresolved_variables():
-                unresolved = var_context.get_unresolved_variables()
-                logger.debug(
-                    f"Unresolved variables during validation: {', '.join(unresolved)}"
-                )
+        # Get profile variables and apply substitution
+        profile_variables = _get_profile_variables()
+        pipeline_text = _apply_variable_substitution(pipeline_text, profile_variables)
 
         # Parse with validation enabled (now with variables substituted)
         parser.parse(pipeline_text, validate=True)
@@ -103,34 +135,27 @@ def _parse_and_validate_pipeline(
         errors = [e]
         logger.debug("Pipeline validation found 1 error for %s", pipeline_path)
 
-    except Exception as e:
-        # Check if this is an AggregatedValidationError
-        from sqlflow.validation import AggregatedValidationError
+    except AggregatedValidationError as e:
+        # Multiple validation errors
+        errors = e.errors
+        logger.debug(
+            "Pipeline validation found %d errors for %s", len(errors), pipeline_path
+        )
 
-        if isinstance(e, AggregatedValidationError):
-            # Extract all validation errors from the aggregated error
-            errors = e.errors
-            logger.debug(
-                "Pipeline validation found %d errors for %s", len(errors), pipeline_path
-            )
+    except Exception as e:
+        # Parser error or other issues
+        error_msg = str(e)
+        if "Multiple errors found:" in error_msg:
+            # Handle multiple parsing errors - convert to validation errors
+            errors = [
+                ValidationError(message=error_msg, line=1, error_type="Parser Error")
+            ]
         else:
-            # Parser error or other issues
-            error_msg = str(e)
-            if "Multiple errors found:" in error_msg:
-                # Handle multiple parsing errors - convert to validation errors
-                errors = [
-                    ValidationError(
-                        message=error_msg, line=1, error_type="Parser Error"
-                    )
-                ]
-            else:
-                # Single parser error
-                errors = [
-                    ValidationError(
-                        message=error_msg, line=1, error_type="Parser Error"
-                    )
-                ]
-            logger.debug("Pipeline parsing failed for %s: %s", pipeline_path, error_msg)
+            # Single parser error
+            errors = [
+                ValidationError(message=error_msg, line=1, error_type="Parser Error")
+            ]
+        logger.debug("Pipeline parsing failed for %s: %s", pipeline_path, error_msg)
 
     return errors
 
