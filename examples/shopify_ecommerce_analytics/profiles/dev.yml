@@ -1,8 +1,8 @@
-outputs:
+engines:
   duckdb:
-    type: "duckdb"
+    mode: persistent
     path: "data/shopify_analytics.duckdb"
-    memory_limit: "2GB"
-    threads: 4
+    memory_limit: 2GB
 
-target: duckdb 
+variables:
+  environment: development 

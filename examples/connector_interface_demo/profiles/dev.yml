@@ -1,8 +1,7 @@
-dev:
-  engines:
-    duckdb:
-      mode: persistent
-      database_path: "target/connector_interface_demo.duckdb"
-  variables:
-    data_dir: "data"
-    output_dir: "output" 
+engines:
+  duckdb:
+    mode: persistent
+    path: "target/connector_interface_demo.duckdb"
+variables:
+  data_dir: "data"
+  output_dir: "output" 
