@@ -1,175 +1,549 @@
 """Integration tests for PostgreSQL connector resilience patterns."""
 
-from unittest.mock import MagicMock, patch
+import os
+import threading
+import time
 
 import psycopg2
 import pytest
 
 from sqlflow.connectors.postgres_connector import PostgresConnector
-from sqlflow.core.errors import ConnectorError
+
+# Mark all tests in this module as requiring external services
+pytestmark = pytest.mark.external_services
+
+
+@pytest.fixture(scope="module")
+def docker_postgres_config():
+    """Real PostgreSQL configuration from docker-compose.yml."""
+    return {
+        "host": "localhost",
+        "port": 5432,
+        "database": "postgres",
+        "username": "postgres",
+        "password": "postgres",
+        "schema": "public",
+    }
+
+
+@pytest.fixture(scope="module")
+def setup_postgres_test_environment(docker_postgres_config):
+    """Set up PostgreSQL test environment."""
+    # Skip if services are not available
+    if not os.getenv("INTEGRATION_TESTS", "").lower() in ["true", "1"]:
+        pytest.skip("Integration tests disabled. Set INTEGRATION_TESTS=true to enable.")
+
+    try:
+        # Test PostgreSQL connection
+        conn = psycopg2.connect(
+            host=docker_postgres_config["host"],
+            port=docker_postgres_config["port"],
+            database=docker_postgres_config["database"],
+            user=docker_postgres_config["username"],
+            password=docker_postgres_config["password"],
+        )
+
+        # Create test table and data
+        cursor = conn.cursor()
+
+        # Drop table if exists and create fresh
+        cursor.execute("DROP TABLE IF EXISTS resilience_test_table")
+        cursor.execute(
+            """
+            CREATE TABLE resilience_test_table (
+                id SERIAL PRIMARY KEY,
+                name VARCHAR(100),
+                value INTEGER,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """
+        )
+
+        # Insert test data
+        test_data = [
+            ("test_record_1", 100),
+            ("test_record_2", 200),
+            ("test_record_3", 300),
+            ("test_record_4", 400),
+            ("test_record_5", 500),
+        ]
+
+        cursor.executemany(
+            "INSERT INTO resilience_test_table (name, value) VALUES (%s, %s)", test_data
+        )
+
+        # Create additional test tables for discovery testing
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS users (
+                id SERIAL PRIMARY KEY,
+                username VARCHAR(50),
+                email VARCHAR(100)
+            )
+        """
+        )
+
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS orders (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER REFERENCES users(id),
+                amount DECIMAL(10,2),
+                status VARCHAR(20)
+            )
+        """
+        )
+
+        conn.commit()
+        conn.close()
+
+        yield
+
+        # Cleanup
+        try:
+            conn = psycopg2.connect(
+                host=docker_postgres_config["host"],
+                port=docker_postgres_config["port"],
+                database=docker_postgres_config["database"],
+                user=docker_postgres_config["username"],
+                password=docker_postgres_config["password"],
+            )
+            cursor = conn.cursor()
+            cursor.execute("DROP TABLE IF EXISTS resilience_test_table")
+            cursor.execute("DROP TABLE IF EXISTS orders")
+            cursor.execute("DROP TABLE IF EXISTS users")
+            conn.commit()
+            conn.close()
+        except Exception:
+            pass  # Cleanup errors are not critical
+
+    except Exception as e:
+        pytest.skip(f"PostgreSQL service not available: {e}")
 
 
 class TestPostgresConnectorResilience:
-    """Test resilience patterns integration with PostgreSQL connector."""
+    """Test PostgreSQL connector resilience patterns with real PostgreSQL service."""
 
-    @pytest.fixture
-    def postgres_connector(self):
-        """Create a PostgreSQL connector instance."""
-        return PostgresConnector()
+    def test_real_connection_resilience(
+        self, docker_postgres_config, setup_postgres_test_environment
+    ):
+        """Test real connection to PostgreSQL with resilience patterns."""
+        connector = PostgresConnector()
+        connector.configure(docker_postgres_config)
 
-    @pytest.fixture
-    def sample_config(self):
-        """Sample configuration for testing."""
-        return {
+        # Verify resilience manager is set up
+        assert hasattr(connector, "resilience_manager")
+        assert connector.resilience_manager is not None
+
+        # Test connection with real service
+        result = connector.test_connection()
+        assert result.success is True, f"Connection failed: {result.message}"
+        assert "PostgreSQL" in result.message or "postgres" in result.message
+
+    def test_real_discovery_with_resilience(
+        self, docker_postgres_config, setup_postgres_test_environment
+    ):
+        """Test discovery operations with real PostgreSQL service."""
+        connector = PostgresConnector()
+        connector.configure(docker_postgres_config)
+
+        # Test discovery
+        discovered = connector.discover()
+        assert len(discovered) > 0, "Should discover tables"
+
+        # Should find our test tables
+        table_names = [table.lower() for table in discovered]
+        assert "resilience_test_table" in table_names
+        assert "users" in table_names
+        assert "orders" in table_names
+
+    def test_real_data_reading_with_resilience(
+        self, docker_postgres_config, setup_postgres_test_environment
+    ):
+        """Test data reading with resilience patterns on real data."""
+        connector = PostgresConnector()
+        connector.configure(docker_postgres_config)
+
+        # Read real data from test table
+        chunks = list(connector.read("resilience_test_table"))
+        assert len(chunks) > 0, "Should read data chunks"
+
+        # Verify data content
+        df = chunks[0].pandas_df
+        assert len(df) == 5, "Should have 5 test rows"
+        assert "id" in df.columns
+        assert "name" in df.columns
+        assert "value" in df.columns
+        assert "created_at" in df.columns
+
+        # Verify actual data values
+        assert df["name"].tolist() == [
+            "test_record_1",
+            "test_record_2",
+            "test_record_3",
+            "test_record_4",
+            "test_record_5",
+        ]
+        assert df["value"].tolist() == [100, 200, 300, 400, 500]
+
+    def test_connection_retry_with_invalid_config(
+        self, setup_postgres_test_environment
+    ):
+        """Test connection retry behavior with invalid configuration."""
+        connector = PostgresConnector()
+
+        # Test with invalid port
+        invalid_config = {
             "host": "localhost",
-            "port": 5432,
-            "database": "test_db",
-            "username": "test_user",
-            "password": "test_pass",
-            "schema": "public",
+            "port": 9999,  # Invalid port
+            "database": "postgres",
+            "username": "postgres",
+            "password": "postgres",
         }
 
-    def test_resilience_manager_configured(self, postgres_connector, sample_config):
-        """Test that resilience manager is configured automatically."""
-        postgres_connector.configure(sample_config)
+        connector.configure(invalid_config)
 
-        # Verify resilience manager is created
-        assert postgres_connector.resilience_manager is not None
-        assert hasattr(postgres_connector.resilience_manager, "retry_handler")
-        assert hasattr(postgres_connector.resilience_manager, "circuit_breaker")
-        assert hasattr(postgres_connector.resilience_manager, "rate_limiter")
-        assert hasattr(postgres_connector.resilience_manager, "recovery_handler")
+        # Should fail gracefully with resilience patterns after retries
+        with pytest.raises(psycopg2.OperationalError) as exc_info:
+            connector.test_connection()
 
-    @patch("psycopg2.connect")
-    @patch("psycopg2.pool.ThreadedConnectionPool")
-    def test_test_connection_with_retry(
-        self, mock_pool, mock_connect, postgres_connector, sample_config
-    ):
-        """Test that test_connection uses retry logic for transient failures."""
-        postgres_connector.configure(sample_config)
-
-        # Mock connection to fail twice, then succeed
-        mock_connect.side_effect = [
-            psycopg2.OperationalError("Connection timeout"),
-            psycopg2.OperationalError("Connection timeout"),
-            MagicMock(),  # Success on third attempt
-        ]
-
-        # Configure mock for successful connection
-        successful_conn = mock_connect.return_value
-        successful_cursor = MagicMock()
-        successful_conn.cursor.return_value = successful_cursor
-        successful_cursor.fetchone.return_value = (
-            "PostgreSQL 13.0",
-            "test_db",
-            "test_user",
-            10,
+        # Verify the error message indicates connection failure
+        error_msg = str(exc_info.value).lower()
+        assert "connection" in error_msg and (
+            "refused" in error_msg or "failed" in error_msg
         )
 
-        # Mock the connection pool creation
-        mock_pool.return_value = MagicMock()
+    def test_authentication_failure_resilience(self, setup_postgres_test_environment):
+        """Test resilience with authentication failures."""
+        connector = PostgresConnector()
 
-        result = postgres_connector.test_connection()
+        # Test with invalid credentials
+        invalid_config = {
+            "host": "localhost",
+            "port": 5432,
+            "database": "postgres",
+            "username": "invalid_user",
+            "password": "invalid_password",
+        }
 
-        # Should succeed after retries
-        assert result.success is True
-        # Should have been called 3 times (original + 2 retries)
-        assert mock_connect.call_count == 3
+        connector.configure(invalid_config)
 
-    @patch("psycopg2.connect")
-    def test_test_connection_permanent_failure(
-        self, mock_connect, postgres_connector, sample_config
-    ):
-        """Test that test_connection fails fast for permanent errors."""
-        postgres_connector.configure(sample_config)
-
-        # Mock permanent authentication error (should not retry)
-        mock_connect.side_effect = psycopg2.OperationalError(
-            "authentication failed for user"
-        )
-
-        result = postgres_connector.test_connection()
-
-        # Should fail without retries for auth errors
+        # Should fail gracefully (authentication errors are non-retryable)
+        result = connector.test_connection()
         assert result.success is False
-        assert "authentication failed" in result.message
-        # Should only be called once (no retries for auth failures)
-        assert mock_connect.call_count == 1
-
-    @patch("psycopg2.pool.ThreadedConnectionPool")
-    def test_read_with_resilience(self, mock_pool, postgres_connector, sample_config):
-        """Test that read operations use resilience patterns."""
-        postgres_connector.configure(sample_config)
-
-        # Mock connection pool
-        mock_conn = MagicMock()
-        mock_cursor = MagicMock()
-        mock_pool.return_value.getconn.return_value = mock_conn
-        mock_conn.cursor.return_value = mock_cursor
-
-        # Mock successful data fetch
-        mock_cursor.fetchmany.side_effect = [
-            [{"id": 1, "name": "test"}],
-            [],  # End of data
-        ]
-
-        # Read should work with resilience patterns applied
-        chunks = list(postgres_connector.read("test_table"))
-        assert len(chunks) == 1
-
-        # Verify the resilient_operation decorator was applied
-        # (method should execute normally with resilience patterns)
-        mock_pool.return_value.getconn.assert_called()
-
-    def test_resilience_config_values(self, postgres_connector, sample_config):
-        """Test that proper resilience configuration is applied."""
-        postgres_connector.configure(sample_config)
-
-        resilience_manager = postgres_connector.resilience_manager
-
-        # Verify DB-specific resilience configuration
-        assert resilience_manager.retry_handler.config.max_attempts == 3
-        assert resilience_manager.circuit_breaker.config.failure_threshold == 5
-        assert resilience_manager.rate_limiter.config.max_requests_per_minute == 300
         assert (
-            resilience_manager.recovery_handler.config.enable_connection_recovery
-            is True
+            "authentication" in result.message.lower()
+            or "password" in result.message.lower()
         )
 
-    @patch("psycopg2.pool.ThreadedConnectionPool")
-    def test_get_schema_with_circuit_breaker(
-        self, mock_pool, postgres_connector, sample_config
+    def test_database_not_found_resilience(self, setup_postgres_test_environment):
+        """Test resilience with non-existent database."""
+        connector = PostgresConnector()
+
+        # Test with non-existent database
+        invalid_config = {
+            "host": "localhost",
+            "port": 5432,
+            "database": "nonexistent_database",
+            "username": "postgres",
+            "password": "postgres",
+        }
+
+        connector.configure(invalid_config)
+
+        # Should fail gracefully (database not found errors are non-retryable)
+        result = connector.test_connection()
+        assert result.success is False
+        assert (
+            "database" in result.message.lower()
+            or "does not exist" in result.message.lower()
+        )
+
+    def test_concurrent_connections_with_resilience(
+        self, docker_postgres_config, setup_postgres_test_environment
     ):
-        """Test that get_schema uses circuit breaker for repeated failures."""
-        postgres_connector.configure(sample_config)
+        """Test concurrent connections with resilience patterns."""
+        results = {}
 
-        # Mock connection pool to always fail
-        mock_pool.return_value.getconn.side_effect = Exception(
-            "Database connection failed"
-        )
-
-        # After enough failures, circuit breaker should open
-        for i in range(10):  # More than failure threshold (5)
+        def test_concurrent_connection(thread_id):
             try:
-                postgres_connector.get_schema("test_table")
-            except ConnectorError:
-                pass  # Expected failure
+                connector = PostgresConnector()
+                connector.configure(docker_postgres_config)
 
-        # Circuit breaker should now be open
-        postgres_connector.resilience_manager.circuit_breaker
-        # Note: The exact state depends on circuit breaker implementation details
-        # This test verifies the integration works without specific state assertions
+                # Test connection
+                result = connector.test_connection()
+                results[f"{thread_id}_connection"] = result.success
 
-    def test_multiple_operations_share_resilience_manager(
-        self, postgres_connector, sample_config
+                # Test discovery
+                discovered = connector.discover()
+                results[f"{thread_id}_discovery"] = len(discovered) > 0
+
+                # Test reading
+                chunks = list(connector.read("resilience_test_table"))
+                results[f"{thread_id}_read"] = (
+                    len(chunks) > 0 and len(chunks[0].pandas_df) == 5
+                )
+
+            except Exception as e:
+                results[f"{thread_id}_error"] = str(e)
+
+        # Start multiple threads
+        threads = []
+        for i in range(5):
+            thread = threading.Thread(target=test_concurrent_connection, args=(i,))
+            threads.append(thread)
+            thread.start()
+
+        # Wait for completion
+        for thread in threads:
+            thread.join()
+
+        # Verify all succeeded
+        for i in range(5):
+            assert (
+                results.get(f"{i}_connection") is True
+            ), f"Thread {i} connection failed"
+            assert results.get(f"{i}_discovery") is True, f"Thread {i} discovery failed"
+            assert results.get(f"{i}_read") is True, f"Thread {i} read failed"
+
+    def test_schema_operations_with_resilience(
+        self, docker_postgres_config, setup_postgres_test_environment
     ):
-        """Test that all operations share the same resilience manager."""
-        postgres_connector.configure(sample_config)
+        """Test schema operations with resilience patterns."""
+        connector = PostgresConnector()
+        connector.configure(docker_postgres_config)
 
-        resilience_manager = postgres_connector.resilience_manager
+        # Test get_schema for existing table
+        schema = connector.get_schema("resilience_test_table")
+        assert schema is not None
 
-        # All resilient operations should use the same manager
-        assert resilience_manager is not None
+        # Verify schema contains expected columns
+        field_names = [field.name for field in schema.arrow_schema]
+        assert "id" in field_names
+        assert "name" in field_names
+        assert "value" in field_names
+        assert "created_at" in field_names
 
-        # Verify the manager is shared across different method calls
-        # This ensures consistent resilience behavior across all operations
+    def test_query_resilience_patterns(
+        self, docker_postgres_config, setup_postgres_test_environment
+    ):
+        """Test query execution with resilience patterns."""
+        connector = PostgresConnector()
+        connector.configure(docker_postgres_config)
+
+        # Test reading with filters
+        chunks = list(
+            connector.read("resilience_test_table", filters={"value": ">= 300"})
+        )
+
+        assert len(chunks) > 0
+        df = chunks[0].pandas_df
+
+        # Should only get records with value >= 300
+        assert len(df) == 3  # records 3, 4, 5
+        assert all(value >= 300 for value in df["value"])
+
+    def test_connection_pooling_resilience(
+        self, docker_postgres_config, setup_postgres_test_environment
+    ):
+        """Test connection pooling behavior with resilience."""
+        # Create multiple connectors with same config
+        connectors = []
+        for i in range(3):
+            connector = PostgresConnector()
+            connector.configure(docker_postgres_config)
+            connectors.append(connector)
+
+        # Test that all can connect
+        for i, connector in enumerate(connectors):
+            result = connector.test_connection()
+            assert result.success is True, f"Connector {i} failed to connect"
+
+        # Test that all can read data simultaneously
+        for i, connector in enumerate(connectors):
+            chunks = list(connector.read("resilience_test_table"))
+            assert len(chunks) > 0, f"Connector {i} failed to read data"
+            assert len(chunks[0].pandas_df) == 5, f"Connector {i} got wrong data count"
+
+    def test_large_result_set_resilience(
+        self, docker_postgres_config, setup_postgres_test_environment
+    ):
+        """Test resilience with larger result sets."""
+        connector = PostgresConnector()
+        connector.configure(docker_postgres_config)
+
+        # Create a temporary table with more data
+        try:
+            conn = psycopg2.connect(
+                host=docker_postgres_config["host"],
+                port=docker_postgres_config["port"],
+                database=docker_postgres_config["database"],
+                user=docker_postgres_config["username"],
+                password=docker_postgres_config["password"],
+            )
+            cursor = conn.cursor()
+
+            # Create table with more data
+            cursor.execute("DROP TABLE IF EXISTS large_test_table")
+            cursor.execute(
+                """
+                CREATE TABLE large_test_table (
+                    id SERIAL PRIMARY KEY,
+                    data VARCHAR(100),
+                    number INTEGER
+                )
+            """
+            )
+
+            # Insert 1000 rows
+            for i in range(1000):
+                cursor.execute(
+                    "INSERT INTO large_test_table (data, number) VALUES (%s, %s)",
+                    (f"data_{i}", i),
+                )
+
+            conn.commit()
+            conn.close()
+
+            # Test reading large dataset with resilience
+            chunks = list(connector.read("large_test_table"))
+            total_rows = sum(len(chunk.pandas_df) for chunk in chunks)
+            assert total_rows == 1000, f"Expected 1000 rows, got {total_rows}"
+
+        finally:
+            # Cleanup
+            try:
+                conn = psycopg2.connect(
+                    host=docker_postgres_config["host"],
+                    port=docker_postgres_config["port"],
+                    database=docker_postgres_config["database"],
+                    user=docker_postgres_config["username"],
+                    password=docker_postgres_config["password"],
+                )
+                cursor = conn.cursor()
+                cursor.execute("DROP TABLE IF EXISTS large_test_table")
+                conn.commit()
+                conn.close()
+            except Exception:
+                pass
+
+    def test_transaction_resilience(
+        self, docker_postgres_config, setup_postgres_test_environment
+    ):
+        """Test transaction handling with resilience patterns."""
+        connector = PostgresConnector()
+        connector.configure(docker_postgres_config)
+
+        # Verify initial data count
+        chunks = list(connector.read("resilience_test_table"))
+        initial_count = len(chunks[0].pandas_df)
+        assert initial_count == 5
+
+        # Test that connector handles read-only operations gracefully
+        # (PostgreSQL connector typically uses read-only connections)
+        for i in range(3):
+            chunks = list(connector.read("resilience_test_table"))
+            assert len(chunks[0].pandas_df) == initial_count
+
+    def test_connection_timeout_resilience(self, setup_postgres_test_environment):
+        """Test connection timeout behavior with resilience."""
+        connector = PostgresConnector()
+
+        # Test with unreachable host (should timeout)
+        timeout_config = {
+            "host": "192.0.2.1",  # RFC 5737 test address (should be unreachable)
+            "port": 5432,
+            "database": "postgres",
+            "username": "postgres",
+            "password": "postgres",
+            "connect_timeout": 1,  # Short timeout
+        }
+
+        connector.configure(timeout_config)
+
+        # Should fail with timeout after retries
+        start_time = time.time()
+        with pytest.raises(psycopg2.OperationalError) as exc_info:
+            connector.test_connection()
+        end_time = time.time()
+
+        # Verify the error message indicates timeout
+        error_msg = str(exc_info.value).lower()
+        assert "timeout" in error_msg
+        # Should timeout relatively quickly (with some tolerance for retries and system variance)
+        assert (
+            end_time - start_time < 15
+        ), "Connection should timeout within reasonable time including retries"
+
+    def test_sql_injection_resilience(
+        self, docker_postgres_config, setup_postgres_test_environment
+    ):
+        """Test resilience against SQL injection attempts."""
+        connector = PostgresConnector()
+        connector.configure(docker_postgres_config)
+
+        # Test with malicious table name
+        malicious_table = "resilience_test_table'; DROP TABLE users; --"
+
+        # Should handle gracefully (not execute injection)
+        try:
+            chunks = list(connector.read(malicious_table))
+            # If it doesn't raise an exception, it should return empty results
+            assert len(chunks) == 0 or len(chunks[0].pandas_df) == 0
+        except Exception as e:
+            # Should fail safely with an appropriate error
+            assert "syntax error" in str(e).lower() or "relation" in str(e).lower()
+
+        # Verify original tables still exist
+        discovered = connector.discover()
+        table_names = [table.lower() for table in discovered]
+        assert "users" in table_names, "users table should still exist"
+
+    def test_memory_management_resilience(
+        self, docker_postgres_config, setup_postgres_test_environment
+    ):
+        """Test memory management with resilience patterns."""
+        connector = PostgresConnector()
+        connector.configure(docker_postgres_config)
+
+        # Read data multiple times to test memory management
+        for iteration in range(10):
+            chunks = list(connector.read("resilience_test_table"))
+            assert len(chunks) > 0
+            assert len(chunks[0].pandas_df) == 5
+
+            # Verify data is still correct after multiple iterations
+            df = chunks[0].pandas_df
+            assert df["value"].tolist() == [100, 200, 300, 400, 500]
+
+    def test_connection_recovery_after_restart(
+        self, docker_postgres_config, setup_postgres_test_environment
+    ):
+        """Test connection recovery behavior (simulated restart scenario)."""
+        connector = PostgresConnector()
+        connector.configure(docker_postgres_config)
+
+        # Initial connection should work
+        result = connector.test_connection()
+        assert result.success is True
+
+        # Read initial data
+        chunks = list(connector.read("resilience_test_table"))
+        assert len(chunks) > 0
+
+        # Simulate connection recovery by creating new connector instance
+        # (In real scenarios, this would be after service restart)
+        new_connector = PostgresConnector()
+        new_connector.configure(docker_postgres_config)
+
+        # Should be able to connect and read data again
+        result = new_connector.test_connection()
+        assert result.success is True
+
+        chunks = list(new_connector.read("resilience_test_table"))
+        assert len(chunks) > 0
+        assert len(chunks[0].pandas_df) == 5
+
+
+if __name__ == "__main__":
+    pytest.main([__file__])

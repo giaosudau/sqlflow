@@ -33,20 +33,25 @@ NC='\033[0m' # No Color
 # Script configuration - consistent SQLFlow path detection
 SQLFLOW_PATH=""
 
-# Try different locations for SQLFlow
-POSSIBLE_PATHS=(
-    "../../.venv/bin/sqlflow"        # Local development with venv
-    "$(which sqlflow 2>/dev/null)"  # System PATH (CI environments)
-    "/usr/local/bin/sqlflow"         # Common system location
-    "$HOME/.local/bin/sqlflow"       # User-local installation
-)
+# Check if SQLFlow path is provided via environment variable (from run_all_examples.sh)
+if [ -n "${SQLFLOW_OVERRIDE_PATH:-}" ] && [ -f "${SQLFLOW_OVERRIDE_PATH}" ] && [ -x "${SQLFLOW_OVERRIDE_PATH}" ]; then
+    SQLFLOW_PATH="$SQLFLOW_OVERRIDE_PATH"
+else
+    # Try different locations for SQLFlow
+    POSSIBLE_PATHS=(
+        "../../.venv/bin/sqlflow"        # Local development with venv
+        "$(which sqlflow 2>/dev/null)"  # System PATH (CI environments)
+        "/usr/local/bin/sqlflow"         # Common system location
+        "$HOME/.local/bin/sqlflow"       # User-local installation
+    )
 
-for path in "${POSSIBLE_PATHS[@]}"; do
-    if [ -n "$path" ] && [ -f "$path" ] && [ -x "$path" ]; then
-        SQLFLOW_PATH="$path"
-        break
-    fi
-done
+    for path in "${POSSIBLE_PATHS[@]}"; do
+        if [ -n "$path" ] && [ -f "$path" ] && [ -x "$path" ]; then
+            SQLFLOW_PATH="$path"
+            break
+        fi
+    done
+fi
 
 # Enhanced printing functions
 print_header() {

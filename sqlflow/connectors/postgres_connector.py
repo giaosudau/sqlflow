@@ -735,29 +735,102 @@ class PostgresConnector(Connector):
             Tuple of (query, params)
 
         """
-        column_str = "*"
-        if columns:
-            escaped_columns = [f'"{col}"' for col in columns]
-            column_str = ", ".join(escaped_columns)
-
+        column_str = self._build_column_string(columns)
         query = f'SELECT {column_str} FROM "{object_name}"'
         params = []
 
         if filters:
-            where_clauses = []
-            for key, value in filters.items():
-                if isinstance(value, (list, tuple)):
-                    placeholders = ", ".join(["%s"] * len(value))
-                    where_clauses.append(f'"{key}" IN ({placeholders})')
-                    params.extend(value)
-                else:
-                    where_clauses.append(f'"{key}" = %s')
-                    params.append(value)
-
-            if where_clauses:
-                query += " WHERE " + " AND ".join(where_clauses)
+            where_clause, filter_params = self._build_where_clause(filters)
+            if where_clause:
+                query += f" WHERE {where_clause}"
+                params.extend(filter_params)
 
         return query, params
+
+    def _build_column_string(self, columns: Optional[List[str]]) -> str:
+        """Build the column selection string for the query."""
+        if not columns:
+            return "*"
+        escaped_columns = [f'"{col}"' for col in columns]
+        return ", ".join(escaped_columns)
+
+    def _build_where_clause(self, filters: Dict[str, Any]) -> tuple:
+        """Build WHERE clause and parameters from filters."""
+        where_clauses = []
+        params = []
+
+        for key, value in filters.items():
+            clause, clause_params = self._build_filter_condition(key, value)
+            if clause:
+                where_clauses.append(clause)
+                params.extend(clause_params)
+
+        where_clause = " AND ".join(where_clauses) if where_clauses else ""
+        return where_clause, params
+
+    def _build_filter_condition(self, key: str, value: Any) -> tuple:
+        """Build a single filter condition and its parameters."""
+        if isinstance(value, (list, tuple)):
+            return self._build_in_condition(key, value)
+        elif isinstance(value, str) and self._has_comparison_operator(value):
+            return self._build_comparison_condition(key, value)
+        elif isinstance(value, dict):
+            return self._build_dict_condition(key, value)
+        else:
+            return self._build_equality_condition(key, value)
+
+    def _build_in_condition(self, key: str, values: list) -> tuple:
+        """Build IN condition for list/tuple values."""
+        placeholders = ", ".join(["%s"] * len(values))
+        clause = f'"{key}" IN ({placeholders})'
+        return clause, list(values)
+
+    def _has_comparison_operator(self, value: str) -> bool:
+        """Check if string contains comparison operators."""
+        return any(op in value for op in [">=", "<=", ">", "<", "!="])
+
+    def _build_comparison_condition(self, key: str, value: str) -> tuple:
+        """Build comparison condition from string format."""
+        operators = [">=", "<=", "!=", ">", "<"]
+
+        for operator in operators:
+            if operator in value:
+                _, val = value.split(operator, 1)
+                clause = f'"{key}" {operator} %s'
+                return clause, [val.strip()]
+
+        # Fallback to equality if no operator found
+        return self._build_equality_condition(key, value)
+
+    def _build_dict_condition(self, key: str, value: dict) -> tuple:
+        """Build condition from dictionary format."""
+        clauses = []
+        params = []
+
+        for op, val in value.items():
+            if op in [">=", "<=", ">", "<", "!=", "="]:
+                clauses.append(f'"{key}" {op} %s')
+                params.append(val)
+            elif op.lower() == "in" and isinstance(val, (list, tuple)):
+                clause, clause_params = self._build_in_condition(key, val)
+                clauses.append(clause)
+                params.extend(clause_params)
+            else:
+                # Default to equality for unknown operators
+                clauses.append(f'"{key}" = %s')
+                params.append(val)
+
+        clause = (
+            " AND ".join(clauses)
+            if len(clauses) > 1
+            else (clauses[0] if clauses else "")
+        )
+        return clause, params
+
+    def _build_equality_condition(self, key: str, value: Any) -> tuple:
+        """Build simple equality condition."""
+        clause = f'"{key}" = %s'
+        return clause, [value]
 
     def _fetch_data_in_batches(self, cursor, batch_size: int) -> Iterator[DataChunk]:
         """Fetch data from cursor in batches.

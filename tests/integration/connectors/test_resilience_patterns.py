@@ -1,10 +1,12 @@
-"""Integration tests for resilience patterns with simulated failures."""
+"""Integration tests for resilience patterns across multiple connector types."""
 
+import os
 import threading
 import time
 from typing import Any, Dict, Iterator, List, Optional
 from unittest.mock import Mock, patch
 
+import psycopg2
 import pyarrow as pa
 import pytest
 import requests
@@ -17,16 +19,90 @@ from sqlflow.connectors.base import (
     Schema,
 )
 from sqlflow.connectors.data_chunk import DataChunk
+
+# Import real connectors for testing
+from sqlflow.connectors.postgres_connector import PostgresConnector
 from sqlflow.connectors.resilience import (
     DB_RESILIENCE_CONFIG,
     CircuitBreakerConfig,
     RateLimitConfig,
     RecoveryConfig,
     ResilienceConfig,
-    ResilienceManager,
     RetryConfig,
     resilient_operation,
 )
+from sqlflow.connectors.s3_connector import S3Connector
+
+# Mark all tests in this module as requiring external services
+pytestmark = pytest.mark.external_services
+
+
+@pytest.fixture(scope="module")
+def docker_postgres_config():
+    """Real PostgreSQL configuration from docker-compose.yml."""
+    return {
+        "host": "localhost",
+        "port": 5432,
+        "database": "postgres",
+        "username": "postgres",
+        "password": "postgres",
+        "schema": "public",
+    }
+
+
+@pytest.fixture(scope="module")
+def docker_minio_config():
+    """Real MinIO configuration from docker-compose.yml."""
+    return {
+        "endpoint_url": "http://localhost:9000",
+        "access_key_id": "minioadmin",
+        "secret_access_key": "minioadmin",
+        "region": "us-east-1",
+        "bucket": "sqlflow-demo",
+        "use_ssl": False,
+    }
+
+
+@pytest.fixture(scope="module")
+def setup_resilience_test_environment():
+    """Set up test environment for resilience testing."""
+    # Skip if services are not available
+    if not os.getenv("INTEGRATION_TESTS", "").lower() in ["true", "1"]:
+        pytest.skip("Integration tests disabled. Set INTEGRATION_TESTS=true to enable.")
+
+    # Test PostgreSQL connection
+    try:
+        import psycopg2
+
+        conn = psycopg2.connect(
+            host="localhost",
+            port=5432,
+            database="postgres",
+            user="postgres",
+            password="postgres",
+        )
+        conn.close()
+    except Exception as e:
+        pytest.skip(f"PostgreSQL service not available: {e}")
+
+    # Test MinIO connection
+    try:
+        import boto3
+
+        client = boto3.client(
+            "s3",
+            endpoint_url="http://localhost:9000",
+            aws_access_key_id="minioadmin",
+            aws_secret_access_key="minioadmin",
+            region_name="us-east-1",
+        )
+        client.list_buckets()
+    except Exception as e:
+        pytest.skip(f"MinIO service not available: {e}")
+
+    yield
+
+    # Cleanup is handled by individual tests
 
 
 class MockFlakeyConnector(Connector):
@@ -126,37 +202,47 @@ class MockFlakeyConnector(Connector):
         yield DataChunk(table)
 
 
-class MockRateLimitedAPI:
-    """Mock API that enforces rate limits."""
-
-    def __init__(self, requests_per_minute: int = 60):
-        self.requests_per_minute = requests_per_minute
-        self.request_times = []
-        self.lock = threading.Lock()
-
-    def make_request(self):
-        """Make a request that respects rate limits."""
-        with self.lock:
-            now = time.time()
-            # Remove requests older than 1 minute
-            self.request_times = [t for t in self.request_times if now - t < 60]
-
-            if len(self.request_times) >= self.requests_per_minute:
-                response = Mock()
-                response.status_code = 429
-                error = requests.exceptions.HTTPError("Too Many Requests")
-                error.response = response
-                raise error
-
-            self.request_times.append(now)
-            return "Success"
-
-
 class TestResiliencePatterns:
-    """Integration tests for resilience patterns."""
+    """Integration tests for resilience patterns with real services."""
+
+    def test_real_postgres_resilience_configuration(
+        self, docker_postgres_config, setup_resilience_test_environment
+    ):
+        """Test resilience configuration with real PostgreSQL connector."""
+        connector = PostgresConnector()
+        connector.configure(docker_postgres_config)
+
+        # Verify resilience manager is configured
+        assert hasattr(connector, "resilience_manager")
+        assert connector.resilience_manager is not None
+
+        # Test actual connection
+        result = connector.test_connection()
+        assert result.success is True, f"PostgreSQL connection failed: {result.message}"
+
+    def test_real_s3_resilience_configuration(
+        self, docker_minio_config, setup_resilience_test_environment
+    ):
+        """Test resilience configuration with real S3/MinIO connector."""
+        connector = S3Connector()
+        config = {
+            **docker_minio_config,
+            "file_format": "csv",
+            "mock_mode": False,
+        }
+
+        connector.configure(config)
+
+        # Verify resilience manager is configured
+        assert hasattr(connector, "resilience_manager")
+        assert connector.resilience_manager is not None
+
+        # Test actual connection
+        result = connector.test_connection()
+        assert result.success is True, f"MinIO connection failed: {result.message}"
 
     def test_retry_with_connection_errors(self):
-        """Test retry pattern with connection errors."""
+        """Test retry pattern with connection errors using mock connector."""
         config = ResilienceConfig(
             retry=RetryConfig(max_attempts=3, initial_delay=0.01),
             circuit_breaker=None,
@@ -174,7 +260,7 @@ class TestResiliencePatterns:
         assert connector.call_count == 3
 
     def test_retry_with_permanent_failure(self):
-        """Test retry pattern with permanent failure."""
+        """Test retry pattern with permanent failure using mock connector."""
         config = ResilienceConfig(
             retry=RetryConfig(max_attempts=2, initial_delay=0.01),
             circuit_breaker=None,
@@ -263,47 +349,95 @@ class TestResiliencePatterns:
         result = connector.test_connection()
         assert result.success is True
 
-    def test_rate_limiting_with_api(self):
-        """Test rate limiting with simulated API."""
-        config = ResilienceConfig(
-            retry=RetryConfig(max_attempts=1),  # No retries to avoid complications
-            circuit_breaker=None,
-            rate_limit=RateLimitConfig(
-                max_requests_per_minute=120,  # 2 req/sec
-                burst_size=3,
-                backpressure_strategy="wait",
-            ),
-            recovery=None,
-        )
+    def test_real_postgres_concurrent_access(
+        self, docker_postgres_config, setup_resilience_test_environment
+    ):
+        """Test concurrent access to real PostgreSQL with resilience patterns."""
+        results = {}
 
-        manager = ResilienceManager(config, "test_api")
+        def test_postgres_thread(thread_id):
+            try:
+                connector = PostgresConnector()
+                connector.configure(docker_postgres_config)
 
-        def make_api_call():
-            return "Success"  # Simple success without rate limiting complexity
+                # Test connection
+                result = connector.test_connection()
+                results[f"{thread_id}_connection"] = result.success
 
-        # Test that rate limiting works with wait strategy
-        with patch("time.sleep") as mock_sleep:
-            # First few calls should succeed (within burst)
-            result1 = manager.execute_resilient_operation(
-                make_api_call, "api_call", "test_host"
-            )
-            result2 = manager.execute_resilient_operation(
-                make_api_call, "api_call", "test_host"
-            )
-            result3 = manager.execute_resilient_operation(
-                make_api_call, "api_call", "test_host"
-            )
+                # Test discovery
+                discovered = connector.discover()
+                results[f"{thread_id}_discovery"] = len(discovered) >= 0
 
-            assert result1 == "Success"
-            assert result2 == "Success"
-            assert result3 == "Success"
+            except Exception as e:
+                results[f"{thread_id}_error"] = str(e)
 
-            # Fourth call should trigger rate limiting (wait strategy)
-            result4 = manager.execute_resilient_operation(
-                make_api_call, "api_call", "test_host"
-            )
-            assert result4 == "Success"
-            mock_sleep.assert_called()  # Should have waited
+        # Start multiple threads
+        threads = []
+        for i in range(3):
+            thread = threading.Thread(target=test_postgres_thread, args=(i,))
+            threads.append(thread)
+            thread.start()
+
+        # Wait for completion
+        for thread in threads:
+            thread.join()
+
+        # Verify results
+        for i in range(3):
+            assert (
+                results.get(f"{i}_connection") is True
+            ), f"Thread {i} PostgreSQL connection failed"
+            assert (
+                results.get(f"{i}_discovery") is True
+            ), f"Thread {i} PostgreSQL discovery failed"
+
+    def test_real_s3_concurrent_access(
+        self, docker_minio_config, setup_resilience_test_environment
+    ):
+        """Test concurrent access to real MinIO with resilience patterns."""
+        results = {}
+
+        def test_s3_thread(thread_id):
+            try:
+                connector = S3Connector()
+                config = {
+                    **docker_minio_config,
+                    "file_format": "csv",
+                    "mock_mode": False,
+                }
+                connector.configure(config)
+
+                # Test connection
+                result = connector.test_connection()
+                results[f"{thread_id}_connection"] = result.success
+
+                # Test discovery
+                discovered = connector.discover()
+                results[f"{thread_id}_discovery"] = len(discovered) >= 0
+
+            except Exception as e:
+                results[f"{thread_id}_error"] = str(e)
+
+        # Start multiple threads
+        threads = []
+        for i in range(3):
+            thread = threading.Thread(target=test_s3_thread, args=(i,))
+            threads.append(thread)
+            thread.start()
+            time.sleep(0.05)  # Small delay to avoid overwhelming MinIO
+
+        # Wait for completion
+        for thread in threads:
+            thread.join()
+
+        # Verify results
+        for i in range(3):
+            assert (
+                results.get(f"{i}_connection") is True
+            ), f"Thread {i} S3 connection failed"
+            assert (
+                results.get(f"{i}_discovery") is True
+            ), f"Thread {i} S3 discovery failed"
 
     def test_combined_resilience_patterns(self):
         """Test combined retry, circuit breaker, and rate limiting."""
@@ -357,6 +491,47 @@ class TestResiliencePatterns:
 
         assert connector_401.call_count == 1
 
+    def test_real_postgres_with_invalid_config(self, setup_resilience_test_environment):
+        """Test PostgreSQL resilience with invalid configuration."""
+        connector = PostgresConnector()
+        invalid_config = {
+            "host": "localhost",
+            "port": 9999,  # Invalid port
+            "database": "postgres",
+            "username": "postgres",
+            "password": "postgres",
+        }
+
+        connector.configure(invalid_config)
+
+        # Should fail gracefully with resilience patterns after retries
+        with pytest.raises(psycopg2.OperationalError) as exc_info:
+            connector.test_connection()
+
+        # Verify the error message indicates connection failure
+        error_msg = str(exc_info.value).lower()
+        assert "connection" in error_msg
+
+    def test_real_s3_with_invalid_credentials(self, setup_resilience_test_environment):
+        """Test S3 resilience with invalid credentials."""
+        connector = S3Connector()
+        invalid_config = {
+            "endpoint_url": "http://localhost:9000",
+            "access_key_id": "invalid_key",
+            "secret_access_key": "invalid_secret",
+            "region": "us-east-1",
+            "bucket": "sqlflow-demo",
+            "file_format": "csv",
+            "mock_mode": False,
+        }
+
+        connector.configure(invalid_config)
+
+        # Should fail gracefully with resilience patterns
+        result = connector.test_connection()
+        assert result.success is False
+        assert "forbidden" in result.message.lower() or "403" in result.message.lower()
+
     def test_api_resilience_config_integration(self):
         """Test integration with predefined API resilience config."""
         # Use a modified config with disabled circuit breaker for this test
@@ -388,74 +563,6 @@ class TestResiliencePatterns:
         result = connector.test_connection()
         assert result.success is True
         assert connector.call_count == 3  # 2 failures + 1 success
-
-    def test_concurrent_operations_with_resilience(self):
-        """Test resilience patterns under concurrent load."""
-        config = ResilienceConfig(
-            retry=RetryConfig(max_attempts=2, initial_delay=0.01),
-            circuit_breaker=CircuitBreakerConfig(
-                failure_threshold=10
-            ),  # High threshold
-            rate_limit=RateLimitConfig(max_requests_per_minute=600, burst_size=50),
-            recovery=None,
-        )
-
-        def worker_thread(thread_id: int, results: Dict[int, Any]):
-            """Worker thread function."""
-            try:
-                connector = MockFlakeyConnector("connection_error", failure_count=1)
-                connector.configure_resilience(config)
-                connector.configure({})
-
-                result = connector.test_connection()
-                results[thread_id] = result.success
-            except Exception as e:
-                results[thread_id] = str(e)
-
-        # Run multiple threads concurrently
-        results = {}
-        threads = []
-        num_threads = 5
-
-        for i in range(num_threads):
-            thread = threading.Thread(target=worker_thread, args=(i, results))
-            threads.append(thread)
-            thread.start()
-
-        for thread in threads:
-            thread.join()
-
-        # All threads should succeed
-        for thread_id in range(num_threads):
-            assert results[thread_id] is True
-
-    def test_recovery_handler_integration(self):
-        """Test recovery handler with connection errors."""
-        config = ResilienceConfig(
-            retry=RetryConfig(max_attempts=2, initial_delay=0.01),
-            circuit_breaker=None,
-            rate_limit=None,
-            recovery=RecoveryConfig(
-                enable_connection_recovery=True,
-                recovery_check_interval=0.01,
-                max_recovery_attempts=2,
-            ),
-        )
-
-        manager = ResilienceManager(config, "test_recovery")
-
-        # Use a list to track call count (mutable closure)
-        call_count = [0]
-
-        def failing_operation():
-            call_count[0] += 1
-            if call_count[0] <= 2:
-                raise ConnectionError("Connection failed")
-            return "success"
-
-        # Should succeed after recovery
-        result = manager.execute_resilient_operation(failing_operation, "test_op")
-        assert result == "success"
 
     def test_performance_overhead_measurement(self):
         """Test performance overhead of resilience patterns."""

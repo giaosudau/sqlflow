@@ -41,16 +41,32 @@ repos:
             '--max-complexity=10',
         ]
 
-    -   id: pytest
-        name: pytest
+    -   id: pytest-unit
+        name: pytest (unit tests)
         entry: pytest
         language: python
         files: '^(.*\.py|tests/.*|setup\.py|setup\.cfg|pyproject\.toml|requirements.*\.txt)$'
         types: [python]
         args: [
+            'tests/unit/',
             '--cov=sqlflow',
             '--cov-branch',
             '--cov-report=xml',
+            '--maxfail=3',
+            '-q',
+            '--disable-warnings'
+        ]
+        pass_filenames: false
+
+    -   id: pytest-local-integration
+        name: pytest (local integration tests)
+        entry: pytest
+        language: python
+        files: '^(.*\.py|tests/.*|setup\.py|setup\.cfg|pyproject\.toml|requirements.*\.txt)$'
+        types: [python]
+        args: [
+            'tests/integration/',
+            '-k', 'not external_services',
             '--maxfail=3',
             '-q',
             '--disable-warnings'

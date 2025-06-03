@@ -1,180 +1,176 @@
-# Integration Tests Organization
+# SQLFlow Integration Tests
 
-This directory contains integration tests organized by functional areas to improve maintainability and test discovery.
+> **Focused integration testing with proper separation from comprehensive Phase 2 integration demo**
 
-## Structure Overview
+## 🎯 Purpose & Scope
 
-```
-tests/integration/
-├── conftest.py                 # Central shared fixtures
-├── udf/                        # User-Defined Function tests
-│   ├── conftest.py            # UDF-specific fixtures
-│   ├── test_udf_core_functionality.py     # Core UDF functionality (Task 1)
-│   ├── test_udf_error_handling.py         # Error handling & edge cases (Task 2)
-│   ├── test_udf_performance.py            # Performance & optimization (Task 3)
-│   └── test_udf_integration.py            # End-to-end integration (Task 4)
-├── load_modes/                 # Load mode tests (APPEND, REPLACE, MERGE)
-│   ├── conftest.py            # Load mode fixtures
-│   ├── test_load_modes.py
-│   ├── test_load_modes_regression.py
-│   └── test_merge_operation_regression.py
-├── pipeline/                   # Pipeline execution tests
-│   └── conftest.py            # Pipeline-specific fixtures
-├── cli/                        # CLI interface tests
-│   └── conftest.py            # CLI-specific fixtures
-└── test_connectors/           # Connector-specific tests
-    └── (various connector tests)
-```
+This directory contains **focused integration tests** that complement the comprehensive **Phase 2 Integration Demo** (`examples/phase2_integration_demo/`). The two testing approaches serve different purposes:
 
-## UDF Test Organization
+### Integration Tests (this directory)
+- ✅ **Focused Testing**: Individual connector features and edge cases
+- ✅ **Mock-Friendly**: Uses mocks/stubs where external services aren't critical
+- ✅ **Fast Execution**: Minimal external dependencies for quick feedback
+- ✅ **Component Testing**: Isolated testing of specific functionality
+- ✅ **CI-Optimized**: Runs efficiently in GitHub Actions
 
-The UDF tests have been consolidated into 4 comprehensive test files following the project refactoring:
+### Phase 2 Integration Demo
+- 🚀 **End-to-End Testing**: Complete workflows with real services (PostgreSQL, MinIO, pgAdmin)
+- 🚀 **Production Simulation**: Full Docker Compose stack testing
+- 🚀 **Multi-Connector Workflows**: PostgreSQL → Transform → S3 pipelines
+- 🚀 **Performance Validation**: Real-world data volumes and scenarios
+- 🚀 **Comprehensive Coverage**: All Phase 2 implementations together
 
-### **test_udf_core_functionality.py** (14 tests)
-Core UDF functionality and basic operations:
-- UDF discovery and registration
-- Scalar UDF execution with various data types
-- Table UDF execution and data processing
-- SQL query processing with UDFs
-- Namespace isolation and conflict resolution
+## 🛠️ CI Integration
 
-### **test_udf_error_handling.py** (19 tests)  
-Comprehensive error handling and edge cases:
-- Runtime error handling in UDFs
-- Table UDF error scenarios
-- Data validation and type errors
-- NULL handling and edge cases
-- Error propagation in complex workflows
-
-### **test_udf_performance.py** (13 tests)
-Performance benchmarking and optimization:
-- Performance benchmarks across dataset sizes (micro/small/medium/large)
-- Memory efficiency validation and chunked processing
-- Vectorized vs iterative processing comparisons
-- Scalability testing and regression detection
-
-### **test_udf_integration.py** (12 tests)
-End-to-end integration and workflow testing:
-- Complete pipeline execution with UDFs
-- Multi-step workflow integration
-- Production-like scenarios with large datasets
-- Batch processing and error recovery workflows
-- Regression testing for critical UDF flows
-
-## Testing Standards Followed
-
-The reorganization follows the testing standards defined in `04_testing_standards.mdc`:
-
-### 🎯 Focused Test Organization
-- **Component-based structure**: Tests grouped by functional area
-- **Shared fixtures**: Common setup in central `conftest.py`
-- **Component fixtures**: Specific fixtures in component `conftest.py` files
-- **Clear naming**: Test files follow `test_<component>_<aspect>.py` pattern
-
-### 🔧 Fixture Management
-- **Function scope**: Default scope for most fixtures to ensure isolation
-- **Session scope**: Used only for expensive, read-only setup (sample data)
-- **Proper cleanup**: All fixtures include teardown/cleanup logic
-- **No side effects**: Tests are independent and can run in any order
-
-### 📊 Performance Testing
-- **Realistic targets**: Performance benchmarks based on actual usage patterns
-- **Memory efficiency**: Tests include memory usage validation
-- **Regression prevention**: Baseline performance measurements
-- **Optimization tracking**: Debug capabilities for performance analysis
-
-## Key Improvements Made
-
-### 1. Eliminated Duplication
-- **Shared fixtures**: Common test data, engines, and executors
-- **Consistent patterns**: Standardized test setup across components
-- **Reduced boilerplate**: Central configuration management
-
-### 2. Enhanced Test Isolation
-- **Independent tests**: Each test can run standalone
-- **Clean environments**: Temporary databases and directories
-- **Proper scoping**: Fixtures scoped appropriately for their use case
-
-### 3. Better Error Handling
-- **Edge case coverage**: Comprehensive testing of error conditions
-- **Graceful failures**: Tests handle missing dependencies appropriately
-- **Clear error messages**: Descriptive assertion messages
-
-### 4. Performance Focus
-- **Benchmark targets**: Realistic performance expectations
-- **Memory monitoring**: Track memory usage in large dataset tests
-- **Optimization verification**: Tests for performance improvements
-
-## Usage Guidelines
-
-### Running Tests by Component
-
+### Regular CI (`test` job)
 ```bash
-# Run all UDF tests
-pytest tests/integration/udf/ -v
-
-# Run all load mode tests
-pytest tests/integration/load_modes/ -v
-
-# Run specific test categories
-pytest tests/integration/udf/test_udf_performance.py -v
+# Runs unit tests and basic examples
+pytest tests/unit/ --cov=sqlflow
+./run_all_examples.sh
 ```
 
-### Running Tests in Parallel
-
+### Integration CI (`integration-test` job)
 ```bash
-# Use pytest-xdist for parallel execution
-pytest tests/integration/ -n auto -q --disable-warnings
+# Starts real services with Docker Compose
+cd examples/phase2_integration_demo
+docker-compose up -d
+
+# Runs comprehensive Phase 2 demo
+./scripts/run_integration_demo.sh
+
+# Runs focused integration tests with external services
+INTEGRATION_TESTS=true pytest tests/integration/
 ```
 
-### Adding New Tests
+## 📋 Test Categories
 
-1. **Choose the right directory**: Place tests in the appropriate component directory
-2. **Use shared fixtures**: Leverage fixtures from `conftest.py` files
-3. **Follow naming conventions**: Use descriptive test and file names
-4. **Add component fixtures**: Create component-specific fixtures if needed
-5. **Document edge cases**: Include tests for error conditions and edge cases
+### Unit Tests (`tests/unit/`)
+- **No external dependencies**
+- **Mock everything**: Network calls, file system, external services
+- **Fast execution**: Hundreds of tests in seconds
+- **Component isolation**: Test individual functions/classes
 
-### Fixture Guidelines
+### Integration Tests (`tests/integration/`)
+- **Minimal external dependencies**: Only when absolutely necessary
+- **Selective execution**: `@pytest.mark.skipif` for external service requirements
+- **Feature integration**: Test how components work together
+- **Real implementations**: No mocking of core SQLFlow functionality
 
-- **Use function scope** for most test fixtures
-- **Use session scope** only for expensive, immutable setup
-- **Include proper cleanup** in all fixtures
-- **Document fixture purpose** with clear docstrings
-- **Avoid fixture dependencies** that create complex chains
+### Phase 2 Demo (`examples/phase2_integration_demo/`)
+- **Real external services**: PostgreSQL, MinIO, Redis, pgAdmin
+- **Complete workflows**: Multi-step data processing pipelines
+- **Production patterns**: Industry-standard parameters, resilience, cost management
+- **Performance testing**: Real data volumes and concurrent operations
 
-## Migration from Old Structure
+## 🚦 Test Execution Guidelines
 
-Tests have been moved and refactored as follows:
+### Local Development
+```bash
+# Run unit tests (no external services needed)
+pytest tests/unit/
 
-- `test_table_udf_comprehensive_validation.py` → Split into focused files in `udf/`
-- `test_load_modes*.py` → Moved to `load_modes/`
-- `test_udf_*.py` → Moved to `udf/`
-- Large test files → Split into manageable, focused test files
+# Run integration tests (mocked/minimal dependencies)
+pytest tests/integration/
 
-## Future Enhancements
+# Run integration tests with external services (optional)
+INTEGRATION_TESTS=true pytest tests/integration/
 
-The reorganized structure supports:
+# Run comprehensive Phase 2 demo (requires Docker)
+cd examples/phase2_integration_demo
+./quick_start.sh
+```
 
-1. **Component-specific CI**: Run only relevant tests for changes
-2. **Performance tracking**: Historical performance data collection
-3. **Test parallelization**: Better parallel execution with isolated components
-4. **Documentation integration**: Test documentation alongside code
-5. **Coverage analysis**: Component-specific coverage reporting
+### CI/GitHub Actions
+```bash
+# Unit tests run in every PR/push (fast feedback)
+pytest tests/unit/
 
-## Troubleshooting
+# Integration tests run with external services on PR/push
+cd examples/phase2_integration_demo && ./scripts/run_integration_demo.sh
+INTEGRATION_TESTS=true pytest tests/integration/
+```
 
-### Common Issues
+## 🎯 When to Add Tests Where
 
-- **Fixture not found**: Check if fixture is in the right `conftest.py`
-- **Test isolation**: Ensure tests don't depend on execution order
-- **Performance failures**: Check if performance targets are realistic
-- **Import errors**: Verify test dependencies are available
+### Add to `tests/unit/` when:
+- Testing individual functions or classes
+- Mocking external dependencies is straightforward
+- Fast execution is critical
+- Testing error conditions and edge cases
 
-### Best Practices
+### Add to `tests/integration/` when:
+- Testing how multiple components work together
+- Minimal external dependencies needed
+- Testing specific connector features in isolation
+- Mock setup would be more complex than real implementation
 
-- **Run tests locally** before committing
-- **Use descriptive test names** that explain what is being tested
-- **Include both positive and negative test cases**
-- **Test with realistic data sizes**
-- **Document any test-specific setup requirements** 
+### Add to Phase 2 Demo when:
+- Testing complete end-to-end workflows
+- Validating production scenarios
+- Testing multiple connectors together
+- Performance and scalability testing
+
+## 🔧 Configuration
+
+### Integration Test Skipping
+```python
+# Skip tests that require external services by default
+@pytest.mark.skipif(
+    not os.getenv("INTEGRATION_TESTS", "").lower() in ["true", "1"],
+    reason="Integration tests disabled. Set INTEGRATION_TESTS=true to enable.",
+)
+def test_external_service_feature():
+    # Test requiring external service
+    pass
+```
+
+### External Service Configuration
+```python
+# Use localhost configuration for local testing
+@pytest.fixture
+def service_config():
+    return {
+        "host": "localhost",
+        "port": 5432,
+        # ... other config
+    }
+```
+
+## 📊 Test Coverage Strategy
+
+| Test Type | Coverage | Speed | External Deps | CI Frequency |
+|-----------|----------|-------|---------------|--------------|
+| **Unit** | High (90%+) | Fast (<1min) | None | Every commit |
+| **Integration** | Medium (70%+) | Medium (2-5min) | Minimal | Every commit |
+| **Phase 2 Demo** | Complete E2E | Slow (5-10min) | Full stack | Every commit |
+
+## 🚀 Benefits of This Approach
+
+### For Developers
+- ✅ **Fast Feedback**: Unit tests provide immediate results
+- ✅ **Focused Debugging**: Integration tests isolate specific issues
+- ✅ **Real Validation**: Phase 2 demo validates complete functionality
+- ✅ **Flexible Testing**: Choose appropriate test level for each scenario
+
+### For CI/CD
+- ✅ **Efficient Resource Usage**: Parallel execution of different test types
+- ✅ **Reliable Results**: External services in controlled Docker environment
+- ✅ **Comprehensive Coverage**: All testing levels covered appropriately
+- ✅ **Clear Separation**: Each test type has defined purpose and scope
+
+### For Quality Assurance
+- ✅ **Multi-Level Validation**: Component, integration, and system testing
+- ✅ **Real-World Scenarios**: Phase 2 demo tests production patterns
+- ✅ **Regression Prevention**: Unit tests catch code-level regressions
+- ✅ **Performance Monitoring**: Integration demo tracks performance metrics
+
+## 📖 References
+
+- [Phase 2 Integration Demo](../../examples/phase2_integration_demo/README.md)
+- [Phase 2 Resilience Patterns](../../examples/phase2_integration_demo/RESILIENCE_DEMO.md)
+- [SQLFlow Testing Strategy](../README.md)
+- [CI/CD Workflow](../../.github/workflows/ci.yml)
+
+---
+
+**Ready to test SQLFlow comprehensively? Use the right test for the right purpose! 🚀** 

@@ -21,6 +21,41 @@ NC='\033[0m' # No Color
 DEMO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OUTPUT_DIR="$DEMO_DIR/output"
 
+# SQLFlow path detection
+SQLFLOW_PATH=""
+
+# Check if SQLFlow path is provided via environment variable (from run_all_examples.sh)
+if [ -n "${SQLFLOW_OVERRIDE_PATH:-}" ] && [ -f "${SQLFLOW_OVERRIDE_PATH}" ] && [ -x "${SQLFLOW_OVERRIDE_PATH}" ]; then
+    SQLFLOW_PATH="$SQLFLOW_OVERRIDE_PATH"
+else
+    # Try different locations for SQLFlow
+    POSSIBLE_PATHS=(
+        "../../.venv/bin/sqlflow"        # Local development with venv
+        "$(which sqlflow 2>/dev/null)"  # System PATH (CI environments)
+        "/usr/local/bin/sqlflow"         # Common system location
+        "$HOME/.local/bin/sqlflow"       # User-local installation
+    )
+
+    for path in "${POSSIBLE_PATHS[@]}"; do
+        if [ -n "$path" ] && [ -f "$path" ] && [ -x "$path" ]; then
+            SQLFLOW_PATH="$path"
+            break
+        fi
+    done
+fi
+
+if [ -z "$SQLFLOW_PATH" ]; then
+    echo -e "${RED}❌ SQLFlow executable not found in any of the following locations:${NC}"
+    for path in "${POSSIBLE_PATHS[@]}"; do
+        if [ -n "$path" ]; then
+            echo "  - $path"
+        fi
+    done
+    echo -e "${RED}Please ensure SQLFlow is installed and accessible${NC}"
+    echo -e "${RED}Try: pip install -e .[dev]${NC}"
+    exit 1
+fi
+
 echo -e "${BLUE}============================================${NC}"
 echo -e "${BLUE}   Task 2.1: Connector Interface Demo${NC}"
 echo -e "${BLUE}============================================${NC}"
@@ -48,7 +83,7 @@ run_pipeline() {
     
     echo -n "📦 Running $pipeline_name... "
     
-    if sqlflow pipeline run "$pipeline_name" --profile dev > /dev/null 2>&1; then
+    if $SQLFLOW_PATH pipeline run "$pipeline_name" --profile dev > /dev/null 2>&1; then
         echo -e "${GREEN}✅ SUCCESS${NC}"
         return 0
     else
