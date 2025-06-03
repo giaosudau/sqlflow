@@ -469,4 +469,14 @@ if [ $enhanced_s3_files -gt 0 ]; then
 fi
 
 echo
-print_header "🏁 Demo Complete" 
+print_header "🏁 Demo Complete"
+
+# CRITICAL: Explicit exit code based on test results
+echo "[DEBUG] Determining final exit code based on test results"
+if [ $successful_tests -eq $total_tests ]; then
+    echo "[DEBUG] All tests passed ($successful_tests/$total_tests) - exiting with code 0"
+    exit 0
+else
+    echo "[DEBUG] Some tests failed ($successful_tests/$total_tests) - exiting with code 1"
+    exit 1
+fi 
