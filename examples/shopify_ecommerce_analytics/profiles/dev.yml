@@ -1,0 +1,6 @@
+outputs:
+  duckdb:
+    type: duckdb
+    path: ":memory:"  # In-memory for quick testing
+
+target: duckdb 
