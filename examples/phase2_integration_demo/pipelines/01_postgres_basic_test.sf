@@ -28,7 +28,7 @@ SOURCE orders_basic TYPE POSTGRES PARAMS {
 LOAD staging_orders_basic FROM orders_basic;
 
 -- Test 3: Create summary for verification
-CREATE TABLE postgres_connection_test_results AS
+CREATE OR REPLACE TABLE postgres_connection_test_results AS
 SELECT 
     'PostgreSQL Basic Test' as test_name,
     COUNT(*) as customer_count,

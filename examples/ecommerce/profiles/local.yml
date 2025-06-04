@@ -25,8 +25,8 @@ connectors:
     params:
       endpoint_url: "http://localhost:9000"
       region: "us-east-1"
-      access_key: "minioadmin"
-      secret_key: "minioadmin"
+      access_key_id: "minioadmin"
+      secret_access_key: "minioadmin"
       bucket: "analytics"
   rest:
     type: REST

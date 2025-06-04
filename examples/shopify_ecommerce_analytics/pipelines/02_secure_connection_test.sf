@@ -1,0 +1,29 @@
+-- Secure Shopify Connection Test using Environment Variables
+-- Set: export SHOPIFY_STORE="mystore.myshopify.com"
+-- Set: export SHOPIFY_TOKEN="shpat_your_token_here"
+
+SOURCE shopify_store TYPE SHOPIFY PARAMS {
+    "shop_domain": "${SHOPIFY_STORE}",
+    "access_token": "${SHOPIFY_TOKEN}",
+    "sync_mode": "full_refresh"
+};
+
+-- Test connection by loading orders (default)
+LOAD orders FROM shopify_store;
+
+-- Quick connection validation
+CREATE TABLE connection_status AS
+SELECT 
+    'orders' as data_type,
+    COUNT(*) as records_found
+FROM orders;
+
+-- Export connection status
+EXPORT SELECT * FROM connection_status 
+TO "output/connection_status.csv" 
+TYPE CSV OPTIONS { "header": true };
+
+-- Export sample data for inspection
+EXPORT SELECT * FROM orders 
+TO "output/sample_orders.csv" 
+TYPE CSV OPTIONS { "header": true }; 

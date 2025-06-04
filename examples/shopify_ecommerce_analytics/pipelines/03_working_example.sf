@@ -1,0 +1,78 @@
+-- Working Shopify Connection Test
+-- Set: export SHOPIFY_STORE="mystore.myshopify.com"
+-- Set: export SHOPIFY_TOKEN="shpat_your_token_here"
+
+SOURCE shopify_store TYPE SHOPIFY PARAMS {
+    "shop_domain": "${SHOPIFY_STORE}",
+    "access_token": "${SHOPIFY_TOKEN}",
+    "sync_mode": "full_refresh"
+};
+
+-- Load different Shopify data streams (matches implementation plan)
+LOAD orders FROM shopify_store;
+LOAD customers FROM shopify_store;
+LOAD products FROM shopify_store;
+
+-- Business analytics following SME requirements from implementation plan
+CREATE TABLE daily_sales_summary AS
+SELECT 
+    DATE(created_at) as order_date,
+    COUNT(DISTINCT order_id) as total_orders,
+    COUNT(DISTINCT customer_email) as unique_customers,
+    SUM(CAST(total_price AS DECIMAL)) as daily_revenue,
+    AVG(CAST(total_price AS DECIMAL)) as avg_order_value,
+    COUNT(CASE WHEN financial_status = 'paid' THEN 1 END) as paid_orders
+FROM orders
+WHERE created_at >= CURRENT_DATE - INTERVAL 30 DAYS
+GROUP BY DATE(created_at)
+ORDER BY order_date DESC;
+
+CREATE TABLE top_products AS
+SELECT 
+    product_title,
+    COUNT(*) as order_count,
+    SUM(quantity) as total_quantity,
+    SUM(CAST(line_item_price AS DECIMAL) * quantity) as total_revenue
+FROM orders
+WHERE line_item_id IS NOT NULL
+GROUP BY product_title
+ORDER BY total_revenue DESC
+LIMIT 10;
+
+CREATE TABLE customer_segments AS
+SELECT 
+    customer_email,
+    COUNT(DISTINCT order_id) as order_count,
+    SUM(CAST(total_price AS DECIMAL)) as lifetime_value,
+    MIN(created_at) as first_order,
+    MAX(created_at) as last_order
+FROM orders
+WHERE customer_email IS NOT NULL
+GROUP BY customer_email
+ORDER BY lifetime_value DESC;
+
+-- Export results for SME business analysis
+EXPORT SELECT * FROM daily_sales_summary 
+TO "output/daily_sales_summary.csv" 
+TYPE CSV OPTIONS { "header": true };
+
+EXPORT SELECT * FROM top_products 
+TO "output/top_products.csv" 
+TYPE CSV OPTIONS { "header": true };
+
+EXPORT SELECT * FROM customer_segments 
+TO "output/customer_segments.csv" 
+TYPE CSV OPTIONS { "header": true };
+
+-- Export raw data samples for inspection
+EXPORT SELECT * FROM orders LIMIT 100
+TO "output/sample_orders.csv" 
+TYPE CSV OPTIONS { "header": true };
+
+EXPORT SELECT * FROM customers LIMIT 100
+TO "output/sample_customers.csv" 
+TYPE CSV OPTIONS { "header": true };
+
+EXPORT SELECT * FROM products LIMIT 100
+TO "output/sample_products.csv" 
+TYPE CSV OPTIONS { "header": true }; 

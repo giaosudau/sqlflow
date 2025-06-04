@@ -42,7 +42,7 @@ SOURCE orders_incremental TYPE POSTGRES PARAMS {
 LOAD staging_orders_incremental FROM orders_incremental;
 
 -- Test 4: Create incremental loading summary
-CREATE TABLE incremental_test_summary AS
+CREATE OR REPLACE TABLE incremental_test_summary AS
 SELECT 
     'Incremental Loading Test' as test_name,
     COUNT(*) as total_records,
@@ -53,7 +53,7 @@ SELECT
 FROM staging_orders_incremental;
 
 -- Test 5: Create customer order summary (using this test's customer data)
-CREATE TABLE customer_order_summary AS
+CREATE OR REPLACE TABLE customer_order_summary AS
 SELECT 
     c.customer_id,
     c.first_name,

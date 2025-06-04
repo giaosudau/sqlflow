@@ -125,6 +125,9 @@ class LocalExecutor(BaseExecutor):
 
         try:
             return Project(project_dir, profile_name or "dev")
+        except ValueError:
+            # Re-raise ValueError (profile validation errors) to maintain test expectations
+            raise
         except Exception as e:
             logger.debug(f"Could not create project from {project_dir}: {e}")
             return None
@@ -909,7 +912,7 @@ class LocalExecutor(BaseExecutor):
         self, load_step, connector_params: Dict, cursor_field: str, last_cursor_value
     ):
         """Load source data incrementally and return DataFrame."""
-        table_name_for_source = connector_params.get("table", load_step.source_name)
+        table_name_for_source = connector_params.get("table", load_step.table_name)
 
         # Check if we can get connector instance for incremental reading
         connector_instance = self._get_connector_instance(load_step.source_name)
@@ -992,9 +995,10 @@ class LocalExecutor(BaseExecutor):
             Number of rows loaded
 
         """
-        # Original loading logic
+        # Use the table name from the LOAD statement (e.g., 'orders', 'customers', 'products')
+        # instead of the source name (e.g., 'shopify_store') as the fallback
         table_name_for_source = source_definition.get("params", {}).get(
-            "table", load_step.source_name
+            "table", load_step.table_name
         )
 
         if not self.connector_engine:
@@ -1322,6 +1326,20 @@ class LocalExecutor(BaseExecutor):
             )
             if connector_type == "S3":
                 return self._handle_s3_traditional_source(step, connector, source_name)
+
+            # Special handling for API-based connectors (Shopify, etc.)
+            # These connectors should only read data during LOAD steps, not during SOURCE definition
+            if connector_type in ["SHOPIFY"]:
+                logger.info(
+                    f"Skipping data reading for API-based connector {connector_type} during SOURCE definition"
+                )
+                return {
+                    "status": "success",
+                    "source_name": source_name,
+                    "sync_mode": step.get("sync_mode", "full_refresh"),
+                    "rows_processed": 0,
+                    "message": f"API-based connector {connector_type} configured successfully",
+                }
 
             # For non-S3 connectors, use the existing logic
             object_name = self._extract_object_name_from_step(step)

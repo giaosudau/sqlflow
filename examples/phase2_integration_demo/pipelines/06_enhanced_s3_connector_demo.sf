@@ -161,7 +161,7 @@ LOAD staging_s3_legacy_demo FROM s3_legacy_demo;
 -- =============================================================================
 
 -- Create comprehensive enhanced S3 test results
-CREATE TABLE enhanced_s3_test_results AS
+CREATE OR REPLACE TABLE enhanced_s3_test_results AS
 SELECT 
     'Enhanced S3 Connector Test' as test_name,
     
@@ -190,7 +190,7 @@ SELECT
 -- =============================================================================
 
 -- Performance comparison results
-CREATE TABLE s3_performance_comparison AS
+CREATE OR REPLACE TABLE s3_performance_comparison AS
 SELECT 
     'Without optimization' as scenario,
     '1000 files scanned' as files_scanned,

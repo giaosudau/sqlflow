@@ -40,7 +40,7 @@ LOAD staging_orders_fresh FROM orders_fresh;
 LOAD staging_products_fresh FROM products_fresh;
 
 -- Step 4: Create enriched customer profiles with order history
-CREATE TABLE enriched_customers AS
+CREATE OR REPLACE TABLE enriched_customers AS
 SELECT 
     c.customer_id,
     c.first_name,
@@ -93,7 +93,7 @@ GROUP BY c.customer_id, c.first_name, c.last_name, c.email, c.phone,
          c.city, c.state, c.zip_code, c.country, c.created_at, c.updated_at;
 
 -- Step 5: Create order analytics with product information
-CREATE TABLE order_analytics AS
+CREATE OR REPLACE TABLE order_analytics AS
 SELECT 
     o.order_id,
     o.customer_id,
@@ -137,7 +137,7 @@ FROM staging_orders_fresh o
 JOIN staging_customers_fresh c ON o.customer_id = c.customer_id;
 
 -- Step 6: Create daily sales summary
-CREATE TABLE daily_sales_summary AS
+CREATE OR REPLACE TABLE daily_sales_summary AS
 SELECT 
     order_date,
     COUNT(*) as total_orders,
@@ -169,7 +169,7 @@ EXPORT SELECT * FROM daily_sales_summary TO 's3://sqlflow-demo/analytics/daily_s
 -- Step 8: Create summary reports for local analysis
 
 -- Customer segment distribution
-CREATE TABLE customer_segment_report AS
+CREATE OR REPLACE TABLE customer_segment_report AS
 SELECT 
     customer_segment,
     value_segment,
@@ -183,7 +183,7 @@ GROUP BY customer_segment, value_segment, recency_segment
 ORDER BY customer_segment, value_segment, recency_segment;
 
 -- Monthly sales trends
-CREATE TABLE monthly_sales_report AS
+CREATE OR REPLACE TABLE monthly_sales_report AS
 SELECT 
     order_year,
     order_month,
@@ -201,7 +201,7 @@ EXPORT SELECT * FROM customer_segment_report TO 'output/customer_segment_report.
 EXPORT SELECT * FROM monthly_sales_report TO 'output/monthly_sales_report.csv' TYPE CSV OPTIONS { "header": true };
 
 -- Step 9: Create final workflow summary
-CREATE TABLE workflow_summary AS
+CREATE OR REPLACE TABLE workflow_summary AS
 SELECT 
     'Multi-Connector Workflow' as workflow_name,
     CURRENT_TIMESTAMP as execution_time,

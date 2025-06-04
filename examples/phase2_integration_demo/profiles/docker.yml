@@ -1,45 +1,15 @@
 # SQLFlow Phase 2 Integration Demo Profile
 # Docker environment configuration for testing with real services
 
-name: "phase2_integration_demo"
-version: "1.0"
+engines:
+  duckdb:
+    mode: persistent
+    path: "/app/target/demo.duckdb"
+    memory_limit: 2GB
 
-# Environment configuration
-environment: "docker"
-debug: true
-log_level: "INFO"
+# Logging configuration
+log_level: info
 
-# Database configuration (DuckDB for local processing)
-database:
-  type: "duckdb"
-  path: "/app/target/demo.duckdb"
-  memory_limit: "2GB"
-  threads: 4
-
-# Connector configurations
-connectors:
-  postgres:
-    type: "postgres"
-    host: "postgres"
-    port: 5432
-    database: "demo"
-    username: "sqlflow"
-    password: "sqlflow123"
-    schema: "public"
-    sslmode: "prefer"
-    connect_timeout: 30
-    pool_size: 5
-    
-  s3:
-    type: "s3"
-    endpoint_url: "http://minio:9000"
-    access_key_id: "minioadmin"
-    secret_access_key: "minioadmin"
-    region: "us-east-1"
-    bucket: "sqlflow-demo"
-    use_ssl: false
-    cost_limit_usd: 10.0
-    
 # Variable definitions
 variables:
   # Demo data paths
@@ -53,6 +23,7 @@ variables:
   # Demo configuration
   demo_mode: true
   benchmark_mode: true
+  environment: "docker"
   
   # PostgreSQL connection details (for reference)
   postgres_host: "postgres"
@@ -65,6 +36,31 @@ variables:
   s3_bucket: "sqlflow-demo"
   s3_access_key: "minioadmin"
   s3_secret_key: "minioadmin"
+
+# Connector configurations
+connectors:
+  postgres:
+    type: POSTGRES
+    params:
+      host: "postgres"
+      port: 5432
+      dbname: "demo"
+      user: "sqlflow"
+      password: "sqlflow123"
+      schema: "public"
+      sslmode: "prefer"
+      connect_timeout: 30
+      pool_size: 5
+    
+  s3:
+    type: S3
+    params:
+      endpoint_url: "http://minio:9000"
+      access_key_id: "minioadmin"
+      secret_access_key: "minioadmin"
+      region: "us-east-1"
+      bucket: "sqlflow-demo"
+      use_ssl: false
 
 # Performance settings
 performance:

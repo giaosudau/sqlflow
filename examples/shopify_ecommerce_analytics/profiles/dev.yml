@@ -1,0 +1,8 @@
+engines:
+  duckdb:
+    mode: persistent
+    path: "data/shopify_analytics.duckdb"
+    memory_limit: 2GB
+
+variables:
+  environment: development 

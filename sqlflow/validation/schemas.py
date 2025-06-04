@@ -643,3 +643,97 @@ CONNECTOR_SCHEMAS: Dict[str, ConnectorSchema] = {
     "POSTGRES": POSTGRES_SCHEMA,
     "S3": S3_SCHEMA,
 }
+
+# Shopify connector schema (based on implementation plan)
+SHOPIFY_SCHEMA = ConnectorSchema(
+    name="SHOPIFY",
+    description="Shopify e-commerce connector for orders, customers, and products",
+    fields=[
+        # Required parameters
+        FieldSchema(
+            name="shop_domain",
+            required=True,
+            field_type="string",
+            description="Shopify shop domain (e.g., 'mystore.myshopify.com')",
+            pattern=r"^(?!-)([a-z0-9-]{3,63})(?<!-)\.myshopify\.com$",
+        ),
+        FieldSchema(
+            name="access_token",
+            required=True,
+            field_type="string",
+            description="Shopify private app access token",
+        ),
+        # Standard sync parameters (Airbyte/Fivetran compatible)
+        FieldSchema(
+            name="sync_mode",
+            required=False,
+            field_type="string",
+            description="Synchronization mode",
+            allowed_values=["full_refresh", "incremental"],
+        ),
+        FieldSchema(
+            name="cursor_field",
+            required=False,
+            field_type="string",
+            description="Field to use for incremental loading",
+        ),
+        FieldSchema(
+            name="lookback_window",
+            required=False,
+            field_type="string",
+            description="ISO 8601 duration for lookback buffer (e.g., 'P7D')",
+        ),
+        # SME-specific parameters
+        FieldSchema(
+            name="flatten_line_items",
+            required=False,
+            field_type="boolean",
+            description="Flatten order line items into separate rows",
+        ),
+        FieldSchema(
+            name="financial_status_filter",
+            required=False,
+            field_type="array",
+            description="Filter orders by financial status",
+        ),
+        FieldSchema(
+            name="include_fulfillments",
+            required=False,
+            field_type="boolean",
+            description="Include fulfillment data",
+        ),
+        FieldSchema(
+            name="include_refunds",
+            required=False,
+            field_type="boolean",
+            description="Include refund data",
+        ),
+        # Performance parameters
+        FieldSchema(
+            name="batch_size",
+            required=False,
+            field_type="integer",
+            description="Number of records to process per batch",
+        ),
+        FieldSchema(
+            name="timeout_seconds",
+            required=False,
+            field_type="integer",
+            description="Request timeout in seconds",
+        ),
+        FieldSchema(
+            name="max_retries",
+            required=False,
+            field_type="integer",
+            description="Maximum number of retry attempts",
+        ),
+    ],
+)
+
+# Registry of all connector schemas
+CONNECTOR_SCHEMAS: Dict[str, ConnectorSchema] = {
+    "CSV": CSV_SCHEMA,
+    "POSTGRES": POSTGRES_SCHEMA,
+    "S3": S3_SCHEMA,
+    "SHOPIFY": SHOPIFY_SCHEMA,
+}

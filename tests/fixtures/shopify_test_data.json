@@ -1,0 +1,474 @@
+{
+  "shopify_test_stores": {
+    "small_sme": {
+      "description": "Small SME store (100-500 orders, 20-100 products)",
+      "shop_info": {
+        "name": "Small Boutique",
+        "domain": "small-boutique.myshopify.com",
+        "currency": "USD",
+        "timezone": "America/New_York"
+      },
+      "orders": [
+        {
+          "id": 5001,
+          "order_number": "1001",
+          "name": "#1001",
+          "email": "customer1@example.com",
+          "created_at": "2024-01-15T10:30:00Z",
+          "updated_at": "2024-01-15T10:30:00Z",
+          "processed_at": "2024-01-15T10:30:00Z",
+          "total_price": "129.99",
+          "subtotal_price": "109.99",
+          "total_tax": "10.00",
+          "total_discounts": "0.00",
+          "currency": "USD",
+          "financial_status": "paid",
+          "fulfillment_status": "fulfilled",
+          "cancelled_at": null,
+          "customer": {
+            "id": 7001,
+            "email": "customer1@example.com",
+            "first_name": "Alice",
+            "last_name": "Johnson"
+          },
+          "billing_address": {
+            "country": "United States",
+            "province": "California",
+            "city": "San Francisco",
+            "zip": "94102"
+          },
+          "shipping_address": {
+            "country": "United States", 
+            "province": "California",
+            "city": "San Francisco",
+            "zip": "94102"
+          },
+          "line_items": [
+            {
+              "id": 8001,
+              "product_id": 9001,
+              "variant_id": 9101,
+              "title": "Premium Coffee Beans",
+              "variant_title": "Dark Roast - 1lb",
+              "vendor": "Local Roasters",
+              "sku": "COFFEE-DR-1LB",
+              "quantity": 2,
+              "price": "24.99",
+              "grams": 453,
+              "requires_shipping": true,
+              "taxable": true,
+              "fulfillment_service": "manual"
+            },
+            {
+              "id": 8002,
+              "product_id": 9002,
+              "variant_id": 9102,
+              "title": "Coffee Mug",
+              "variant_title": "Blue - 12oz",
+              "vendor": "Local Crafts",
+              "sku": "MUG-BLUE-12OZ",
+              "quantity": 1,
+              "price": "59.99", 
+              "grams": 300,
+              "requires_shipping": true,
+              "taxable": true,
+              "fulfillment_service": "manual"
+            }
+          ],
+          "fulfillments": [
+            {
+              "id": 6001,
+              "tracking_company": "UPS",
+              "tracking_number": "1Z999AA1234567890",
+              "tracking_url": "https://ups.com/track/1Z999AA1234567890",
+              "created_at": "2024-01-16T09:00:00Z",
+              "updated_at": "2024-01-16T09:00:00Z"
+            }
+          ],
+          "refunds": []
+        },
+        {
+          "id": 5002,
+          "order_number": "1002", 
+          "name": "#1002",
+          "email": "customer2@example.com",
+          "created_at": "2024-01-20T14:15:00Z",
+          "updated_at": "2024-01-22T16:30:00Z",
+          "processed_at": "2024-01-20T14:15:00Z",
+          "total_price": "89.99",
+          "subtotal_price": "89.99",
+          "total_tax": "7.20",
+          "total_discounts": "10.00",
+          "currency": "USD",
+          "financial_status": "paid",
+          "fulfillment_status": "partial",
+          "cancelled_at": null,
+          "customer": {
+            "id": 7002,
+            "email": "customer2@example.com", 
+            "first_name": "Bob",
+            "last_name": "Smith"
+          },
+          "billing_address": {
+            "country": "United States",
+            "province": "Texas",
+            "city": "Austin",
+            "zip": "73301"
+          },
+          "shipping_address": {
+            "country": "United States",
+            "province": "Texas", 
+            "city": "Austin",
+            "zip": "73301"
+          },
+          "line_items": [
+            {
+              "id": 8003,
+              "product_id": 9003,
+              "variant_id": 9103,
+              "title": "Tea Selection Pack",
+              "variant_title": "Herbal Mix - 20 bags",
+              "vendor": "Tea Masters",
+              "sku": "TEA-HERBAL-20",
+              "quantity": 1,
+              "price": "89.99",
+              "grams": 100,
+              "requires_shipping": true,
+              "taxable": true,
+              "fulfillment_service": "manual"
+            }
+          ],
+          "fulfillments": [],
+          "refunds": [
+            {
+              "id": 4001,
+              "amount": "10.00",
+              "reason": "discount",
+              "created_at": "2024-01-21T10:00:00Z"
+            }
+          ]
+        }
+      ],
+      "customers": [
+        {
+          "id": 7001,
+          "email": "customer1@example.com",
+          "first_name": "Alice",
+          "last_name": "Johnson",
+          "orders_count": 3,
+          "total_spent": "324.97",
+          "created_at": "2023-12-01T10:00:00Z",
+          "updated_at": "2024-01-15T10:30:00Z",
+          "state": "enabled"
+        },
+        {
+          "id": 7002,
+          "email": "customer2@example.com",
+          "first_name": "Bob", 
+          "last_name": "Smith",
+          "orders_count": 1,
+          "total_spent": "89.99",
+          "created_at": "2024-01-10T15:00:00Z",
+          "updated_at": "2024-01-20T14:15:00Z",
+          "state": "enabled"
+        }
+      ],
+      "products": [
+        {
+          "id": 9001,
+          "title": "Premium Coffee Beans",
+          "vendor": "Local Roasters",
+          "product_type": "Coffee",
+          "handle": "premium-coffee-beans",
+          "status": "active",
+          "created_at": "2023-11-01T10:00:00Z",
+          "updated_at": "2024-01-01T10:00:00Z",
+          "published_at": "2023-11-01T10:00:00Z"
+        },
+        {
+          "id": 9002,
+          "title": "Coffee Mug",
+          "vendor": "Local Crafts",
+          "product_type": "Accessory", 
+          "handle": "coffee-mug",
+          "status": "active",
+          "created_at": "2023-11-01T10:00:00Z",
+          "updated_at": "2024-01-01T10:00:00Z",
+          "published_at": "2023-11-01T10:00:00Z"
+        },
+        {
+          "id": 9003,
+          "title": "Tea Selection Pack",
+          "vendor": "Tea Masters",
+          "product_type": "Tea",
+          "handle": "tea-selection-pack",
+          "status": "active",
+          "created_at": "2023-11-15T10:00:00Z",
+          "updated_at": "2024-01-01T10:00:00Z", 
+          "published_at": "2023-11-15T10:00:00Z"
+        }
+      ]
+    },
+    "medium_sme": {
+      "description": "Growing SME store (1k-5k orders, 200-1k products)",
+      "shop_info": {
+        "name": "Growing Electronics",
+        "domain": "growing-electronics.myshopify.com",
+        "currency": "USD",
+        "timezone": "America/Los_Angeles"
+      },
+      "sample_orders": [
+        {
+          "id": "TEMPLATE_ID",
+          "order_number": "TEMPLATE_NUMBER",
+          "name": "#TEMPLATE_NUMBER", 
+          "email": "bigcustomer@company.com",
+          "created_at": "2024-01-25T09:00:00Z",
+          "updated_at": "2024-01-25T09:00:00Z",
+          "processed_at": "2024-01-25T09:00:00Z",
+          "total_price": "2459.97",
+          "subtotal_price": "2299.99",
+          "total_tax": "184.00",
+          "total_discounts": "229.99",
+          "currency": "USD",
+          "financial_status": "paid",
+          "fulfillment_status": "fulfilled",
+          "cancelled_at": null,
+          "customer": {
+            "id": "TEMPLATE_CUSTOMER_ID",
+            "email": "bigcustomer@company.com",
+            "first_name": "Charlie",
+            "last_name": "Brown"
+          },
+          "billing_address": {
+            "country": "United States",
+            "province": "New York",
+            "city": "New York", 
+            "zip": "10001"
+          },
+          "shipping_address": {
+            "country": "United States",
+            "province": "New York",
+            "city": "New York",
+            "zip": "10001"
+          },
+          "line_items": [
+            {
+              "id": "TEMPLATE_LINE_ITEM_ID_1",
+              "product_id": 10001,
+              "variant_id": 10101,
+              "title": "Laptop Pro 15-inch",
+              "variant_title": "Silver - 512GB",
+              "vendor": "TechCorp", 
+              "sku": "LAPTOP-PRO-15-512-SLV",
+              "quantity": 1,
+              "price": "1999.99",
+              "grams": 2000,
+              "requires_shipping": true,
+              "taxable": true,
+              "fulfillment_service": "manual"
+            },
+            {
+              "id": "TEMPLATE_LINE_ITEM_ID_2",
+              "product_id": 10002,
+              "variant_id": 10102,
+              "title": "Wireless Mouse",
+              "variant_title": "Black",
+              "vendor": "TechCorp",
+              "sku": "MOUSE-WIRELESS-BLK",
+              "quantity": 2,
+              "price": "79.99",
+              "grams": 100,
+              "requires_shipping": true,
+              "taxable": true,
+              "fulfillment_service": "manual"
+            },
+            {
+              "id": "TEMPLATE_LINE_ITEM_ID_3",
+              "product_id": 10003,
+              "variant_id": 10103,
+              "title": "USB-C Hub",
+              "variant_title": "8-port",
+              "vendor": "TechCorp",
+              "sku": "HUB-USBC-8PORT",
+              "quantity": 1,
+              "price": "149.99",
+              "grams": 200,
+              "requires_shipping": true,
+              "taxable": true,
+              "fulfillment_service": "manual"
+            }
+          ],
+          "fulfillments": [
+            {
+              "id": "TEMPLATE_FULFILLMENT_ID",
+              "tracking_company": "FedEx",
+              "tracking_number": "1234567890123456",
+              "tracking_url": "https://fedex.com/track/1234567890123456",
+              "created_at": "2024-01-26T10:00:00Z",
+              "updated_at": "2024-01-26T10:00:00Z"
+            }
+          ],
+          "refunds": []
+        }
+      ]
+    },
+    "edge_cases": {
+      "description": "Edge cases and error scenarios for robust testing",
+      "test_scenarios": [
+        {
+          "scenario": "order_without_line_items",
+          "order": {
+            "id": 9999,
+            "order_number": "9999",
+            "name": "#9999",
+            "email": "test@example.com",
+            "created_at": "2024-01-01T00:00:00Z",
+            "updated_at": "2024-01-01T00:00:00Z",
+            "total_price": "0.00",
+            "currency": "USD",
+            "financial_status": "pending",
+            "fulfillment_status": null,
+            "line_items": [],
+            "customer": null,
+            "billing_address": null,
+            "shipping_address": null,
+            "fulfillments": [],
+            "refunds": []
+          }
+        },
+        {
+          "scenario": "order_with_missing_customer",
+          "order": {
+            "id": 9998,
+            "order_number": "9998", 
+            "name": "#9998",
+            "email": null,
+            "created_at": "2024-01-01T00:00:00Z",
+            "updated_at": "2024-01-01T00:00:00Z",
+            "total_price": "50.00",
+            "currency": "USD",
+            "financial_status": "paid",
+            "fulfillment_status": "unfulfilled",
+            "line_items": [
+              {
+                "id": 9999,
+                "product_id": null,
+                "variant_id": null,
+                "title": "Unknown Product",
+                "quantity": 1,
+                "price": "50.00"
+              }
+            ],
+            "customer": null,
+            "fulfillments": [],
+            "refunds": []
+          }
+        },
+        {
+          "scenario": "cancelled_order_with_refund",
+          "order": {
+            "id": 9997,
+            "order_number": "9997",
+            "name": "#9997", 
+            "email": "cancelled@example.com",
+            "created_at": "2024-01-01T00:00:00Z",
+            "updated_at": "2024-01-02T00:00:00Z",
+            "total_price": "100.00",
+            "currency": "USD",
+            "financial_status": "refunded",
+            "fulfillment_status": "unfulfilled",
+            "cancelled_at": "2024-01-02T00:00:00Z",
+            "line_items": [
+              {
+                "id": 9998,
+                "product_id": 9999,
+                "title": "Cancelled Product",
+                "quantity": 1,
+                "price": "100.00"
+              }
+            ],
+            "customer": {
+              "id": 9999,
+              "email": "cancelled@example.com",
+              "first_name": "Cancelled",
+              "last_name": "User"
+            },
+            "fulfillments": [],
+            "refunds": [
+              {
+                "id": 9999,
+                "amount": "100.00",
+                "reason": "order_cancelled",
+                "created_at": "2024-01-02T00:00:00Z"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "api_error_scenarios": {
+    "rate_limit_response": {
+      "status_code": 429,
+      "headers": {
+        "X-Shopify-Shop-Api-Call-Limit": "40/40",
+        "Retry-After": "2"
+      },
+      "body": {
+        "errors": "Exceeded 2 calls per second for api client."
+      }
+    },
+    "unauthorized_response": {
+      "status_code": 401,
+      "body": {
+        "errors": "Invalid API key or access token"
+      }
+    },
+    "forbidden_response": {
+      "status_code": 403,
+      "body": {
+        "errors": "Insufficient permissions to access this resource"
+      }
+    },
+    "not_found_response": {
+      "status_code": 404,
+      "body": {
+        "errors": "Not Found"
+      }
+    },
+    "server_error_response": {
+      "status_code": 500,
+      "body": {
+        "errors": "Internal Server Error"
+      }
+    }
+  },
+  "shopify_partner_setup": {
+    "development_store_guide": {
+      "step_1": "Go to https://partners.shopify.com/",
+      "step_2": "Create free Partner account",
+      "step_3": "Navigate to Stores > Create development store",
+      "step_4": "Choose 'Development store' type",
+      "step_5": "Configure private app with read_orders, read_customers, read_products scopes",
+      "step_6": "Copy Admin API access token (shpat_...)",
+      "development_stores": [
+        {
+          "size": "small",
+          "recommended_name": "sqlflow-test-small",
+          "description": "100-500 orders for basic testing"
+        },
+        {
+          "size": "medium", 
+          "recommended_name": "sqlflow-test-medium",
+          "description": "1k-5k orders for performance testing"
+        },
+        {
+          "size": "large",
+          "recommended_name": "sqlflow-test-large", 
+          "description": "50k+ orders for stress testing"
+        }
+      ]
+    }
+  }
+} 

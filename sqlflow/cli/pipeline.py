@@ -98,6 +98,10 @@ def _apply_variable_substitution(pipeline_text: str, variables: Dict[str, Any]) 
             f"Pipeline contains missing variables: {', '.join(missing_vars)}"
         )
 
+    logger.debug(
+        f"Pipeline text after CLI substitution (first 500 chars): {result[:500]}"
+    )
+
     return result
 
 
@@ -217,31 +221,49 @@ def _compile_pipeline_to_plan(
             all_variables.update(variables)
             logger.debug(f"Added CLI variables for compilation: {variables}")
 
-        # Apply variable substitution if we have any variables
-        if all_variables:
-            from sqlflow.core.variable_substitution import VariableSubstitutionEngine
+        # Apply variable substitution - the engine will automatically check environment variables
+        from sqlflow.core.variable_substitution import VariableSubstitutionEngine
 
-            engine = VariableSubstitutionEngine(all_variables)
-            pipeline_text = engine.substitute(pipeline_text)
+        # Use modern VariableSubstitutionEngine with priority-based resolution
+        engine = VariableSubstitutionEngine(
+            cli_variables=variables,
+            profile_variables=profile_variables,
+            set_variables={},  # SET variables will be extracted during parsing
+        )
+        pipeline_text = engine.substitute(pipeline_text)
 
-            logger.debug("Applied variable substitution before compilation")
+        logger.debug(
+            f"Pipeline text after CLI substitution (first 500 chars): {pipeline_text[:500]}"
+        )
 
-            # Log any missing variables (those without defaults)
-            missing_vars = engine.validate_required_variables(pipeline_text)
-            if missing_vars:
-                logger.warning(
-                    f"Missing variables during compilation: {', '.join(missing_vars)}"
-                )
+        logger.debug("Applied variable substitution before compilation")
+
+        # Log any missing variables (those without defaults)
+        missing_vars = engine.validate_required_variables(pipeline_text)
+        if missing_vars:
+            logger.warning(
+                f"Missing variables during compilation: {', '.join(missing_vars)}"
+            )
 
         # Parse the pipeline (now with variables substituted)
         parser = Parser()
         pipeline = parser.parse(pipeline_text)
 
+        # Include environment variables for planner validation
+        # Environment variables should have the lowest priority
+        planner_variables = dict(os.environ)
+
+        # Add profile variables (higher priority than environment)
+        if profile_variables:
+            planner_variables.update(profile_variables)
+
+        # Add CLI variables (highest priority)
+        if variables:
+            planner_variables.update(variables)
+
         # Create a plan with planner
         planner = Planner()
-        operations = planner.create_plan(
-            pipeline, variables=variables, profile_variables=profile_variables
-        )
+        operations = planner.create_plan(pipeline, variables=planner_variables)
 
         # Save the plan if requested
         if save_plan:
@@ -520,6 +542,11 @@ def compile_pipeline(
     By default, validation is performed before compilation to catch errors early.
     Use --skip-validation to skip validation for CI/CD performance scenarios.
     """
+    # Load .env file from project directory early in the process
+    from sqlflow.utils.env import setup_environment
+
+    setup_environment()
+
     # Configure logging based on command-specific flags
     configure_logging(verbose=verbose, quiet=quiet)
 
@@ -533,10 +560,10 @@ def compile_pipeline(
         if skip_validation:
             return True
 
-        from sqlflow.cli.validation_helpers import validate_pipeline_with_caching
+        from sqlflow.cli.validation_helpers import validate_pipeline
 
         try:
-            errors = validate_pipeline_with_caching(pipeline_path)
+            errors = validate_pipeline(pipeline_path)
 
             if errors:
                 if not quiet:
@@ -1177,34 +1204,52 @@ def _get_execution_operations(
             logger.debug(f"Final combined variables for parsing: {all_variables}")
 
             # Substitute variables in pipeline text BEFORE parsing
-            if all_variables:
-                from sqlflow.core.variable_substitution import (
-                    VariableSubstitutionEngine,
+            # Always apply substitution - the engine will check environment variables
+            # even when no explicit variables are provided
+            from sqlflow.core.variable_substitution import (
+                VariableSubstitutionEngine,
+            )
+
+            # Use modern VariableSubstitutionEngine with priority-based resolution
+            engine = VariableSubstitutionEngine(
+                cli_variables=variables,
+                profile_variables=profile_variables,
+                set_variables={},  # SET variables will be extracted during parsing
+            )
+            pipeline_text = engine.substitute(pipeline_text)
+
+            logger.debug(
+                f"Pipeline text after CLI substitution (first 500 chars): {pipeline_text[:500]}"
+            )
+
+            logger.debug("Applied variable substitution before parsing")
+
+            # Log any missing variables (those without defaults)
+            missing_vars = engine.validate_required_variables(pipeline_text)
+            if missing_vars:
+                logger.warning(
+                    f"Missing variables during compilation: {', '.join(missing_vars)}"
                 )
-
-                engine = VariableSubstitutionEngine(all_variables)
-                pipeline_text = engine.substitute(pipeline_text)
-
-                logger.debug("Applied variable substitution before parsing")
-
-                # Log any missing variables (those without defaults)
-                missing_vars = engine.validate_required_variables(pipeline_text)
-                if missing_vars:
-                    logger.warning(
-                        f"Missing variables during compilation: {', '.join(missing_vars)}"
-                    )
 
             # Parse the pipeline (now with variables substituted)
             parser = Parser()
             pipeline = parser.parse(pipeline_text)
 
+            # Include environment variables for planner validation
+            # Environment variables should have the lowest priority
+            planner_variables = dict(os.environ)
+
+            # Add profile variables (higher priority than environment)
+            if profile_variables:
+                planner_variables.update(profile_variables)
+
+            # Add CLI variables (highest priority)
+            if variables:
+                planner_variables.update(variables)
+
             # Create execution plan with planner
             planner = Planner()
-
-            # Pass variables to the planner (though they're already substituted)
-            operations = planner.create_plan(
-                pipeline, variables=variables, profile_variables=profile_variables
-            )
+            operations = planner.create_plan(pipeline, variables=planner_variables)
 
             return operations
         except Exception as e:
@@ -1559,6 +1604,11 @@ def run_pipeline(
 
     Validation is always performed before execution to catch errors early.
     """
+    # Load .env file from project directory early in the process
+    from sqlflow.utils.env import setup_environment
+
+    setup_environment()
+
     # Configure logging based on command-specific flags
     configure_logging(verbose=verbose, quiet=quiet)
 
@@ -1572,10 +1622,10 @@ def run_pipeline(
     ) = _setup_run_environment(pipeline_name, vars, profile)
 
     # Always validate pipeline before execution
-    from sqlflow.cli.validation_helpers import validate_pipeline_with_caching
+    from sqlflow.cli.validation_helpers import validate_pipeline
 
     try:
-        errors = validate_pipeline_with_caching(_pipeline_path)
+        errors = validate_pipeline(_pipeline_path)
 
         if errors:
             if not quiet:
@@ -1717,30 +1767,18 @@ def validate_pipeline_command(
     verbose: bool = typer.Option(
         False, "--verbose", "-v", help="Enable verbose output with technical details"
     ),
-    clear_cache: bool = typer.Option(
-        False, "--clear-cache", help="Clear validation cache before validating"
-    ),
 ):
     """Validate pipeline(s) without executing them.
 
     Validates pipeline syntax, connector configurations, and cross-references.
-    Uses smart caching for improved performance on unchanged files.
     """
-    from sqlflow.cli.validation_cache import ValidationCache
     from sqlflow.cli.validation_helpers import (
         print_validation_summary,
-        validate_pipeline_with_caching,
+        validate_pipeline,
     )
 
     # Configure logging
     configure_logging(verbose=verbose, quiet=quiet)
-
-    # Clear cache if requested
-    if clear_cache:
-        cache = ValidationCache(".")
-        cache.clear_cache()
-        if not quiet:
-            typer.echo("🗑️  Validation cache cleared")
 
     if pipeline_name:
         # Validate single pipeline
@@ -1753,8 +1791,8 @@ def validate_pipeline_command(
                 typer.echo(f"❌ Pipeline {pipeline_name} not found at {pipeline_path}")
                 raise typer.Exit(code=1)
 
-            # Validate with caching
-            errors = validate_pipeline_with_caching(pipeline_path)
+            # Validate pipeline
+            errors = validate_pipeline(pipeline_path)
 
             # Print results
             print_validation_summary(errors, pipeline_name, quiet=quiet)
@@ -1797,7 +1835,7 @@ def validate_pipeline_command(
                 current_pipeline_name = os.path.splitext(pipeline_file)[0]
 
                 try:
-                    errors = validate_pipeline_with_caching(pipeline_path)
+                    errors = validate_pipeline(pipeline_path)
 
                     if errors:
                         total_errors += len(errors)

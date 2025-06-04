@@ -140,56 +140,46 @@ class TestVariableSubstitutionEngine:
 
 
 class TestConvenienceFunctions:
-    """Test the convenience functions for backward compatibility."""
+    """Test convenience functions for backward compatibility."""
 
     def test_substitute_variables_function(self):
-        """Test the standalone substitute_variables function."""
-        variables = {"name": "Bob", "count": 5}
+        """Test the substitute_variables convenience function."""
+        variables = {"name": "Bob", "city": "Paris"}
+        template = "I am ${name} from ${city}"
+        expected = "I am Bob from Paris"
 
-        # String substitution
-        result = substitute_variables("Hello ${name}, count: ${count}", variables)
-        assert result == "Hello Bob, count: 5"
-
-        # Dict substitution
-        template = {"greeting": "Hello ${name}", "items": ["${count} items"]}
-        expected = {"greeting": "Hello Bob", "items": ["5 items"]}
         result = substitute_variables(template, variables)
         assert result == expected
 
     def test_validate_variables_function(self):
-        """Test the standalone validate_variables function."""
-        variables = {"available": "value"}
+        """Test the validate_variables convenience function."""
+        variables = {"existing": "value"}
+        text = "Using ${existing} and ${missing} variables"
 
-        # No missing variables
-        missing = validate_variables("${available}", variables)
-        assert missing == []
-
-        # Has missing variables
-        missing = validate_variables("${missing}", variables)
+        missing = validate_variables(text, variables)
         assert "missing" in missing
+        assert "existing" not in missing
 
-    def test_backward_compatibility(self):
-        """Ensure the convenience functions maintain backward compatibility."""
-        # Test that the functions work as drop-in replacements
-        variables = {"region": "us-west", "env": "dev"}
-
-        # Complex nested structure
+    def test_nested_structures(self):
+        """Test substitution in deeply nested structures."""
+        variables = {"db": "production", "table": "users"}
         template = {
-            "config": {
-                "database": "${env}_db",
-                "regions": ["${region}", "us-east"],
-            },
-            "settings": ["debug=${debug|false}"],
+            "source": {
+                "database": "${db}",
+                "tables": ["${table}", "logs"],
+                "connection": {"host": "${db}-server.com", "port": 5432},
+            }
+        }
+
+        expected = {
+            "source": {
+                "database": "production",
+                "tables": ["users", "logs"],
+                "connection": {"host": "production-server.com", "port": 5432},
+            }
         }
 
         result = substitute_variables(template, variables)
-        expected = {
-            "config": {
-                "database": "dev_db",
-                "regions": ["us-west", "us-east"],
-            },
-            "settings": ["debug=false"],
-        }
         assert result == expected
 
 
@@ -231,3 +221,155 @@ class TestEdgeCases:
         # These should work correctly despite special regex characters
         assert engine.substitute("${var.name}") == "value"
         assert engine.substitute("${var+plus}") == "plus"
+
+
+class TestPriorityBasedResolution:
+    """Test priority-based variable resolution functionality."""
+
+    def test_priority_order_basic(self):
+        """Test basic priority order: CLI > Profile > SET > Environment."""
+        # Set up variables with same name in different sources
+        cli_vars = {"var": "cli_value"}
+        profile_vars = {"var": "profile_value"}
+        set_vars = {"var": "set_value"}
+
+        engine = VariableSubstitutionEngine(
+            cli_variables=cli_vars,
+            profile_variables=profile_vars,
+            set_variables=set_vars,
+        )
+
+        # CLI should win
+        assert engine.substitute("${var}") == "cli_value"
+
+    def test_priority_order_without_cli(self):
+        """Test priority order when CLI variable is not present."""
+        profile_vars = {"var": "profile_value"}
+        set_vars = {"var": "set_value"}
+
+        engine = VariableSubstitutionEngine(
+            profile_variables=profile_vars, set_variables=set_vars
+        )
+
+        # Profile should win
+        assert engine.substitute("${var}") == "profile_value"
+
+    def test_priority_order_only_set(self):
+        """Test priority order when only SET variable is present."""
+        set_vars = {"var": "set_value"}
+
+        engine = VariableSubstitutionEngine(set_variables=set_vars)
+
+        # SET should be used
+        assert engine.substitute("${var}") == "set_value"
+
+    def test_priority_order_with_environment(self):
+        """Test that environment variables are used as fallback."""
+        import os
+
+        # Set environment variable
+        os.environ["TEST_ENV_VAR"] = "env_value"
+
+        try:
+            # No explicit variables provided
+            engine = VariableSubstitutionEngine(
+                cli_variables={}, profile_variables={}, set_variables={}
+            )
+
+            # Should use environment variable
+            assert engine.substitute("${TEST_ENV_VAR}") == "env_value"
+
+            # Explicit variables should override environment
+            engine = VariableSubstitutionEngine(
+                cli_variables={"TEST_ENV_VAR": "cli_overrides_env"}
+            )
+            assert engine.substitute("${TEST_ENV_VAR}") == "cli_overrides_env"
+
+        finally:
+            # Clean up
+            del os.environ["TEST_ENV_VAR"]
+
+    def test_backward_compatibility_mode(self):
+        """Test that backward compatibility mode still works."""
+        # Using old-style initialization should work exactly as before
+        engine = VariableSubstitutionEngine({"var": "old_style"})
+
+        assert engine.substitute("${var}") == "old_style"
+        assert not engine._use_priority_mode
+
+    def test_mixed_priority_sources(self):
+        """Test complex scenario with variables in different sources."""
+        cli_vars = {"from_cli": "cli_value", "shared": "cli_wins"}
+        profile_vars = {"from_profile": "profile_value", "shared": "profile_loses"}
+        set_vars = {"from_set": "set_value", "shared": "set_loses"}
+
+        engine = VariableSubstitutionEngine(
+            cli_variables=cli_vars,
+            profile_variables=profile_vars,
+            set_variables=set_vars,
+        )
+
+        template = "CLI: ${from_cli}, Profile: ${from_profile}, SET: ${from_set}, Shared: ${shared}"
+        expected = (
+            "CLI: cli_value, Profile: profile_value, SET: set_value, Shared: cli_wins"
+        )
+
+        assert engine.substitute(template) == expected
+
+    def test_update_variables_in_priority_mode(self):
+        """Test that update_variables works correctly in priority mode."""
+        engine = VariableSubstitutionEngine(cli_variables={"initial": "value"})
+
+        # Should update CLI variables (highest priority)
+        engine.update_variables({"new_var": "new_value"})
+
+        assert engine.substitute("${initial}") == "value"
+        assert engine.substitute("${new_var}") == "new_value"
+
+        # Verify it went to CLI variables
+        assert "new_var" in engine.cli_variables
+
+    def test_validate_required_variables_with_priority(self):
+        """Test variable validation works with priority mode."""
+        engine = VariableSubstitutionEngine(
+            cli_variables={"cli_var": "value"},
+            profile_variables={"profile_var": "value"},
+        )
+
+        text = "Using ${cli_var}, ${profile_var}, and ${missing_var}"
+        missing = engine.validate_required_variables(text)
+
+        assert "missing_var" in missing
+        assert "cli_var" not in missing
+        assert "profile_var" not in missing
+
+    def test_priority_mode_detection(self):
+        """Test that priority mode is correctly detected."""
+        # Should NOT use priority mode (backward compatibility)
+        engine1 = VariableSubstitutionEngine({"var": "value"})
+        assert not engine1._use_priority_mode
+
+        # Should use priority mode
+        engine2 = VariableSubstitutionEngine(cli_variables={"var": "value"})
+        assert engine2._use_priority_mode
+
+        engine3 = VariableSubstitutionEngine(
+            variables={"old": "style"}, cli_variables={"new": "style"}
+        )
+        assert (
+            engine3._use_priority_mode
+        )  # Priority mode because cli_variables provided
+
+    def test_empty_priority_sources(self):
+        """Test behavior with empty priority sources."""
+        engine = VariableSubstitutionEngine(
+            cli_variables={}, profile_variables={}, set_variables={}
+        )
+
+        # Should handle missing variables gracefully
+        template = "Missing: ${missing_var}"
+        assert engine.substitute(template) == template  # Should remain unchanged
+
+        # Should detect as missing
+        missing = engine.validate_required_variables(template)
+        assert "missing_var" in missing

@@ -1,0 +1,172 @@
+-- Simplified SME E-commerce Analytics Pipeline
+-- Phase 2, Day 4: SME Data Models Implementation (Simplified Version)
+-- Set: export SHOPIFY_STORE="mystore.myshopify.com"
+-- Set: export SHOPIFY_TOKEN="shpat_your_token_here"
+
+SOURCE shopify_store TYPE SHOPIFY PARAMS {
+    "shop_domain": "${SHOPIFY_STORE}",
+    "access_token": "${SHOPIFY_TOKEN}",
+    "sync_mode": "full_refresh",
+    "flatten_line_items": true,
+    "include_fulfillments": true,
+    "include_refunds": true,
+    "financial_status_filter": ["paid", "pending", "authorized", "refunded"]
+};
+
+-- Load comprehensive data with enhanced fields
+LOAD orders FROM shopify_store;
+LOAD customers FROM shopify_store;
+LOAD products FROM shopify_store;
+
+-- ===== SME DATA MODEL 1: ENHANCED CUSTOMER SEGMENTATION & LTV =====
+
+CREATE TABLE customer_ltv_analysis AS
+SELECT 
+    customer_email,
+    customer_first_name,
+    customer_last_name,
+    
+    -- Order metrics
+    COUNT(DISTINCT order_id) as total_orders,
+    COUNT(DISTINCT DATE(created_at)) as unique_order_days,
+    
+    -- Financial metrics
+    SUM(CAST(total_price AS DECIMAL)) as lifetime_value,
+    AVG(CAST(total_price AS DECIMAL)) as avg_order_value,
+    SUM(CAST(total_tax AS DECIMAL)) as total_tax_paid,
+    SUM(CAST(total_refunded AS DECIMAL)) as total_refunded,
+    
+    -- Product metrics
+    COUNT(DISTINCT product_id) as unique_products_purchased,
+    SUM(quantity) as total_items_purchased,
+    
+    -- Geographic insights
+    COUNT(DISTINCT shipping_country) as countries_shipped_to,
+    
+    -- Behavioral patterns
+    MIN(created_at) as first_order_date,
+    MAX(created_at) as last_order_date,
+    
+    -- Customer segment classification
+    CASE 
+        WHEN COUNT(DISTINCT order_id) >= 10 AND SUM(CAST(total_price AS DECIMAL)) >= 1000 THEN 'VIP'
+        WHEN COUNT(DISTINCT order_id) >= 5 AND SUM(CAST(total_price AS DECIMAL)) >= 500 THEN 'Loyal'
+        WHEN COUNT(DISTINCT order_id) >= 3 AND SUM(CAST(total_price AS DECIMAL)) >= 200 THEN 'Regular'
+        WHEN COUNT(DISTINCT order_id) = 1 THEN 'One-time'
+        ELSE 'Emerging'
+    END as customer_segment
+    
+FROM orders
+WHERE customer_email IS NOT NULL
+GROUP BY customer_email, customer_first_name, customer_last_name
+ORDER BY lifetime_value DESC;
+
+-- ===== SME DATA MODEL 2: PRODUCT PERFORMANCE ANALYTICS =====
+
+CREATE TABLE product_performance_analytics AS
+SELECT 
+    product_id,
+    product_title,
+    vendor,
+    sku,
+    
+    -- Sales metrics
+    COUNT(DISTINCT order_id) as orders_containing_product,
+    SUM(quantity) as total_units_sold,
+    SUM(CAST(line_item_price AS DECIMAL) * quantity) as total_revenue,
+    AVG(CAST(line_item_price AS DECIMAL)) as avg_selling_price,
+    
+    -- Performance metrics
+    COUNT(DISTINCT customer_email) as unique_customers,
+    AVG(quantity) as avg_quantity_per_order,
+    
+    -- Geographic performance
+    COUNT(DISTINCT shipping_country) as countries_sold_to,
+    
+    -- Time-based metrics
+    MIN(created_at) as first_sale_date,
+    MAX(created_at) as last_sale_date,
+    COUNT(DISTINCT DATE(created_at)) as active_selling_days,
+    
+    -- Financial analysis
+    SUM(CAST(line_item_price AS DECIMAL) * quantity) / NULLIF(SUM(quantity), 0) as revenue_per_unit
+    
+FROM orders
+WHERE product_id IS NOT NULL AND line_item_id IS NOT NULL
+GROUP BY product_id, product_title, vendor, sku
+ORDER BY total_revenue DESC;
+
+-- ===== SME DATA MODEL 3: FINANCIAL RECONCILIATION & VALIDATION =====
+
+CREATE TABLE financial_reconciliation AS
+SELECT 
+    DATE(created_at) as order_date,
+    financial_status,
+    currency,
+    
+    -- Order counts
+    COUNT(DISTINCT order_id) as order_count,
+    COUNT(DISTINCT customer_email) as unique_customers,
+    
+    -- Revenue breakdown
+    SUM(CAST(total_price AS DECIMAL)) as gross_revenue,
+    SUM(CAST(subtotal_price AS DECIMAL)) as subtotal_revenue,
+    SUM(CAST(total_tax AS DECIMAL)) as total_tax_collected,
+    SUM(CAST(total_discounts AS DECIMAL)) as total_discounts_given,
+    SUM(CAST(total_refunded AS DECIMAL)) as total_refunded,
+    
+    -- Net calculations
+    SUM(CAST(total_price AS DECIMAL)) - SUM(CAST(total_refunded AS DECIMAL)) as net_revenue,
+    
+    -- Performance ratios
+    AVG(CAST(total_price AS DECIMAL)) as avg_order_value,
+    SUM(CAST(total_discounts AS DECIMAL)) / NULLIF(SUM(CAST(total_price AS DECIMAL)), 0) * 100 as discount_rate_pct,
+    SUM(CAST(total_refunded AS DECIMAL)) / NULLIF(SUM(CAST(total_price AS DECIMAL)), 0) * 100 as refund_rate_pct
+    
+FROM orders
+WHERE created_at >= CURRENT_DATE - INTERVAL 90 DAYS
+GROUP BY DATE(created_at), financial_status, currency
+ORDER BY order_date DESC, financial_status;
+
+-- ===== SME DATA MODEL 4: GEOGRAPHIC PERFORMANCE ANALYSIS =====
+
+CREATE TABLE geographic_performance AS
+SELECT 
+    COALESCE(shipping_country, billing_country, 'Unknown') as country,
+    COALESCE(shipping_province, billing_province, 'Unknown') as region,
+    
+    -- Order metrics
+    COUNT(DISTINCT order_id) as total_orders,
+    COUNT(DISTINCT customer_email) as unique_customers,
+    
+    -- Financial metrics
+    SUM(CAST(total_price AS DECIMAL)) as total_revenue,
+    AVG(CAST(total_price AS DECIMAL)) as avg_order_value,
+    
+    -- Product metrics
+    SUM(quantity) as total_units_sold,
+    COUNT(DISTINCT product_id) as unique_products_sold
+    
+FROM orders
+WHERE created_at >= CURRENT_DATE - INTERVAL 90 DAYS
+GROUP BY COALESCE(shipping_country, billing_country, 'Unknown'), COALESCE(shipping_province, billing_province, 'Unknown')
+HAVING COUNT(DISTINCT order_id) >= 1  -- Reduced from 5 to 1 for small test dataset
+ORDER BY total_revenue DESC;
+
+-- ===== EXPORT ALL SME ANALYTICS =====
+
+EXPORT SELECT * FROM customer_ltv_analysis 
+TO "output/sme_customer_ltv_analysis.csv" 
+TYPE CSV OPTIONS { "header": true };
+
+EXPORT SELECT * FROM product_performance_analytics 
+TO "output/sme_product_performance.csv" 
+TYPE CSV OPTIONS { "header": true };
+
+EXPORT SELECT * FROM financial_reconciliation 
+TO "output/sme_financial_reconciliation.csv" 
+TYPE CSV OPTIONS { "header": true };
+
+EXPORT SELECT * FROM geographic_performance 
+TO "output/sme_geographic_performance.csv" 
+TYPE CSV OPTIONS { "header": true }; 

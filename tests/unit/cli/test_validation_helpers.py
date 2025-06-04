@@ -11,13 +11,13 @@ from sqlflow.cli.validation_helpers import (
     format_validation_errors_for_cli,
     print_validation_summary,
     validate_and_exit_on_error,
-    validate_pipeline_with_caching,
+    validate_pipeline,
 )
 from sqlflow.validation.errors import ValidationError
 
 
-class TestValidatePipelineWithCaching:
-    """Test pipeline validation with caching functionality."""
+class TestValidatePipeline:
+    """Test pipeline validation functionality."""
 
     def test_valid_pipeline_returns_empty_errors(self):
         """Test that a valid pipeline returns no errors."""
@@ -28,7 +28,7 @@ class TestValidatePipelineWithCaching:
                 'SOURCE test TYPE CSV PARAMS {"path": "test.csv"};'
             )
 
-            errors = validate_pipeline_with_caching(str(pipeline_file), temp_dir)
+            errors = validate_pipeline(str(pipeline_file))
 
             assert errors == []
 
@@ -39,7 +39,7 @@ class TestValidatePipelineWithCaching:
             pipeline_file = Path(temp_dir) / "invalid.sf"
             pipeline_file.write_text("SOURCE test TYPE CSV PARAMS {};")
 
-            errors = validate_pipeline_with_caching(str(pipeline_file), temp_dir)
+            errors = validate_pipeline(str(pipeline_file))
 
             assert len(errors) > 0
             # The actual error is about PARAMS syntax, not specifically "path"
@@ -49,12 +49,12 @@ class TestValidatePipelineWithCaching:
         """Test that nonexistent file raises typer.Exit."""
         with tempfile.TemporaryDirectory() as temp_dir:
             with pytest.raises(typer.Exit) as exc_info:
-                validate_pipeline_with_caching("nonexistent.sf", temp_dir)
+                validate_pipeline("nonexistent.sf")
 
             assert exc_info.value.exit_code == 1
 
-    def test_caching_works_correctly(self):
-        """Test that validation results are cached correctly."""
+    def test_validation_runs_every_time(self):
+        """Test that validation runs every time without caching."""
         with tempfile.TemporaryDirectory() as temp_dir:
             # Create a pipeline file - use proper JSON format
             pipeline_file = Path(temp_dir) / "test.sf"
@@ -62,53 +62,45 @@ class TestValidatePipelineWithCaching:
                 'SOURCE test TYPE CSV PARAMS {"path": "test.csv"};'
             )
 
-            # First validation - should not use cache
-            with patch("sqlflow.cli.validation_helpers.logger") as mock_logger:
-                errors1 = validate_pipeline_with_caching(str(pipeline_file), temp_dir)
+            # First validation
+            errors1 = validate_pipeline(str(pipeline_file))
 
-                # Should not log cache hit on first run
-                debug_calls = [call[0][0] for call in mock_logger.debug.call_args_list]
-                assert not any("Using cached" in call for call in debug_calls)
+            # Second validation
+            errors2 = validate_pipeline(str(pipeline_file))
 
-            # Second validation - should use cache
-            with patch("sqlflow.cli.validation_helpers.logger") as mock_logger:
-                errors2 = validate_pipeline_with_caching(str(pipeline_file), temp_dir)
-
-                # Should log cache hit on second run
-                debug_calls = [call[0][0] for call in mock_logger.debug.call_args_list]
-                assert any("Using cached" in call for call in debug_calls)
-
-            # Results should be identical
+            # Results should be identical (but no caching involved)
             assert errors1 == errors2
 
-    def test_parser_error_converted_to_validation_error(self):
-        """Test that parser errors are converted to validation errors."""
+    def test_validation_handles_parser_error(self):
+        """Test validation handles parser errors gracefully."""
         with tempfile.TemporaryDirectory() as temp_dir:
-            # Create a file with syntax error - incomplete SOURCE statement
+            # Create an invalid pipeline file with syntax error - incomplete SOURCE statement
             pipeline_file = Path(temp_dir) / "syntax_error.sf"
-            pipeline_file.write_text("SOURCE")
+            pipeline_file.write_text("SOURCE incomplete_statement")
 
-            errors = validate_pipeline_with_caching(str(pipeline_file), temp_dir)
+            errors = validate_pipeline(str(pipeline_file))
 
             assert len(errors) > 0
             assert any(error.error_type == "Parser Error" for error in errors)
 
-    def test_unreadable_file_exits_with_error(self):
-        """Test that unreadable file raises typer.Exit."""
+    def test_validation_handles_unexpected_error(self):
+        """Test validation handles unexpected errors gracefully."""
         with tempfile.TemporaryDirectory() as temp_dir:
-            # Create file but make it unreadable
-            pipeline_file = Path(temp_dir) / "unreadable.sf"
-            pipeline_file.write_text("test")
-            pipeline_file.chmod(0o000)  # Remove all permissions
+            pipeline_file = Path(temp_dir) / "test.sf"
+            pipeline_file.write_text(
+                'SOURCE test TYPE CSV PARAMS {"path": "test.csv"};'
+            )
 
-            try:
-                with pytest.raises(typer.Exit) as exc_info:
-                    validate_pipeline_with_caching(str(pipeline_file), temp_dir)
+            # Mock _parse_and_validate_pipeline to raise an unexpected error
+            with patch(
+                "sqlflow.cli.validation_helpers._parse_and_validate_pipeline",
+                side_effect=RuntimeError("Unexpected error"),
+            ):
+                errors = validate_pipeline(str(pipeline_file))
 
-                assert exc_info.value.exit_code == 1
-            finally:
-                # Restore permissions for cleanup
-                pipeline_file.chmod(0o644)
+                assert len(errors) == 1
+                assert errors[0].error_type == "Internal Error"
+                assert "Unexpected error" in errors[0].message
 
 
 class TestFormatValidationErrorsForCLI:

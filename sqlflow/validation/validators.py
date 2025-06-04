@@ -1,6 +1,6 @@
 """Validation functions for SQLFlow DSL components."""
 
-from typing import List, Set
+from typing import Any, Dict, List, Set
 
 from ..parser.ast import LoadStep, Pipeline, SourceDefinitionStep
 from .errors import ValidationError
@@ -25,6 +25,10 @@ def validate_connectors(pipeline: Pipeline) -> List[ValidationError]:
         if isinstance(step, SourceDefinitionStep):
             # Skip validation for profile-based connectors (FROM syntax)
             if step.is_from_profile:
+                continue
+
+            # Skip validation if parameters contain variables - validation will happen after substitution
+            if _contains_variables(step.params):
                 continue
 
             connector_type = step.connector_type.upper()
@@ -61,6 +65,24 @@ def validate_connectors(pipeline: Pipeline) -> List[ValidationError]:
                 errors.append(error)
 
     return errors
+
+
+def _contains_variables(params: Dict[str, Any]) -> bool:
+    """Check if parameters contain variable references (${...}).
+
+    Args:
+    ----
+        params: Dictionary of parameters to check
+
+    Returns:
+    -------
+        True if any parameter value contains variable references
+    """
+    import json
+
+    # Convert params to string to check for variable patterns
+    params_str = json.dumps(params)
+    return "${" in params_str
 
 
 def validate_references(pipeline: Pipeline) -> List[ValidationError]:
