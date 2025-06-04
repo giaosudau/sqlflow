@@ -1,29 +1,37 @@
 """
-Advanced incremental loading strategies for SQLFlow transform operations.
+Enhanced incremental loading strategies for SQLFlow transform operations.
 
-This module implements the IncrementalStrategyManager with multiple strategies:
-- Append: Simple append-only loading for immutable data
-- Merge: Full UPSERT operations with conflict resolution
-- Snapshot: Complete table replacement with change detection
-- CDC: Change data capture integration with event sourcing
-
-Provides intelligent strategy selection, data quality validation, and rollback
-capabilities for production-scale incremental loading operations.
+This module provides sophisticated incremental loading strategies including:
+- Append-only loading with deduplication
+- Merge/upsert operations with conflict resolution
+- Snapshot loading with change detection
+- Change Data Capture (CDC) processing
+- Intelligent strategy selection based on data patterns
+- Performance optimization and monitoring integration
+- Observability with structured logging and distributed tracing
 """
 
+import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
+from sqlflow.core.engines.duckdb.engine import DuckDBEngine
 from sqlflow.logging import get_logger
 
 # Import existing infrastructure
 from ..load.handlers import TableInfo
+from .logging_tracing import ObservabilityManager
 
 # Import monitoring infrastructure
-from .monitoring import AlertSeverity, MetricType, MonitoringManager, ThresholdRule
+from .monitoring import (
+    AlertSeverity,
+    MetricType,
+    MonitoringManager,
+    ThresholdRule,
+)
 from .performance import PerformanceOptimizer
 from .watermark import OptimizedWatermarkManager
 
@@ -31,12 +39,13 @@ logger = get_logger(__name__)
 
 
 class LoadStrategy(Enum):
-    """Available incremental loading strategies."""
+    """Enumeration of available load strategies."""
 
     APPEND = "append"
     MERGE = "merge"
     SNAPSHOT = "snapshot"
     CDC = "cdc"
+    AUTO = "auto"
 
 
 class ConflictResolution(Enum):
@@ -182,6 +191,98 @@ class AppendStrategy(IncrementalStrategy):
         conflict_resolution: ConflictResolution = ConflictResolution.LATEST_WINS,
     ) -> LoadResult:
         """Execute append-only loading."""
+        operation_id = str(uuid.uuid4())
+
+        # Start observability context if available
+        if hasattr(self, "observability_manager") and self.observability_manager:
+            with self.observability_manager.operation_context(
+                "incremental-append",
+                "APPEND",
+                source_table=source.table_name,
+                target_table=target,
+                merge_keys=source.key_columns or [],
+            ) as obs_context:
+
+                # Log operation details
+                self.logger.info(
+                    f"Starting APPEND operation for {target}",
+                    "APPEND",
+                    operation_id=operation_id,
+                    source_table=source.table_name,
+                    source_filter=source.source_query,
+                    target_table=target,
+                )
+
+                # Execute with monitoring
+                if (
+                    hasattr(self, "enable_monitoring")
+                    and self.enable_monitoring
+                    and hasattr(self, "monitoring_manager")
+                    and self.monitoring_manager
+                ):
+                    with self.monitoring_manager.operation_monitor.monitor_operation_with_result(
+                        operation_type="APPEND",
+                        operation_id=operation_id,
+                        table_name=target,
+                        source_table=source.table_name,
+                    ) as monitor:
+                        result = self._execute_append_internal(
+                            source, target, source.key_columns
+                        )
+                        monitor(result)
+                        return result
+                else:
+                    return self._execute_append_internal(
+                        source, target, source.key_columns
+                    )
+        else:
+            # Fallback without observability
+            if (
+                hasattr(self, "enable_monitoring")
+                and self.enable_monitoring
+                and hasattr(self, "monitoring_manager")
+                and self.monitoring_manager
+            ):
+                with self.monitoring_manager.operation_monitor.monitor_operation_with_result(
+                    operation_type="APPEND",
+                    operation_id=operation_id,
+                    table_name=target,
+                ) as monitor:
+                    result = self._execute_append_internal(
+                        source, target, source.key_columns
+                    )
+                    monitor(result)
+                    return result
+            else:
+                # Basic execution without monitoring or observability
+                return self._execute_append_internal(source, target, source.key_columns)
+
+    def can_handle(self, load_pattern: LoadPattern) -> bool:
+        """Check if append strategy is suitable."""
+        return (
+            load_pattern.insert_rate > 0.8  # Mostly inserts
+            and load_pattern.update_rate < 0.1  # Few updates
+            and load_pattern.delete_rate < 0.1  # Few deletes
+            and load_pattern.allows_duplicates is False  # No duplicate tolerance needed
+        )
+
+    def estimate_performance(self, load_pattern: LoadPattern) -> Dict[str, Any]:
+        """Estimate append performance."""
+        return {
+            "strategy": "append",
+            "estimated_time_ms": load_pattern.row_count_estimate
+            * 0.1,  # ~0.1ms per row
+            "memory_mb": max(
+                10, load_pattern.row_count_estimate * 0.001
+            ),  # ~1KB per row
+            "cpu_intensity": "low",
+            "io_pattern": "sequential_write",
+        }
+
+    def _execute_append_internal(
+        self, source: DataSource, target: str, merge_keys: List[str] = None
+    ) -> LoadResult:
+        """Internal implementation of append strategy."""
         start_time = datetime.now()
         result = LoadResult(strategy_used=LoadStrategy.APPEND)
 
@@ -246,28 +347,6 @@ class AppendStrategy(IncrementalStrategy):
             result.validation_errors.append(f"Append strategy failed: {str(e)}")
             self.logger.error(f"Append strategy execution failed: {e}")
             return result
-
-    def can_handle(self, load_pattern: LoadPattern) -> bool:
-        """Check if append strategy is suitable."""
-        return (
-            load_pattern.insert_rate > 0.8  # Mostly inserts
-            and load_pattern.update_rate < 0.1  # Few updates
-            and load_pattern.delete_rate < 0.1  # Few deletes
-            and load_pattern.allows_duplicates is False  # No duplicate tolerance needed
-        )
-
-    def estimate_performance(self, load_pattern: LoadPattern) -> Dict[str, Any]:
-        """Estimate append performance."""
-        return {
-            "strategy": "append",
-            "estimated_time_ms": load_pattern.row_count_estimate
-            * 0.1,  # ~0.1ms per row
-            "memory_mb": max(
-                10, load_pattern.row_count_estimate * 0.001
-            ),  # ~1KB per row
-            "cpu_intensity": "low",
-            "io_pattern": "sequential_write",
-        }
 
     def _build_incremental_query(
         self,
@@ -632,43 +711,87 @@ class CDCStrategy(IncrementalStrategy):
 
 
 class IncrementalStrategyManager:
-    """Manage different incremental loading strategies with intelligent selection."""
+    """Enhanced incremental strategy manager with performance optimization, monitoring, and observability."""
 
     def __init__(
         self,
-        engine,
-        watermark_manager: OptimizedWatermarkManager,
-        performance_optimizer: PerformanceOptimizer,
-        monitoring_config: Optional[Dict[str, Any]] = None,
+        engine: DuckDBEngine,
+        watermark_manager: Optional[OptimizedWatermarkManager] = None,
+        performance_optimizer: Optional[PerformanceOptimizer] = None,
+        monitoring_manager: Optional[MonitoringManager] = None,
+        observability_manager: Optional[ObservabilityManager] = None,
+        enable_monitoring: bool = True,
+        enable_observability: bool = True,
     ):
-        """Initialize strategy manager."""
+        """Initialize the incremental strategy manager.
+
+        Args:
+            engine: DuckDB engine instance
+            watermark_manager: Optional watermark manager
+            performance_optimizer: Optional performance optimizer
+            monitoring_manager: Optional monitoring manager or config dict
+            observability_manager: Optional observability manager
+            enable_monitoring: Whether to enable monitoring
+            enable_observability: Whether to enable observability
+        """
         self.engine = engine
-        self.watermark_manager = watermark_manager
-        self.performance_optimizer = performance_optimizer
-        self.logger = get_logger(__name__)
+        self.watermark_manager = watermark_manager or OptimizedWatermarkManager(engine)
+        self.performance_optimizer = performance_optimizer or PerformanceOptimizer()
 
-        # Initialize monitoring system
-        self.monitoring_manager = MonitoringManager(monitoring_config or {})
-        self.operation_monitor = self.monitoring_manager.operation_monitor
+        # Initialize monitoring - handle both MonitoringManager objects and config dicts
+        self.enable_monitoring = enable_monitoring
+        self.monitoring_manager = None
 
-        # Setup incremental-specific alert thresholds
-        self._setup_incremental_alerts()
+        if enable_monitoring:
+            # If monitoring_manager is a dict, treat it as config and create MonitoringManager
+            if isinstance(monitoring_manager, dict):
+                # Create MonitoringManager with the provided config
+                self.monitoring_manager = MonitoringManager(config=monitoring_manager)
+            else:
+                # Use provided monitoring manager or create new one
+                self.monitoring_manager = monitoring_manager
+                if not monitoring_manager:
+                    self.monitoring_manager = MonitoringManager()
+
+        # Initialize observability
+        self.enable_observability = enable_observability
+        self.observability_manager = observability_manager
+        if enable_observability and not observability_manager:
+            self.observability_manager = ObservabilityManager("sqlflow-incremental")
+
+        # Get specialized loggers
+        if self.observability_manager:
+            self.logger = self.observability_manager.get_logger("strategies")
+        else:
+            self.logger = None
 
         # Initialize available strategies
         self.strategies = {
             LoadStrategy.APPEND: AppendStrategy(
-                engine, watermark_manager, performance_optimizer
+                engine, self.watermark_manager, self.performance_optimizer
             ),
             LoadStrategy.MERGE: MergeStrategy(
-                engine, watermark_manager, performance_optimizer
+                engine, self.watermark_manager, self.performance_optimizer
             ),
             LoadStrategy.SNAPSHOT: SnapshotStrategy(
-                engine, watermark_manager, performance_optimizer
+                engine, self.watermark_manager, self.performance_optimizer
             ),
             LoadStrategy.CDC: CDCStrategy(
-                engine, watermark_manager, performance_optimizer
+                engine, self.watermark_manager, self.performance_optimizer
             ),
         }
+
+        # Set up monitoring and observability in strategies
+        for strategy in self.strategies.values():
+            strategy.monitoring_manager = self.monitoring_manager
+            strategy.observability_manager = self.observability_manager
+            strategy.enable_monitoring = self.enable_monitoring
+            strategy.enable_observability = self.enable_observability
+
+        # Set up monitoring infrastructure only if monitoring is enabled and manager is available
+        if self.enable_monitoring and self.monitoring_manager:
+            self.operation_monitor = self.monitoring_manager
+            self._setup_incremental_alerts()
 
         # Strategy selection weights for intelligent selection
         self.strategy_weights = {
@@ -678,12 +801,25 @@ class IncrementalStrategyManager:
             LoadStrategy.CDC: 0.9,  # Best for real-time scenarios
         }
 
-        self.logger.info(
-            "IncrementalStrategyManager initialized with monitoring and 4 strategies"
-        )
+        if self.logger:
+            self.logger.info(
+                "IncrementalStrategyManager initialized with monitoring and 4 strategies"
+            )
+        else:
+            logger.info(
+                "IncrementalStrategyManager initialized with monitoring and 4 strategies"
+            )
 
     def _setup_incremental_alerts(self) -> None:
         """Setup alert thresholds specific to incremental operations."""
+        # Only proceed if monitoring is properly enabled
+        if not self.enable_monitoring or not self.monitoring_manager:
+            return
+
+        # Ensure monitoring_manager has alert_manager attribute
+        if not hasattr(self.monitoring_manager, "alert_manager"):
+            return
+
         alert_manager = self.monitoring_manager.alert_manager
 
         # Long execution time alert
@@ -759,43 +895,55 @@ class IncrementalStrategyManager:
 
         if not suitable_strategies:
             # Fallback to append strategy if no perfect match
-            self.logger.warning("No suitable strategy found, defaulting to APPEND")
+            if self.logger:
+                self.logger.warning("No suitable strategy found, defaulting to APPEND")
+            else:
+                logger.warning("No suitable strategy found, defaulting to APPEND")
             return LoadStrategy.APPEND
 
         # Select strategy with highest weight
         best_strategy = max(suitable_strategies, key=lambda x: x[1])
         selected_strategy = best_strategy[0]
 
-        self.logger.info(
-            f"Selected {selected_strategy.value} strategy with weight {best_strategy[1]:.2f}"
-        )
+        if self.logger:
+            self.logger.info(
+                f"Selected {selected_strategy.value} strategy with weight {best_strategy[1]:.2f}"
+            )
+        else:
+            logger.info(
+                f"Selected {selected_strategy.value} strategy with weight {best_strategy[1]:.2f}"
+            )
         return selected_strategy
 
     def execute_append_strategy(self, source: DataSource, target: str) -> LoadResult:
         """Execute append-only incremental load with monitoring."""
-        with self.operation_monitor.monitor_operation_with_result(
-            "APPEND", target, estimated_rows=self._estimate_rows(source)
-        ) as set_result:
-            result = self.strategies[LoadStrategy.APPEND].execute(source, target)
-            set_result(result)
+        if self.enable_monitoring and self.monitoring_manager:
+            with self.operation_monitor.operation_monitor.monitor_operation_with_result(
+                "APPEND", target, estimated_rows=self._estimate_rows(source)
+            ) as set_result:
+                result = self.strategies[LoadStrategy.APPEND].execute(source, target)
+                set_result(result)
 
-            # Record strategy-specific metrics
-            self._record_strategy_metrics("APPEND", result, target)
+                # Record strategy-specific metrics
+                self._record_strategy_metrics("APPEND", result, target)
 
-            # If the operation failed, record error metrics
-            if not result.success:
-                self.monitoring_manager.metrics_collector.record_metric(
-                    "transform.operations.errors",
-                    1,
-                    MetricType.COUNTER,
-                    labels={
-                        "operation_type": "APPEND",
-                        "table_name": target,
-                        "error_type": "ValidationError",
-                    },
-                )
+                # If the operation failed, record error metrics
+                if not result.success:
+                    self.monitoring_manager.metrics_collector.record_metric(
+                        "transform.operations.errors",
+                        1,
+                        MetricType.COUNTER,
+                        labels={
+                            "operation_type": "APPEND",
+                            "table_name": target,
+                            "error_type": "ValidationError",
+                        },
+                    )
 
-            return result
+                return result
+        else:
+            # Execute without monitoring
+            return self.strategies[LoadStrategy.APPEND].execute(source, target)
 
     def execute_merge_strategy(
         self,
@@ -804,60 +952,70 @@ class IncrementalStrategyManager:
         conflict_resolution: ConflictResolution = ConflictResolution.LATEST_WINS,
     ) -> LoadResult:
         """Execute merge-based incremental load with monitoring."""
-        with self.operation_monitor.monitor_operation_with_result(
-            "MERGE",
-            target,
-            estimated_rows=self._estimate_rows(source),
-            conflict_resolution=conflict_resolution.value,
-        ) as set_result:
-            result = self.strategies[LoadStrategy.MERGE].execute(
+        if self.enable_monitoring and self.monitoring_manager:
+            with self.operation_monitor.operation_monitor.monitor_operation_with_result(
+                "MERGE",
+                target,
+                estimated_rows=self._estimate_rows(source),
+                conflict_resolution=conflict_resolution.value,
+            ) as set_result:
+                result = self.strategies[LoadStrategy.MERGE].execute(
+                    source, target, conflict_resolution
+                )
+                set_result(result)
+
+                # Record strategy-specific metrics
+                self._record_strategy_metrics("MERGE", result, target)
+
+                # If the operation failed, record error metrics
+                if not result.success:
+                    self.monitoring_manager.metrics_collector.record_metric(
+                        "transform.operations.errors",
+                        1,
+                        MetricType.COUNTER,
+                        labels={
+                            "operation_type": "MERGE",
+                            "table_name": target,
+                            "error_type": "ValidationError",
+                        },
+                    )
+
+                return result
+        else:
+            # Execute without monitoring
+            return self.strategies[LoadStrategy.MERGE].execute(
                 source, target, conflict_resolution
             )
-            set_result(result)
-
-            # Record strategy-specific metrics
-            self._record_strategy_metrics("MERGE", result, target)
-
-            # If the operation failed, record error metrics
-            if not result.success:
-                self.monitoring_manager.metrics_collector.record_metric(
-                    "transform.operations.errors",
-                    1,
-                    MetricType.COUNTER,
-                    labels={
-                        "operation_type": "MERGE",
-                        "table_name": target,
-                        "error_type": "ValidationError",
-                    },
-                )
-
-            return result
 
     def execute_snapshot_strategy(self, source: DataSource, target: str) -> LoadResult:
         """Execute snapshot replacement strategy with monitoring."""
-        with self.operation_monitor.monitor_operation_with_result(
-            "SNAPSHOT", target, estimated_rows=self._estimate_rows(source)
-        ) as set_result:
-            result = self.strategies[LoadStrategy.SNAPSHOT].execute(source, target)
-            set_result(result)
+        if self.enable_monitoring and self.monitoring_manager:
+            with self.operation_monitor.operation_monitor.monitor_operation_with_result(
+                "SNAPSHOT", target, estimated_rows=self._estimate_rows(source)
+            ) as set_result:
+                result = self.strategies[LoadStrategy.SNAPSHOT].execute(source, target)
+                set_result(result)
 
-            # Record strategy-specific metrics
-            self._record_strategy_metrics("SNAPSHOT", result, target)
+                # Record strategy-specific metrics
+                self._record_strategy_metrics("SNAPSHOT", result, target)
 
-            # If the operation failed, record error metrics
-            if not result.success:
-                self.monitoring_manager.metrics_collector.record_metric(
-                    "transform.operations.errors",
-                    1,
-                    MetricType.COUNTER,
-                    labels={
-                        "operation_type": "SNAPSHOT",
-                        "table_name": target,
-                        "error_type": "ValidationError",
-                    },
-                )
+                # If the operation failed, record error metrics
+                if not result.success:
+                    self.monitoring_manager.metrics_collector.record_metric(
+                        "transform.operations.errors",
+                        1,
+                        MetricType.COUNTER,
+                        labels={
+                            "operation_type": "SNAPSHOT",
+                            "table_name": target,
+                            "error_type": "ValidationError",
+                        },
+                    )
 
-            return result
+                return result
+        else:
+            # Execute without monitoring
+            return self.strategies[LoadStrategy.SNAPSHOT].execute(source, target)
 
     def execute_cdc_strategy(
         self,
@@ -866,34 +1024,40 @@ class IncrementalStrategyManager:
         conflict_resolution: ConflictResolution = ConflictResolution.LATEST_WINS,
     ) -> LoadResult:
         """Execute CDC-based incremental load with monitoring."""
-        with self.operation_monitor.monitor_operation_with_result(
-            "CDC",
-            target,
-            estimated_rows=self._estimate_rows(source),
-            conflict_resolution=conflict_resolution.value,
-        ) as set_result:
-            result = self.strategies[LoadStrategy.CDC].execute(
+        if self.enable_monitoring and self.monitoring_manager:
+            with self.operation_monitor.operation_monitor.monitor_operation_with_result(
+                "CDC",
+                target,
+                estimated_rows=self._estimate_rows(source),
+                conflict_resolution=conflict_resolution.value,
+            ) as set_result:
+                result = self.strategies[LoadStrategy.CDC].execute(
+                    source, target, conflict_resolution
+                )
+                set_result(result)
+
+                # Record strategy-specific metrics
+                self._record_strategy_metrics("CDC", result, target)
+
+                # If the operation failed, record error metrics
+                if not result.success:
+                    self.monitoring_manager.metrics_collector.record_metric(
+                        "transform.operations.errors",
+                        1,
+                        MetricType.COUNTER,
+                        labels={
+                            "operation_type": "CDC",
+                            "table_name": target,
+                            "error_type": "ValidationError",
+                        },
+                    )
+
+                return result
+        else:
+            # Execute without monitoring
+            return self.strategies[LoadStrategy.CDC].execute(
                 source, target, conflict_resolution
             )
-            set_result(result)
-
-            # Record strategy-specific metrics
-            self._record_strategy_metrics("CDC", result, target)
-
-            # If the operation failed, record error metrics
-            if not result.success:
-                self.monitoring_manager.metrics_collector.record_metric(
-                    "transform.operations.errors",
-                    1,
-                    MetricType.COUNTER,
-                    labels={
-                        "operation_type": "CDC",
-                        "table_name": target,
-                        "error_type": "ValidationError",
-                    },
-                )
-
-            return result
 
     def execute_with_auto_strategy(
         self,
@@ -911,46 +1075,50 @@ class IncrementalStrategyManager:
         # Select optimal strategy
         selected_strategy = self.select_strategy(table_info, load_pattern)
 
-        # Record strategy selection metric
-        self.monitoring_manager.metrics_collector.record_metric(
-            "transform.strategy.selected",
-            1,
-            MetricType.COUNTER,
-            labels={"strategy": selected_strategy.value, "table_name": target},
-        )
-
-        # Execute with selected strategy and monitoring
-        with self.operation_monitor.monitor_operation_with_result(
-            f"AUTO_{selected_strategy.value.upper()}",
-            target,
-            estimated_rows=load_pattern.row_count_estimate,
-            selected_strategy=selected_strategy.value,
-            pattern_insert_rate=load_pattern.insert_rate,
-            pattern_update_rate=load_pattern.update_rate,
-            pattern_delete_rate=load_pattern.delete_rate,
-        ) as set_result:
-            result = self.strategies[selected_strategy].execute(source, target)
-            set_result(result)
-
-            # Record auto strategy metrics
-            self._record_strategy_metrics(
-                f"AUTO_{selected_strategy.value.upper()}", result, target
+        if self.enable_monitoring and self.monitoring_manager:
+            # Record strategy selection metric
+            self.monitoring_manager.metrics_collector.record_metric(
+                "transform.strategy.selected",
+                1,
+                MetricType.COUNTER,
+                labels={"strategy": selected_strategy.value, "table_name": target},
             )
 
-            # If the operation failed, record error metrics
-            if not result.success:
-                self.monitoring_manager.metrics_collector.record_metric(
-                    "transform.operations.errors",
-                    1,
-                    MetricType.COUNTER,
-                    labels={
-                        "operation_type": f"AUTO_{selected_strategy.value.upper()}",
-                        "table_name": target,
-                        "error_type": "ValidationError",
-                    },
+            # Execute with selected strategy and monitoring
+            with self.operation_monitor.operation_monitor.monitor_operation_with_result(
+                f"AUTO_{selected_strategy.value.upper()}",
+                target,
+                estimated_rows=load_pattern.row_count_estimate,
+                selected_strategy=selected_strategy.value,
+                pattern_insert_rate=load_pattern.insert_rate,
+                pattern_update_rate=load_pattern.update_rate,
+                pattern_delete_rate=load_pattern.delete_rate,
+            ) as set_result:
+                result = self.strategies[selected_strategy].execute(source, target)
+                set_result(result)
+
+                # Record auto strategy metrics
+                self._record_strategy_metrics(
+                    f"AUTO_{selected_strategy.value.upper()}", result, target
                 )
 
-            return result
+                # If the operation failed, record error metrics
+                if not result.success:
+                    self.monitoring_manager.metrics_collector.record_metric(
+                        "transform.operations.errors",
+                        1,
+                        MetricType.COUNTER,
+                        labels={
+                            "operation_type": f"AUTO_{selected_strategy.value.upper()}",
+                            "table_name": target,
+                            "error_type": "ValidationError",
+                        },
+                    )
+
+                return result
+        else:
+            # Execute without monitoring
+            return self.strategies[selected_strategy].execute(source, target)
 
     def _record_strategy_metrics(
         self, strategy_name: str, result: LoadResult, target: str
@@ -962,6 +1130,10 @@ class IncrementalStrategyManager:
             result: Load result with execution details
             target: Target table name
         """
+        # Only record metrics if monitoring is enabled
+        if not self.enable_monitoring or not self.monitoring_manager:
+            return
+
         metrics_collector = self.monitoring_manager.metrics_collector
 
         # Record rows processed by operation type
@@ -1067,6 +1239,8 @@ class IncrementalStrategyManager:
         Returns:
             Dictionary with monitoring dashboard data
         """
+        if not self.enable_monitoring or not self.monitoring_manager:
+            return {"monitoring_enabled": False, "message": "Monitoring is disabled"}
         return self.monitoring_manager.get_dashboard_data()
 
     def get_strategy_performance_report(self) -> Dict[str, Any]:
@@ -1075,6 +1249,19 @@ class IncrementalStrategyManager:
         Returns:
             Dictionary with strategy performance metrics
         """
+        if not self.enable_monitoring or not self.monitoring_manager:
+            return {
+                "monitoring_enabled": False,
+                "message": "Monitoring is disabled",
+                "strategies": {},
+                "overall_stats": {
+                    "total_operations": 0,
+                    "total_rows_processed": 0,
+                    "avg_execution_time": 0,
+                    "error_rate": 0,
+                },
+            }
+
         metrics_collector = self.monitoring_manager.metrics_collector
 
         report = {
@@ -1130,8 +1317,13 @@ class IncrementalStrategyManager:
 
     def stop_monitoring(self) -> None:
         """Stop monitoring system."""
-        self.monitoring_manager.stop_monitoring()
-        self.logger.info("Monitoring stopped for IncrementalStrategyManager")
+        if self.enable_monitoring and self.monitoring_manager:
+            self.monitoring_manager.stop_monitoring()
+
+        if self.logger:
+            self.logger.info("Monitoring stopped for IncrementalStrategyManager")
+        else:
+            logger.info("Monitoring stopped for IncrementalStrategyManager")
 
     def validate_incremental_quality(
         self, load_result: LoadResult, source: DataSource, target: str
