@@ -25,6 +25,7 @@ from sqlflow.connectors.registry import register_connector
 from sqlflow.connectors.resilience import DB_RESILIENCE_CONFIG, resilient_operation
 from sqlflow.core.errors import ConnectorError
 from sqlflow.logging import get_logger
+from sqlflow.utils.sql_security import SQLSafeFormatter, validate_identifier
 
 logger = get_logger(__name__)
 
@@ -938,7 +939,7 @@ class PostgresConnector(Connector):
     def _build_incremental_query(
         self, object_name: str, cursor_field: str, columns: Optional[List[str]] = None
     ) -> str:
-        """Build incremental query string.
+        """Build incremental query with safe identifier quoting.
 
         Args:
         ----
@@ -950,22 +951,35 @@ class PostgresConnector(Connector):
         -------
             SQL query string
         """
-        # Build column string
-        column_str = "*"
+        formatter = SQLSafeFormatter("postgres")
+
+        # Validate identifiers
+        validate_identifier(object_name)
+        validate_identifier(cursor_field)
         if columns:
-            escaped_columns = [f'"{col}"' for col in columns]
-            column_str = ", ".join(escaped_columns)
+            for col in columns:
+                validate_identifier(col)
+
+        # Build column string safely
+        if columns:
+            column_str = formatter.format_column_list(columns)
+        else:
+            column_str = "*"
 
         # Use custom query if provided, otherwise build table query
         if self.params and self.params.query:
+            # For custom queries, we still need to wrap with safe column selection
             base_query = f"SELECT {column_str} FROM ({self.params.query}) as subquery"
         else:
             table_name = (self.params and self.params.table) or object_name
+            schema_name = None
             if self.params and self.params.schema and self.params.schema != "public":
-                table_name = f'"{self.params.schema}"."{table_name}"'
-            else:
-                table_name = f'"{table_name}"'
-            base_query = f"SELECT {column_str} FROM {table_name}"
+                schema_name = self.params.schema
+                validate_identifier(schema_name)
+
+            # Use safe table reference
+            table_ref = formatter.quote_schema_table(table_name, schema_name)
+            base_query = f"SELECT {column_str} FROM {table_ref}"
 
         return base_query
 

@@ -18,6 +18,7 @@ from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, Union
 
 from sqlflow.logging import get_logger
+from sqlflow.utils.sql_security import SQLSafeFormatter, validate_identifier
 
 logger = get_logger(__name__)
 
@@ -658,9 +659,17 @@ class DataQualityValidator:
     ) -> ValidationResult:
         """Validate data freshness for incremental loads."""
         try:
+            # Validate identifiers
+            validate_identifier(table_name)
+            validate_identifier(time_column)
+
+            formatter = SQLSafeFormatter("duckdb")
+            quoted_table = formatter.quote_identifier(table_name)
+            quoted_time_col = formatter.quote_identifier(time_column)
+
             freshness_sql = f"""
-            SELECT MAX({time_column}) as latest_timestamp
-            FROM {table_name}
+            SELECT MAX({quoted_time_col}) as latest_timestamp
+            FROM {quoted_table}
             """
 
             result = self.engine.execute_query(freshness_sql)
@@ -716,18 +725,29 @@ class DataQualityValidator:
     ) -> ValidationResult:
         """Validate duplicates in incremental data."""
         try:
-            key_list = ", ".join(key_columns)
+            # Validate identifiers
+            validate_identifier(table_name)
+            for key in key_columns:
+                validate_identifier(key)
+            if time_column:
+                validate_identifier(time_column)
+
+            formatter = SQLSafeFormatter("duckdb")
+            quoted_table = formatter.quote_identifier(table_name)
+            quoted_keys = [formatter.quote_identifier(key) for key in key_columns]
+            key_list = ", ".join(quoted_keys)
 
             # Build WHERE clause for incremental data
             where_clause = ""
             if since and time_column:
-                where_clause = f"WHERE {time_column} > '{since.isoformat()}'"
+                quoted_time_col = formatter.quote_identifier(time_column)
+                where_clause = f"WHERE {quoted_time_col} > '{since.isoformat()}'"
 
             duplicate_sql = f"""
             SELECT 
                 COUNT(*) as total_rows,
                 COUNT(DISTINCT {key_list}) as unique_rows
-            FROM {table_name}
+            FROM {quoted_table}
             {where_clause}
             """
 
@@ -807,13 +827,22 @@ class DataQualityValidator:
         results = []
 
         try:
+            # Validate identifiers
+            validate_identifier(table_name)
+            if time_column:
+                validate_identifier(time_column)
+
+            formatter = SQLSafeFormatter("duckdb")
+            quoted_table = formatter.quote_identifier(table_name)
+
             # Example business rule: Check for reasonable value ranges
             if time_column and since:
+                quoted_time_col = formatter.quote_identifier(time_column)
                 range_sql = f"""
                 SELECT COUNT(*) as future_records
-                FROM {table_name}
-                WHERE {time_column} > CURRENT_TIMESTAMP
-                AND {time_column} > '{since.isoformat()}'
+                FROM {quoted_table}
+                WHERE {quoted_time_col} > CURRENT_TIMESTAMP
+                AND {quoted_time_col} > '{since.isoformat()}'
                 """
 
                 result = self.engine.execute_query(range_sql)

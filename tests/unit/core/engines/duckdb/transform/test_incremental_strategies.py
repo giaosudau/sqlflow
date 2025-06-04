@@ -246,7 +246,7 @@ class TestAppendStrategy(unittest.TestCase):
             base_query, time_column, watermark
         )
 
-        expected = f"{base_query} WHERE {time_column} > '{watermark.isoformat()}'"
+        expected = f"{base_query} WHERE \"created_at\" > '{watermark.isoformat()}'"
         self.assertEqual(result, expected)
 
     def test_build_incremental_query_with_existing_where(self):
@@ -259,7 +259,7 @@ class TestAppendStrategy(unittest.TestCase):
             base_query, time_column, watermark
         )
 
-        expected = f"{base_query} AND {time_column} > '{watermark.isoformat()}'"
+        expected = f"{base_query} AND \"created_at\" > '{watermark.isoformat()}'"
         self.assertEqual(result, expected)
 
     def test_execute_success(self):
