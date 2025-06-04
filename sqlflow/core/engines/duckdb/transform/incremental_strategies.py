@@ -21,6 +21,9 @@ from sqlflow.logging import get_logger
 
 # Import existing infrastructure
 from ..load.handlers import TableInfo
+
+# Import monitoring infrastructure
+from .monitoring import AlertSeverity, MetricType, MonitoringManager, ThresholdRule
 from .performance import PerformanceOptimizer
 from .watermark import OptimizedWatermarkManager
 
@@ -636,12 +639,20 @@ class IncrementalStrategyManager:
         engine,
         watermark_manager: OptimizedWatermarkManager,
         performance_optimizer: PerformanceOptimizer,
+        monitoring_config: Optional[Dict[str, Any]] = None,
     ):
         """Initialize strategy manager."""
         self.engine = engine
         self.watermark_manager = watermark_manager
         self.performance_optimizer = performance_optimizer
         self.logger = get_logger(__name__)
+
+        # Initialize monitoring system
+        self.monitoring_manager = MonitoringManager(monitoring_config or {})
+        self.operation_monitor = self.monitoring_manager.operation_monitor
+
+        # Setup incremental-specific alert thresholds
+        self._setup_incremental_alerts()
 
         # Initialize available strategies
         self.strategies = {
@@ -667,7 +678,49 @@ class IncrementalStrategyManager:
             LoadStrategy.CDC: 0.9,  # Best for real-time scenarios
         }
 
-        self.logger.info("IncrementalStrategyManager initialized with 4 strategies")
+        self.logger.info(
+            "IncrementalStrategyManager initialized with monitoring and 4 strategies"
+        )
+
+    def _setup_incremental_alerts(self) -> None:
+        """Setup alert thresholds specific to incremental operations."""
+        alert_manager = self.monitoring_manager.alert_manager
+
+        # Long execution time alert
+        alert_manager.add_threshold_rule(
+            ThresholdRule(
+                metric_name="transform.operations.execution_time",
+                threshold_value=300.0,  # 5 minutes
+                operator="gt",
+                severity=AlertSeverity.MEDIUM,
+                message_template="Long running incremental operation: {current_value:.1f}s (threshold: {threshold_value}s)",
+                cooldown_seconds=300,
+            )
+        )
+
+        # Low throughput alert
+        alert_manager.add_threshold_rule(
+            ThresholdRule(
+                metric_name="transform.operations.throughput",
+                threshold_value=100.0,  # rows per second
+                operator="lt",
+                severity=AlertSeverity.LOW,
+                message_template="Low incremental processing throughput: {current_value:.1f} rows/s (threshold: {threshold_value} rows/s)",
+                cooldown_seconds=600,
+            )
+        )
+
+        # High error rate alert
+        alert_manager.add_threshold_rule(
+            ThresholdRule(
+                metric_name="transform.operations.error_rate",
+                threshold_value=0.1,  # 10% error rate
+                operator="gt",
+                severity=AlertSeverity.HIGH,
+                message_template="High incremental operation error rate: {current_value:.1%} (threshold: {threshold_value:.1%})",
+                cooldown_seconds=180,
+            )
+        )
 
     def select_strategy(
         self, table_info: TableInfo, load_pattern: LoadPattern
@@ -719,8 +772,30 @@ class IncrementalStrategyManager:
         return selected_strategy
 
     def execute_append_strategy(self, source: DataSource, target: str) -> LoadResult:
-        """Execute append-only incremental load."""
-        return self.strategies[LoadStrategy.APPEND].execute(source, target)
+        """Execute append-only incremental load with monitoring."""
+        with self.operation_monitor.monitor_operation_with_result(
+            "APPEND", target, estimated_rows=self._estimate_rows(source)
+        ) as set_result:
+            result = self.strategies[LoadStrategy.APPEND].execute(source, target)
+            set_result(result)
+
+            # Record strategy-specific metrics
+            self._record_strategy_metrics("APPEND", result, target)
+
+            # If the operation failed, record error metrics
+            if not result.success:
+                self.monitoring_manager.metrics_collector.record_metric(
+                    "transform.operations.errors",
+                    1,
+                    MetricType.COUNTER,
+                    labels={
+                        "operation_type": "APPEND",
+                        "table_name": target,
+                        "error_type": "ValidationError",
+                    },
+                )
+
+            return result
 
     def execute_merge_strategy(
         self,
@@ -728,14 +803,61 @@ class IncrementalStrategyManager:
         target: str,
         conflict_resolution: ConflictResolution = ConflictResolution.LATEST_WINS,
     ) -> LoadResult:
-        """Execute merge-based incremental load with conflict resolution."""
-        return self.strategies[LoadStrategy.MERGE].execute(
-            source, target, conflict_resolution
-        )
+        """Execute merge-based incremental load with monitoring."""
+        with self.operation_monitor.monitor_operation_with_result(
+            "MERGE",
+            target,
+            estimated_rows=self._estimate_rows(source),
+            conflict_resolution=conflict_resolution.value,
+        ) as set_result:
+            result = self.strategies[LoadStrategy.MERGE].execute(
+                source, target, conflict_resolution
+            )
+            set_result(result)
+
+            # Record strategy-specific metrics
+            self._record_strategy_metrics("MERGE", result, target)
+
+            # If the operation failed, record error metrics
+            if not result.success:
+                self.monitoring_manager.metrics_collector.record_metric(
+                    "transform.operations.errors",
+                    1,
+                    MetricType.COUNTER,
+                    labels={
+                        "operation_type": "MERGE",
+                        "table_name": target,
+                        "error_type": "ValidationError",
+                    },
+                )
+
+            return result
 
     def execute_snapshot_strategy(self, source: DataSource, target: str) -> LoadResult:
-        """Execute snapshot replacement strategy."""
-        return self.strategies[LoadStrategy.SNAPSHOT].execute(source, target)
+        """Execute snapshot replacement strategy with monitoring."""
+        with self.operation_monitor.monitor_operation_with_result(
+            "SNAPSHOT", target, estimated_rows=self._estimate_rows(source)
+        ) as set_result:
+            result = self.strategies[LoadStrategy.SNAPSHOT].execute(source, target)
+            set_result(result)
+
+            # Record strategy-specific metrics
+            self._record_strategy_metrics("SNAPSHOT", result, target)
+
+            # If the operation failed, record error metrics
+            if not result.success:
+                self.monitoring_manager.metrics_collector.record_metric(
+                    "transform.operations.errors",
+                    1,
+                    MetricType.COUNTER,
+                    labels={
+                        "operation_type": "SNAPSHOT",
+                        "table_name": target,
+                        "error_type": "ValidationError",
+                    },
+                )
+
+            return result
 
     def execute_cdc_strategy(
         self,
@@ -743,10 +865,35 @@ class IncrementalStrategyManager:
         target: str,
         conflict_resolution: ConflictResolution = ConflictResolution.LATEST_WINS,
     ) -> LoadResult:
-        """Execute CDC-based incremental load."""
-        return self.strategies[LoadStrategy.CDC].execute(
-            source, target, conflict_resolution
-        )
+        """Execute CDC-based incremental load with monitoring."""
+        with self.operation_monitor.monitor_operation_with_result(
+            "CDC",
+            target,
+            estimated_rows=self._estimate_rows(source),
+            conflict_resolution=conflict_resolution.value,
+        ) as set_result:
+            result = self.strategies[LoadStrategy.CDC].execute(
+                source, target, conflict_resolution
+            )
+            set_result(result)
+
+            # Record strategy-specific metrics
+            self._record_strategy_metrics("CDC", result, target)
+
+            # If the operation failed, record error metrics
+            if not result.success:
+                self.monitoring_manager.metrics_collector.record_metric(
+                    "transform.operations.errors",
+                    1,
+                    MetricType.COUNTER,
+                    labels={
+                        "operation_type": "CDC",
+                        "table_name": target,
+                        "error_type": "ValidationError",
+                    },
+                )
+
+            return result
 
     def execute_with_auto_strategy(
         self,
@@ -754,7 +901,7 @@ class IncrementalStrategyManager:
         target: str,
         load_pattern: Optional[LoadPattern] = None,
     ) -> LoadResult:
-        """Execute incremental load with automatic strategy selection."""
+        """Execute incremental load with automatic strategy selection and monitoring."""
         if not load_pattern:
             load_pattern = self._analyze_load_pattern(source, target)
 
@@ -764,8 +911,227 @@ class IncrementalStrategyManager:
         # Select optimal strategy
         selected_strategy = self.select_strategy(table_info, load_pattern)
 
-        # Execute with selected strategy
-        return self.strategies[selected_strategy].execute(source, target)
+        # Record strategy selection metric
+        self.monitoring_manager.metrics_collector.record_metric(
+            "transform.strategy.selected",
+            1,
+            MetricType.COUNTER,
+            labels={"strategy": selected_strategy.value, "table_name": target},
+        )
+
+        # Execute with selected strategy and monitoring
+        with self.operation_monitor.monitor_operation_with_result(
+            f"AUTO_{selected_strategy.value.upper()}",
+            target,
+            estimated_rows=load_pattern.row_count_estimate,
+            selected_strategy=selected_strategy.value,
+            pattern_insert_rate=load_pattern.insert_rate,
+            pattern_update_rate=load_pattern.update_rate,
+            pattern_delete_rate=load_pattern.delete_rate,
+        ) as set_result:
+            result = self.strategies[selected_strategy].execute(source, target)
+            set_result(result)
+
+            # Record auto strategy metrics
+            self._record_strategy_metrics(
+                f"AUTO_{selected_strategy.value.upper()}", result, target
+            )
+
+            # If the operation failed, record error metrics
+            if not result.success:
+                self.monitoring_manager.metrics_collector.record_metric(
+                    "transform.operations.errors",
+                    1,
+                    MetricType.COUNTER,
+                    labels={
+                        "operation_type": f"AUTO_{selected_strategy.value.upper()}",
+                        "table_name": target,
+                        "error_type": "ValidationError",
+                    },
+                )
+
+            return result
+
+    def _record_strategy_metrics(
+        self, strategy_name: str, result: LoadResult, target: str
+    ) -> None:
+        """Record detailed metrics for strategy execution.
+
+        Args:
+            strategy_name: Name of the strategy used
+            result: Load result with execution details
+            target: Target table name
+        """
+        metrics_collector = self.monitoring_manager.metrics_collector
+
+        # Record rows processed by operation type
+        if result.rows_inserted > 0:
+            metrics_collector.record_metric(
+                "transform.rows.inserted",
+                result.rows_inserted,
+                MetricType.COUNTER,
+                labels={"strategy": strategy_name, "table_name": target},
+            )
+
+        if result.rows_updated > 0:
+            metrics_collector.record_metric(
+                "transform.rows.updated",
+                result.rows_updated,
+                MetricType.COUNTER,
+                labels={"strategy": strategy_name, "table_name": target},
+            )
+
+        if result.rows_deleted > 0:
+            metrics_collector.record_metric(
+                "transform.rows.deleted",
+                result.rows_deleted,
+                MetricType.COUNTER,
+                labels={"strategy": strategy_name, "table_name": target},
+            )
+
+        # Record data quality score
+        metrics_collector.record_metric(
+            "transform.data_quality.score",
+            result.data_quality_score,
+            MetricType.GAUGE,
+            labels={"strategy": strategy_name, "table_name": target},
+        )
+
+        # Record error count
+        error_count = len(result.validation_errors)
+        if error_count > 0:
+            metrics_collector.record_metric(
+                "transform.errors.count",
+                error_count,
+                MetricType.COUNTER,
+                labels={"strategy": strategy_name, "table_name": target},
+            )
+
+        # Calculate and record error rate
+        total_operations = (
+            metrics_collector.get_metric_value(
+                "transform.operations.completed", labels={"table_name": target}
+            )
+            or 1
+        )
+
+        failed_operations = (
+            metrics_collector.get_metric_value(
+                "transform.operations.completed",
+                labels={"table_name": target, "status": "error"},
+            )
+            or 0
+        )
+
+        error_rate = failed_operations / total_operations if total_operations > 0 else 0
+        metrics_collector.record_metric(
+            "transform.operations.error_rate",
+            error_rate,
+            MetricType.GAUGE,
+            labels={"table_name": target},
+        )
+
+        # Record watermark information if available
+        if result.watermark_updated:
+            metrics_collector.record_metric(
+                "transform.watermark.updated",
+                1,
+                MetricType.COUNTER,
+                labels={"strategy": strategy_name, "table_name": target},
+            )
+
+    def _estimate_rows(self, source: DataSource) -> int:
+        """Estimate number of rows to be processed.
+
+        Args:
+            source: Data source configuration
+
+        Returns:
+            Estimated row count
+        """
+        try:
+            # Try to get actual count with a simplified query
+            count_query = (
+                f"SELECT COUNT(*) FROM ({source.source_query}) as estimate_subquery"
+            )
+            result = self.engine.execute_query(count_query)
+            rows = result.fetchall() if hasattr(result, "fetchall") else []
+            return rows[0][0] if rows else 1000  # Default estimate
+        except Exception:
+            # Fallback to default estimate
+            return 1000
+
+    def get_monitoring_dashboard(self) -> Dict[str, Any]:
+        """Get comprehensive monitoring dashboard data.
+
+        Returns:
+            Dictionary with monitoring dashboard data
+        """
+        return self.monitoring_manager.get_dashboard_data()
+
+    def get_strategy_performance_report(self) -> Dict[str, Any]:
+        """Get performance report for all strategies.
+
+        Returns:
+            Dictionary with strategy performance metrics
+        """
+        metrics_collector = self.monitoring_manager.metrics_collector
+
+        report = {
+            "strategies": {},
+            "overall_stats": {
+                "total_operations": 0,
+                "total_rows_processed": 0,
+                "avg_execution_time": 0,
+                "error_rate": 0,
+            },
+        }
+
+        # Collect metrics for each strategy
+        for strategy in LoadStrategy:
+            strategy_name = strategy.value.upper()
+
+            # Get metrics for this strategy
+            operations = (
+                metrics_collector.get_metric_value(
+                    "transform.operations.completed",
+                    labels={"operation_type": strategy_name},
+                )
+                or 0
+            )
+
+            execution_times = metrics_collector.get_metric_history(
+                "transform.operations.execution_time",
+                labels={"operation_type": strategy_name},
+            )
+
+            avg_exec_time = (
+                sum(p.value for p in execution_times) / len(execution_times)
+                if execution_times
+                else 0
+            )
+
+            report["strategies"][strategy_name] = {
+                "total_operations": operations,
+                "avg_execution_time": avg_exec_time,
+                "recent_operations": len(
+                    [
+                        p
+                        for p in execution_times
+                        if (datetime.now() - p.timestamp).total_seconds() < 3600
+                    ]
+                ),
+            }
+
+            # Add to overall stats
+            report["overall_stats"]["total_operations"] += operations
+
+        return report
+
+    def stop_monitoring(self) -> None:
+        """Stop monitoring system."""
+        self.monitoring_manager.stop_monitoring()
+        self.logger.info("Monitoring stopped for IncrementalStrategyManager")
 
     def validate_incremental_quality(
         self, load_result: LoadResult, source: DataSource, target: str
