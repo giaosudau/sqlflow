@@ -299,8 +299,14 @@ class AppendStrategy(IncrementalStrategy):
                 source.source_query, source.time_column, last_watermark
             )
 
-            # Execute optimized bulk insert
-            insert_sql = f"INSERT INTO {target} {filtered_query}"
+            # Execute optimized bulk insert - use safe table name
+            from sqlflow.utils.sql_security import SQLSafeFormatter, validate_identifier
+
+            formatter = SQLSafeFormatter("duckdb")
+            validate_identifier(target)
+            quoted_target = formatter.quote_identifier(target)
+
+            insert_sql = f"INSERT INTO {quoted_target} {filtered_query}"
             optimized_sql, was_optimized = (
                 self.performance_optimizer.optimize_insert_operation(
                     insert_sql,
@@ -316,10 +322,12 @@ class AppendStrategy(IncrementalStrategy):
                 result.rows_inserted = insert_result.rowcount
             else:
                 # Fallback: count rows that match our criteria
-                count_query = f"SELECT COUNT(*) FROM {target}"
+                count_query = f"SELECT COUNT(*) FROM {quoted_target}"
                 if source.time_column and last_watermark:
+                    validate_identifier(source.time_column)
+                    quoted_time_col = formatter.quote_identifier(source.time_column)
                     count_query += (
-                        f" WHERE {source.time_column} > '{last_watermark.isoformat()}'"
+                        f" WHERE {quoted_time_col} > '{last_watermark.isoformat()}'"
                     )
                 count_result = self.engine.execute_query(count_query)
                 count_rows = (
@@ -358,8 +366,15 @@ class AppendStrategy(IncrementalStrategy):
         if not time_column or not last_watermark:
             return base_query
 
+        # Safely quote the time column to prevent injection
+        from sqlflow.utils.sql_security import SQLSafeFormatter, validate_identifier
+
+        validate_identifier(time_column)
+        formatter = SQLSafeFormatter("duckdb")
+        quoted_time_col = formatter.quote_identifier(time_column)
+
         # Add WHERE clause for incremental filtering
-        watermark_filter = f"{time_column} > '{last_watermark.isoformat()}'"
+        watermark_filter = f"{quoted_time_col} > '{last_watermark.isoformat()}'"
 
         if "WHERE" in base_query.upper():
             return base_query + f" AND {watermark_filter}"
@@ -388,14 +403,22 @@ class MergeStrategy(IncrementalStrategy):
             # Create temporary staging table
             temp_table = f"temp_merge_{target}_{int(start_time.timestamp())}"
 
-            # Load data to staging table
-            staging_sql = f"CREATE TABLE {temp_table} AS {source.source_query}"
+            # Load data to staging table - use safe identifiers
+            from sqlflow.utils.sql_security import SQLSafeFormatter, validate_identifier
+
+            formatter = SQLSafeFormatter("duckdb")
+            validate_identifier(temp_table)
+            validate_identifier(target)
+            quoted_temp_table = formatter.quote_identifier(temp_table)
+            quoted_target = formatter.quote_identifier(target)
+
+            staging_sql = f"CREATE TABLE {quoted_temp_table} AS {source.source_query}"
             self.engine.execute_query(staging_sql)
 
             # Generate merge SQL based on conflict resolution
             merge_sql = self._generate_merge_sql(
-                source_table=temp_table,
-                target_table=target,
+                source_table=quoted_temp_table,
+                target_table=quoted_target,
                 key_columns=source.key_columns,
                 conflict_resolution=conflict_resolution,
             )
@@ -405,14 +428,14 @@ class MergeStrategy(IncrementalStrategy):
 
             # Get affected row counts (this is DuckDB-specific)
             result.rows_inserted = self._get_merge_insert_count(
-                temp_table, target, source.key_columns
+                quoted_temp_table, quoted_target, source.key_columns
             )
             result.rows_updated = self._get_merge_update_count(
-                temp_table, target, source.key_columns
+                quoted_temp_table, quoted_target, source.key_columns
             )
 
             # Clean up staging table
-            self.engine.execute_query(f"DROP TABLE {temp_table}")
+            self.engine.execute_query(f"DROP TABLE {quoted_temp_table}")
 
             execution_time = datetime.now() - start_time
             result.execution_time_ms = int(execution_time.total_seconds() * 1000)
@@ -790,7 +813,7 @@ class IncrementalStrategyManager:
 
         # Set up monitoring infrastructure only if monitoring is enabled and manager is available
         if self.enable_monitoring and self.monitoring_manager:
-            self.operation_monitor = self.monitoring_manager
+            self.operation_monitor = self.monitoring_manager.operation_monitor
             self._setup_incremental_alerts()
 
         # Strategy selection weights for intelligent selection
@@ -918,7 +941,7 @@ class IncrementalStrategyManager:
     def execute_append_strategy(self, source: DataSource, target: str) -> LoadResult:
         """Execute append-only incremental load with monitoring."""
         if self.enable_monitoring and self.monitoring_manager:
-            with self.operation_monitor.operation_monitor.monitor_operation_with_result(
+            with self.operation_monitor.monitor_operation_with_result(
                 "APPEND", target, estimated_rows=self._estimate_rows(source)
             ) as set_result:
                 result = self.strategies[LoadStrategy.APPEND].execute(source, target)
@@ -953,7 +976,7 @@ class IncrementalStrategyManager:
     ) -> LoadResult:
         """Execute merge-based incremental load with monitoring."""
         if self.enable_monitoring and self.monitoring_manager:
-            with self.operation_monitor.operation_monitor.monitor_operation_with_result(
+            with self.operation_monitor.monitor_operation_with_result(
                 "MERGE",
                 target,
                 estimated_rows=self._estimate_rows(source),
@@ -990,7 +1013,7 @@ class IncrementalStrategyManager:
     def execute_snapshot_strategy(self, source: DataSource, target: str) -> LoadResult:
         """Execute snapshot replacement strategy with monitoring."""
         if self.enable_monitoring and self.monitoring_manager:
-            with self.operation_monitor.operation_monitor.monitor_operation_with_result(
+            with self.operation_monitor.monitor_operation_with_result(
                 "SNAPSHOT", target, estimated_rows=self._estimate_rows(source)
             ) as set_result:
                 result = self.strategies[LoadStrategy.SNAPSHOT].execute(source, target)
@@ -1025,7 +1048,7 @@ class IncrementalStrategyManager:
     ) -> LoadResult:
         """Execute CDC-based incremental load with monitoring."""
         if self.enable_monitoring and self.monitoring_manager:
-            with self.operation_monitor.operation_monitor.monitor_operation_with_result(
+            with self.operation_monitor.monitor_operation_with_result(
                 "CDC",
                 target,
                 estimated_rows=self._estimate_rows(source),
@@ -1085,7 +1108,7 @@ class IncrementalStrategyManager:
             )
 
             # Execute with selected strategy and monitoring
-            with self.operation_monitor.operation_monitor.monitor_operation_with_result(
+            with self.operation_monitor.monitor_operation_with_result(
                 f"AUTO_{selected_strategy.value.upper()}",
                 target,
                 estimated_rows=load_pattern.row_count_estimate,
