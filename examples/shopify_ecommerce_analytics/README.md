@@ -92,13 +92,16 @@ python -m sqlflow.cli.main pipeline run 03_working_example
 
 ### Step 2: Test Connection
 
-Use the hardcoded test pipeline to verify your connection:
+Use the secure connection test pipeline to verify your connection:
 
 ```bash
-# Edit pipelines/04_hardcoded_test.sf with your credentials
-# Then run:
-python -m sqlflow.cli.main pipeline validate pipelines/04_hardcoded_test.sf --clear-cache
-python -m sqlflow.cli.main pipeline run 04_hardcoded_test
+# Set your credentials first
+export SHOPIFY_STORE="your-store.myshopify.com"
+export SHOPIFY_TOKEN="shpat_your_token_here"
+
+# Test the connection
+python -m sqlflow.cli.main pipeline validate 02_secure_connection_test --clear-cache
+python -m sqlflow.cli.main pipeline run 02_secure_connection_test
 ```
 
 ### Step 3: Run Full Analytics
@@ -137,21 +140,17 @@ The Shopify connector supports these data streams:
 - `include_fulfillments` - Include fulfillment data (default: true)
 - `include_refunds` - Include refund data (default: true)
 
-## 📁 Example Files
+## 📁 Available Pipelines
 
-### Basic Pipelines
-- `pipelines/01_basic_connection_test.sf` - Simple connection test
-- `pipelines/02_secure_connection_test.sf` - Environment variable version
-- `pipelines/03_working_example.sf` - Full business analytics pipeline
-- `pipelines/04_hardcoded_test.sf` - Hardcoded test version
-
-### Advanced SME Analytics (NEW!)
-- `pipelines/05_sme_advanced_analytics_simple.sf` - **Phase 2, Day 4** advanced SME analytics
+### Core Pipelines
+- **`02_secure_connection_test.sf`** - Basic connection test with environment variables
+- **`03_working_example.sf`** - Full business analytics pipeline with multi-stream data
+- **`05_sme_advanced_analytics_simple.sf`** - **Phase 2, Day 4** advanced SME analytics
 
 ### Testing & Documentation
-- `test_shopify_connector.sh` - Comprehensive test suite
-- `CHANGELOG.md` - Version history and technical details
-- `QUICKSTART.md` - 2-minute setup guide
+- **`test_shopify_connector.sh`** - Comprehensive test suite that runs all pipelines
+- **`CHANGELOG.md`** - Version history and technical details
+- **`QUICKSTART.md`** - 2-minute setup guide
 
 ## 🧪 Testing
 
@@ -163,11 +162,15 @@ Run the comprehensive test suite to verify everything works:
 
 Expected output:
 ```
-✅ Shopify connector infrastructure working
-✅ Pipeline validation working (hardcoded and environment variables)
-✅ SME advanced analytics pipeline validation working
-✅ Compilation working for both basic and advanced pipelines
-✅ All tests completed successfully!
+🛒 SQLFlow Shopify Connector Complete Test Suite
+===============================================
+
+🔐 Part 1: Connection & Authentication Testing
+📊 Part 2: Basic Business Analytics  
+🧠 Part 3: Advanced SME Analytics & Intelligence
+🎯 Part 4: Production Readiness Validation
+
+✅ All tests passed! The Shopify connector is working perfectly!
 ```
 
 ## 📊 SME Advanced Analytics (Phase 2, Day 4)
@@ -240,14 +243,14 @@ SELECT
 FROM orders
 WHERE created_at >= CURRENT_DATE - INTERVAL 90 DAYS
 GROUP BY COALESCE(shipping_country, billing_country, 'Unknown')
-HAVING COUNT(DISTINCT order_id) >= 5
+HAVING COUNT(DISTINCT order_id) >= 1
 ORDER BY total_revenue DESC;
 ```
 
 ## 🎯 Next Steps
 
 1. **Set up your Shopify private app** following the instructions above
-2. **Test the connection** using the hardcoded test pipeline
+2. **Test the connection** using the secure connection test pipeline
 3. **Run the full analytics** to get business insights
 4. **Try the new SME advanced analytics** for deeper business intelligence
 5. **Customize the queries** for your specific business needs

@@ -23,21 +23,22 @@
 export SHOPIFY_STORE="mystore.myshopify.com"  # Replace with your store
 export SHOPIFY_TOKEN="shpat_abc123..."        # Replace with your token
 
-# Navigate to the example and test
+# Navigate to the example and run comprehensive test suite
 cd examples/shopify_ecommerce_analytics
 ./test_shopify_connector.sh
 ```
 
 **Expected Output:**
 ```
-🧪 SQLFlow Shopify Connector Test Suite
-========================================
+🛒 SQLFlow Shopify Connector Complete Test Suite
+===============================================
 
-✅ SHOPIFY connector registered: True
-✅ SHOPIFY validation schema available: True
-✅ Pipeline validation working (hardcoded and environment variables)
-✅ Compilation working
-✅ All tests completed successfully!
+🔐 Part 1: Connection & Authentication Testing
+📊 Part 2: Basic Business Analytics  
+🧠 Part 3: Advanced SME Analytics & Intelligence
+🎯 Part 4: Production Readiness Validation
+
+✅ All tests passed! The Shopify connector is working perfectly!
 ```
 
 ## 3. Check Your Data
@@ -47,6 +48,10 @@ Look in the `output/` folder:
 - `sample_orders.csv` - Your actual order data
 - `sample_customers.csv` - Your customer data
 - `sample_products.csv` - Your product data
+- `sme_customer_ltv_analysis.csv` - Customer lifetime value analysis
+- `sme_product_performance.csv` - Product performance insights
+- `sme_financial_reconciliation.csv` - Financial accuracy validation
+- `sme_geographic_performance.csv` - Regional performance analysis
 
 ## 4. Common Issues
 
@@ -56,8 +61,8 @@ Look in the `output/` folder:
 
 ## 5. What's Next?
 
-✅ **Basic connection working?** Try the other pipelines  
+✅ **Basic connection working?** Try the individual pipelines  
 ✅ **Ready for analytics?** Check the main [README.md](README.md)  
 ✅ **Want incremental loading?** Change `sync_mode` to `"incremental"`
 
-**That's it! You're connected to Shopify in under 2 minutes.** 
+**That's it! You're connected to Shopify and running advanced SME analytics in under 2 minutes.** 
