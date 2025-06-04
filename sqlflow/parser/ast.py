@@ -324,12 +324,29 @@ class SQLBlockStep(PipelineStep):
           PYTHON_FUNC("helpers.calculate_ltv", raw_sales, 0.08) AS ltv
         FROM raw_sales;
 
+    Transform Mode Examples:
+    -------
+        CREATE TABLE daily_sales MODE REPLACE AS
+        SELECT order_date, SUM(amount) FROM orders GROUP BY order_date;
+
+        CREATE TABLE incremental_events MODE INCREMENTAL BY event_date AS
+        SELECT * FROM events WHERE event_date BETWEEN @start_date AND @end_date;
+
+        CREATE TABLE customer_summary MODE MERGE KEY customer_id AS
+        SELECT customer_id, COUNT(*) as orders FROM orders GROUP BY customer_id;
+
     """
 
     table_name: str
     sql_query: str
     line_number: Optional[int] = None
     is_replace: bool = False  # True if CREATE OR REPLACE was used
+
+    # NEW: Transform mode fields
+    mode: Optional[str] = None  # REPLACE/APPEND/MERGE/INCREMENTAL
+    time_column: Optional[str] = None  # For INCREMENTAL BY column
+    merge_keys: List[str] = field(default_factory=list)  # For MERGE KEY (...)
+    lookback: Optional[str] = None  # For LOOKBACK duration
 
     def validate(self) -> List[str]:
         """Validate the SQL block.
@@ -344,7 +361,100 @@ class SQLBlockStep(PipelineStep):
             errors.append("SQL block requires a table name")
         if not self.sql_query:
             errors.append("SQL block requires a SQL query")
+
+        # Validate transform mode fields
+        errors.extend(self.validate_transform_fields())
+
         return errors
+
+    def validate_transform_fields(self) -> List[str]:
+        """Validate transform mode specific fields.
+
+        Returns:
+            List of validation error messages for transform mode issues
+        """
+        errors = []
+
+        # If no mode is specified, this is a standard SQL block
+        if self.mode is None:
+            return errors
+
+        # Validate mode value
+        valid_modes = ["REPLACE", "APPEND", "MERGE", "INCREMENTAL"]
+        if self.mode.upper() not in valid_modes:
+            errors.append(
+                f"Invalid MODE '{self.mode}'. Expected: {', '.join(valid_modes)}"
+            )
+            return errors  # Don't continue validation if mode is invalid
+
+        mode_upper = self.mode.upper()
+
+        # Mode-specific field validation
+        errors.extend(self._validate_mode_specific_fields(mode_upper))
+
+        # LOOKBACK can only be used with INCREMENTAL
+        if self.lookback and mode_upper != "INCREMENTAL":
+            errors.append("LOOKBACK can only be used with INCREMENTAL mode")
+
+        return errors
+
+    def _validate_mode_specific_fields(self, mode_upper: str) -> List[str]:
+        """Validate fields specific to each mode.
+
+        Args:
+            mode_upper: The mode in uppercase
+
+        Returns:
+            List of validation errors for mode-specific field violations
+        """
+        if mode_upper == "INCREMENTAL":
+            return self._validate_incremental_mode()
+        elif mode_upper == "MERGE":
+            return self._validate_merge_mode()
+        elif mode_upper in ["REPLACE", "APPEND"]:
+            return self._validate_simple_mode(mode_upper)
+        return []
+
+    def _validate_incremental_mode(self) -> List[str]:
+        """Validate INCREMENTAL mode fields."""
+        errors = []
+        if not self.time_column:
+            errors.append("INCREMENTAL mode requires BY <time_column>")
+        if self.merge_keys:
+            errors.append("INCREMENTAL mode cannot use merge keys")
+        return errors
+
+    def _validate_merge_mode(self) -> List[str]:
+        """Validate MERGE mode fields."""
+        errors = []
+        if not self.merge_keys:
+            errors.append(
+                "MERGE mode requires KEY <column> or KEY (<col1>, <col2>, ...)"
+            )
+        if self.time_column:
+            errors.append("MERGE mode cannot use time column")
+        if self.lookback:
+            errors.append("MERGE mode cannot use LOOKBACK")
+        return errors
+
+    def _validate_simple_mode(self, mode_upper: str) -> List[str]:
+        """Validate REPLACE/APPEND mode fields."""
+        errors = []
+        if self.time_column:
+            errors.append(f"{mode_upper} mode cannot use time column")
+        if self.merge_keys:
+            errors.append(f"{mode_upper} mode cannot use merge keys")
+        if self.lookback:
+            errors.append(f"{mode_upper} mode cannot use LOOKBACK")
+        return errors
+
+    def is_transform_mode(self) -> bool:
+        """Check if this SQL block uses transform mode syntax.
+
+        Returns:
+            True if this block uses MODE syntax, False for standard SQL
+        """
+        return self.mode is not None
 
 
 @dataclass
