@@ -58,7 +58,13 @@ class TokenType(Enum):
     REPLACE = auto()
     APPEND = auto()
     MERGE = auto()
+    INCREMENTAL = auto()  # NEW: For INCREMENTAL mode
     MERGE_KEYS = auto()
+
+    # Transform mode tokens
+    BY = auto()  # NEW: For INCREMENTAL BY column
+    KEY = auto()  # NEW: For MERGE KEY (...)
+    LOOKBACK = auto()  # NEW: For LOOKBACK duration
 
     # Conditional execution tokens
     IF = auto()
@@ -170,7 +176,12 @@ class Lexer:
             (TokenType.REPLACE, re.compile(r"REPLACE\b", re.IGNORECASE)),
             (TokenType.APPEND, re.compile(r"APPEND\b", re.IGNORECASE)),
             (TokenType.MERGE, re.compile(r"MERGE\b", re.IGNORECASE)),
+            (TokenType.INCREMENTAL, re.compile(r"INCREMENTAL\b", re.IGNORECASE)),  # NEW
             (TokenType.MERGE_KEYS, re.compile(r"MERGE_KEYS\b", re.IGNORECASE)),
+            # Transform mode patterns
+            (TokenType.BY, re.compile(r"BY\b", re.IGNORECASE)),  # NEW
+            (TokenType.KEY, re.compile(r"KEY\b", re.IGNORECASE)),  # NEW
+            (TokenType.LOOKBACK, re.compile(r"LOOKBACK\b", re.IGNORECASE)),  # NEW
             # Conditional execution patterns
             (TokenType.IF, re.compile(r"IF\b", re.IGNORECASE)),
             (TokenType.THEN, re.compile(r"THEN\b", re.IGNORECASE)),

@@ -674,6 +674,43 @@ class Parser:
 
         return merge_keys
 
+    def _parse_transform_merge_keys(self) -> List[str]:
+        """Parse MERGE mode keys for transform syntax: KEY <column> or KEY (<col1>, <col2>, ...).
+
+        Returns:
+            List of merge key column names
+        """
+        merge_keys = []
+
+        if self._check(TokenType.KEY):
+            self._advance()  # Consume KEY
+
+            # Check for parentheses (composite keys)
+            if self._check(TokenType.LEFT_PAREN):
+                self._advance()  # Consume (
+
+                # Parse comma-separated list
+                while True:
+                    key_token = self._consume(
+                        TokenType.IDENTIFIER, "Expected column name in merge keys"
+                    )
+                    merge_keys.append(key_token.value)
+
+                    if self._check(TokenType.COMMA):
+                        self._advance()  # Consume comma
+                    else:
+                        break
+
+                self._consume(TokenType.RIGHT_PAREN, "Expected ')' after merge keys")
+            else:
+                # Single key
+                key_token = self._consume(
+                    TokenType.IDENTIFIER, "Expected column name after KEY"
+                )
+                merge_keys.append(key_token.value)
+
+        return merge_keys
+
     def _parse_export_statement(self) -> ExportStep:
         """Parse an EXPORT statement.
 
@@ -811,8 +848,9 @@ class Parser:
         """Parse a CREATE TABLE statement.
 
         Supports both:
-        - CREATE TABLE table_name AS SELECT ...
+        - Standard DuckDB SQL: CREATE TABLE table_name AS SELECT ...
         - CREATE OR REPLACE TABLE table_name AS SELECT ...
+        - SQLFlow Transform syntax: CREATE TABLE table_name MODE <mode> [options] AS SELECT ...
 
         Returns
         -------
@@ -840,8 +878,178 @@ class Parser:
             TokenType.IDENTIFIER, "Expected table name after 'TABLE'"
         )
 
-        self._consume(TokenType.AS, "Expected 'AS' after table name")
+        # Context-aware parsing: Check if this is SQLFlow transform syntax
+        if self._is_sqlflow_transform_syntax():
+            return self._parse_transform_statement(
+                create_token, table_name_token, is_replace
+            )
+        else:
+            return self._parse_standard_sql_statement(
+                create_token, table_name_token, is_replace
+            )
 
+    def _is_sqlflow_transform_syntax(self) -> bool:
+        """Detect SQLFlow transform syntax vs standard DuckDB SQL.
+
+        Look ahead for pattern: CREATE TABLE <name> MODE <mode>
+
+        Returns:
+            True if this is SQLFlow transform syntax, False for standard SQL
+        """
+        # Look ahead to see if MODE keyword follows table name
+        return self._check(TokenType.MODE)
+
+    def _parse_transform_statement(
+        self, create_token: Token, table_name_token: Token, is_replace: bool
+    ) -> SQLBlockStep:
+        """Parse SQLFlow transform with MODE syntax - comprehensive error handling.
+
+        Args:
+            create_token: The CREATE token
+            table_name_token: The table name token
+            is_replace: Whether CREATE OR REPLACE was used
+
+        Returns:
+            SQLBlockStep with transform mode fields populated
+
+        Raises:
+            ParserError: If transform syntax is invalid
+        """
+        try:
+            self._consume(TokenType.MODE, "Expected MODE")
+            mode_token = self._advance()
+
+            # Validate mode token
+            if mode_token.type not in [
+                TokenType.REPLACE,
+                TokenType.APPEND,
+                TokenType.MERGE,
+                TokenType.INCREMENTAL,
+            ]:
+                raise ParserError(
+                    f"Invalid MODE '{mode_token.value}'. Expected: REPLACE, APPEND, MERGE, INCREMENTAL",
+                    mode_token.line,
+                    mode_token.column,
+                )
+
+            mode = mode_token.value.upper()
+
+            # Parse mode-specific options with validation
+            time_column = None
+            merge_keys = []
+            lookback = None
+
+            if mode == "INCREMENTAL":
+                time_column, lookback = self._parse_incremental_options()
+                if not time_column:
+                    raise ParserError(
+                        "INCREMENTAL mode requires BY <time_column>",
+                        mode_token.line,
+                        mode_token.column,
+                    )
+            elif mode == "MERGE":
+                merge_keys = self._parse_transform_merge_keys()
+                if not merge_keys:
+                    raise ParserError(
+                        "MERGE mode requires KEY <column> or KEY (<col1>, <col2>, ...)",
+                        mode_token.line,
+                        mode_token.column,
+                    )
+
+            self._consume(TokenType.AS, "Expected AS after MODE specification")
+            sql_query = self._parse_sql_query()
+
+            return SQLBlockStep(
+                table_name=table_name_token.value,
+                sql_query=sql_query,
+                mode=mode,
+                time_column=time_column,
+                merge_keys=merge_keys,
+                lookback=lookback,
+                line_number=create_token.line,
+                is_replace=is_replace,
+            )
+
+        except Exception as e:
+            if isinstance(e, ParserError):
+                raise
+            raise ParserError(
+                f"Failed to parse transform statement: {str(e)}",
+                create_token.line,
+                create_token.column,
+            ) from e
+
+    def _parse_standard_sql_statement(
+        self, create_token: Token, table_name_token: Token, is_replace: bool
+    ) -> SQLBlockStep:
+        """Parse standard DuckDB SQL statement.
+
+        Args:
+            create_token: The CREATE token
+            table_name_token: The table name token
+            is_replace: Whether CREATE OR REPLACE was used
+
+        Returns:
+            SQLBlockStep for standard SQL (no transform mode fields)
+        """
+        self._consume(TokenType.AS, "Expected 'AS' after table name")
+        sql_query = self._parse_sql_query()
+
+        return SQLBlockStep(
+            table_name=table_name_token.value,
+            sql_query=sql_query,
+            line_number=create_token.line,
+            is_replace=is_replace,
+        )
+
+    def _parse_incremental_options(self) -> tuple[Optional[str], Optional[str]]:
+        """Parse INCREMENTAL mode options: BY <column> [LOOKBACK <duration>].
+
+        Returns:
+            Tuple of (time_column, lookback_duration)
+        """
+        time_column = None
+        lookback = None
+
+        # Parse BY clause (required for INCREMENTAL)
+        if self._check(TokenType.BY):
+            self._advance()  # Consume BY
+            time_token = self._consume(
+                TokenType.IDENTIFIER, "Expected column name after BY"
+            )
+            time_column = time_token.value
+
+            # Parse optional LOOKBACK clause
+            if self._check(TokenType.LOOKBACK):
+                self._advance()  # Consume LOOKBACK
+
+                # Parse lookback duration (can be multiple tokens like "7 days")
+                lookback_parts = []
+                while (
+                    not self._check(TokenType.SEMICOLON)
+                    and not self._check(TokenType.AS)
+                    and not self._check(TokenType.KEY)
+                    and not self._is_at_end()
+                ):
+                    token = self._peek()
+                    if token.type in (TokenType.IDENTIFIER, TokenType.NUMBER):
+                        self._advance()
+                        lookback_parts.append(token.value)
+                    else:
+                        # Stop if we hit an unexpected token
+                        break
+
+                if lookback_parts:
+                    lookback = " ".join(lookback_parts)
+
+        return time_column, lookback
+
+    def _parse_sql_query(self) -> str:
+        """Parse the SQL query part of a CREATE TABLE statement.
+
+        Returns:
+            The formatted SQL query string
+        """
         sql_query_tokens = ["SELECT"]
         self._consume(TokenType.SELECT, "Expected 'SELECT' after 'AS'")
 
@@ -854,12 +1062,7 @@ class Parser:
 
         self._consume(TokenType.SEMICOLON, "Expected ';' after SQL query")
 
-        return SQLBlockStep(
-            table_name=table_name_token.value,
-            sql_query=sql_query,
-            line_number=create_token.line,
-            is_replace=is_replace,
-        )
+        return sql_query
 
     def _format_sql_query(self, tokens) -> str:
         """Format SQL query tokens with proper handling of operators like DOT.
