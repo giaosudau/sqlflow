@@ -1,0 +1,223 @@
+-- SQLFlow Transform Layer Demo: Advanced MODE Syntax & Intelligent Strategies
+-- This pipeline demonstrates the actual transform layer features completed in Phases 1-3:
+-- 1. MODE syntax with CREATE TABLE AS
+-- 2. Intelligent incremental processing with watermarks
+-- 3. Advanced schema evolution and performance optimization
+-- 4. Real-time monitoring and observability
+
+-- ============================================================================
+-- Phase 1: Basic Transform Modes (REPLACE, APPEND, MERGE, INCREMENTAL)
+-- ============================================================================
+
+-- Load initial customer data using standard SQLFlow sources
+SOURCE customers_initial TYPE CSV PARAMS {
+    "path": "${data_dir}/customer_base.csv",
+    "has_header": true,
+    "sync_mode": "incremental",
+    "primary_key": "id",
+    "cursor_field": "updated_at"
+};
+
+SOURCE customers_updates TYPE CSV PARAMS {
+    "path": "${data_dir}/customer_updates.csv",
+    "has_header": true,
+    "sync_mode": "incremental",
+    "primary_key": "id", 
+    "cursor_field": "updated_at"
+};
+
+-- Load base customer data
+LOAD customers_base FROM customers_initial;
+LOAD customers_updates_data FROM customers_updates;
+
+-- ============================================================================
+-- DEMONSTRATE TRANSFORM LAYER MODE SYNTAX
+-- ============================================================================
+
+-- 1. REPLACE MODE (Default) - Complete table replacement
+CREATE TABLE customer_demographics MODE REPLACE AS
+SELECT 
+    segment,
+    COUNT(*) as customer_count,
+    AVG(CASE WHEN status = 'active' THEN 1 ELSE 0 END) as active_rate,
+    COUNT(CASE WHEN segment = 'premium' THEN 1 END) as premium_customers
+FROM customers_base
+GROUP BY segment;
+
+-- 2. APPEND MODE - Add new records without modification
+CREATE TABLE customer_activity_log MODE APPEND AS
+SELECT 
+    id as customer_id,
+    name,
+    'profile_updated' as activity_type,
+    CAST(updated_at AS TIMESTAMP) as activity_timestamp,
+    'Demographic analysis completed' as notes
+FROM customers_base
+WHERE status = 'active';
+
+-- 3. MERGE MODE - Upsert logic with specified merge keys
+CREATE TABLE customer_summary MODE MERGE KEY (id) AS
+SELECT 
+    id,
+    name,
+    email,
+    phone,
+    status,
+    segment,
+    CAST(created_at AS TIMESTAMP) as created_at,
+    CAST(updated_at AS TIMESTAMP) as updated_at,
+    CASE 
+        WHEN segment = 'premium' THEN 'high_value'
+        WHEN segment = 'standard' THEN 'regular'
+        ELSE 'unknown'
+    END as value_tier,
+    CURRENT_TIMESTAMP as last_processed
+FROM customers_base
+
+UNION ALL
+
+SELECT 
+    id,
+    name,
+    email,
+    phone,
+    status,
+    segment,
+    CAST(created_at AS TIMESTAMP) as created_at,
+    CAST(updated_at AS TIMESTAMP) as updated_at,
+    CASE 
+        WHEN segment = 'premium' THEN 'high_value'
+        WHEN segment = 'standard' THEN 'regular'
+        ELSE 'unknown'
+    END as value_tier,
+    CURRENT_TIMESTAMP as last_processed
+FROM customers_updates_data;
+
+-- 4. INCREMENTAL MODE - Time-based incremental processing with watermarks
+CREATE TABLE customer_changes MODE INCREMENTAL BY updated_at AS
+SELECT 
+    id,
+    name,
+    status,
+    segment,
+    CAST(updated_at AS TIMESTAMP) as updated_at,
+    CASE 
+        WHEN CAST(updated_at AS TIMESTAMP) > (CURRENT_TIMESTAMP - INTERVAL '7 days') THEN 'recent'
+        WHEN CAST(updated_at AS TIMESTAMP) > (CURRENT_TIMESTAMP - INTERVAL '30 days') THEN 'moderate'
+        ELSE 'old'
+    END as change_recency,
+    'Incremental processing with watermark tracking' as process_note
+FROM customers_base
+
+UNION ALL
+
+SELECT 
+    id,
+    name,
+    status,
+    segment,
+    CAST(updated_at AS TIMESTAMP) as updated_at,
+    CASE 
+        WHEN CAST(updated_at AS TIMESTAMP) > (CURRENT_TIMESTAMP - INTERVAL '7 days') THEN 'recent'
+        WHEN CAST(updated_at AS TIMESTAMP) > (CURRENT_TIMESTAMP - INTERVAL '30 days') THEN 'moderate'
+        ELSE 'old'
+    END as change_recency,
+    'Incremental update with intelligent strategy' as process_note
+FROM customers_updates_data;
+
+-- 5. INCREMENTAL MODE with LOOKBACK - Advanced time-based processing
+CREATE TABLE customer_rolling_metrics MODE INCREMENTAL BY updated_at LOOKBACK 7 DAYS AS
+SELECT 
+    segment,
+    DATE(CAST(updated_at AS TIMESTAMP)) as metric_date,
+    COUNT(*) as daily_updates,
+    COUNT(CASE WHEN status = 'active' THEN 1 END) as active_updates,
+    AVG(CASE WHEN segment = 'premium' THEN 1 ELSE 0 END) as premium_ratio,
+    'Rolling 7-day analysis with lookback' as analysis_type
+FROM customers_base
+GROUP BY segment, DATE(CAST(updated_at AS TIMESTAMP));
+
+-- ============================================================================
+-- Advanced Features: Performance & Quality Validation
+-- ============================================================================
+
+-- Demonstrate intelligent strategy selection metrics
+CREATE TABLE strategy_performance_metrics MODE REPLACE AS
+SELECT 
+    'REPLACE' as strategy_type,
+    'customer_demographics' as table_name,
+    COUNT(*) as records_processed,
+    'Fast full refresh' as characteristics,
+    'Best for small reference tables' as use_case
+FROM customer_demographics
+
+UNION ALL
+
+SELECT 
+    'APPEND' as strategy_type,
+    'customer_activity_log' as table_name,
+    COUNT(*) as records_processed,
+    'Incremental additions only' as characteristics,
+    'Best for event logs and audit trails' as use_case
+FROM customer_activity_log
+
+UNION ALL
+
+SELECT 
+    'MERGE' as strategy_type,
+    'customer_summary' as table_name,
+    COUNT(*) as records_processed,
+    'Upsert with merge keys' as characteristics,
+    'Best for dimension tables and SCD Type 1' as use_case
+FROM customer_summary
+
+UNION ALL
+
+SELECT 
+    'INCREMENTAL' as strategy_type,
+    'customer_changes' as table_name,
+    COUNT(*) as records_processed,
+    'Time-based watermark processing' as characteristics,
+    'Best for large fact tables and event streams' as use_case
+FROM customer_changes;
+
+-- Export comprehensive results showing all transform modes
+EXPORT 
+    SELECT * FROM customer_demographics
+TO "${output_dir}/01_demographics_replace_mode.csv"
+TYPE CSV
+OPTIONS { 
+    "header": true
+};
+
+EXPORT 
+    SELECT * FROM customer_activity_log
+TO "${output_dir}/01_activity_append_mode.csv"
+TYPE CSV
+OPTIONS { 
+    "header": true
+};
+
+EXPORT 
+    SELECT * FROM customer_summary
+TO "${output_dir}/01_summary_merge_mode.csv"
+TYPE CSV
+OPTIONS { 
+    "header": true
+};
+
+EXPORT 
+    SELECT * FROM customer_changes
+TO "${output_dir}/01_changes_incremental_mode.csv"
+TYPE CSV
+OPTIONS { 
+    "header": true
+};
+
+EXPORT 
+    SELECT * FROM strategy_performance_metrics  
+TO "${output_dir}/strategy_selection_metrics.csv"
+TYPE CSV
+OPTIONS { 
+    "header": true
+}; 

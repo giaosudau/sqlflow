@@ -1,0 +1,14 @@
+engines:
+  duckdb:
+    mode: memory
+
+variables:
+  data_dir: "data"
+  output_dir: "output"
+  environment: "development"
+  debug_mode: true
+  
+  # Demo-specific configurations
+  strategy_selection: "auto"
+  monitoring_enabled: true
+  performance_tuning: true 

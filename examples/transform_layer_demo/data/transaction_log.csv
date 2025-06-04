@@ -1,0 +1,11 @@
+transaction_id,customer_id,amount,currency,transaction_type,operation_type,cdc_timestamp,processed_at
+1001,1,150.00,USD,purchase,I,2025-01-21 08:00:00,
+1002,2,75.50,USD,purchase,I,2025-01-21 08:15:00,
+1003,3,200.00,USD,purchase,I,2025-01-21 08:30:00,
+1004,1,25.00,USD,refund,I,2025-01-21 08:45:00,
+1005,5,300.00,USD,purchase,I,2025-01-21 09:00:00,
+1006,2,100.00,USD,purchase,U,2025-01-21 09:15:00,
+1007,6,50.75,USD,purchase,I,2025-01-21 09:30:00,
+1008,3,200.00,USD,purchase,D,2025-01-21 09:45:00,
+1009,8,175.25,USD,purchase,I,2025-01-21 10:00:00,
+1010,4,89.99,USD,purchase,I,2025-01-21 10:15:00 

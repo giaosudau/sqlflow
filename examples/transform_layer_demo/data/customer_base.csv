@@ -1,0 +1,11 @@
+id,name,email,phone,status,segment,created_at,updated_at
+1,Alice Johnson,alice.johnson@email.com,555-0101,active,premium,2024-01-01 09:00:00,2024-01-15 10:30:00
+2,Bob Smith,bob.smith@email.com,555-0102,active,standard,2024-01-02 11:00:00,2024-01-16 14:20:00
+3,Carol Davis,carol.davis@email.com,555-0103,active,premium,2024-01-03 13:00:00,2024-01-17 16:45:00
+4,David Wilson,david.wilson@email.com,555-0104,inactive,standard,2024-01-04 15:00:00,2024-01-18 09:15:00
+5,Eva Brown,eva.brown@email.com,555-0105,active,premium,2024-01-05 17:00:00,2024-01-19 11:30:00
+6,Frank Miller,frank.miller@email.com,555-0106,active,standard,2024-01-06 19:00:00,2024-01-20 13:45:00
+7,Grace Taylor,grace.taylor@email.com,555-0107,pending,standard,2024-01-07 21:00:00,2024-01-21 15:00:00
+8,Henry Anderson,henry.anderson@email.com,555-0108,active,premium,2024-01-08 23:00:00,2024-01-22 17:15:00
+9,Ivy Thomas,ivy.thomas@email.com,555-0109,active,standard,2024-01-09 01:00:00,2024-01-23 19:30:00
+10,Jack White,jack.white@email.com,555-0110,inactive,standard,2024-01-10 03:00:00,2024-01-24 21:45:00 
