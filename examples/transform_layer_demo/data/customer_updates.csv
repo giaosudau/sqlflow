@@ -1,0 +1,5 @@
+id,name,email,phone,status,segment,created_at,updated_at
+3,Carol Davis,carol.davis@newemail.com,555-0103,active,premium,2024-01-03 13:00:00,2025-01-21 10:00:00
+7,Grace Taylor,grace.taylor@email.com,555-0107,active,premium,2024-01-07 21:00:00,2025-01-21 10:15:00
+11,Laura Green,laura.green@email.com,555-0111,active,standard,2025-01-21 09:30:00,2025-01-21 09:30:00
+12,Mike Roberts,mike.roberts@email.com,555-0112,pending,standard,2025-01-21 09:45:00,2025-01-21 09:45:00 
