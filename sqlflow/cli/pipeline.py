@@ -261,9 +261,34 @@ def _compile_pipeline_to_plan(
         if variables:
             planner_variables.update(variables)
 
-        # Create a plan with planner
+        # Create a plan with planner - capture and enhance warnings
         planner = Planner()
-        operations = planner.create_plan(pipeline, variables=planner_variables)
+
+        # Set up warning capture for table reference errors
+        import logging
+
+        captured_warnings = []
+
+        class CompilationWarningHandler(logging.Handler):
+            def emit(self, record):
+                if "might not be defined" in record.getMessage():
+                    captured_warnings.append(record.getMessage())
+
+        # Temporarily add our handler to capture planner warnings
+        planner_logger = logging.getLogger("sqlflow.core.planner")
+        warning_handler = CompilationWarningHandler()
+        warning_handler.setLevel(logging.WARNING)
+        planner_logger.addHandler(warning_handler)
+
+        try:
+            operations = planner.create_plan(pipeline, variables=planner_variables)
+        finally:
+            # Remove our handler
+            planner_logger.removeHandler(warning_handler)
+
+        # Process any captured warnings and provide enhanced context
+        if captured_warnings:
+            _provide_compilation_context(captured_warnings, pipeline_text)
 
         # Save the plan if requested
         if save_plan:
@@ -277,6 +302,89 @@ def _compile_pipeline_to_plan(
         logger.error(f"Error compiling pipeline: {str(e)}")
         _handle_source_error(e)
         raise typer.Exit(code=1)
+
+
+def _provide_compilation_context(warnings: List[str], pipeline_text: str) -> None:
+    """Provide helpful context for compilation warnings about table references.
+
+    Args:
+    ----
+        warnings: List of warning messages captured during compilation
+        pipeline_text: Pipeline content to analyze for context
+    """
+    import difflib
+
+    from sqlflow.cli.validation_helpers import (
+        _extract_available_sources_from_pipeline,
+        _extract_available_tables_from_pipeline,
+    )
+
+    # Extract available tables and sources
+    available_tables = _extract_available_tables_from_pipeline(pipeline_text)
+    available_sources = _extract_available_sources_from_pipeline(pipeline_text)
+
+    compilation_errors = []
+
+    # Process each warning and determine if it should be an error
+    for warning in warnings:
+        typer.echo(f"⚠️  {warning}")
+
+        # Extract the undefined table name from the warning
+        undefined_table = None
+        if "references tables that might not be defined:" in warning:
+            parts = warning.split("references tables that might not be defined:")
+            if len(parts) > 1:
+                undefined_table = parts[1].strip()
+
+        # Check for close matches that suggest typos
+        if undefined_table and available_tables:
+            # Check for close matches using difflib
+            close_matches = difflib.get_close_matches(
+                undefined_table, available_tables, n=3, cutoff=0.6
+            )
+            if close_matches:
+                compilation_errors.append(
+                    f"Table '{undefined_table}' not found. Did you mean '{close_matches[0]}'?"
+                )
+
+        # Provide helpful context
+        if available_tables or available_sources:
+            typer.echo(
+                "💡 Hint: Check that all referenced tables are created by previous steps"
+            )
+            typer.echo("   or defined as SOURCE statements.")
+
+            if available_tables:
+                typer.echo(
+                    f"   Available tables: {', '.join(sorted(available_tables))}"
+                )
+            if available_sources:
+                typer.echo(
+                    f"   Available sources: {', '.join(sorted(available_sources))}"
+                )
+
+            # Show close matches
+            if undefined_table and available_tables:
+                close_matches = difflib.get_close_matches(
+                    undefined_table, available_tables, n=3, cutoff=0.6
+                )
+                if close_matches:
+                    typer.echo(f"   🔍 Did you mean: {', '.join(close_matches)}?")
+        else:
+            typer.echo(
+                "💡 Hint: No tables or sources are defined in this pipeline yet."
+            )
+            typer.echo(
+                "   Make sure to define SOURCE statements and LOAD/CREATE TABLE steps first."
+            )
+
+    # If we found clear errors (close matches suggesting typos), fail compilation
+    if compilation_errors:
+        typer.echo(f"\n❌ Compilation failed due to clear table reference errors:")
+        for error in compilation_errors:
+            typer.echo(f"   • {error}")
+        typer.echo(f"\n💡 Fix the table references and try again.")
+        raise typer.Exit(1)
 
 
 def _build_execution_graph(operations: List[Dict[str, Any]]) -> Dict[str, List[str]]:
@@ -1421,6 +1529,9 @@ def _execute_and_handle_result(
         result = executor.execute(operations, variables=variables)
         logger.debug(f"Execution result: {result.get('status', 'unknown')}")
 
+        # Enhanced error detection - check for any error indicators
+        status = result.get("status", "unknown")
+
         # Verify DuckDB tables if needed
         _verify_duckdb_tables(executor)
 
@@ -1431,14 +1542,42 @@ def _execute_and_handle_result(
             f"⏱️  Execution completed in {execution_time.total_seconds():.2f} seconds"
         )
 
-        # Check overall success
-        if result.get("status") == "success":
+        # Enhanced success/failure detection
+        if status == "success":
+            # Additional verification: Check if any steps actually failed but weren't caught
+            failed_operations = _detect_silent_failures(executor, operations)
+            if failed_operations:
+                error_msg = f"Pipeline execution had silent failures: {', '.join(failed_operations)}"
+                logger.error(error_msg)
+                typer.echo(f"❌ Pipeline failed: {error_msg}")
+                artifact_manager.finalize_execution(pipeline_name, False, error_msg)
+                return False
+
             typer.echo("✅ Pipeline completed successfully")
             artifact_manager.finalize_execution(pipeline_name, True)
             return True
+        elif status in ["failed", "error"]:
+            error_message = result.get("error", result.get("message", "Unknown error"))
+
+            # Enhanced error reporting with step context
+            failed_step = result.get("failed_step", "unknown step")
+            detailed_error = f"Failed at {failed_step}: {error_message}"
+
+            typer.echo(f"❌ Pipeline failed: {detailed_error}")
+            logger.debug(
+                f"Pipeline {pipeline_name} failed: {detailed_error}"
+            )  # Debug level to avoid duplication
+
+            # Provide helpful debugging information
+            _provide_error_context(operations, failed_step, error_message)
+
+            artifact_manager.finalize_execution(pipeline_name, False, detailed_error)
+            return False
         else:
-            error_message = result.get("error", "Unknown error")
+            # Unknown status - treat as failure
+            error_message = f"Pipeline returned unknown status: {status}"
             typer.echo(f"❌ Pipeline failed: {error_message}")
+            logger.error(f"Pipeline {pipeline_name} returned unknown status: {status}")
             artifact_manager.finalize_execution(pipeline_name, False, error_message)
             return False
 
@@ -1449,10 +1588,151 @@ def _execute_and_handle_result(
         typer.echo(
             f"⏱️  Execution failed after {execution_time.total_seconds():.2f} seconds"
         )
-        typer.echo(f"❌ Error: {e}")
-        logger.debug(f"Exception during execution: {e}")
-        artifact_manager.finalize_execution(pipeline_name, False, str(e))
+
+        # Enhanced exception reporting
+        error_msg = f"Unexpected error: {str(e)}"
+        typer.echo(f"❌ Error: {error_msg}")
+        logger.error(
+            f"Exception during execution of {pipeline_name}: {e}", exc_info=True
+        )
+
+        artifact_manager.finalize_execution(pipeline_name, False, error_msg)
         return False
+
+
+def _detect_silent_failures(executor, operations: List[Dict[str, Any]]) -> List[str]:
+    """Detect operations that may have failed silently.
+
+    This function performs additional checks to catch failures that might
+    not be properly propagated through the normal execution flow.
+
+    Args:
+    ----
+        executor: Executor instance
+        operations: List of operations that were executed
+
+    Returns:
+    -------
+        List of operation IDs that may have failed silently
+    """
+    failed_ops = []
+
+    # Check for DuckDB tables that should exist but don't
+    if hasattr(executor, "duckdb_engine") and executor.duckdb_engine:
+        for op in operations:
+            if op.get("type") == "transform":
+                table_name = op.get("name", "")
+                if table_name and not executor.duckdb_engine.table_exists(table_name):
+                    failed_ops.append(f"transform:{table_name}")
+
+    return failed_ops
+
+
+def _provide_error_context(
+    operations: List[Dict[str, Any]], failed_step: str, error_message: str
+) -> None:
+    """Provide helpful context and suggestions for common errors.
+
+    Args:
+    ----
+        operations: List of operations in the pipeline
+        failed_step: ID of the step that failed
+        error_message: Error message from the failure
+    """
+    logger = get_logger(__name__)
+
+    # Find the failed operation
+    failed_op = None
+    for op in operations:
+        if op.get("id") == failed_step:
+            failed_op = op
+            break
+
+    if not failed_op:
+        return
+
+    # Provide context-specific help
+    if "does not exist" in error_message and "Table" in error_message:
+        typer.echo(
+            "💡 Hint: Check that all referenced tables are created by previous steps"
+        )
+        typer.echo("   or defined as SOURCE statements.")
+
+        # List actual queryable tables created by the pipeline
+        available_tables = _get_available_tables_from_operations(operations)
+        available_sources = _get_available_sources_from_operations(operations)
+
+        if available_tables:
+            typer.echo(f"   Available tables: {', '.join(sorted(available_tables))}")
+        if available_sources:
+            typer.echo(f"   Available sources: {', '.join(sorted(available_sources))}")
+
+    elif "syntax" in error_message.lower():
+        typer.echo("💡 Hint: Check the SQL syntax in your transform step")
+        if failed_op.get("query"):
+            typer.echo(f"   SQL: {failed_op.get('query', '')[:100]}...")
+
+    elif "connection" in error_message.lower():
+        typer.echo("💡 Hint: Check your database connection settings in profiles/")
+
+    # Log the full operation details for debugging
+    logger.debug(f"Failed operation details: {failed_op}")
+
+
+def _get_available_tables_from_operations(
+    operations: List[Dict[str, Any]],
+) -> List[str]:
+    """Extract actual table names that can be queried from operations.
+
+    Args:
+    ----
+        operations: List of operations in the pipeline
+
+    Returns:
+    -------
+        List of table names that can be used in SQL queries
+    """
+    tables = set()
+
+    # Tables created by LOAD operations
+    for op in operations:
+        if op.get("type") == "load":
+            table_name = op.get("target_table") or op.get("table_name")
+            if table_name:
+                tables.add(table_name)
+
+    # Tables created by transform operations (CREATE TABLE AS)
+    for op in operations:
+        if op.get("type") == "transform":
+            table_name = op.get("name") or op.get("table_name")
+            if table_name:
+                tables.add(table_name)
+
+    return list(tables)
+
+
+def _get_available_sources_from_operations(
+    operations: List[Dict[str, Any]],
+) -> List[str]:
+    """Extract SOURCE definition names from operations.
+
+    Args:
+    ----
+        operations: List of operations in the pipeline
+
+    Returns:
+    -------
+        List of source names that can be referenced in LOAD statements
+    """
+    sources = set()
+
+    for op in operations:
+        if op.get("type") == "source_definition":
+            source_name = op.get("name") or op.get("source_name")
+            if source_name:
+                sources.add(source_name)
+
+    return list(sources)
 
 
 # Helper function to execute operations and report results

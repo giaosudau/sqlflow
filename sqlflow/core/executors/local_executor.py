@@ -333,19 +333,85 @@ class LocalExecutor(BaseExecutor):
             logger.debug(f"Error validating execution order: {e}")
 
     def _execute_operations(self, plan: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Execute all operations in the plan."""
+        """Execute all operations in the plan.
+
+        This method implements fail-fast behavior - execution stops immediately
+        when any step fails, preventing cascading errors and silent failures.
+        """
+        executed_steps = []
+
         for i, step in enumerate(plan):
-            result = self._execute_step(step)
-            if result.get("status") != "success":
+            step_id = step.get("id", f"step_{i}")
+            step_type = step.get("type", "unknown")
+
+            logger.debug(f"Executing step {i+1}/{len(plan)}: {step_id} ({step_type})")
+
+            try:
+                result = self._execute_step(step)
+
+                # Critical: Check status immediately and fail fast
+                status = result.get("status")
+                if status == "error":
+                    error_msg = result.get(
+                        "message", f"Unknown error in {step_type} step"
+                    )
+                    logger.debug(
+                        f"Step {step_id} failed: {error_msg}"
+                    )  # Debug level to avoid duplication
+
+                    return {
+                        "status": "failed",
+                        "error": error_msg,
+                        "failed_step": step_id,
+                        "failed_step_type": step_type,
+                        "executed_steps": executed_steps,
+                        "total_steps": len(plan),
+                        "failed_at_step": i + 1,
+                    }
+                elif status != "success":
+                    # Handle unexpected status values
+                    error_msg = f"Step returned unexpected status: {status}"
+                    logger.debug(
+                        f"Step {step_id} returned unexpected status: {status}"
+                    )  # Debug level
+
+                    return {
+                        "status": "failed",
+                        "error": error_msg,
+                        "failed_step": step_id,
+                        "failed_step_type": step_type,
+                        "executed_steps": executed_steps,
+                        "total_steps": len(plan),
+                        "failed_at_step": i + 1,
+                    }
+
+                # Step succeeded - track it
+                executed_steps.append(step_id)
+                logger.debug(f"Step {step_id} completed successfully")
+
+            except Exception as e:
+                # Handle unexpected exceptions during step execution
+                error_msg = f"Unexpected error in {step_type} step: {str(e)}"
+                logger.error(f"Exception in step {step_id}: {e}", exc_info=True)
+
                 return {
                     "status": "failed",
-                    "error": result.get(
-                        "message",
-                        f"Unknown error in {step.get('type', 'unknown')} step",
-                    ),
+                    "error": error_msg,
+                    "failed_step": step_id,
+                    "failed_step_type": step_type,
+                    "executed_steps": executed_steps,
+                    "total_steps": len(plan),
+                    "failed_at_step": i + 1,
+                    "exception": str(e),
                 }
 
-        return {"status": "success"}
+        # All steps completed successfully
+        logger.info(f"All {len(plan)} steps completed successfully")
+        return {
+            "status": "success",
+            "executed_steps": executed_steps,
+            "total_steps": len(plan),
+        }
 
     def _execute_step(self, step: Dict[str, Any]) -> Dict[str, Any]:
         """Execute a single step and return the result.
@@ -460,7 +526,7 @@ class LocalExecutor(BaseExecutor):
 
             return {"status": "success"}
         except Exception as e:
-            logger.error(f"Export failed: {e}")
+            logger.debug(f"Export failed: {e}")  # Debug level to avoid duplication
             return {"status": "error", "message": str(e)}
 
     def _execute_transform(self, step: Dict[str, Any]) -> Dict[str, Any]:
@@ -489,14 +555,34 @@ class LocalExecutor(BaseExecutor):
                 # Print user-friendly message
                 print(f"🔄 Creating {table_name}")
                 logger.debug(f"Creating table: {table_name}")
-                return self._execute_sql_query(table_name, sql_query, step)
+                result = self._execute_sql_query(table_name, sql_query, step)
 
-            # Fallback to mock data for tests without real SQL
-            if table_name:
-                logger.debug(f"Creating mock table: {table_name}")
+                # CRITICAL FIX: Properly check and propagate SQL execution errors
+                if result.get("status") == "error":
+                    # SQL execution failed - propagate the error immediately
+                    logger.error(f"Transform step {step_id} failed due to SQL error")
+                    return result  # Return the error status from SQL execution
+
+                # SQL execution succeeded
+                return result
+
+            # Only fall back to mock data if there's no real SQL query
+            # This prevents masking SQL execution failures
+            if not sql_query and table_name:
+                logger.debug(f"Creating mock table for test: {table_name}")
                 return self._create_mock_transform_data(table_name)
 
-            return {"status": "success"}
+            # Handle case where we have neither SQL query nor table name
+            if not table_name:
+                error_msg = f"Transform step {step_id} has no table name or SQL query"
+                logger.error(error_msg)
+                return {"status": "error", "message": error_msg}
+
+            # Default case should not happen, but handle gracefully
+            error_msg = f"Transform step {step_id} configuration is invalid"
+            logger.error(error_msg)
+            return {"status": "error", "message": error_msg}
+
         except Exception as e:
             logger.error(
                 f"Failed to execute transform step {step.get('id', 'unknown')}: {e}"
@@ -1658,7 +1744,49 @@ class LocalExecutor(BaseExecutor):
         -------
             Tuple of (source_table_name, data_chunk)
 
+        Raises:
+        ------
+            Exception: If SQL query execution fails (for proper error propagation)
+
         """
+        # Check if this export step has a SQL query that needs execution
+        query_data = step.get("query", {})
+        sql_query = query_data.get("sql_query", "")
+
+        if sql_query and sql_query.strip():
+            # This is an EXPORT with SQL query - execute it directly
+            logger.debug(f"Executing SQL query for export: {sql_query}")
+            try:
+                result = self.duckdb_engine.execute_query(sql_query)
+                rows = result.fetchall()
+                columns = [desc[0] for desc in result.description]
+
+                logger.info(f"Export query returned {len(rows)} rows")
+
+                # Convert to pandas DataFrame
+                import pandas as pd
+
+                if rows and columns:
+                    data_dict = {
+                        col: [row[i] for row in rows] for i, col in enumerate(columns)
+                    }
+                    df = pd.DataFrame(data_dict)
+                else:
+                    df = pd.DataFrame()
+
+                data_chunk = DataChunk(df)
+                source_table = "export_query_result"
+                return source_table, data_chunk
+
+            except Exception as e:
+                # Critical: Do NOT catch and ignore SQL errors
+                # Propagate them immediately so the export step fails
+                logger.debug(
+                    f"Export SQL query failed: {e}"
+                )  # Debug level to avoid duplication
+                raise  # Re-raise the exception instead of masking it
+
+        # If no SQL query, try to resolve from table name
         source_table = self._extract_source_table_name(step)
 
         # Try to get data from table_data first
@@ -1667,13 +1795,17 @@ class LocalExecutor(BaseExecutor):
             logger.debug(f"Found table '{source_table}' in local data")
             return source_table, data_chunk
 
-        # Try to get data from DuckDB
+        # Try to get data from DuckDB using table name
         if source_table:
             data_chunk = self._get_data_from_duckdb(source_table)
             if data_chunk:
                 return source_table, data_chunk
 
-        # Fallback to dummy data
+        # Only fall back to dummy data for test scenarios without proper source
+        # This should only happen in unit tests, not real pipelines
+        logger.warning(
+            "Export step has no valid source - creating dummy data for tests"
+        )
         return self._create_dummy_export_data()
 
     def _extract_source_table_name(self, step: Dict[str, Any]) -> Optional[str]:

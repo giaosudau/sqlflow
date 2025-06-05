@@ -347,7 +347,9 @@ class DuckDBEngine(SQLEngine):
             return result
         except Exception as e:
             duration = time.time() - start_time
-            logger.error(f"Query execution failed: {str(e)}")
+            # Use debug level for SQL errors to avoid duplication with higher-level error messages
+            # The actual error will be handled and reported at the step/pipeline level
+            logger.debug(f"Query execution failed: {str(e)}")
             logger.debug(f"Failed query: {query}")
             raise
 

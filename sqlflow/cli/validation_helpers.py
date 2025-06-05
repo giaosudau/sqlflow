@@ -101,6 +101,121 @@ def _apply_variable_substitution(pipeline_text: str, profile_variables: dict) ->
     return result
 
 
+def _enhance_table_reference_errors(
+    errors: List[ValidationError], pipeline_text: str
+) -> List[ValidationError]:
+    """Enhance table reference errors with available tables/sources context.
+
+    Args:
+    ----
+        errors: List of validation errors
+        pipeline_text: Pipeline content to analyze
+
+    Returns:
+    -------
+        Enhanced list of validation errors
+    """
+    enhanced_errors = []
+
+    # Extract available tables and sources from pipeline
+    available_tables = _extract_available_tables_from_pipeline(pipeline_text)
+    available_sources = _extract_available_sources_from_pipeline(pipeline_text)
+
+    for error in errors:
+        # Check if this is a table reference error
+        if "might not be defined" in error.message and "tables" in error.message:
+            # Enhance the error with helpful context
+            enhanced_suggestions = list(error.suggestions) if error.suggestions else []
+
+            # Add table/source context like in runtime errors
+            if available_tables:
+                enhanced_suggestions.append(
+                    f"Available tables: {', '.join(sorted(available_tables))}"
+                )
+            if available_sources:
+                enhanced_suggestions.append(
+                    f"Available sources: {', '.join(sorted(available_sources))}"
+                )
+
+            if not available_tables and not available_sources:
+                enhanced_suggestions.append(
+                    "No tables or sources are defined yet in this pipeline"
+                )
+
+            enhanced_suggestions.append(
+                "Check that referenced tables are created by previous steps or defined as SOURCE statements"
+            )
+
+            enhanced_error = ValidationError(
+                message=error.message,
+                line=error.line,
+                column=error.column,
+                error_type=error.error_type,
+                suggestions=enhanced_suggestions,
+                help_url=error.help_url,
+            )
+            enhanced_errors.append(enhanced_error)
+        else:
+            # Keep other errors unchanged
+            enhanced_errors.append(error)
+
+    return enhanced_errors
+
+
+def _extract_available_tables_from_pipeline(pipeline_text: str) -> List[str]:
+    """Extract table names that can be queried from pipeline text.
+
+    Args:
+    ----
+        pipeline_text: Pipeline content to analyze
+
+    Returns:
+    -------
+        List of table names that can be used in SQL queries
+    """
+    import re
+
+    tables = set()
+
+    # Find LOAD statements that create tables
+    load_pattern = r"LOAD\s+(\w+)\s+FROM"
+    load_matches = re.findall(load_pattern, pipeline_text, re.IGNORECASE)
+    for table_name in load_matches:
+        tables.add(table_name.lower())
+
+    # Find CREATE TABLE statements
+    create_pattern = r"CREATE\s+(?:OR\s+REPLACE\s+)?TABLE\s+(\w+)"
+    create_matches = re.findall(create_pattern, pipeline_text, re.IGNORECASE)
+    for table_name in create_matches:
+        tables.add(table_name.lower())
+
+    return list(tables)
+
+
+def _extract_available_sources_from_pipeline(pipeline_text: str) -> List[str]:
+    """Extract SOURCE definition names from pipeline text.
+
+    Args:
+    ----
+        pipeline_text: Pipeline content to analyze
+
+    Returns:
+    -------
+        List of source names that can be referenced in LOAD statements
+    """
+    import re
+
+    sources = set()
+
+    # Find SOURCE definitions
+    source_pattern = r"SOURCE\s+(\w+)\s+TYPE"
+    source_matches = re.findall(source_pattern, pipeline_text, re.IGNORECASE)
+    for source_name in source_matches:
+        sources.add(source_name.lower())
+
+    return list(sources)
+
+
 def _parse_and_validate_pipeline(
     pipeline_text: str, pipeline_path: str
 ) -> List[ValidationError]:
@@ -125,8 +240,12 @@ def _parse_and_validate_pipeline(
         pipeline_text = _apply_variable_substitution(pipeline_text, profile_variables)
 
         # Parse with validation enabled (now with variables substituted)
-        parser.parse(pipeline_text, validate=True)
-        logger.debug("Pipeline validation passed for %s", pipeline_path)
+        pipeline = parser.parse(pipeline_text, validate=True)
+        logger.debug("Pipeline parsing passed for %s", pipeline_path)
+
+        # ENHANCED: Also run planner-level validation to catch table reference errors
+        planner_errors = _validate_with_planner(pipeline, pipeline_text, pipeline_path)
+        errors.extend(planner_errors)
 
     except ValidationError as e:
         # Single validation error
@@ -155,7 +274,210 @@ def _parse_and_validate_pipeline(
             ]
         logger.debug("Pipeline parsing failed for %s: %s", pipeline_path, error_msg)
 
+    # Enhance table reference errors with available tables/sources context
+    if errors:
+        errors = _enhance_table_reference_errors(errors, pipeline_text)
+
     return errors
+
+
+def _validate_with_planner(
+    pipeline, pipeline_text: str, pipeline_path: str
+) -> List[ValidationError]:
+    """Run planner-level validation to catch table reference errors.
+
+    Args:
+    ----
+        pipeline: Parsed pipeline AST
+        pipeline_text: Original pipeline text for context
+        pipeline_path: Path for logging
+
+    Returns:
+    -------
+        List of validation errors from planner analysis
+    """
+    try:
+        captured_warnings = _capture_planner_warnings(pipeline)
+        if captured_warnings:
+            return _process_captured_warnings(captured_warnings, pipeline_text)
+        return []
+    except Exception as e:
+        logger.debug(f"Could not run planner validation for {pipeline_path}: {e}")
+        return []
+
+
+def _capture_planner_warnings(pipeline):
+    """Capture warnings from planner execution."""
+    import logging
+
+    from sqlflow.core.planner import Planner
+
+    captured_warnings = []
+
+    class ValidationWarningHandler(logging.Handler):
+        def emit(self, record):
+            if "might not be defined" in record.getMessage():
+                captured_warnings.append(record.getMessage())
+
+    # Set up warning capture
+    planner_logger = logging.getLogger("sqlflow.core.planner")
+    warning_handler = ValidationWarningHandler()
+    warning_handler.setLevel(logging.WARNING)
+    planner_logger.addHandler(warning_handler)
+
+    try:
+        planner = Planner()
+        planner_variables = _get_planner_variables()
+        planner.create_plan(pipeline, variables=planner_variables)
+    finally:
+        planner_logger.removeHandler(warning_handler)
+
+    return captured_warnings
+
+
+def _get_planner_variables():
+    """Get variables for planner context."""
+    import os
+
+    planner_variables = dict(os.environ)
+    profile_variables = _get_profile_variables()
+    if profile_variables:
+        planner_variables.update(profile_variables)
+
+    # Add default variables for conditional pipeline validation
+    # This helps with validating conditional pipelines that need context
+    default_validation_vars = {
+        "env": "dev",
+        "environment": "dev",
+        "region": "global",
+        "target_region": "global",
+        "enable_enrichment": "false",
+        "segmentation_model": "basic",
+        "enable_export_csv": "true",
+        "enable_export_json": "false",
+        "enable_export_warehouse": "false",
+        "enable_address_verification": "false",
+        "use_production_data": "false",
+        "use_sample_data": "true",
+    }
+
+    # Only add defaults if not already set
+    for key, value in default_validation_vars.items():
+        if key not in planner_variables:
+            planner_variables[key] = value
+
+    return planner_variables
+
+
+def _process_captured_warnings(captured_warnings, pipeline_text):
+    """Process captured warnings and convert to validation errors."""
+    validation_errors = []
+    available_tables = _extract_available_tables_from_pipeline(pipeline_text)
+    available_sources = _extract_available_sources_from_pipeline(pipeline_text)
+
+    for warning in captured_warnings:
+        error = _process_warning_for_validation(
+            warning, available_tables, available_sources
+        )
+        if error:
+            validation_errors.append(error)
+
+    return validation_errors
+
+
+def _process_warning_for_validation(warning, available_tables, available_sources):
+    """Process a single warning and create validation error if needed."""
+    import re
+
+    # Extract line number and table name
+    line_number = 1
+    undefined_table = None
+
+    line_match = re.search(r"line (\d+)", warning)
+    if line_match:
+        line_number = int(line_match.group(1))
+
+    if "references tables that might not be defined:" in warning:
+        parts = warning.split("references tables that might not be defined:")
+        if len(parts) > 1:
+            undefined_table = parts[1].strip()
+
+    if not undefined_table:
+        return None
+
+    # Skip validation for tables that are likely conditional context tables
+    # These are created within conditional blocks and may not exist during validation
+    conditional_table_patterns = [
+        "customers_raw",
+        "sales_raw",
+        "products_raw",  # Raw loaded tables
+        "dev_customers",
+        "dev_products",
+        "dev_sales",  # Development samples
+        "filtered_sales",  # Filtered tables in conditional branches
+    ]
+
+    if undefined_table in conditional_table_patterns:
+        # These are likely conditional tables - don't fail validation
+        return None
+
+    # Check for typos using fuzzy matching
+    should_fail, suggestions = _check_for_typos(undefined_table, available_tables)
+
+    # Add context
+    suggestions.extend(_build_context_suggestions(available_tables, available_sources))
+
+    if should_fail:
+        return ValidationError(
+            message=f"Referenced table '{undefined_table}' might not be defined",
+            line=line_number,
+            error_type="Table Reference Error",
+            suggestions=suggestions,
+        )
+
+    return None
+
+
+def _check_for_typos(undefined_table, available_tables):
+    """Check if undefined table is likely a typo."""
+    import difflib
+
+    suggestions = []
+    should_fail = False
+
+    if undefined_table and available_tables:
+        close_matches = difflib.get_close_matches(
+            undefined_table, available_tables, n=3, cutoff=0.6
+        )
+        if close_matches:
+            best_match = close_matches[0]
+            similarity = difflib.SequenceMatcher(
+                None, undefined_table, best_match
+            ).ratio()
+
+            if similarity >= 0.7:  # Very similar - likely a typo
+                should_fail = True
+                suggestions.append(f"Did you mean '{best_match}'?")
+            else:
+                suggestions.append(f"Similar table available: '{best_match}'")
+
+    return should_fail, suggestions
+
+
+def _build_context_suggestions(available_tables, available_sources):
+    """Build context suggestions for validation errors."""
+    suggestions = []
+
+    if available_tables:
+        suggestions.append(f"Available tables: {', '.join(sorted(available_tables))}")
+    if available_sources:
+        suggestions.append(f"Available sources: {', '.join(sorted(available_sources))}")
+
+    suggestions.append(
+        "Check that referenced tables are created by previous steps or defined as SOURCE statements"
+    )
+
+    return suggestions
 
 
 def validate_pipeline(pipeline_path: str) -> List[ValidationError]:

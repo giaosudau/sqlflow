@@ -36,14 +36,17 @@ class TestLocalExecutorConnectorEngineInitialization:
             # Create a test export step
             export_step = {
                 "type": "export",
-                "query": "SELECT * FROM test_table",
+                "query": {"sql_query": "SELECT * FROM test_table"},
                 "destination": "test_output.csv",
                 "connector_type": "CSV",
                 "options": {"header": True},
             }
 
-            # Mock the query execution to return test data
+            # Mock the query execution to return test data with proper result structure
             test_data = Mock()
+            test_data.fetchall.return_value = [("test_id", "test_value")]
+            test_data.description = [("id",), ("value",)]
+
             with patch.object(
                 executor.duckdb_engine, "execute_query", return_value=test_data
             ):
@@ -71,13 +74,16 @@ class TestLocalExecutorConnectorEngineInitialization:
 
         export_step = {
             "type": "export",
-            "query": "SELECT * FROM test_table",
+            "query": {"sql_query": "SELECT * FROM test_table"},
             "destination": "test_output.csv",
             "connector_type": "CSV",
             "options": {"header": True},
         }
 
         test_data = Mock()
+        test_data.fetchall.return_value = [("test_id", "test_value")]
+        test_data.description = [("id",), ("value",)]
+
         with patch.object(
             executor.duckdb_engine, "execute_query", return_value=test_data
         ):
@@ -87,7 +93,10 @@ class TestLocalExecutorConnectorEngineInitialization:
 
                 with patch.object(executor, "_create_connector_engine") as mock_create:
                     # Execute the export step
-                    executor._execute_export(export_step)
+                    result = executor._execute_export(export_step)
+
+                    # Verify it succeeded
+                    assert result["status"] == "success"
 
                     # Verify connector engine was NOT recreated
                     mock_create.assert_not_called()
@@ -141,7 +150,7 @@ class TestLocalExecutorConnectorEngineInitialization:
 
         export_step = {
             "type": "export",
-            "query": "SELECT * FROM nonexistent_table",
+            "query": {"sql_query": "SELECT * FROM nonexistent_table"},
             "destination": "test_output.csv",
             "connector_type": "CSV",
             "options": {"header": True},
@@ -157,10 +166,11 @@ class TestLocalExecutorConnectorEngineInitialization:
                 mock_connector_engine = Mock()
                 mock_create.return_value = mock_connector_engine
 
-                # Execute should complete successfully since LocalExecutor creates dummy data on failure
+                # Execute should now fail properly due to enhanced error propagation
                 result = executor._execute_export(export_step)
 
-                assert result["status"] == "success"
+                assert result["status"] == "error"
+                assert "Table not found" in result["message"]
                 # Connector engine should still be initialized before the query failure
                 mock_create.assert_called_once()
 
@@ -174,7 +184,7 @@ class TestLocalExecutorConnectorEngineInitialization:
 
         export_step = {
             "type": "export",
-            "query": "SELECT * FROM empty_table",
+            "query": {"sql_query": "SELECT * FROM empty_table"},
             "destination": "empty_output.csv",
             "connector_type": "CSV",
             "options": {"header": True},
@@ -182,7 +192,8 @@ class TestLocalExecutorConnectorEngineInitialization:
 
         # Mock empty query result
         empty_data = Mock()
-        empty_data.empty = True
+        empty_data.fetchall.return_value = []
+        empty_data.description = [("id",), ("value",)]
 
         mock_connector_engine = Mock()
         mock_export_connector = Mock()
