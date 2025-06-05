@@ -1,4 +1,4 @@
-"""Tests for merge key validation in DuckDBEngine."""
+"""Tests for upsert key validation in DuckDBEngine."""
 
 from unittest.mock import MagicMock
 
@@ -17,8 +17,8 @@ def mock_engine():
     return engine
 
 
-def test_validate_merge_keys_basic(mock_engine):
-    """Test basic merge key validation with valid keys."""
+def test_validate_upsert_keys_basic(mock_engine):
+    """Test basic upsert key validation with valid keys."""
     # Setup
     mock_engine.table_exists.return_value = True
     mock_engine.get_table_schema.side_effect = [
@@ -27,7 +27,7 @@ def test_validate_merge_keys_basic(mock_engine):
     ]
 
     # Execute
-    result = mock_engine.validate_merge_keys("target_table", "source_name", ["id"])
+    result = mock_engine.validate_upsert_keys("target_table", "source_name", ["id"])
 
     # Assert
     assert result is True
@@ -36,8 +36,8 @@ def test_validate_merge_keys_basic(mock_engine):
     mock_engine._are_types_compatible.assert_called_once()
 
 
-def test_validate_merge_keys_multiple(mock_engine):
-    """Test validation with multiple merge keys."""
+def test_validate_upsert_keys_multiple(mock_engine):
+    """Test validation with multiple upsert keys."""
     # Setup
     mock_engine.table_exists.return_value = True
     mock_engine.get_table_schema.side_effect = [
@@ -46,7 +46,7 @@ def test_validate_merge_keys_multiple(mock_engine):
     ]
 
     # Execute
-    result = mock_engine.validate_merge_keys(
+    result = mock_engine.validate_upsert_keys(
         "target_table", "source_name", ["id", "email"]
     )
 
@@ -57,7 +57,7 @@ def test_validate_merge_keys_multiple(mock_engine):
     assert mock_engine._are_types_compatible.call_count == 2
 
 
-def test_validate_merge_keys_missing_from_source(mock_engine):
+def test_validate_upsert_keys_missing_from_source(mock_engine):
     """Test validation with key missing from source."""
     # Setup
     mock_engine.table_exists.return_value = True
@@ -68,12 +68,12 @@ def test_validate_merge_keys_missing_from_source(mock_engine):
 
     # Execute and Assert
     with pytest.raises(ValueError) as excinfo:
-        mock_engine.validate_merge_keys("target_table", "source_name", ["id", "email"])
+        mock_engine.validate_upsert_keys("target_table", "source_name", ["id", "email"])
 
-    assert "Merge key 'email' does not exist in source" in str(excinfo.value)
+    assert "Upsert key 'email' does not exist in source" in str(excinfo.value)
 
 
-def test_validate_merge_keys_missing_from_target(mock_engine):
+def test_validate_upsert_keys_missing_from_target(mock_engine):
     """Test validation with key missing from target."""
     # Setup
     mock_engine.table_exists.return_value = True
@@ -84,12 +84,12 @@ def test_validate_merge_keys_missing_from_target(mock_engine):
 
     # Execute and Assert
     with pytest.raises(ValueError) as excinfo:
-        mock_engine.validate_merge_keys("target_table", "source_name", ["id", "email"])
+        mock_engine.validate_upsert_keys("target_table", "source_name", ["id", "email"])
 
-    assert "Merge key 'email' does not exist in target table" in str(excinfo.value)
+    assert "Upsert key 'email' does not exist in target table" in str(excinfo.value)
 
 
-def test_validate_merge_keys_incompatible_types(mock_engine):
+def test_validate_upsert_keys_incompatible_types(mock_engine):
     """Test validation with incompatible key types."""
     # Setup
     mock_engine.table_exists.return_value = True
@@ -101,28 +101,28 @@ def test_validate_merge_keys_incompatible_types(mock_engine):
 
     # Execute and Assert
     with pytest.raises(ValueError) as excinfo:
-        mock_engine.validate_merge_keys("target_table", "source_name", ["id"])
+        mock_engine.validate_upsert_keys("target_table", "source_name", ["id"])
 
-    assert "Merge key 'id' has incompatible types" in str(excinfo.value)
-    assert "Merge keys must have compatible types" in str(excinfo.value)
+    assert "Upsert key 'id' has incompatible types" in str(excinfo.value)
+    assert "Upsert keys must have compatible types" in str(excinfo.value)
 
 
-def test_validate_merge_keys_no_keys(mock_engine):
-    """Test validation with empty merge keys list."""
+def test_validate_upsert_keys_no_keys(mock_engine):
+    """Test validation with empty upsert keys list."""
     # Execute and Assert
     with pytest.raises(ValueError) as excinfo:
-        mock_engine.validate_merge_keys("target_table", "source_name", [])
+        mock_engine.validate_upsert_keys("target_table", "source_name", [])
 
-    assert "MERGE operation requires at least one merge key" in str(excinfo.value)
+    assert "UPSERT operation requires at least one upsert key" in str(excinfo.value)
 
 
-def test_validate_merge_keys_target_not_exists(mock_engine):
+def test_validate_upsert_keys_target_not_exists(mock_engine):
     """Test validation when target table doesn't exist."""
     # Setup
     mock_engine.table_exists.return_value = False
 
     # Execute
-    result = mock_engine.validate_merge_keys("target_table", "source_name", ["id"])
+    result = mock_engine.validate_upsert_keys("target_table", "source_name", ["id"])
 
     # Assert
     assert result is True

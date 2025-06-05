@@ -8,11 +8,11 @@ from sqlflow.parser.ast import LoadStep
 
 @pytest.fixture(scope="session")
 def sample_users_updates() -> pd.DataFrame:
-    """Create sample user update data for merge testing.
+    """Create sample user update data for upsert testing.
 
     Returns
     -------
-        DataFrame with user updates for testing merge operations
+        DataFrame with user updates for testing upsert operations
 
     """
     return pd.DataFrame(
@@ -33,11 +33,11 @@ def sample_users_updates() -> pd.DataFrame:
 
 @pytest.fixture(scope="session")
 def sample_orders_updates() -> pd.DataFrame:
-    """Create sample order update data for merge testing.
+    """Create sample order update data for upsert testing.
 
     Returns
     -------
-        DataFrame with order updates for testing merge operations
+        DataFrame with order updates for testing upsert operations
 
     """
     return pd.DataFrame(
@@ -85,17 +85,17 @@ def load_step_append() -> LoadStep:
 
 
 @pytest.fixture(scope="function")
-def load_step_merge() -> LoadStep:
-    """Create a MERGE load step for testing.
+def load_step_upsert() -> LoadStep:
+    """Create a UPSERT load step for testing.
 
     Returns
     -------
-        LoadStep configured for MERGE mode with user_id as merge key
+        LoadStep configured for UPSERT mode with user_id as upsert key
 
     """
     return LoadStep(
         table_name="target_table",
         source_name="source_table",
-        mode="MERGE",
-        merge_keys=["user_id"],
+        mode="UPSERT",
+        upsert_keys=["user_id"],
     )

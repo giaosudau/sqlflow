@@ -384,7 +384,7 @@ class TestDuckDBEngine(unittest.TestCase):
         parser_load_step.table_name = "target_table"
         parser_load_step.source_name = "source_table"
         parser_load_step.mode = "APPEND"
-        parser_load_step.merge_keys = []
+        parser_load_step.upsert_keys = []
 
         with patch(
             "sqlflow.core.engines.duckdb.engine.LoadModeHandlerFactory"
@@ -447,7 +447,7 @@ class TestDuckDBEngine(unittest.TestCase):
         self.assertTrue(self.engine.supports_feature("python_udfs"))
         self.assertTrue(self.engine.supports_feature("arrow"))
         self.assertTrue(self.engine.supports_feature("json"))
-        self.assertTrue(self.engine.supports_feature("merge"))
+        self.assertTrue(self.engine.supports_feature("upsert"))
         self.assertTrue(self.engine.supports_feature("window_functions"))
         self.assertTrue(self.engine.supports_feature("ctes"))
         self.assertFalse(self.engine.supports_feature("unsupported_feature"))
@@ -506,11 +506,11 @@ class TestDuckDBEngine(unittest.TestCase):
                     )
                 self.assertIn("incompatible types", str(cm.exception))
 
-    def test_validate_merge_keys_success(self):
-        """Test successful merge key validation."""
+    def test_validate_upsert_keys_success(self):
+        """Test successful upsert key validation."""
         source_schema = {"user_id": "INTEGER", "name": "VARCHAR"}
         target_schema = {"user_id": "INTEGER", "name": "VARCHAR", "email": "VARCHAR"}
-        merge_keys = ["user_id"]
+        upsert_keys = ["user_id"]
 
         with patch.object(self.engine, "table_exists", return_value=True):
             with patch.object(
@@ -518,22 +518,22 @@ class TestDuckDBEngine(unittest.TestCase):
                 "get_table_schema",
                 side_effect=[source_schema, target_schema],
             ):
-                result = self.engine.validate_merge_keys(
-                    "target_table", "source_table", merge_keys
+                result = self.engine.validate_upsert_keys(
+                    "target_table", "source_table", upsert_keys
                 )
                 self.assertTrue(result)
 
-    def test_validate_merge_keys_empty_keys(self):
-        """Test merge key validation with empty keys."""
+    def test_validate_upsert_keys_empty_keys(self):
+        """Test upsert key validation with empty keys."""
         with self.assertRaises(ValueError) as cm:
-            self.engine.validate_merge_keys("target_table", "source_table", [])
-        self.assertIn("at least one merge key", str(cm.exception))
+            self.engine.validate_upsert_keys("target_table", "source_table", [])
+        self.assertIn("at least one upsert key", str(cm.exception))
 
-    def test_validate_merge_keys_missing_in_source(self):
-        """Test merge key validation with key missing in source."""
+    def test_validate_upsert_keys_missing_in_source(self):
+        """Test upsert key validation with key missing in source."""
         source_schema = {"name": "VARCHAR"}
         target_schema = {"user_id": "INTEGER", "name": "VARCHAR"}
-        merge_keys = ["user_id"]
+        upsert_keys = ["user_id"]
 
         with patch.object(self.engine, "table_exists", return_value=True):
             with patch.object(
@@ -542,8 +542,8 @@ class TestDuckDBEngine(unittest.TestCase):
                 side_effect=[source_schema, target_schema],
             ):
                 with self.assertRaises(ValueError) as cm:
-                    self.engine.validate_merge_keys(
-                        "target_table", "source_table", merge_keys
+                    self.engine.validate_upsert_keys(
+                        "target_table", "source_table", upsert_keys
                     )
                 self.assertIn("does not exist in source", str(cm.exception))
 

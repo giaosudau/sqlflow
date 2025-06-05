@@ -166,14 +166,19 @@ class TestParser:
         assert "Expected ';' after SOURCE statement" in str(excinfo.value)
 
     def test_parse_load_directive_missing_semicolon(self):
-        """Test that the parser raises an error for a LOAD directive missing a semicolon."""
+        """Test that the parser can handle a LOAD directive without a semicolon."""
         text = """LOAD users_table FROM users"""
 
         parser = Parser(text)
-        with pytest.raises(ParserError) as excinfo:
-            parser.parse(validate=False)
+        # This should parse successfully now (semicolons are optional for simple statements)
+        pipeline = parser.parse(validate=False)
 
-        assert "Expected ';' after LOAD statement" in str(excinfo.value)
+        assert len(pipeline.steps) == 1
+        from sqlflow.parser.ast import LoadStep
+
+        assert isinstance(pipeline.steps[0], LoadStep)
+        assert pipeline.steps[0].table_name == "users_table"
+        assert pipeline.steps[0].source_name == "users"
 
     def test_parse_load_directive_missing_from(self):
         """Test that the parser raises an error for a LOAD directive missing FROM."""
@@ -183,7 +188,9 @@ class TestParser:
         with pytest.raises(ParserError) as excinfo:
             parser.parse(validate=False)
 
-        assert "Expected 'FROM' after table name" in str(excinfo.value)
+        # Check for the error message, accounting for "Multiple errors found:" prefix
+        error_msg = str(excinfo.value)
+        assert "Expected FROM after table name" in error_msg
 
     def test_parse_source_directive_missing_type(self):
         """Test that the parser raises an error for a SOURCE directive missing a TYPE."""

@@ -12,7 +12,7 @@
 SQLFlow's Transform Layer is a SQL-native data modeling framework that extends DuckDB with production-grade incremental processing, intelligent materialization management, and enterprise observability. Currently **85% complete** with advanced features including partition management, intelligent strategy selection, and real-time monitoring.
 
 **Current Capabilities:**
-- ✅ **4 Production Strategies**: REPLACE, APPEND, MERGE, INCREMENTAL with intelligent auto-selection
+- ✅ **4 Production Strategies**: REPLACE, APPEND, UPSERT, INCREMENTAL with intelligent auto-selection
 - ✅ **Advanced Incremental Loading**: Partition-aware processing with <10ms watermark lookups
 - ✅ **Data Quality Framework**: Comprehensive validation with 7 quality categories
 - ✅ **Enterprise Monitoring**: Real-time metrics, alerting, and observability
@@ -55,9 +55,9 @@ class SQLBlockStep(PipelineStep):
     # EXISTING fields preserved...
     
     # NEW: Transform mode fields (additive, non-breaking)
-    mode: Optional[str] = None              # REPLACE/APPEND/MERGE/INCREMENTAL
+    mode: Optional[str] = None              # REPLACE/APPEND/UPSERT/INCREMENTAL
     time_column: Optional[str] = None       # For INCREMENTAL BY column  
-    merge_keys: List[str] = field(default_factory=list)  # For MERGE KEY (...)
+    upsert_keys: List[str] = field(default_factory=list)  # For UPSERT KEY (...)
     lookback: Optional[str] = None          # For LOOKBACK duration
 ```
 
@@ -307,7 +307,7 @@ class IncrementalStrategyManager:
         
         Decision Logic:
         - Append-only data + high volume → AppendStrategy (~0.1ms/row)
-        - Primary key + mixed changes → MergeStrategy (~0.5ms/row)  
+        - Primary key + mixed changes → UpsertStrategy (~0.5ms/row)  
         - Time-based + incremental → IncrementalStrategy (~0.3ms/row)
         - Change data capture → CDCStrategy (~0.8ms/row)
         """
@@ -316,7 +316,7 @@ class IncrementalStrategyManager:
             return LoadStrategy.APPEND  # Fastest for append-only
             
         if load_pattern.has_primary_key and load_pattern.change_rate > 0.3:
-            return LoadStrategy.MERGE   # Best for mixed changes
+            return LoadStrategy.UPSERT   # Best for mixed changes
             
         # ... additional intelligence logic
 ```
@@ -464,8 +464,8 @@ FROM orders GROUP BY order_date;
 CREATE TABLE audit_log MODE APPEND AS
 SELECT * FROM new_events WHERE event_date = CURRENT_DATE;
 
--- ✅ MERGE Mode - Upsert operations
-CREATE TABLE customer_profiles MODE MERGE KEY (customer_id) AS
+-- ✅ UPSERT Mode - Upsert operations
+CREATE TABLE customer_profiles MODE UPSERT KEY (customer_id) AS
 SELECT customer_id, latest_address, latest_phone
 FROM customer_updates;
 
@@ -511,7 +511,7 @@ class PartitionManager:
 
 **Key Features:**
 - **IncrementalStrategyManager**: Intelligent strategy selection with <50ms performance
-- **4 Production Strategies**: AppendStrategy, MergeStrategy, SnapshotStrategy, CDCStrategy
+- **4 Production Strategies**: AppendStrategy, UpsertStrategy, SnapshotStrategy, CDCStrategy
 - **DataQualityValidator**: 7 validation categories with comprehensive quality checks
 - **ConflictResolution**: Enterprise-ready conflict handling (LATEST_WINS, SOURCE_WINS, etc.)
 
@@ -519,7 +519,7 @@ class PartitionManager:
 # Strategy Performance Characteristics
 class StrategyPerformance:
     AppendStrategy:   ~0.1ms/row  # Fastest for append-only data
-    MergeStrategy:    ~0.5ms/row  # Optimal for upsert operations
+    UpsertStrategy:    ~0.5ms/row  # Optimal for upsert operations
     SnapshotStrategy: ~0.3ms/row  # Best for complete refreshes
     CDCStrategy:      ~0.8ms/row  # Most comprehensive for change tracking
 ```

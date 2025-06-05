@@ -6,12 +6,12 @@ This directory contains example SQLFlow pipelines demonstrating the use of diffe
 
 ### Basic Load Modes (`basic_load_modes.sf`)
 
-This example demonstrates the basic usage of all three load modes (REPLACE, APPEND, MERGE) with CSV data sources. It includes:
+This example demonstrates the basic usage of all three load modes (REPLACE, APPEND, UPSERT) with CSV data sources. It includes:
 
 - Loading initial data with REPLACE mode (default)
 - Adding new records with APPEND mode
-- Updating existing records with MERGE mode
-- Using composite keys for merging
+- Updating existing records with UPSERT mode
+- Using composite keys for upserting
 
 ### Schema Compatibility (`schema_compatibility.sf`)
 
@@ -19,7 +19,7 @@ This example demonstrates how SQLFlow validates schema compatibility between sou
 
 - Creating tables with compatible and incompatible schemas
 - Appending data with compatible schemas
-- Merging data with merge keys
+- Upserting data with upsert keys
 - Handling schema compatibility issues
 - Working with subset selection to ensure compatibility
 - Demonstrating type compatibility rules
@@ -71,20 +71,20 @@ APPEND mode adds rows from the source table to the target table without affectin
 LOAD target_table FROM source_table MODE APPEND;
 ```
 
-#### MERGE Mode
+#### UPSERT Mode
 
-MERGE mode updates existing rows and inserts new ones based on merge keys. Requires schema compatibility.
+UPSERT mode updates existing rows and inserts new ones based on upsert keys. Requires schema compatibility.
 
 ```sql
-LOAD target_table FROM source_table MODE MERGE MERGE_KEYS id;
+LOAD target_table FROM source_table MODE UPSERT KEY id;
 
--- With multiple (composite) merge keys
-LOAD target_table FROM source_table MODE MERGE MERGE_KEYS id, category;
+-- With multiple (composite) upsert keys
+LOAD target_table FROM source_table MODE UPSERT KEY id, category;
 ```
 
 ## Schema Compatibility
 
-When using APPEND or MERGE modes, SQLFlow validates that:
+When using APPEND or UPSERT modes, SQLFlow validates that:
 
 1. All columns in the source table exist in the target table
 2. The data types of corresponding columns are compatible
@@ -106,10 +106,10 @@ The examples also demonstrate advanced techniques:
    ) MODE APPEND;
    ```
 
-2. **Composite Keys**: For complex data models, you can use multiple columns as merge keys:
+2. **Composite Keys**: For complex data models, you can use multiple columns as upsert keys:
    ```sql
    LOAD inventory_table FROM inventory_updates 
-   MODE MERGE MERGE_KEYS product_id, warehouse_id;
+   MODE UPSERT KEY product_id, warehouse_id;
    ```
 
 ## Learn More

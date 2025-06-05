@@ -39,7 +39,7 @@ SOURCE customers_updates TYPE CSV PARAMS {
 -- Step 5: Simulate incremental load using MERGE
 -- This demonstrates the concept of incremental updates
 -- Note: This shows the MERGE capability even without automatic watermarks
-LOAD customers_table FROM customers_updates MODE MERGE MERGE_KEYS (customer_id);
+LOAD customers_table FROM customers_updates MODE UPSERT KEY (customer_id);
 
 -- Step 6: Create final analytics showing incremental changes
 CREATE OR REPLACE TABLE customer_summary AS

@@ -1,5 +1,5 @@
--- Multiple Merge Keys Pipeline
--- This pipeline demonstrates MERGE mode with composite keys (multiple columns)
+-- Multiple Upsert Keys Pipeline
+-- This pipeline demonstrates UPSERT mode with composite keys (multiple columns)
 -- using inventory data where product_id + warehouse_id form a unique identifier
 
 -- Step 1: Load initial inventory data
@@ -10,7 +10,7 @@ SOURCE initial_inventory_csv TYPE CSV PARAMS {
 
 LOAD inventory_table FROM initial_inventory_csv MODE REPLACE;
 
--- Step 2: Load inventory updates using MERGE with multiple keys
+-- Step 2: Load inventory updates using UPSERT with multiple keys
 -- This will match records on BOTH product_id AND warehouse_id
 -- Updates existing combinations and inserts new ones
 SOURCE inventory_updates_csv TYPE CSV PARAMS {
@@ -18,9 +18,9 @@ SOURCE inventory_updates_csv TYPE CSV PARAMS {
   "has_header": true
 };
 
-LOAD inventory_table FROM inventory_updates_csv MODE MERGE MERGE_KEYS (product_id, warehouse_id);
+LOAD inventory_table FROM inventory_updates_csv MODE UPSERT KEY (product_id, warehouse_id);
 
--- Export results to verify the merge worked correctly
+-- Export results to verify the upsert worked correctly
 EXPORT SELECT * FROM inventory_table
-TO "output/multiple_merge_keys_result.csv"
+TO "output/multiple_upsert_keys_result.csv"
 TYPE CSV OPTIONS { "header": true }; 

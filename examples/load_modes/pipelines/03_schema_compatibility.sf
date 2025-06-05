@@ -18,13 +18,13 @@ SOURCE new_users_csv TYPE CSV PARAMS {
 
 LOAD users FROM new_users_csv MODE APPEND;
 
--- Step 3: Load user updates to test MERGE mode
+-- Step 3: Load user updates to test UPSERT mode
 SOURCE users_updates_csv TYPE CSV PARAMS {
   "path": "data/users_updates.csv",
   "has_header": true
 };
 
-LOAD users FROM users_updates_csv MODE MERGE MERGE_KEYS (user_id);
+LOAD users FROM users_updates_csv MODE UPSERT KEY (user_id);
 
 -- Export results to verify schema compatibility worked correctly
 EXPORT SELECT * FROM users

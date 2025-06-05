@@ -14,7 +14,7 @@ class DuckDBConstants:
     # Load modes
     LOAD_MODE_REPLACE = "REPLACE"
     LOAD_MODE_APPEND = "APPEND"
-    LOAD_MODE_MERGE = "MERGE"
+    LOAD_MODE_UPSERT = "UPSERT"
 
     # UDF types
     UDF_TYPE_SCALAR = "scalar"
@@ -59,21 +59,31 @@ class SQLTemplates:
     )
     CHECK_TABLE_EXISTS_LIMIT = "SELECT 1 FROM {table_name} LIMIT 0"
 
-    # MERGE operation templates
-    MERGE_CREATE_TEMP_VIEW = (
+    # UPSERT operation templates with transaction safety
+    UPSERT_CREATE_TEMP_VIEW = (
         "CREATE TEMPORARY VIEW temp_source AS SELECT * FROM {source_name};"
     )
-    MERGE_UPDATE = """UPDATE {table_name} 
+    UPSERT_UPDATE = """UPDATE {table_name} 
 SET {set_clause}
 FROM temp_source AS source
 WHERE {where_clause};"""
 
-    MERGE_INSERT = """INSERT INTO {table_name} ({columns})
+    UPSERT_INSERT = """INSERT INTO {table_name} ({columns})
 SELECT {columns}
 FROM temp_source AS source
 WHERE {where_clause};"""
 
-    MERGE_DROP_TEMP_VIEW = "DROP VIEW temp_source;"
+    UPSERT_DROP_TEMP_VIEW = "DROP VIEW IF EXISTS temp_source;"
+
+    # Transaction control templates
+    UPSERT_BEGIN_TRANSACTION = "BEGIN TRANSACTION;"
+    UPSERT_COMMIT_TRANSACTION = "COMMIT;"
+    UPSERT_ROLLBACK_TRANSACTION = "ROLLBACK;"
+
+    # Performance monitoring templates
+    UPSERT_COUNT_SOURCE = "SELECT COUNT(*) FROM {source_name};"
+    UPSERT_COUNT_TARGET_BEFORE = "SELECT COUNT(*) FROM {table_name};"
+    UPSERT_COUNT_TARGET_AFTER = "SELECT COUNT(*) FROM {table_name};"
 
     # UDF patterns
     UDF_PATTERN_PYTHON_FUNC = (

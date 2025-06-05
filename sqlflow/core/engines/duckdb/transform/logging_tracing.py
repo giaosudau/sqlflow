@@ -412,7 +412,7 @@ class StructuredLogger:
 
         Args:
             operation_id: Unique operation identifier
-            operation_type: Type of operation (APPEND, MERGE, etc.)
+            operation_type: Type of operation (APPEND, UPSERT, etc.)
             context: Additional context data
 
         Returns:

@@ -84,26 +84,26 @@ class InvalidLoadModeError(DuckDBEngineError):
         super().__init__(message)
 
 
-class MergeKeyValidationError(DuckDBEngineError):
-    """Exception raised when merge keys are missing or invalid."""
+class UpsertKeyValidationError(DuckDBEngineError):
+    """Exception raised when upsert keys are missing or invalid."""
 
     def __init__(
         self,
         message: str,
         table_name: Optional[str] = None,
-        merge_keys: Optional[List[str]] = None,
+        upsert_keys: Optional[List[str]] = None,
     ):
-        """Initialize a merge key validation error.
+        """Initialize an upsert key validation error.
 
         Args:
         ----
             message: Error message
             table_name: Optional table name where the error occurred
-            merge_keys: Optional merge keys that caused the error
+            upsert_keys: Optional upsert keys that caused the error
 
         """
         self.table_name = table_name
-        self.merge_keys = merge_keys
+        self.upsert_keys = upsert_keys
         super().__init__(message)
 
 

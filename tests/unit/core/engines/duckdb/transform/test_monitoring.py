@@ -463,7 +463,7 @@ class TestTransformOperationMonitor(unittest.TestCase):
         # Monitor a failed operation
         with self.assertRaises(ValueError):
             with self.operation_monitor.monitor_operation(
-                "MERGE", "test_table", estimated_rows=500
+                "UPSERT", "test_table", estimated_rows=500
             ):
                 # Simulate failure
                 raise ValueError("Test error")
@@ -472,7 +472,7 @@ class TestTransformOperationMonitor(unittest.TestCase):
         error_count = self.collector.get_metric_value(
             "transform.operations.errors",
             labels={
-                "operation_type": "MERGE",
+                "operation_type": "UPSERT",
                 "table_name": "test_table",
                 "error_type": "ValueError",
             },
@@ -482,7 +482,7 @@ class TestTransformOperationMonitor(unittest.TestCase):
         completed_count = self.collector.get_metric_value(
             "transform.operations.completed",
             labels={
-                "operation_type": "MERGE",
+                "operation_type": "UPSERT",
                 "table_name": "test_table",
                 "status": "error",
             },
@@ -493,12 +493,12 @@ class TestTransformOperationMonitor(unittest.TestCase):
         """Test getting operation metrics summary."""
         # Start some operations
         with self.operation_monitor.monitor_operation("APPEND", "table1", 100):
-            with self.operation_monitor.monitor_operation("MERGE", "table2", 200):
+            with self.operation_monitor.monitor_operation("UPSERT", "table2", 200):
                 metrics = self.operation_monitor.get_operation_metrics()
 
                 self.assertEqual(metrics["active_operations"], 2)
                 self.assertIn("APPEND", metrics["operation_types"])
-                self.assertIn("MERGE", metrics["operation_types"])
+                self.assertIn("UPSERT", metrics["operation_types"])
                 self.assertIn("table1", metrics["tables_being_processed"])
                 self.assertIn("table2", metrics["tables_being_processed"])
 

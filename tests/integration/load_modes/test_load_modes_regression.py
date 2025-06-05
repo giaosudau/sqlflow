@@ -1,7 +1,7 @@
 """Integration tests for load modes demonstration regression prevention.
 
 These tests ensure that the load modes examples functionality doesn't regress.
-This covers the basic load modes, multiple merge keys, and schema compatibility
+This covers the basic load modes, multiple upsert keys, and schema compatibility
 examples that are showcased in the examples/load_modes directory.
 """
 
@@ -58,7 +58,7 @@ class TestLoadModesRegression:
         new_users_path = os.path.join(temp_dir, "new_users.csv")
         new_users_data.to_csv(new_users_path, index=False)
 
-        # Create users updates data (for MERGE)
+        # Create users updates data (for UPSERT)
         users_updates_data = pd.DataFrame(
             {
                 "user_id": [4, 5, 9],
@@ -85,7 +85,7 @@ class TestLoadModesRegression:
         }
 
     def test_basic_load_modes_pipeline(self, setup_load_modes_data):
-        """Test the basic load modes pipeline that demonstrates REPLACE, APPEND, and MERGE."""
+        """Test the basic load modes pipeline that demonstrates REPLACE, APPEND, and UPSERT."""
         data = setup_load_modes_data
 
         # Create the basic load modes pipeline
@@ -112,8 +112,8 @@ class TestLoadModesRegression:
         -- Step 2: APPEND new users
         LOAD users_table FROM new_users_csv MODE APPEND;
         
-        -- Step 3: MERGE updates
-        LOAD users_table FROM users_updates_csv MODE MERGE MERGE_KEYS (user_id);
+        -- Step 3: UPSERT updates
+        LOAD users_table FROM users_updates_csv MODE UPSERT KEY (user_id);
         
         -- Export final results
         EXPORT SELECT * FROM users_table ORDER BY user_id
@@ -142,30 +142,32 @@ class TestLoadModesRegression:
         # Verify the load modes worked correctly
         result_df = pd.read_csv(result_file)
 
-        # Should have 9 rows total (5 initial + 3 new + 1 merged new)
+        # Should have 9 rows total (5 initial + 3 new + 1 upserted new)
         assert len(result_df) == 9, f"Expected 9 rows, got {len(result_df)}"
 
         # Verify specific operations worked
-        # Check that Diana and Eve were updated (MERGE)
+        # Check that Diana and Eve were updated (UPSERT)
         diana_row = result_df[result_df["user_id"] == 4].iloc[0]
-        assert diana_row["name"] == "Diana Updated", "Diana should be updated via MERGE"
+        assert (
+            diana_row["name"] == "Diana Updated"
+        ), "Diana should be updated via UPSERT"
         assert (
             diana_row["email"] == "diana.new@example.com"
         ), "Diana's email should be updated"
 
         eve_row = result_df[result_df["user_id"] == 5].iloc[0]
-        assert eve_row["name"] == "Eve Updated", "Eve should be updated via MERGE"
+        assert eve_row["name"] == "Eve Updated", "Eve should be updated via UPSERT"
         assert eve_row["status"] == "active", "Eve's status should be updated to active"
 
-        # Check that new users were added (APPEND and MERGE)
+        # Check that new users were added (APPEND and UPSERT)
         frank_row = result_df[result_df["user_id"] == 6]
         assert len(frank_row) == 1, "Frank should be added via APPEND"
 
         ivan_row = result_df[result_df["user_id"] == 9]
-        assert len(ivan_row) == 1, "Ivan should be added via MERGE"
+        assert len(ivan_row) == 1, "Ivan should be added via UPSERT"
 
-    def test_multiple_merge_keys_load_mode(self, setup_load_modes_data):
-        """Test load mode with multiple merge keys."""
+    def test_multiple_upsert_keys_load_mode(self, setup_load_modes_data):
+        """Test load mode with multiple upsert keys."""
         data = setup_load_modes_data
 
         # Create data with composite keys
@@ -206,8 +208,8 @@ class TestLoadModesRegression:
         -- Load initial sales data
         LOAD sales_table FROM sales_csv MODE REPLACE;
         
-        -- Merge updates using composite key
-        LOAD sales_table FROM sales_updates_csv MODE MERGE MERGE_KEYS (user_id, product_id);
+        -- Upsert updates using composite key
+        LOAD sales_table FROM sales_updates_csv MODE UPSERT KEY (user_id, product_id);
         
         EXPORT SELECT * FROM sales_table ORDER BY user_id, product_id
         TO "{os.path.join(data["temp_dir"], "multiple_keys_result.csv")}"
@@ -226,14 +228,14 @@ class TestLoadModesRegression:
         # Verify execution succeeded
         assert (
             result["status"] == "success"
-        ), f"Multiple merge keys pipeline failed: {result.get('error')}"
+        ), f"Multiple upsert keys pipeline failed: {result.get('error')}"
 
         # Verify results
         result_file = os.path.join(data["temp_dir"], "multiple_keys_result.csv")
         result_df = pd.read_csv(result_file)
 
-        # Should have 6 rows (6 original, 2 updated, 0 new since user 4 product A doesn't exist in original)
-        assert len(result_df) == 6, f"Expected 6 rows, got {len(result_df)}"
+        # Should have 7 rows (6 original, 2 updated, 1 new since user 4 product A doesn't exist in original)
+        assert len(result_df) == 7, f"Expected 7 rows, got {len(result_df)}"
 
         # Check that updates worked for composite keys
         user1_productA = result_df[
@@ -253,11 +255,11 @@ class TestLoadModesRegression:
             user2_productB["quantity"] == 30
         ), "User 2 Product B quantity should be updated"
 
-        # Check that no new record was added (user 4 product A doesn't exist in original)
+        # Check that new record was added (user 4 product A)
         user4_records = result_df[result_df["user_id"] == 4]
         assert (
-            len(user4_records) == 0
-        ), "User 4 should not be added since composite key doesn't exist"
+            len(user4_records) == 1
+        ), "User 4 should be added since composite key doesn't exist"
 
     def test_schema_compatibility_load_mode(self, setup_load_modes_data):
         """Test load mode with schema compatibility."""
@@ -338,7 +340,7 @@ class TestLoadModesRegression:
         
         LOAD users_table FROM users_csv MODE REPLACE;
         LOAD users_table FROM users_csv MODE APPEND;
-        LOAD users_table FROM users_csv MODE MERGE MERGE_KEYS (user_id, email);
+        LOAD users_table FROM users_csv MODE UPSERT KEY (user_id, email);
         """
 
         # Parse and plan
@@ -355,21 +357,21 @@ class TestLoadModesRegression:
 
         # Verify modes are preserved correctly
         modes = [step.get("mode") for step in load_steps]
-        expected_modes = ["REPLACE", "APPEND", "MERGE"]
+        expected_modes = ["REPLACE", "APPEND", "UPSERT"]
         assert modes == expected_modes, f"Expected modes {expected_modes}, got {modes}"
 
-        # Verify merge keys are preserved for MERGE operation
-        merge_step = [step for step in load_steps if step.get("mode") == "MERGE"][0]
-        assert merge_step["merge_keys"] == [
+        # Verify upsert keys are preserved for UPSERT operation
+        upsert_step = [step for step in load_steps if step.get("mode") == "UPSERT"][0]
+        assert upsert_step["upsert_keys"] == [
             "user_id",
             "email",
-        ], "MERGE step should preserve merge_keys"
+        ], "UPSERT step should preserve upsert_keys"
 
     def test_load_modes_error_handling(self, setup_load_modes_data):
         """Test proper error handling in load modes."""
         data = setup_load_modes_data
 
-        # Test MERGE without merge keys (should fail at planning stage)
+        # Test UPSERT without upsert keys (should fail at planning stage)
         pipeline_sql = f"""
         SOURCE users_csv TYPE CSV PARAMS {{
             "path": "{data["users_path"]}", 
@@ -377,7 +379,7 @@ class TestLoadModesRegression:
         }};
         
         LOAD users_table FROM users_csv MODE REPLACE;
-        LOAD users_table FROM users_csv MODE MERGE;  -- Missing MERGE_KEYS
+        LOAD users_table FROM users_csv MODE UPSERT;  -- Missing KEY
         """
 
         # This should fail during parsing
@@ -386,10 +388,7 @@ class TestLoadModesRegression:
             parser.parse()
 
         # Should fail with appropriate error message
-        assert (
-            "MERGE_KEYS" in str(exc_info.value)
-            or "merge" in str(exc_info.value).lower()
-        )
+        assert "KEY" in str(exc_info.value) or "upsert" in str(exc_info.value).lower()
 
     def test_load_modes_comprehensive_scenario(self, setup_load_modes_data):
         """Test a comprehensive scenario that exercises all load modes."""
@@ -415,7 +414,7 @@ class TestLoadModesRegression:
         -- Replicate the basic load modes example
         LOAD users_table FROM users_csv MODE REPLACE;
         LOAD users_table FROM new_users_csv MODE APPEND;
-        LOAD users_table FROM users_updates_csv MODE MERGE MERGE_KEYS (user_id);
+        LOAD users_table FROM users_updates_csv MODE UPSERT KEY (user_id);
         
         -- Add some analytics
         CREATE TABLE user_summary AS

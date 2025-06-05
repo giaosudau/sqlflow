@@ -16,7 +16,7 @@ class TestSQLBlockStepTransformModes:
         assert step.sql_query == "SELECT 1 as id"
         assert step.mode is None
         assert step.time_column is None
-        assert step.merge_keys == []
+        assert step.upsert_keys == []
         assert step.lookback is None
         assert not step.is_transform_mode()
 
@@ -54,35 +54,35 @@ class TestSQLBlockStepTransformModes:
         errors = step.validate()
         assert errors == []
 
-    def test_merge_mode_valid_single_key(self):
-        """Test valid MERGE mode with single key."""
+    def test_upsert_mode_valid_single_key(self):
+        """Test valid UPSERT mode with single key."""
         step = SQLBlockStep(
             table_name="customer_summary",
             sql_query="SELECT customer_id, COUNT(*) as orders FROM orders GROUP BY customer_id",
-            mode="MERGE",
-            merge_keys=["customer_id"],
+            mode="UPSERT",
+            upsert_keys=["customer_id"],
             line_number=1,
         )
 
-        assert step.mode == "MERGE"
-        assert step.merge_keys == ["customer_id"]
+        assert step.mode == "UPSERT"
+        assert step.upsert_keys == ["customer_id"]
         assert step.is_transform_mode()
 
         errors = step.validate()
         assert errors == []
 
-    def test_merge_mode_valid_composite_keys(self):
-        """Test valid MERGE mode with composite keys."""
+    def test_upsert_mode_valid_composite_keys(self):
+        """Test valid UPSERT mode with composite keys."""
         step = SQLBlockStep(
             table_name="product_metrics",
             sql_query="SELECT product_id, region, SUM(sales) FROM sales GROUP BY product_id, region",
-            mode="MERGE",
-            merge_keys=["product_id", "region"],
+            mode="UPSERT",
+            upsert_keys=["product_id", "region"],
             line_number=1,
         )
 
-        assert step.mode == "MERGE"
-        assert step.merge_keys == ["product_id", "region"]
+        assert step.mode == "UPSERT"
+        assert step.upsert_keys == ["product_id", "region"]
         assert step.is_transform_mode()
 
         errors = step.validate()
@@ -133,7 +133,7 @@ class TestSQLBlockStepTransformModes:
         errors = step.validate()
         assert len(errors) == 1
         assert "Invalid MODE 'INVALID'" in errors[0]
-        assert "REPLACE, APPEND, MERGE, INCREMENTAL" in errors[0]
+        assert "REPLACE, APPEND, UPSERT, INCREMENTAL" in errors[0]
 
     def test_incremental_missing_time_column(self):
         """Test INCREMENTAL mode missing time column."""
@@ -148,53 +148,53 @@ class TestSQLBlockStepTransformModes:
         assert len(errors) == 1
         assert "INCREMENTAL mode requires BY <time_column>" in errors[0]
 
-    def test_incremental_with_merge_keys_invalid(self):
-        """Test INCREMENTAL mode with merge keys (invalid)."""
+    def test_incremental_with_upsert_keys_invalid(self):
+        """Test INCREMENTAL mode with upsert keys (invalid)."""
         step = SQLBlockStep(
             table_name="test_table",
             sql_query="SELECT 1",
             mode="INCREMENTAL",
             time_column="created_at",
-            merge_keys=["id"],
+            upsert_keys=["id"],
             line_number=1,
         )
 
         errors = step.validate()
         assert len(errors) == 1
-        assert "INCREMENTAL mode cannot use merge keys" in errors[0]
+        assert "INCREMENTAL mode cannot use upsert keys" in errors[0]
 
-    def test_merge_missing_keys(self):
-        """Test MERGE mode missing merge keys."""
+    def test_upsert_missing_keys(self):
+        """Test UPSERT mode missing upsert keys."""
         step = SQLBlockStep(
-            table_name="test_table", sql_query="SELECT 1", mode="MERGE", line_number=1
+            table_name="test_table", sql_query="SELECT 1", mode="UPSERT", line_number=1
         )
 
         errors = step.validate()
         assert len(errors) == 1
-        assert "MERGE mode requires KEY" in errors[0]
+        assert "UPSERT mode requires KEY" in errors[0]
 
-    def test_merge_with_time_column_invalid(self):
-        """Test MERGE mode with time column (invalid)."""
+    def test_upsert_with_time_column_invalid(self):
+        """Test UPSERT mode with time column (invalid)."""
         step = SQLBlockStep(
             table_name="test_table",
             sql_query="SELECT 1",
-            mode="MERGE",
-            merge_keys=["id"],
+            mode="UPSERT",
+            upsert_keys=["id"],
             time_column="created_at",
             line_number=1,
         )
 
         errors = step.validate()
         assert len(errors) == 1
-        assert "MERGE mode cannot use time column" in errors[0]
+        assert "UPSERT mode cannot use time column" in errors[0]
 
-    def test_merge_with_lookback_invalid(self):
-        """Test MERGE mode with lookback (invalid)."""
+    def test_upsert_with_lookback_invalid(self):
+        """Test UPSERT mode with lookback (invalid)."""
         step = SQLBlockStep(
             table_name="test_table",
             sql_query="SELECT 1",
-            mode="MERGE",
-            merge_keys=["id"],
+            mode="UPSERT",
+            upsert_keys=["id"],
             lookback="1 DAY",
             line_number=1,
         )
@@ -202,8 +202,8 @@ class TestSQLBlockStepTransformModes:
         errors = step.validate()
         assert (
             len(errors) == 2
-        )  # Both "MERGE mode cannot use LOOKBACK" and "LOOKBACK can only be used with INCREMENTAL"
-        assert any("MERGE mode cannot use LOOKBACK" in error for error in errors)
+        )  # Both "UPSERT mode cannot use LOOKBACK" and "LOOKBACK can only be used with INCREMENTAL"
+        assert any("UPSERT mode cannot use LOOKBACK" in error for error in errors)
         assert any(
             "LOOKBACK can only be used with INCREMENTAL mode" in error
             for error in errors
@@ -223,19 +223,19 @@ class TestSQLBlockStepTransformModes:
         assert len(errors) == 1
         assert "REPLACE mode cannot use time column" in errors[0]
 
-    def test_append_with_merge_keys_invalid(self):
-        """Test APPEND mode with merge keys (invalid)."""
+    def test_append_with_upsert_keys_invalid(self):
+        """Test APPEND mode with upsert keys (invalid)."""
         step = SQLBlockStep(
             table_name="test_table",
             sql_query="SELECT 1",
             mode="APPEND",
-            merge_keys=["id"],
+            upsert_keys=["id"],
             line_number=1,
         )
 
         errors = step.validate()
         assert len(errors) == 1
-        assert "APPEND mode cannot use merge keys" in errors[0]
+        assert "APPEND mode cannot use upsert keys" in errors[0]
 
     def test_replace_with_lookback_invalid(self):
         """Test REPLACE mode with lookback (invalid)."""
@@ -282,7 +282,7 @@ class TestSQLBlockStepTransformModes:
         step = SQLBlockStep(
             table_name="test_table",
             sql_query="SELECT 1",
-            mode="MERGE",
+            mode="UPSERT",
             time_column="created_at",
             lookback="1 DAY",
             line_number=1,
@@ -290,9 +290,9 @@ class TestSQLBlockStepTransformModes:
 
         errors = step.validate()
         assert len(errors) == 4
-        assert "MERGE mode requires KEY" in errors[0]
-        assert "MERGE mode cannot use time column" in errors[1]
-        assert "MERGE mode cannot use LOOKBACK" in errors[2]
+        assert "UPSERT mode requires KEY" in errors[0]
+        assert "UPSERT mode cannot use time column" in errors[1]
+        assert "UPSERT mode cannot use LOOKBACK" in errors[2]
         assert "LOOKBACK can only be used with INCREMENTAL mode" in errors[3]
 
     def test_case_insensitive_mode_validation(self):
@@ -342,6 +342,6 @@ class TestSQLBlockStepTransformModes:
 
         assert step.mode is None
         assert step.time_column is None
-        assert step.merge_keys == []
+        assert step.upsert_keys == []
         assert step.lookback is None
         assert not step.is_transform_mode()

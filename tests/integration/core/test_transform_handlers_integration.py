@@ -14,12 +14,12 @@ from sqlflow.core.engines.duckdb.exceptions import InvalidLoadModeError
 from sqlflow.core.engines.duckdb.transform.handlers import (
     AppendTransformHandler,
     IncrementalTransformHandler,
-    MergeTransformHandler,
     ReplaceTransformHandler,
     SecureTimeSubstitution,
     TransformError,
     TransformLockManager,
     TransformModeHandlerFactory,
+    UpsertTransformHandler,
 )
 from sqlflow.parser.ast import SQLBlockStep
 
@@ -179,7 +179,7 @@ class TestTransformModeHandlerFactoryIntegration:
         modes_and_classes = [
             ("REPLACE", ReplaceTransformHandler),
             ("APPEND", AppendTransformHandler),
-            ("MERGE", MergeTransformHandler),
+            ("UPSERT", UpsertTransformHandler),
             ("INCREMENTAL", IncrementalTransformHandler),
         ]
 
@@ -208,7 +208,7 @@ class TestTransformModeHandlerFactoryIntegration:
 
     def test_all_handlers_have_required_components(self, duckdb_engine):
         """Test that all handlers have required infrastructure components."""
-        modes = ["REPLACE", "APPEND", "MERGE", "INCREMENTAL"]
+        modes = ["REPLACE", "APPEND", "UPSERT", "INCREMENTAL"]
 
         for mode in modes:
             handler = TransformModeHandlerFactory.create(mode, duckdb_engine)
@@ -473,24 +473,17 @@ class TestAppendTransformHandlerIntegration:
         assert initial_count == 1
 
 
-class TestMergeTransformHandlerIntegration:
-    """Integration tests for MERGE transform handler with real database operations."""
+class TestUpsertTransformHandlerIntegration:
+    """Integration tests for UpsertTransformHandler with real DuckDB."""
 
     @pytest.fixture
-    def duckdb_engine(self):
-        """Create real DuckDB engine for testing."""
-        engine = DuckDBEngine(":memory:")
-        yield engine
-        engine.close()
-
-    @pytest.fixture
-    def merge_handler(self, duckdb_engine):
-        """Create MERGE handler with real engine."""
-        return MergeTransformHandler(duckdb_engine)
+    def handler(self, duckdb_engine):
+        """Create an UpsertTransformHandler for testing."""
+        return UpsertTransformHandler(duckdb_engine)
 
     @pytest.fixture
     def source_table(self, duckdb_engine):
-        """Create source table with sample data for merging."""
+        """Create source table with sample data."""
         duckdb_engine.execute_query(
             """
             CREATE TABLE customer_updates (
@@ -513,20 +506,18 @@ class TestMergeTransformHandlerIntegration:
 
         return "customer_updates"
 
-    def test_merge_creates_table_when_not_exists(
-        self, merge_handler, source_table, duckdb_engine
+    def test_upsert_creates_table_when_not_exists(
+        self, handler, source_table, duckdb_engine
     ):
-        """Test MERGE mode creates table when it doesn't exist."""
+        """Test UPSERT mode creates table when it doesn't exist."""
         transform_step = SQLBlockStep(
             table_name="customers",
             sql_query=f"SELECT customer_id, name, email FROM {source_table}",
-            mode="MERGE",
-            merge_keys=["customer_id"],
+            mode="UPSERT",
+            upsert_keys=["customer_id"],
         )
 
-        sql_statements, parameters = merge_handler.generate_sql_with_params(
-            transform_step
-        )
+        sql_statements, parameters = handler.generate_sql_with_params(transform_step)
 
         # Should generate CREATE TABLE AS when table doesn't exist
         assert len(sql_statements) == 1
@@ -542,10 +533,10 @@ class TestMergeTransformHandlerIntegration:
         count = result.fetchall()[0][0]
         assert count == 3
 
-    def test_merge_upserts_when_table_exists(
-        self, merge_handler, source_table, duckdb_engine
+    def test_upsert_upserts_when_table_exists(
+        self, handler, source_table, duckdb_engine
     ):
-        """Test MERGE mode performs upsert when table exists."""
+        """Test UPSERT mode performs upsert when table exists."""
         # Create target table with existing data
         duckdb_engine.execute_query(
             """
@@ -568,27 +559,25 @@ class TestMergeTransformHandlerIntegration:
         transform_step = SQLBlockStep(
             table_name="customers",
             sql_query=f"SELECT customer_id, name, email FROM {source_table}",
-            mode="MERGE",
-            merge_keys=["customer_id"],
+            mode="UPSERT",
+            upsert_keys=["customer_id"],
         )
 
-        sql_statements, parameters = merge_handler.generate_sql_with_params(
-            transform_step
-        )
+        sql_statements, parameters = handler.generate_sql_with_params(transform_step)
 
-        # Should generate MERGE statements when table exists (CREATE VIEW, DELETE, INSERT, DROP VIEW)
+        # Should generate UPSERT statements when table exists (CREATE VIEW, DELETE, INSERT, DROP VIEW)
         assert len(sql_statements) == 4
-        assert "CREATE TEMPORARY VIEW temp_merge_" in sql_statements[0]
+        assert "CREATE TEMPORARY VIEW temp_upsert_" in sql_statements[0]
         assert "DELETE FROM customers" in sql_statements[1]
         assert "INSERT INTO customers" in sql_statements[2]
-        assert "DROP VIEW temp_merge_" in sql_statements[3]
+        assert "DROP VIEW temp_upsert_" in sql_statements[3]
         assert parameters == {}
 
         # Execute all statements
         for sql in sql_statements:
             duckdb_engine.execute_query(sql)
 
-        # Verify MERGE results
+        # Verify UPSERT results
         result = duckdb_engine.execute_query("SELECT COUNT(*) FROM customers")
         count = result.fetchall()[0][0]
         assert count == 4  # 1 updated, 1 unchanged, 2 new
@@ -872,7 +861,7 @@ class TestTransformHandlerPerformanceIntegration:
 
     def test_all_handlers_have_performance_components(self, duckdb_engine):
         """Test that all transform handlers have performance optimization components."""
-        modes = ["REPLACE", "APPEND", "MERGE", "INCREMENTAL"]
+        modes = ["REPLACE", "APPEND", "UPSERT", "INCREMENTAL"]
 
         for mode in modes:
             handler = TransformModeHandlerFactory.create(mode, duckdb_engine)
@@ -953,20 +942,20 @@ class TestTransformHandlerComprehensiveIntegration:
         result = duckdb_engine.execute_query("SELECT COUNT(*) FROM order_log")
         assert result.fetchall()[0][0] == 3  # Three completed orders
 
-        # Test MERGE mode
-        merge_handler = MergeTransformHandler(duckdb_engine)
-        merge_step = SQLBlockStep(
+        # Test UPSERT mode
+        upsert_handler = UpsertTransformHandler(duckdb_engine)
+        upsert_step = SQLBlockStep(
             table_name="customer_summary",
             sql_query="SELECT customer_id, COUNT(*) as order_count, SUM(amount) as total_amount FROM orders GROUP BY customer_id",
-            mode="MERGE",
-            merge_keys=["customer_id"],
+            mode="UPSERT",
+            upsert_keys=["customer_id"],
         )
 
-        sql_statements, _ = merge_handler.generate_sql_with_params(merge_step)
+        sql_statements, _ = upsert_handler.generate_sql_with_params(upsert_step)
         for sql in sql_statements:
             duckdb_engine.execute_query(sql)
 
-        # Verify MERGE result
+        # Verify UPSERT result
         result = duckdb_engine.execute_query("SELECT COUNT(*) FROM customer_summary")
         assert result.fetchall()[0][0] == 3  # Three customers
 
@@ -1015,6 +1004,7 @@ class TestTransformHandlerComprehensiveIntegration:
         # Test that different handlers can work with same source
         replace_handler = ReplaceTransformHandler(duckdb_engine)
         append_handler = AppendTransformHandler(duckdb_engine)
+        upsert_handler = UpsertTransformHandler(duckdb_engine)
 
         replace_step = SQLBlockStep(
             table_name="replace_result",
@@ -1028,13 +1018,23 @@ class TestTransformHandlerComprehensiveIntegration:
             mode="APPEND",
         )
 
+        upsert_step = SQLBlockStep(
+            table_name="customer_summary",
+            sql_query="SELECT id as customer_id, COUNT(*) as order_count, 1 as total_amount FROM shared_source GROUP BY id",
+            mode="UPSERT",
+            upsert_keys=["customer_id"],
+        )
+
         # Both should work without conflict
         replace_sql, _ = replace_handler.generate_sql_with_params(replace_step)
         append_sql, _ = append_handler.generate_sql_with_params(append_step)
+        upsert_sql, _ = upsert_handler.generate_sql_with_params(upsert_step)
 
         for sql in replace_sql:
             duckdb_engine.execute_query(sql)
         for sql in append_sql:
+            duckdb_engine.execute_query(sql)
+        for sql in upsert_sql:
             duckdb_engine.execute_query(sql)
 
         # Verify both tables exist

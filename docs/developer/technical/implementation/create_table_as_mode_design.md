@@ -4,7 +4,7 @@
 
 This document outlines the technical design for implementing MODE parameter support in CREATE TABLE AS statements within SQLFlow. This feature extends SQLFlow's transformation capabilities by bringing the same proven MODE functionality from LOAD statements to CREATE TABLE AS statements, enabling incremental transformations, automated watermarking, and efficient data pipeline operations while maintaining SQLFlow's SQL-centric philosophy.
 
-The implementation leverages existing LOAD mode infrastructure (REPLACE, APPEND, MERGE) and extends it to transformation operations, providing users with consistent syntax patterns and robust incremental processing capabilities for complex SQL transformations.
+The implementation leverages existing LOAD mode infrastructure (REPLACE, APPEND, UPSERT) and extends it to transformation operations, providing users with consistent syntax patterns and robust incremental processing capabilities for complex SQL transformations.
 
 ## 1. Motivation & Goals
 
@@ -34,7 +34,7 @@ This approach forces full table reconstruction on every pipeline run, leading to
 
 ### 1.3 Success Criteria
 
-- Users can apply REPLACE, INCREMENTAL, and MERGE modes to CREATE TABLE AS statements
+- Users can apply REPLACE, INCREMENTAL, and UPSERT modes to CREATE TABLE AS statements
 - Incremental transformations automatically manage watermarks and change detection
 - Performance improves significantly for large datasets with incremental updates
 - Existing CREATE TABLE AS statements continue to work without modification
@@ -75,7 +75,7 @@ The implementation extends three core SQLFlow layers following the established a
 ```sql
 CREATE TABLE table_name AS 
 SELECT ... 
-[MODE mode_type [BY column_name] [MERGE_KEYS (key1, key2, ...)]]
+[MODE mode_type [BY column_name] [UPSERT_KEYS (key1, key2, ...)]]
 ```
 
 #### Supported Modes
@@ -113,14 +113,14 @@ GROUP BY user_id
 MODE INCREMENTAL BY last_updated;
 ```
 
-**INCREMENTAL with MERGE_KEYS**
+**INCREMENTAL with UPSERT_KEYS**
 ```sql
 CREATE TABLE user_metrics AS
 SELECT user_id, COUNT(*) as orders, SUM(amount) as revenue, MAX(updated_at) as last_updated
 FROM transactions
 WHERE updated_at > ${last_run_time}
 GROUP BY user_id
-MODE INCREMENTAL BY last_updated MERGE_KEYS (user_id);
+MODE INCREMENTAL BY last_updated UPSERT_KEYS (user_id);
 ```
 
 ### 3.2 Behavioral Semantics
@@ -136,10 +136,10 @@ MODE INCREMENTAL BY last_updated MERGE_KEYS (user_id);
 - **Watermark Management**: Automatic tracking of maximum incremental column value
 - **Use Cases**: Event logs, time-series data, append-only datasets
 
-#### INCREMENTAL Mode with MERGE_KEYS
+#### INCREMENTAL Mode with UPSERT_KEYS
 - **First Run**: `CREATE TABLE table_name AS SELECT ...`
-- **Subsequent Runs**: Execute MERGE operation using existing LOAD MERGE logic
-- **Behavior**: Update existing records + insert new records based on merge keys
+- **Subsequent Runs**: Execute UPSERT operation using existing LOAD UPSERT logic
+- **Behavior**: Update existing records + insert new records based on upsert keys
 - **Use Cases**: Dimension tables, aggregated metrics, slowly changing dimensions
 
 ### 3.3 Watermark Management
@@ -179,7 +179,7 @@ class SQLBlockStep(PipelineStep):
     # NEW FIELDS
     mode: Optional[str] = None                    # "REPLACE", "INCREMENTAL"
     incremental_by: Optional[str] = None          # Column name for incremental processing
-    merge_keys: Optional[List[str]] = None        # Merge keys for INCREMENTAL+MERGE
+    upsert_keys: Optional[List[str]] = None        # Upsert keys for INCREMENTAL+UPSERT
     line_number: Optional[int] = None
 
     def validate(self) -> List[str]:
@@ -192,8 +192,8 @@ class SQLBlockStep(PipelineStep):
             
         # Mode-specific validation
         if self.mode == "INCREMENTAL":
-            if self.merge_keys and not self.incremental_by:
-                errors.append("INCREMENTAL with MERGE_KEYS requires BY <column>")
+            if self.upsert_keys and not self.incremental_by:
+                errors.append("INCREMENTAL with UPSERT_KEYS requires BY <column>")
                 
         return errors
 ```
@@ -206,7 +206,7 @@ class TokenType(Enum):
     MODE = auto()            # Already exists
     INCREMENTAL = auto()     # NEW
     BY = auto()             # NEW
-    MERGE_KEYS = auto()     # Already exists
+    UPSERT_KEYS = auto()     # Already exists
 ```
 
 #### Parser Method Extensions
@@ -225,10 +225,10 @@ def _parse_sql_block_statement(self) -> SQLBlockStep:
     # NEW: Parse optional MODE clause
     mode = None
     incremental_by = None  
-    merge_keys = []
+    upsert_keys = []
     
     if self._check(TokenType.MODE):
-        mode, incremental_by, merge_keys = self._parse_create_table_mode()
+        mode, incremental_by, upsert_keys = self._parse_create_table_mode()
     
     self._consume(TokenType.SEMICOLON, "Expected ';' after statement")
     
@@ -237,7 +237,7 @@ def _parse_sql_block_statement(self) -> SQLBlockStep:
         sql_query=sql_query,
         mode=mode,
         incremental_by=incremental_by,
-        merge_keys=merge_keys,
+        upsert_keys=upsert_keys,
         line_number=create_token.line,
     )
 
@@ -252,7 +252,7 @@ def _parse_create_table_mode(self) -> tuple[str, Optional[str], List[str]]:
     elif self._check(TokenType.INCREMENTAL):
         self._advance()
         incremental_by = None
-        merge_keys = []
+        upsert_keys = []
         
         # Optional BY clause
         if self._check(TokenType.BY):
@@ -260,11 +260,11 @@ def _parse_create_table_mode(self) -> tuple[str, Optional[str], List[str]]:
             column_token = self._consume(TokenType.IDENTIFIER, "Expected column name after BY")
             incremental_by = column_token.value
         
-        # Optional MERGE_KEYS clause
-        if self._check(TokenType.MERGE_KEYS):
-            merge_keys = self._parse_merge_keys()  # Reuse existing method
+        # Optional UPSERT_KEYS clause
+        if self._check(TokenType.UPSERT_KEYS):
+            upsert_keys = self._parse_upsert_keys()  # Reuse existing method
             
-        return "INCREMENTAL", incremental_by, merge_keys
+        return "INCREMENTAL", incremental_by, upsert_keys
     else:
         token = self._peek()
         raise ParserError(
@@ -291,7 +291,7 @@ def _build_sql_block_step(
         # NEW: Mode metadata
         "mode": step.mode,
         "incremental_by": step.incremental_by,
-        "merge_keys": step.merge_keys or [],
+        "upsert_keys": step.upsert_keys or [],
     }
 ```
 
@@ -308,7 +308,7 @@ def _generate_transform_sql(
     base_query = operation.get("query", "")
     mode = operation.get("mode")
     incremental_by = operation.get("incremental_by")
-    merge_keys = operation.get("merge_keys", [])
+    upsert_keys = operation.get("upsert_keys", [])
     
     # Default behavior (backward compatible)
     if not mode or mode == "REPLACE":
@@ -317,7 +317,7 @@ def _generate_transform_sql(
     # Incremental processing
     elif mode == "INCREMENTAL":
         return self._generate_incremental_transform_sql(
-            table_name, base_query, incremental_by, merge_keys, context
+            table_name, base_query, incremental_by, upsert_keys, context
         )
     
     else:
@@ -326,7 +326,7 @@ def _generate_transform_sql(
 
 def _generate_incremental_transform_sql(
     self, table_name: str, base_query: str, incremental_by: Optional[str],
-    merge_keys: List[str], context: Dict[str, Any]
+    upsert_keys: List[str], context: Dict[str, Any]
 ) -> str:
     """Generate SQL for incremental CREATE TABLE AS."""
     
@@ -336,10 +336,10 @@ def _generate_incremental_transform_sql(
         # First run: Create table normally
         return f"CREATE TABLE {table_name} AS\n{base_query};"
     
-    if merge_keys:
-        # Incremental with updates: Use MERGE strategy via temp table
-        return self._generate_incremental_merge_sql(
-            table_name, base_query, incremental_by, merge_keys, context
+    if upsert_keys:
+        # Incremental with updates: Use UPSERT strategy via temp table
+        return self._generate_incremental_upsert_sql(
+            table_name, base_query, incremental_by, upsert_keys, context
         )
     else:
         # Incremental append: Use INSERT strategy
@@ -347,11 +347,11 @@ def _generate_incremental_transform_sql(
             table_name, base_query, incremental_by, context
         )
 
-def _generate_incremental_merge_sql(
+def _generate_incremental_upsert_sql(
     self, table_name: str, base_query: str, incremental_by: Optional[str],
-    merge_keys: List[str], context: Dict[str, Any]
+    upsert_keys: List[str], context: Dict[str, Any]
 ) -> str:
-    """Generate MERGE-based incremental SQL by leveraging LOAD infrastructure."""
+    """Generate UPSERT-based incremental SQL by leveraging LOAD infrastructure."""
     
     # Create temporary view with query results
     temp_view = f"temp_{table_name}_{uuid.uuid4().hex[:8]}"
@@ -361,12 +361,12 @@ def _generate_incremental_merge_sql(
         base_query, incremental_by, context
     )
     
-    # Reuse existing LOAD MERGE SQL generation
+    # Reuse existing LOAD UPSERT SQL generation
     sql_generator = SQLGenerator()
-    merge_sql = sql_generator.generate_merge_sql(
+    upsert_sql = sql_generator.generate_upsert_sql(
         table_name=table_name,
         source_name=temp_view,
-        merge_keys=merge_keys,
+        upsert_keys=upsert_keys,
         source_schema=context.get("source_schema", {})
     )
     
@@ -375,7 +375,7 @@ def _generate_incremental_merge_sql(
 CREATE TEMPORARY VIEW {temp_view} AS
 {filtered_query};
 
-{merge_sql}
+{upsert_sql}
 
 -- Cleanup
 DROP VIEW {temp_view};
@@ -450,28 +450,28 @@ class CreateTableModeHandler:
         self.engine = engine
         self.load_factory = LoadModeHandlerFactory()  # Reuse existing factory
     
-    def execute_incremental_merge(
-        self, table_name: str, query: str, merge_keys: List[str]
+    def execute_incremental_upsert(
+        self, table_name: str, query: str, upsert_keys: List[str]
     ) -> str:
-        """Execute incremental CREATE TABLE AS with MERGE semantics."""
+        """Execute incremental CREATE TABLE AS with UPSERT semantics."""
         
         # Create temporary view with query results
         temp_view = f"temp_{table_name}_{uuid.uuid4().hex[:8]}"
         create_view_sql = f"CREATE TEMPORARY VIEW {temp_view} AS {query};"
         
-        # Create synthetic LoadStep for existing MERGE handler
+        # Create synthetic LoadStep for existing UPSERT handler
         load_step = LoadStep(
             table_name=table_name,
             source_name=temp_view, 
-            mode="MERGE",
-            merge_keys=merge_keys
+            mode="UPSERT",
+            upsert_keys=upsert_keys
         )
         
-        # Use existing MERGE handler
-        merge_handler = self.load_factory.create("MERGE", self.engine)
-        merge_sql = merge_handler.generate_sql(load_step)
+        # Use existing UPSERT handler
+        upsert_handler = self.load_factory.create("UPSERT", self.engine)
+        upsert_sql = upsert_handler.generate_sql(load_step)
         
-        return f"{create_view_sql}\n{merge_sql}"
+        return f"{create_view_sql}\n{upsert_sql}"
 ```
 
 ### 5.2 Watermark Management Reuse
@@ -523,7 +523,7 @@ def test_create_table_with_replace_mode():
     assert isinstance(step, SQLBlockStep)
     assert step.mode == "REPLACE"
     assert step.incremental_by is None
-    assert step.merge_keys == []
+    assert step.upsert_keys == []
 
 def test_create_table_with_incremental_mode():
     """Test CREATE TABLE AS with INCREMENTAL mode."""
@@ -532,27 +532,27 @@ def test_create_table_with_incremental_mode():
         SELECT user_id, COUNT(*) as orders
         FROM transactions
         GROUP BY user_id
-        MODE INCREMENTAL BY last_updated MERGE_KEYS (user_id);
+        MODE INCREMENTAL BY last_updated UPSERT_KEYS (user_id);
     """)
     pipeline = parser.parse()
     
     step = pipeline.steps[0]
     assert step.mode == "INCREMENTAL" 
     assert step.incremental_by == "last_updated"
-    assert step.merge_keys == ["user_id"]
+    assert step.upsert_keys == ["user_id"]
 ```
 
 #### SQL Generation Tests
 ```python
 # tests/unit/core/test_transform_sql_generation.py
-def test_incremental_merge_sql_generation():
-    """Test SQL generation for incremental CREATE TABLE AS with MERGE."""
+def test_incremental_upsert_sql_generation():
+    """Test SQL generation for incremental CREATE TABLE AS with UPSERT."""
     operation = {
         "name": "user_metrics",
         "query": "SELECT user_id, COUNT(*) FROM transactions GROUP BY user_id",
         "mode": "INCREMENTAL",
         "incremental_by": "updated_at",
-        "merge_keys": ["user_id"]
+        "upsert_keys": ["user_id"]
     }
     
     context = {
@@ -565,7 +565,7 @@ def test_incremental_merge_sql_generation():
     sql = generator._generate_transform_sql(operation, context)
     
     assert "CREATE TEMPORARY VIEW temp_" in sql
-    assert "MERGE INTO user_metrics" in sql
+    assert "UPSERT INTO user_metrics" in sql
     assert "UPDATE SET" in sql
     assert "INSERT" in sql
 ```
@@ -593,7 +593,7 @@ def test_incremental_transform_pipeline():
         SELECT user_id, SUM(amount) as total_amount, MAX(updated_at) as last_updated
         FROM transactions
         GROUP BY user_id
-        MODE INCREMENTAL BY last_updated MERGE_KEYS (user_id);
+        MODE INCREMENTAL BY last_updated UPSERT_KEYS (user_id);
     """
     
     result1 = executor.execute_pipeline_content(pipeline_content)
@@ -676,7 +676,7 @@ SELECT user_id, COUNT(*) as orders, MAX(updated_at) as last_updated
 FROM transactions
 WHERE updated_at > '2024-01-01'  -- Add appropriate filter
 GROUP BY user_id
-MODE INCREMENTAL BY last_updated MERGE_KEYS (user_id);
+MODE INCREMENTAL BY last_updated UPSERT_KEYS (user_id);
 ```
 
 ### 7.2 Error Handling & Validation
@@ -684,17 +684,17 @@ MODE INCREMENTAL BY last_updated MERGE_KEYS (user_id);
 The implementation provides clear error messages for common mistakes:
 
 ```sql
--- Error: INCREMENTAL with MERGE_KEYS requires BY clause
+-- Error: INCREMENTAL with UPSERT_KEYS requires BY clause
 CREATE TABLE metrics AS SELECT * FROM source
-MODE INCREMENTAL MERGE_KEYS (id);  -- ❌ Missing BY column
+MODE INCREMENTAL UPSERT_KEYS (id);  -- ❌ Missing BY column
 
 -- Error: BY column must exist in SELECT clause  
 CREATE TABLE metrics AS SELECT user_id, COUNT(*) FROM source
 MODE INCREMENTAL BY updated_at;  -- ❌ updated_at not in SELECT
 
--- Error: MERGE_KEYS must exist in SELECT clause
+-- Error: UPSERT_KEYS must exist in SELECT clause
 CREATE TABLE metrics AS SELECT COUNT(*) FROM source  
-MODE INCREMENTAL BY date MERGE_KEYS (user_id);  -- ❌ user_id not in SELECT
+MODE INCREMENTAL BY date UPSERT_KEYS (user_id);  -- ❌ user_id not in SELECT
 ```
 
 ## 8. Documentation & Examples
@@ -711,7 +711,7 @@ Update `docs/user/reference/sql_syntax.md`:
 ```sql
 CREATE TABLE table_name AS
 SELECT ...
-[MODE mode_type [BY column_name] [MERGE_KEYS (key1, key2, ...)]]
+[MODE mode_type [BY column_name] [UPSERT_KEYS (key1, key2, ...)]]
 ```
 
 ### Modes
@@ -724,7 +724,7 @@ SELECT ...
 - Processes only new/changed data based on watermark column
 - Best for: Large datasets, time-series data, event logs
 
-**INCREMENTAL with MERGE_KEYS**
+**INCREMENTAL with UPSERT_KEYS**
 - Updates existing records and inserts new ones
 - Best for: Dimension tables, aggregated metrics, slowly changing data
 ```
@@ -753,9 +753,9 @@ GROUP BY DATE(order_date)
 MODE INCREMENTAL BY date;
 ```
 
-## Advanced: Updates with MERGE_KEYS
+## Advanced: Updates with UPSERT_KEYS
 
-For data that can change, use MERGE_KEYS to handle updates:
+For data that can change, use UPSERT_KEYS to handle updates:
 
 ```sql
 CREATE TABLE customer_lifetime_value AS
@@ -767,7 +767,7 @@ SELECT
 FROM orders
 WHERE order_date >= '2024-01-01'
 GROUP BY customer_id
-MODE INCREMENTAL BY last_order_date MERGE_KEYS (customer_id);
+MODE INCREMENTAL BY last_order_date UPSERT_KEYS (customer_id);
 ```
 ```
 
@@ -810,7 +810,7 @@ SELECT
 FROM events_raw
 WHERE event_timestamp >= '2024-01-01'
 GROUP BY user_id
-MODE INCREMENTAL BY last_seen MERGE_KEYS (user_id);
+MODE INCREMENTAL BY last_seen UPSERT_KEYS (user_id);
 ```
 
 ## 9. Future Enhancements
@@ -850,7 +850,7 @@ MODE INCREMENTAL BY date
 
 ### 9.2 Phase 3: Performance Optimizations
 
-- **Automatic indexing** on merge keys and incremental columns
+- **Automatic indexing** on upsert keys and incremental columns
 - **Parallel processing** for large incremental operations  
 - **Compression optimization** for incremental tables
 - **Cost-based optimization** for incremental vs full refresh decisions

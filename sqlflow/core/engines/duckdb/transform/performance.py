@@ -39,7 +39,7 @@ class PerformanceMetrics:
         """Record a transform operation execution.
 
         Args:
-            operation_type: Type of operation (INSERT, DELETE, MERGE, etc.)
+            operation_type: Type of operation (INSERT, DELETE, UPSERT, etc.)
             execution_time: Operation execution time in seconds
             rows_processed: Number of rows processed
             memory_mb: Memory usage in MB (optional)
@@ -203,14 +203,14 @@ class PerformanceOptimizer:
 
         return sql, False
 
-    def optimize_merge_operation(
+    def optimize_upsert_operation(
         self, sql: str, estimated_rows: int
     ) -> tuple[str, bool]:
-        """Optimize MERGE operations for large datasets.
+        """Optimize UPSERT operations for large datasets.
 
         Args:
-            sql: Original MERGE SQL statement
-            estimated_rows: Estimated number of rows to merge
+            sql: Original UPSERT SQL statement
+            estimated_rows: Estimated number of rows to upsert
 
         Returns:
             Tuple of (optimized_sql, was_optimized)
@@ -218,13 +218,13 @@ class PerformanceOptimizer:
         if not self.should_use_bulk_operation(estimated_rows):
             return sql, False
 
-        # For large MERGE operations, add optimization
-        if "MERGE INTO" in sql.upper():
+        # For large UPSERT operations, add optimization
+        if "UPSERT INTO" in sql.upper() or "INSERT INTO" in sql.upper():
             optimized_sql = f"""
-                -- Optimized MERGE for large dataset ({estimated_rows} rows)
+                -- Optimized UPSERT for large dataset ({estimated_rows} rows)
                 {sql}
             """
-            logger.debug(f"Optimized MERGE for {estimated_rows} rows")
+            logger.debug(f"Optimized UPSERT for {estimated_rows} rows")
             return optimized_sql, True
 
         return sql, False

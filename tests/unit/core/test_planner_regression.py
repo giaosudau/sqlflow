@@ -150,15 +150,15 @@ class TestPlannerRegression:
                     dependency_exists
                 ), f"Dependency {dependency_id} not found in plan"
 
-    def test_load_step_mode_and_merge_keys_preserved(self):
-        """Test that load step mode and merge keys are preserved.
+    def test_load_step_mode_and_upsert_keys_preserved(self):
+        """Test that load step mode and upsert keys are preserved.
 
         Regression test for: Load step attributes being lost during planning
         """
         pipeline_text = """
         SOURCE customers TYPE CSV PARAMS {"path": "customers.csv"};
         
-        LOAD customer_data FROM customers MODE MERGE MERGE_KEYS id, email;
+        LOAD customer_data FROM customers MODE UPSERT KEY id, email;
         """
 
         parser = Parser(pipeline_text)
@@ -175,11 +175,11 @@ class TestPlannerRegression:
 
         # Mode should be preserved
         assert "mode" in load_step
-        assert load_step["mode"] == "MERGE"
+        assert load_step["mode"] == "UPSERT"
 
-        # Merge keys should be preserved
-        assert "merge_keys" in load_step
-        assert load_step["merge_keys"] == ["id", "email"]
+        # Upsert keys should be preserved
+        assert "upsert_keys" in load_step
+        assert load_step["upsert_keys"] == ["id", "email"]
 
 
 class TestPlannerExecutionOrderRegression:

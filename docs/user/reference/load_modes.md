@@ -4,21 +4,21 @@ SQLFlow provides three different load modes when loading data from a source into
 
 - **REPLACE**: Create a new table or replace an existing one (default mode)
 - **APPEND**: Add data to an existing table without affecting existing data
-- **MERGE**: Update existing records that match on specified keys and insert new records
+- **UPSERT**: Update existing records that match on specified keys and insert new records
 
 ## Syntax
 
 The general syntax for using load modes is:
 
 ```sql
-LOAD target_table FROM source_name [MODE mode_type] [MERGE_KEYS key1, key2, ...];
+LOAD target_table FROM source_name [MODE mode_type] [KEY key1, key2, ...];
 ```
 
 Where:
 - `target_table` is the name of the table to load data into
 - `source_name` is the name of the source defined earlier in the pipeline
-- `mode_type` is one of: `REPLACE`, `APPEND`, or `MERGE`
-- `key1, key2, ...` are the column names to use as merge keys (required for MERGE mode)
+- `mode_type` is one of: `REPLACE`, `APPEND`, or `UPSERT`
+- `key1, key2, ...` are the column names to use as upsert keys (required for UPSERT mode)
 
 ## REPLACE Mode (Default)
 
@@ -77,49 +77,49 @@ CATCH
 END TRY;
 ```
 
-## MERGE Mode
+## UPSERT Mode
 
-The MERGE mode updates existing records that match on specified keys and inserts new records.
+The UPSERT mode updates existing records that match on specified keys and inserts new records.
 
 ```sql
-LOAD users_table FROM users_source MODE MERGE MERGE_KEYS user_id;
+LOAD users_table FROM users_source MODE UPSERT KEY user_id;
 ```
 
 Key features:
-- Requires one or more merge keys to identify matching records
-- Updates existing records when merge keys match
+- Requires one or more upsert keys to identify matching records
+- Updates existing records when upsert keys match
 - Inserts new records when no match is found
 - Schema compatibility is validated before loading
 - Most computationally intensive mode, but avoids duplicates
 
-### Merge Keys
+### Upsert Keys
 
-Merge keys are columns used to match records between the source and target tables. 
+Upsert keys are columns used to match records between the source and target tables. 
 They act similar to a primary key or unique identifier.
 
-#### Requirements for Merge Keys:
+#### Requirements for Upsert Keys:
 
-1. **Existence**: Merge keys must exist in both source and target tables
-2. **Type Compatibility**: Merge keys must have compatible data types
-3. **Uniqueness**: While not strictly enforced, merge keys should uniquely identify records in the target table
+1. **Existence**: Upsert keys must exist in both source and target tables
+2. **Type Compatibility**: Upsert keys must have compatible data types
+3. **Uniqueness**: While not strictly enforced, upsert keys should uniquely identify records in the target table
 
-#### Multiple Merge Keys
+#### Multiple Upsert Keys
 
-You can specify multiple columns as merge keys for composite key matching:
+You can specify multiple columns as upsert keys for composite key matching:
 
 ```sql
-LOAD users_table FROM users_source MODE MERGE MERGE_KEYS user_id, email;
+LOAD users_table FROM users_source MODE UPSERT KEY user_id, email;
 ```
 
 This will match records where both `user_id` AND `email` match between source and target.
 
 #### Validation
 
-SQLFlow performs the following validations for merge keys:
+SQLFlow performs the following validations for upsert keys:
 
-- Checks that all merge keys exist in both source and target tables
-- Validates that merge key columns have compatible types
-- Warns if uniqueness of merge keys cannot be verified
+- Checks that all upsert keys exist in both source and target tables
+- Validates that upsert key columns have compatible types
+- Warns if uniqueness of upsert keys cannot be verified
 
 ### Advanced MERGE Handling
 
@@ -134,7 +134,7 @@ LOAD target_table FROM (
         CASE WHEN t.id IS NOT NULL THEN current_timestamp ELSE s.created_at END AS last_updated
     FROM source s
     LEFT JOIN target t ON s.id = t.id
-) MODE MERGE MERGE_KEYS id;
+) MODE UPSERT KEY id;
 ```
 
 ## Schema Compatibility
@@ -142,7 +142,7 @@ LOAD target_table FROM (
 All load modes except REPLACE perform schema compatibility validation:
 
 - For APPEND: Ensures source columns exist in target table with compatible types
-- For MERGE: Validates both schema compatibility and merge key validity
+- For UPSERT: Validates both schema compatibility and upsert key validity
 
 For more details on schema compatibility, see [Schema Compatibility](schema_compatibility.md).
 
@@ -158,9 +158,9 @@ For more details on schema compatibility, see [Schema Compatibility](schema_comp
 - May create duplicates if not carefully managed
 - Requires schema validation overhead
 
-### MERGE Mode
-- Most resource-intensive (requires lookups on merge keys)
-- Consider indexing merge keys in the underlying database
+### UPSERT Mode
+- Most resource-intensive (requires lookups on upsert keys)
+- Consider indexing upsert keys in the underlying database
 - For large operations, consider batching or using temporary tables
 
 ## Common Issues and Troubleshooting
@@ -246,10 +246,10 @@ SOURCE user_updates TYPE CSV PARAMS {
 };
 
 -- Update existing users and insert new users based on user_id
-LOAD users_table FROM user_updates MODE MERGE MERGE_KEYS user_id;
+LOAD users_table FROM user_updates MODE UPSERT KEY user_id;
 ```
 
-### Multiple Merge Keys Example
+### Multiple Upsert Keys Example
 
 ```sql
 SOURCE product_inventory TYPE CSV PARAMS {
@@ -258,7 +258,7 @@ SOURCE product_inventory TYPE CSV PARAMS {
 };
 
 -- Update inventory using product_id and warehouse_id as composite key
-LOAD inventory FROM product_inventory MODE MERGE MERGE_KEYS product_id, warehouse_id;
+LOAD inventory FROM product_inventory MODE UPSERT KEY product_id, warehouse_id;
 ```
 
 ### Handling Schema Evolution
@@ -293,10 +293,10 @@ END IF;
    - Consider the impact on downstream dependencies
    - Be cautious with production tables that other processes depend on
 
-2. **For MERGE mode**: 
-   - Choose merge keys that uniquely identify records in the target table
-   - Ensure merge keys have appropriate indexes in the underlying database
-   - Use multiple merge keys when a single column isn't sufficient for unique identification
+2. **For UPSERT mode**: 
+   - Choose upsert keys that uniquely identify records in the target table
+   - Ensure upsert keys have appropriate indexes in the underlying database
+   - Use multiple upsert keys when a single column isn't sufficient for unique identification
    - Add a timestamp or version column to track record updates
 
 3. **For APPEND mode**:

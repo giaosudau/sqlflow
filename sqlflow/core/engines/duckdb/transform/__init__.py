@@ -7,17 +7,17 @@ with advanced data transformation capabilities.
 from .handlers import (
     AppendTransformHandler,
     IncrementalTransformHandler,
-    MergeTransformHandler,
     ReplaceTransformHandler,
     TransformModeHandler,
     TransformModeHandlerFactory,
+    UpsertTransformHandler,
 )
 
 __all__ = [
     "TransformModeHandler",
     "ReplaceTransformHandler",
     "AppendTransformHandler",
-    "MergeTransformHandler",
+    "UpsertTransformHandler",
     "IncrementalTransformHandler",
     "TransformModeHandlerFactory",
 ]

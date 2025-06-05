@@ -56,7 +56,7 @@ SOURCE users TYPE CSV PARAMS {
     "primary_key": "user_id"
 };
 
-LOAD users_table FROM users MODE MERGE MERGE_KEYS (user_id);
+LOAD users_table FROM users MODE UPSERT KEY (user_id);
 ```
 
 ### Example 2: Full Refresh Source
@@ -125,9 +125,9 @@ SOURCE orders TYPE CSV PARAMS {
 };
 
 -- Load all sources
-LOAD users_table FROM users MODE MERGE MERGE_KEYS (user_id);
+LOAD users_table FROM users MODE UPSERT KEY (user_id);
 LOAD products_table FROM products MODE REPLACE;
-LOAD orders_table FROM orders MODE MERGE MERGE_KEYS (order_id);
+LOAD orders_table FROM orders MODE UPSERT KEY (order_id);
 ```
 
 ## Advanced Migration Scenarios
@@ -150,7 +150,7 @@ SOURCE user_accounts TYPE CSV PARAMS {
 };
 
 LOAD user_accounts_table FROM user_accounts 
-MODE MERGE MERGE_KEYS (user_id, account_id);
+MODE UPSERT KEY (user_id, account_id);
 ```
 
 ### Custom Transformations
@@ -166,7 +166,7 @@ SOURCE raw_events TYPE CSV PARAMS {
     "primary_key": "event_id"
 };
 
-LOAD events_table FROM raw_events MODE MERGE MERGE_KEYS (event_id);
+LOAD events_table FROM raw_events MODE UPSERT KEY (event_id);
 
 -- Add transformations not possible in Airbyte/Fivetran
 CREATE TABLE processed_events AS
@@ -258,7 +258,7 @@ SOURCE customers TYPE CSV PARAMS {
     "primary_key": "customer_id"
 };
 
-LOAD customers_table FROM customers MODE MERGE MERGE_KEYS (customer_id);
+LOAD customers_table FROM customers MODE UPSERT KEY (customer_id);
 ```
 
 ### Pattern 2: Full Pipeline with Transformations
@@ -282,8 +282,8 @@ SOURCE customers TYPE CSV PARAMS {
 };
 
 -- Load
-LOAD orders_table FROM orders MODE MERGE MERGE_KEYS (order_id);
-LOAD customers_table FROM customers MODE MERGE MERGE_KEYS (customer_id);
+LOAD orders_table FROM orders MODE UPSERT KEY (order_id);
+LOAD customers_table FROM customers MODE UPSERT KEY (customer_id);
 
 -- Transform (replaces dbt models)
 CREATE OR REPLACE TABLE customer_metrics AS
@@ -345,11 +345,11 @@ Error: Field 'sync_mode' must be one of ['full_refresh', 'incremental']
 ```
 **Solution:** Use exact Airbyte/Fivetran values: `"full_refresh"` or `"incremental"`
 
-**Issue:** Primary key not working with MERGE
+**Issue:** Primary key not working with UPSERT
 ```
-Error: MERGE mode requires MERGE_KEYS to be specified
+Error: UPSERT mode requires KEY to be specified
 ```
-**Solution:** Ensure LOAD statement includes `MODE MERGE MERGE_KEYS (field_name)`
+**Solution:** Ensure LOAD statement includes `MODE UPSERT KEY (field_name)`
 
 **Issue:** Cursor field not recognized
 ```

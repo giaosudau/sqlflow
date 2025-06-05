@@ -378,7 +378,8 @@ class LocalExecutor(BaseExecutor):
                     table_name=step["target_table"],
                     source_name=step["source_name"],
                     mode=step.get("mode", "REPLACE"),
-                    merge_keys=step.get("merge_keys", []),
+                    upsert_keys=step.get("upsert_keys", []),
+                    line_number=step.get("line_number"),
                 )
                 return self.execute_load_step(load_step)
             else:
@@ -620,7 +621,7 @@ class LocalExecutor(BaseExecutor):
 
         Args:
         ----
-            load_step: LoadStep object containing table_name, source_name, mode, and merge_keys
+            load_step: LoadStep object containing table_name, source_name, mode, and upsert_keys
 
         Returns:
         -------
@@ -628,16 +629,21 @@ class LocalExecutor(BaseExecutor):
 
         """
         try:
+            mode = getattr(load_step, "mode", "REPLACE")
             logger.debug(
-                f"Executing LoadStep with mode {getattr(load_step, 'mode', 'unknown')}: "
+                f"Executing LoadStep with mode {mode}: "
                 f"{getattr(load_step, 'table_name', 'unknown')} FROM {getattr(load_step, 'source_name', 'unknown')}"
             )
+
+            # Use enhanced UPSERT execution path for better metrics and error handling
+            if mode == "UPSERT":
+                return self._execute_upsert_load_step(load_step)
 
             # Step 1: Load source data and get row count
             rows_loaded = self._load_and_prepare_source_data(load_step)
 
-            # Step 2: Validate merge keys if in MERGE mode
-            self._validate_merge_keys_if_needed(load_step)
+            # Step 2: Validate upsert keys if in UPSERT mode (this will be skipped now)
+            self._validate_upsert_keys_if_needed(load_step)
 
             # Step 3: Generate and execute load SQL
             self._generate_and_execute_load_sql(load_step)
@@ -725,8 +731,8 @@ class LocalExecutor(BaseExecutor):
         except Exception:
             return 0
 
-    def _validate_merge_keys_if_needed(self, load_step) -> None:
-        """Validate merge keys for MERGE mode LoadSteps.
+    def _validate_upsert_keys_if_needed(self, load_step) -> None:
+        """Validate upsert keys for UPSERT mode LoadSteps.
 
         Args:
         ----
@@ -734,27 +740,133 @@ class LocalExecutor(BaseExecutor):
 
         Raises:
         ------
-            Exception: If merge key validation fails
+            Exception: If upsert key validation fails
 
         """
         if (
-            getattr(load_step, "mode", None) == "MERGE"
+            getattr(load_step, "mode", None) == "UPSERT"
             and self.duckdb_engine
-            and hasattr(self.duckdb_engine, "validate_merge_keys")
+            and hasattr(self.duckdb_engine, "validate_upsert_keys")
         ):
             try:
                 target_table = str(getattr(load_step, "table_name", "unknown"))
                 source_name = str(getattr(load_step, "source_name", "unknown"))
-                merge_keys = getattr(load_step, "merge_keys", [])
+                upsert_keys = getattr(load_step, "upsert_keys", [])
 
-                self.duckdb_engine.validate_merge_keys(
-                    target_table, source_name, merge_keys
+                logger.debug(
+                    f"Validating UPSERT keys for {target_table}: {upsert_keys}"
                 )
-                logger.debug("Called validate_merge_keys on DuckDB engine")
+
+                self.duckdb_engine.validate_upsert_keys(
+                    target_table, source_name, upsert_keys
+                )
+                logger.debug("UPSERT key validation successful")
+
             except Exception as e:
                 error_msg = str(e)
-                logger.debug(f"validate_merge_keys call failed: {error_msg}")
+                logger.error(f"UPSERT key validation failed: {error_msg}")
+
+                # Provide helpful error context
+                if "does not exist in source" in error_msg:
+                    logger.info(
+                        f"Hint: Check that the source '{source_name}' contains the required upsert key columns"
+                    )
+                elif "does not exist in target" in error_msg:
+                    logger.info(
+                        f"Hint: Ensure the target table '{target_table}' has been created with the correct schema"
+                    )
+                elif "incompatible types" in error_msg:
+                    logger.info(
+                        "Hint: UPSERT keys must have compatible data types between source and target"
+                    )
+
                 raise
+
+    def _execute_upsert_load_step(self, load_step) -> Dict[str, Any]:
+        """Execute UPSERT LoadStep with enhanced error handling and reporting.
+
+        Args:
+        ----
+            load_step: LoadStep object with UPSERT mode
+
+        Returns:
+        -------
+            Dict containing execution results with detailed UPSERT metrics
+
+        """
+        try:
+            target_table = getattr(load_step, "table_name", "unknown")
+            source_name = getattr(load_step, "source_name", "unknown")
+            upsert_keys = getattr(load_step, "upsert_keys", [])
+
+            logger.info(f"Executing UPSERT operation: {source_name} → {target_table}")
+
+            # Step 1: Load and prepare source data (get row count)
+            rows_loaded = self._load_and_prepare_source_data(load_step)
+
+            # Step 2: Validate upsert keys
+            self._validate_upsert_keys_if_needed(load_step)
+
+            # Step 3: Get row count before UPSERT for metrics
+            if self.duckdb_engine and self.duckdb_engine.table_exists(target_table):
+                before_count = self._get_table_row_count(target_table)
+            else:
+                before_count = 0
+
+            # Step 4: Generate and execute UPSERT SQL
+            self._generate_and_execute_load_sql(load_step)
+
+            # Step 5: Get row count after UPSERT for metrics
+            after_count = self._get_table_row_count(target_table)
+
+            # Calculate UPSERT metrics properly
+            # For UPSERT: rows_loaded = rows that would be inserted + rows that would be updated
+            # But final count = original + net new rows (since updates don't change count)
+            net_change = after_count - before_count
+            rows_inserted = net_change  # Only new rows increase the count
+            rows_updated = max(
+                0, rows_loaded - rows_inserted
+            )  # Remaining rows were updates
+
+            logger.info(
+                f"UPSERT completed: {rows_inserted} inserted, {rows_updated} updated, "
+                f"{after_count} total rows"
+            )
+
+            # Print user-friendly message with UPSERT details
+            print(
+                f"🔄 Upserted {target_table} ({rows_inserted:,} new, {rows_updated:,} updated)"
+            )
+
+            return {
+                "status": "success",
+                "message": f"UPSERT completed: {rows_inserted} inserted, {rows_updated} updated",
+                "operation": "UPSERT",
+                "target_table": target_table,
+                "table": target_table,  # Add this key for compatibility
+                "source_table": source_name,
+                "mode": "UPSERT",
+                "upsert_keys": upsert_keys,
+                "rows_loaded": rows_loaded,
+                "rows_inserted": rows_inserted,
+                "rows_updated": rows_updated,
+                "final_row_count": after_count,
+            }
+
+        except Exception as e:
+            error_msg = str(e)
+            logger.error(f"UPSERT operation failed: {error_msg}")
+
+            return {
+                "status": "error",
+                "message": f"UPSERT operation failed: {error_msg}",
+                "operation": "UPSERT",
+                "target_table": getattr(load_step, "table_name", "unknown"),
+                "table": getattr(
+                    load_step, "table_name", "unknown"
+                ),  # Add this key for compatibility
+                "mode": "UPSERT",
+            }
 
     def _generate_and_execute_load_sql(self, load_step) -> None:
         """Generate and execute load SQL for the LoadStep.
