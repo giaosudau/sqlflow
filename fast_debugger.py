@@ -31,9 +31,9 @@ from typer.testing import CliRunner
 
 def main(): 
     runner = CliRunner()
-    with patch("os.getcwd", return_value='<path_to_your_local_project>'):
-        result = runner.invoke(app, ["pipeline", "run", "<your_local_pipeline>"])
-        print(result)
+    with patch("os.getcwd", return_value='.local'):
+        result = runner.invoke(app, ["pipeline", "run", "example"])
+        print('Pipeline output: ', result.output)
 
 if __name__ == '__main__':
     main()
