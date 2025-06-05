@@ -7,10 +7,27 @@
 
 ---
 
-## 🎯 Why SQL-- Account balances (UPSERT fo-- Device status (UPSERT for current state)
-CREATE TABLE device_status MODE UPSERT KEY (device_id) ASconsistency)
-CREATE TABLE account_balances MODE UPSERT KEY (account_id) ASow Transform Layer?
+## 🎯 Why SQLFlow Transform Layer?
 
+SQLFlow's Transform Layer enables efficient and consistent data transformations using SQL. Here are two examples of how it simplifies common use cases:
+
+```sql
+-- Example 1: Device status (UPSERT for current state consistency)
+CREATE TABLE device_status MODE UPSERT KEY (device_id) AS
+SELECT 
+    device_id,
+    MAX(updated_at) as last_update,
+    status
+FROM device_events
+GROUP BY device_id;
+
+-- Example 2: Account balances (UPSERT for accurate financial reporting)
+CREATE TABLE account_balances MODE UPSERT KEY (account_id) AS
+SELECT 
+    account_id,
+    SUM(balance_change) as current_balance
+FROM account_transactions
+GROUP BY account_id;
 As a Principal Developer Advocate with experience at Snowflake and Databricks, I've seen countless teams struggle with complex data transformation frameworks. SQLFlow's Transform Layer solves these pain points with **pure SQL syntax** that's familiar, powerful, and production-ready.
 
 ### The Problem with Traditional Approaches
