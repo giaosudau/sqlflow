@@ -30,6 +30,7 @@ ENV/
 # IDE
 .idea/
 .vscode/
+.cursor/
 *.swp
 *.swo
 .project
@@ -161,8 +162,11 @@ Thumbs.db
 # Linux
 .directory
 
-
-.cursor/
-
 # output
 output/
+
+# local & playground
+.local/
+.localdev/
+.localtest/
+.playground/
