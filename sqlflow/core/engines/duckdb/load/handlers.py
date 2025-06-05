@@ -8,8 +8,8 @@ from sqlflow.logging import get_logger
 from ..constants import DuckDBConstants, SQLTemplates
 from ..exceptions import (
     InvalidLoadModeError,
-    MergeKeyValidationError,
     SchemaValidationError,
+    UpsertKeyValidationError,
 )
 from .sql_generators import SQLGenerator
 
@@ -20,29 +20,29 @@ logger = get_logger(__name__)
 
 
 class LoadStep:
-    """Represents a load step with its configuration."""
+    """Represents a data loading step."""
 
     def __init__(
         self,
         table_name: str,
         source_name: str,
         mode: str,
-        merge_keys: Optional[List[str]] = None,
+        upsert_keys: Optional[List[str]] = None,
     ):
-        """Initialize a load step.
+        """Initialize LoadStep.
 
         Args:
         ----
             table_name: Target table name
-            source_name: Source table/view name
-            mode: Load mode (REPLACE, APPEND, MERGE)
-            merge_keys: Keys for MERGE operations
+            source_name: Source data name/query
+            mode: Load mode (REPLACE, APPEND, UPSERT)
+            upsert_keys: Keys for UPSERT operations
 
         """
         self.table_name = table_name
         self.source_name = source_name
-        self.mode = mode.upper()
-        self.merge_keys = merge_keys or []
+        self.mode = mode
+        self.upsert_keys = upsert_keys or []
 
 
 class TableInfo:
@@ -147,30 +147,23 @@ class SchemaValidator:
                 target_schema=target_schema,
             ) from e
 
-    def validate_merge_keys(
-        self, table_name: str, source_name: str, merge_keys: List[str]
+    def validate_upsert_keys(
+        self, table_name: str, source_name: str, upsert_keys: List[str]
     ) -> None:
-        """Validate merge keys for MERGE operations.
+        """Validate that upsert keys exist in both source and target tables.
 
         Args:
         ----
             table_name: Target table name
-            source_name: Source table name
-            merge_keys: Keys to validate
+            source_name: Source table/view name
+            upsert_keys: Keys to validate
 
         Raises:
         ------
-            MergeKeyValidationError: If merge key validation fails
+            UpsertKeyValidationError: If keys are invalid
 
         """
-        try:
-            self.engine.validate_merge_keys(table_name, source_name, merge_keys)
-        except Exception as e:
-            raise MergeKeyValidationError(
-                f"Merge key validation failed for table {table_name}: {str(e)}",
-                table_name=table_name,
-                merge_keys=merge_keys,
-            ) from e
+        self.engine.validate_upsert_keys(table_name, source_name, upsert_keys)
 
 
 class ValidationHelper:
@@ -208,7 +201,7 @@ class ValidationHelper:
     def validate_for_load_mode(
         self, load_step: LoadStep, target_table_info: TableInfo
     ) -> Dict[str, Any]:
-        """Validate load step based on its mode.
+        """Validate load step configuration for the specified mode.
 
         Args:
         ----
@@ -217,12 +210,11 @@ class ValidationHelper:
 
         Returns:
         -------
-            Source schema dictionary
+            Source schema information
 
         Raises:
         ------
-            SchemaValidationError: If schema validation fails
-            MergeKeyValidationError: If merge key validation fails
+            Various validation errors depending on the mode and configuration
 
         """
         # Get source schema
@@ -234,43 +226,51 @@ class ValidationHelper:
                 load_step.table_name, source_schema
             )
 
-        # Validate merge keys if this is a MERGE operation
-        if load_step.mode == DuckDBConstants.LOAD_MODE_MERGE:
-            self._validate_merge_requirements(load_step, target_table_info)
+        # Validate upsert keys if this is an UPSERT operation
+        if load_step.mode == DuckDBConstants.LOAD_MODE_UPSERT:
+            self._validate_upsert_requirements(load_step, target_table_info)
 
         return source_schema
 
-    def _validate_merge_requirements(
+    def _validate_upsert_requirements(
         self, load_step: LoadStep, target_table_info: TableInfo
     ) -> None:
-        """Validate MERGE operation requirements.
+        """Validate requirements for UPSERT mode.
 
         Args:
         ----
             load_step: Load step configuration
-            target_table_info: Information about the target table
+            target_table_info: Information about target table
 
         Raises:
         ------
-            MergeKeyValidationError: If merge requirements are not met
+            UpsertKeyValidationError: If UPSERT requirements are not met
 
         """
-        if not load_step.merge_keys:
-            raise MergeKeyValidationError(
-                "MERGE mode requires merge keys to be specified",
+        if not load_step.upsert_keys:
+            raise UpsertKeyValidationError(
+                "UPSERT mode requires upsert keys to be specified",
                 table_name=load_step.table_name,
+                upsert_keys=load_step.upsert_keys,
             )
 
         if target_table_info.exists:
-            self.schema_validator.validate_merge_keys(
-                load_step.table_name, load_step.source_name, load_step.merge_keys
-            )
+            try:
+                self.schema_validator.validate_upsert_keys(
+                    load_step.table_name, load_step.source_name, load_step.upsert_keys
+                )
+            except Exception as e:
+                raise UpsertKeyValidationError(
+                    f"Upsert key validation failed for table {load_step.table_name}: {str(e)}",
+                    table_name=load_step.table_name,
+                    upsert_keys=load_step.upsert_keys,
+                ) from e
 
     # Deprecated method for backward compatibility
-    def validate_schema_and_merge_keys(
+    def validate_schema_and_upsert_keys(
         self, load_step: LoadStep, target_table_info: TableInfo
     ) -> Dict[str, Any]:
-        """Validate schema compatibility and merge keys for existing tables.
+        """Validate schema compatibility and upsert keys for existing tables.
 
         Deprecated: Use validate_for_load_mode instead.
         """
@@ -378,11 +378,11 @@ class AppendLoadHandler(LoadModeHandler):
             return self._generate_create_table_sql(load_step)
 
 
-class MergeLoadHandler(LoadModeHandler):
-    """Handler for MERGE load mode."""
+class UpsertLoadHandler(LoadModeHandler):
+    """Handler for UPSERT load mode with enhanced DuckDB integration."""
 
     def generate_sql(self, load_step: LoadStep) -> str:
-        """Generate SQL for MERGE mode.
+        """Generate SQL for UPSERT mode.
 
         Args:
         ----
@@ -390,18 +390,27 @@ class MergeLoadHandler(LoadModeHandler):
 
         Returns:
         -------
-            SQL string for MERGE operation
+            SQL string for UPSERT operation
+
+        Raises:
+        ------
+            UpsertKeyValidationError: If UPSERT requirements are not met
+            SchemaValidationError: If schema validation fails
 
         """
         table_info = self.validation_helper.get_table_info(load_step.table_name)
 
         if table_info.exists:
-            return self._generate_merge_sql(load_step, table_info)
+            return self._generate_upsert_sql(load_step, table_info)
         else:
+            # Table doesn't exist, create it first
+            logger.debug(
+                f"Target table {load_step.table_name} doesn't exist, creating it"
+            )
             return self._generate_create_table_sql(load_step)
 
-    def _generate_merge_sql(self, load_step: LoadStep, table_info: TableInfo) -> str:
-        """Generate SQL for MERGE operation on existing table.
+    def _generate_upsert_sql(self, load_step: LoadStep, table_info: TableInfo) -> str:
+        """Generate SQL for UPSERT operation on existing table.
 
         Args:
         ----
@@ -410,20 +419,76 @@ class MergeLoadHandler(LoadModeHandler):
 
         Returns:
         -------
-            Complete MERGE SQL
+            Complete UPSERT SQL with enhanced error handling
+
+        Raises:
+        ------
+            UpsertKeyValidationError: If upsert key validation fails
+            SchemaValidationError: If schema compatibility validation fails
 
         """
-        # Validate schema compatibility and merge keys (this will also get source schema)
-        source_schema = self.validation_helper.validate_for_load_mode(
-            load_step, table_info
-        )
+        try:
+            # Validate schema compatibility and upsert keys (this will also get source schema)
+            source_schema = self.validation_helper.validate_for_load_mode(
+                load_step, table_info
+            )
 
-        return self.sql_generator.generate_merge_sql(
-            load_step.table_name,
-            load_step.source_name,
-            load_step.merge_keys,
-            source_schema,
-        )
+            logger.debug(
+                f"Generating UPSERT SQL for {load_step.table_name} with keys {load_step.upsert_keys}"
+            )
+
+            # Use the enhanced SQL generator
+            return self.sql_generator.generate_upsert_sql(
+                load_step.table_name,
+                load_step.source_name,
+                load_step.upsert_keys,
+                source_schema,
+            )
+
+        except Exception as e:
+            # Provide context for UPSERT-specific errors
+            if "upsert key" in str(e).lower() or "UPSERT" in str(e):
+                raise UpsertKeyValidationError(
+                    f"UPSERT validation failed for table {load_step.table_name}: {str(e)}",
+                    table_name=load_step.table_name,
+                    upsert_keys=load_step.upsert_keys,
+                ) from e
+            elif "schema" in str(e).lower():
+                raise SchemaValidationError(
+                    f"Schema validation failed for UPSERT operation: {str(e)}"
+                ) from e
+            else:
+                # Re-raise other errors as-is
+                raise
+
+    def execute_upsert_with_engine(self, load_step: LoadStep) -> Dict[str, Any]:
+        """Execute UPSERT operation using the engine's built-in method.
+
+        This method provides an alternative to SQL generation by using
+        the engine's execute_upsert_operation method directly.
+
+        Args:
+        ----
+            load_step: Load step configuration
+
+        Returns:
+        -------
+            Dictionary with operation results
+
+        """
+        try:
+            return self.engine.execute_upsert_operation(
+                load_step.table_name,
+                load_step.source_name,
+                load_step.upsert_keys,
+            )
+        except Exception as e:
+            logger.error(f"Engine UPSERT execution failed: {e}")
+            raise UpsertKeyValidationError(
+                f"UPSERT execution failed for table {load_step.table_name}: {str(e)}",
+                table_name=load_step.table_name,
+                upsert_keys=load_step.upsert_keys,
+            ) from e
 
 
 class LoadModeHandlerFactory:
@@ -435,7 +500,7 @@ class LoadModeHandlerFactory:
 
         Args:
         ----
-            mode: Load mode (REPLACE, APPEND, MERGE)
+            mode: Load mode (REPLACE, APPEND, UPSERT)
             engine: DuckDB engine instance
 
         Returns:
@@ -453,12 +518,12 @@ class LoadModeHandlerFactory:
             return ReplaceLoadHandler(engine)
         elif mode == DuckDBConstants.LOAD_MODE_APPEND:
             return AppendLoadHandler(engine)
-        elif mode == DuckDBConstants.LOAD_MODE_MERGE:
-            return MergeLoadHandler(engine)
+        elif mode == DuckDBConstants.LOAD_MODE_UPSERT:
+            return UpsertLoadHandler(engine)
         else:
             valid_modes = [
                 DuckDBConstants.LOAD_MODE_REPLACE,
                 DuckDBConstants.LOAD_MODE_APPEND,
-                DuckDBConstants.LOAD_MODE_MERGE,
+                DuckDBConstants.LOAD_MODE_UPSERT,
             ]
             raise InvalidLoadModeError(mode, valid_modes)

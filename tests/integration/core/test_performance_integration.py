@@ -107,17 +107,17 @@ class TestPerformanceOptimizerIntegration:
         assert "Optimized DELETE" in optimized_sql
         assert original_sql in optimized_sql
 
-    def test_merge_optimization(self, performance_optimizer):
-        """Test MERGE operation optimization."""
-        original_sql = "MERGE INTO target USING source ON target.id = source.id"
+    def test_upsert_optimization(self, performance_optimizer):
+        """Test UPSERT operation optimization."""
+        original_sql = "UPSERT INTO target SELECT * FROM source WHERE id IN (SELECT id FROM target)"
 
         # Large dataset - should be optimized
-        optimized_sql, was_optimized = performance_optimizer.optimize_merge_operation(
+        optimized_sql, was_optimized = performance_optimizer.optimize_upsert_operation(
             original_sql, 15000
         )
 
         assert was_optimized
-        assert "Optimized MERGE" in optimized_sql
+        assert "Optimized UPSERT" in optimized_sql
         assert "15000 rows" in optimized_sql
 
     def test_columnar_access_optimization(self, performance_optimizer):

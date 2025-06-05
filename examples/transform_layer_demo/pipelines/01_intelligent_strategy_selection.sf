@@ -6,7 +6,7 @@
 -- 4. Real-time monitoring and observability
 
 -- ============================================================================
--- Phase 1: Basic Transform Modes (REPLACE, APPEND, MERGE, INCREMENTAL)
+-- Phase 1: Basic Transform Modes (REPLACE, APPEND, UPSERT, INCREMENTAL)
 -- ============================================================================
 
 -- Load initial customer data using standard SQLFlow sources
@@ -55,8 +55,8 @@ SELECT
 FROM customers_base
 WHERE status = 'active';
 
--- 3. MERGE MODE - Upsert logic with specified merge keys
-CREATE TABLE customer_summary MODE MERGE KEY (id) AS
+-- 3. UPSERT MODE - Upsert logic with specified upsert keys
+CREATE TABLE customer_summary MODE UPSERT KEY (id) AS
 SELECT 
     id,
     name,
@@ -164,10 +164,10 @@ FROM customer_activity_log
 UNION ALL
 
 SELECT 
-    'MERGE' as strategy_type,
+    'UPSERT' as strategy_type,
     'customer_summary' as table_name,
     COUNT(*) as records_processed,
-    'Upsert with merge keys' as characteristics,
+    'Upsert with upsert keys' as characteristics,
     'Best for dimension tables and SCD Type 1' as use_case
 FROM customer_summary
 
@@ -200,7 +200,7 @@ OPTIONS {
 
 EXPORT 
     SELECT * FROM customer_summary
-TO "${output_dir}/01_summary_merge_mode.csv"
+TO "${output_dir}/01_summary_upsert_mode.csv"
 TYPE CSV
 OPTIONS { 
     "header": true

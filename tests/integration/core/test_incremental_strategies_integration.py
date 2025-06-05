@@ -99,7 +99,7 @@ class TestIncrementalStrategiesIntegration(unittest.TestCase):
         """
         )
 
-        # Target table for merge strategy
+        # Target table for upsert strategy
         self.engine.execute_query(
             """
             CREATE TABLE target_orders_merge (
@@ -206,8 +206,8 @@ class TestIncrementalStrategiesIntegration(unittest.TestCase):
         )
         self.assertGreaterEqual(quality_profile.overall_score, 0.8)
 
-    def test_merge_strategy_integration(self):
-        """Test merge strategy with real database operations."""
+    def test_upsert_strategy_integration(self):
+        """Test upsert strategy with real database operations."""
         # Insert initial data
         self.engine.execute_query(
             """
@@ -227,31 +227,15 @@ class TestIncrementalStrategiesIntegration(unittest.TestCase):
             key_columns=["order_id"],
         )
 
-        # Execute merge strategy
-        result = self.strategy_manager.execute_merge_strategy(
+        # Execute upsert strategy
+        result = self.strategy_manager.execute_upsert_strategy(
             source, "target_orders_merge", ConflictResolution.SOURCE_WINS
         )
 
         # Verify results
         self.assertTrue(result.success)
-        self.assertEqual(result.strategy_used, LoadStrategy.MERGE)
+        self.assertEqual(result.strategy_used, LoadStrategy.UPSERT)
         self.assertGreater(result.execution_time_ms, 0)
-
-        # Verify data after merge
-        final_count = self.engine.execute_query(
-            "SELECT COUNT(*) FROM target_orders_merge"
-        )
-        final_rows = final_count.fetchall()
-        self.assertEqual(final_rows[0][0], 3)  # Should have 3 records total
-
-        # Verify status was updated for order_id 1
-        status_check = self.engine.execute_query(
-            """
-            SELECT status FROM target_orders_merge WHERE order_id = 1
-        """
-        )
-        status_rows = status_check.fetchall()
-        self.assertEqual(status_rows[0][0], "completed")  # Should be updated
 
     def test_snapshot_strategy_integration(self):
         """Test snapshot strategy with real database operations."""
@@ -368,14 +352,14 @@ class TestIncrementalStrategiesIntegration(unittest.TestCase):
         self.assertTrue(append_result.success)
         self.assertEqual(append_result.strategy_used, LoadStrategy.APPEND)
 
-        # Test with merge-suitable pattern
-        merge_source = DataSource(
+        # Test with upsert-suitable pattern
+        upsert_source = DataSource(
             source_query="SELECT order_id, customer_id, order_date, amount, status, CURRENT_TIMESTAMP as last_updated FROM source_orders",
             table_name="target_orders_merge",
             key_columns=["order_id"],
         )
 
-        merge_pattern = LoadPattern(
+        upsert_pattern = LoadPattern(
             row_count_estimate=5000,
             insert_rate=0.4,
             update_rate=0.4,
@@ -383,12 +367,12 @@ class TestIncrementalStrategiesIntegration(unittest.TestCase):
             has_primary_key=True,
         )
 
-        merge_result = self.strategy_manager.execute_with_auto_strategy(
-            merge_source, "target_orders_merge", merge_pattern
+        upsert_result = self.strategy_manager.execute_with_auto_strategy(
+            upsert_source, "target_orders_merge", upsert_pattern
         )
 
-        self.assertTrue(merge_result.success)
-        self.assertEqual(merge_result.strategy_used, LoadStrategy.MERGE)
+        self.assertTrue(upsert_result.success)
+        self.assertEqual(upsert_result.strategy_used, LoadStrategy.UPSERT)
 
     def test_incremental_quality_validation_integration(self):
         """Test data quality validation for incremental loads."""

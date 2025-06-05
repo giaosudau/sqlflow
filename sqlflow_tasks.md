@@ -84,7 +84,7 @@ This document tracks the implementation status of Conditional Execution, Python 
 
 ### Epic 3: Enhanced Load Controls (MODE Parameter) ✅ COMPLETED
 
-**Goal:** Implement unified data loading controls with various operation modes (REPLACE, APPEND, MERGE) to support common data warehousing patterns.
+**Goal:** Implement unified data loading controls with various operation modes (REPLACE, APPEND, UPSERT) to support common data warehousing patterns.
 
 **Major Update (January 2025):** Fixed critical issue where LOAD commands were not properly connecting to SOURCE connectors. The implementation now properly integrates SOURCE definitions with LOAD operations using ConnectorEngine.
 
@@ -93,7 +93,7 @@ This document tracks the implementation status of Conditional Execution, Python 
 | [Task 3.1](#task-31-parser-updates-for-load-modes) | Parser Updates for Load Modes | ✅ COMPLETED | 🔥 MVP Critical | |
 | [Task 3.2](#task-32-sql-generator-for-load-modes) | SQL Generator for Load Modes | ✅ COMPLETED | | |
 | [Task 3.3](#task-33-schema-compatibility-validation) | Schema Compatibility Validation | ✅ COMPLETED | | |
-| [Task 3.4](#task-34-merge-key-handling) | Merge Key Handling | ✅ COMPLETED | | |
+| [Task 3.4](#task-34-upsert-key-handling) | Upsert Key Handling | ✅ COMPLETED | | |
 | [Task 3.5](#task-35-load-mode-documentation) | Load Mode Documentation | ✅ COMPLETED | | |
 | [Task 3.6](#task-36-source-load-integration-fix) | SOURCE -> LOAD Integration Fix | ✅ COMPLETED | 🔥 Critical | |
 
@@ -775,9 +775,9 @@ This document tracks the implementation status of Conditional Execution, Python 
 
 **Status:** ✅ COMPLETED in commit 74004ec (May 2025) with comprehensive integration tests added in June 2025
 
-### Task 3.4: Merge Key Handling
+### Task 3.4: Upsert Key Handling
 
-**Description:** Implement special handling for merge keys in MERGE mode, including validation and SQL generation.
+**Description:** Implement special handling for upsert keys in UPSERT mode, including validation and SQL generation.
 
 **Files Impacted:**
 - `sqlflow/parser/parser.py`
@@ -785,26 +785,26 @@ This document tracks the implementation status of Conditional Execution, Python 
 - `sqlflow/core/engines/duckdb_engine.py`
 
 **Subtasks:**
-1. Extend parse logic to capture merge key specifications
-2. Implement validation to ensure merge keys exist in both source and target
-3. Add type compatibility checking for merge keys
-4. Generate optimized merge SQL based on key specifications
-5. Implement clear error reporting for merge key issues
+1. Extend parse logic to capture upsert key specifications
+2. Implement validation to ensure upsert keys exist in both source and target
+3. Add type compatibility checking for upsert keys
+4. Generate optimized upsert SQL based on key specifications
+5. Implement clear error reporting for upsert key issues
 
 **Testing Requirements:**
-- Test merge key parsing with various syntax forms
+- Test upsert key parsing with various syntax forms
 - Test validation with valid and invalid key specifications
 - Test SQL generation with different key combinations
 - Test error handling for missing or incompatible keys
 - Test with composite (multi-column) keys
 
 **Definition of Done:**
-- Merge keys are correctly parsed and validated
-- Generated SQL properly uses merge keys for matching
+- Upsert keys are correctly parsed and validated
+- Generated SQL properly uses upsert keys for matching
 - Clear error messages for key-related issues
-- Performance optimized for the merge operation
+- Performance optimized for the upsert operation
 - All tests passing with >90% coverage
-- Documentation updated with merge key examples
+- Documentation updated with upsert key examples
 
 **Status:** ✅ COMPLETED in commit 58d12ab (August 2024)
 

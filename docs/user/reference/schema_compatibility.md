@@ -38,13 +38,13 @@ MODE APPEND
 In MERGE mode, SQLFlow performs the same schema compatibility checks as APPEND mode, plus:
 
 1. Validates that the specified merge keys exist in both tables
-2. Ensures merge keys have compatible types
+2. Ensures upsert keys have compatible types
 
 ```sql
 LOAD target_table
 FROM source_table
-MODE MERGE
-MERGE_KEYS (id)
+MODE UPSERT
+KEY (id)
 ```
 
 ## Type Compatibility

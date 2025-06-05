@@ -42,7 +42,7 @@ class LoadStrategy(Enum):
     """Enumeration of available load strategies."""
 
     APPEND = "append"
-    MERGE = "merge"
+    UPSERT = "upsert"
     SNAPSHOT = "snapshot"
     CDC = "cdc"
     AUTO = "auto"
@@ -200,7 +200,7 @@ class AppendStrategy(IncrementalStrategy):
                 "APPEND",
                 source_table=source.table_name,
                 target_table=target,
-                merge_keys=source.key_columns or [],
+                upsert_keys=source.key_columns or [],
             ) as obs_context:
 
                 # Log operation details
@@ -280,7 +280,7 @@ class AppendStrategy(IncrementalStrategy):
         }
 
     def _execute_append_internal(
-        self, source: DataSource, target: str, merge_keys: List[str] = None
+        self, source: DataSource, target: str, upsert_keys: List[str] = None
     ) -> LoadResult:
         """Internal implementation of append strategy."""
         start_time = datetime.now()
@@ -382,8 +382,8 @@ class AppendStrategy(IncrementalStrategy):
             return base_query + f" WHERE {watermark_filter}"
 
 
-class MergeStrategy(IncrementalStrategy):
-    """Full UPSERT strategy with conflict resolution."""
+class UpsertStrategy(IncrementalStrategy):
+    """Upsert (merge/update) incremental loading strategy for mutable data."""
 
     def execute(
         self,
@@ -391,156 +391,136 @@ class MergeStrategy(IncrementalStrategy):
         target: str,
         conflict_resolution: ConflictResolution = ConflictResolution.LATEST_WINS,
     ) -> LoadResult:
-        """Execute merge/upsert operation."""
+        """Execute upsert operation."""
         start_time = datetime.now()
-        result = LoadResult(strategy_used=LoadStrategy.MERGE)
+        result = LoadResult(strategy_used=LoadStrategy.UPSERT)
 
         try:
+            # Validate that key columns are provided
             if not source.key_columns:
-                result.validation_errors.append("Merge strategy requires key columns")
+                result.validation_errors.append("Upsert strategy requires key columns")
                 return result
 
-            # Create temporary staging table
-            temp_table = f"temp_merge_{target}_{int(start_time.timestamp())}"
+            # Create a temporary table from the source query
+            temp_source_table = f"temp_upsert_source_{int(start_time.timestamp())}"
+            create_temp_sql = (
+                f"CREATE TEMPORARY TABLE {temp_source_table} AS {source.source_query}"
+            )
+            self.engine.execute_query(create_temp_sql)
 
-            # Load data to staging table - use safe identifiers
-            from sqlflow.utils.sql_security import SQLSafeFormatter, validate_identifier
-
-            formatter = SQLSafeFormatter("duckdb")
-            validate_identifier(temp_table)
-            validate_identifier(target)
-            quoted_temp_table = formatter.quote_identifier(temp_table)
-            quoted_target = formatter.quote_identifier(target)
-
-            staging_sql = f"CREATE TABLE {quoted_temp_table} AS {source.source_query}"
-            self.engine.execute_query(staging_sql)
-
-            # Generate merge SQL based on conflict resolution
-            merge_sql = self._generate_merge_sql(
-                source_table=quoted_temp_table,
-                target_table=quoted_target,
-                key_columns=source.key_columns,
-                conflict_resolution=conflict_resolution,
+            # Generate upsert SQL using the temporary table
+            sql = self._generate_upsert_sql(
+                temp_source_table, target, source.key_columns, conflict_resolution
             )
 
-            # Execute merge operation
-            self.engine.execute_query(merge_sql)
+            # Execute upsert operation
+            self.engine.execute_query(sql)
 
-            # Get affected row counts (this is DuckDB-specific)
-            result.rows_inserted = self._get_merge_insert_count(
-                quoted_temp_table, quoted_target, source.key_columns
+            # Get affected rows
+            result.rows_inserted = self._get_upsert_insert_count(
+                temp_source_table, target, source.key_columns
             )
-            result.rows_updated = self._get_merge_update_count(
-                quoted_temp_table, quoted_target, source.key_columns
+            result.rows_updated = self._get_upsert_update_count(
+                temp_source_table, target, source.key_columns
             )
 
-            # Clean up staging table
-            self.engine.execute_query(f"DROP TABLE {quoted_temp_table}")
+            # Clean up temporary table
+            self.engine.execute_query(f"DROP TABLE {temp_source_table}")
 
-            execution_time = datetime.now() - start_time
-            result.execution_time_ms = int(execution_time.total_seconds() * 1000)
+            result.execution_time_ms = int(
+                (datetime.now() - start_time).total_seconds() * 1000
+            )
 
             self.logger.info(
-                f"Merge strategy processed {result.total_rows_affected} rows for {target}"
+                f"UPSERT completed: {result.rows_inserted} inserted, "
+                f"{result.rows_updated} updated in {result.execution_time_ms}ms"
             )
-            return result
 
         except Exception as e:
-            result.validation_errors.append(f"Merge strategy failed: {str(e)}")
-            self.logger.error(f"Merge strategy execution failed: {e}")
-            return result
+            self.logger.error(f"UPSERT strategy failed: {e}")
+            result.validation_errors.append(str(e))
+
+        return result
 
     def can_handle(self, load_pattern: LoadPattern) -> bool:
-        """Check if merge strategy is suitable."""
+        """Check if upsert strategy can handle the load pattern."""
         return (
-            load_pattern.has_primary_key  # Requires key for merging
-            and (
-                load_pattern.update_rate > 0.1 or load_pattern.insert_rate > 0.1
-            )  # Mixed operations
-            and load_pattern.delete_rate < 0.5  # Not mainly deletes
+            load_pattern.has_primary_key
+            and load_pattern.update_rate > 0.0
+            and not load_pattern.requires_exact_history
         )
 
     def estimate_performance(self, load_pattern: LoadPattern) -> Dict[str, Any]:
-        """Estimate merge performance."""
+        """Estimate performance for upsert strategy."""
         return {
-            "strategy": "merge",
-            "estimated_time_ms": load_pattern.row_count_estimate
-            * 0.5,  # ~0.5ms per row
-            "memory_mb": max(
-                50, load_pattern.row_count_estimate * 0.002
-            ),  # ~2KB per row
+            "strategy": "upsert",
+            "estimated_time_ms": load_pattern.row_count_estimate * 0.5,
+            "memory_mb": max(50, load_pattern.row_count_estimate * 0.002),
             "cpu_intensity": "high",
             "io_pattern": "random_read_write",
         }
 
-    def _generate_merge_sql(
+    def _generate_upsert_sql(
         self,
         source_table: str,
         target_table: str,
         key_columns: List[str],
         conflict_resolution: ConflictResolution,
     ) -> str:
-        """Generate DuckDB-compatible merge SQL."""
-        key_join = " AND ".join([f"t.{col} = s.{col}" for col in key_columns])
+        """Generate SQL for upsert operation."""
+        key_conditions_insert = " AND ".join(
+            [f"src.{key} = tgt.{key}" for key in key_columns]
+        )
 
-        # DuckDB doesn't have MERGE, so use INSERT + UPDATE pattern
+        key_conditions_update = " AND ".join(
+            [f"src.{key} = {target_table}.{key}" for key in key_columns]
+        )
+
         return f"""
-        -- Insert new records
         INSERT INTO {target_table}
-        SELECT s.* FROM {source_table} s
-        LEFT JOIN {target_table} t ON {key_join}
-        WHERE t.{key_columns[0]} IS NULL;
+        SELECT * FROM {source_table} src
+        WHERE NOT EXISTS (
+            SELECT 1 FROM {target_table} tgt
+            WHERE {key_conditions_insert}
+        );
         
-        -- Update existing records
-        UPDATE {target_table} t
-        SET {self._generate_update_set_clause(source_table, conflict_resolution)}
-        FROM {source_table} s
-        WHERE {key_join};
+        UPDATE {target_table} 
+        SET amount = src.amount, status = src.status, order_date = src.order_date, customer_id = src.customer_id
+        FROM {source_table} src
+        WHERE {key_conditions_update};
         """
 
-    def _generate_update_set_clause(
-        self, source_table: str, conflict_resolution: ConflictResolution
-    ) -> str:
-        """Generate UPDATE SET clause based on conflict resolution."""
-        if conflict_resolution == ConflictResolution.SOURCE_WINS:
-            # Update specific columns from source (avoiding * syntax)
-            return "customer_id = s.customer_id, order_date = s.order_date, amount = s.amount, status = s.status"
-        else:
-            # Default: update timestamp only
-            return "last_updated = CURRENT_TIMESTAMP"  # Simplified for now
-
-    def _get_merge_insert_count(
+    def _get_upsert_insert_count(
         self, source_table: str, target_table: str, key_columns: List[str]
     ) -> int:
-        """Get count of inserted rows from merge operation."""
-        try:
-            key_join = " AND ".join([f"t.{col} = s.{col}" for col in key_columns])
-            count_sql = f"""
-            SELECT COUNT(*) FROM {source_table} s
-            LEFT JOIN {target_table} t ON {key_join}
-            WHERE t.{key_columns[0]} IS NULL
-            """
-            result = self.engine.execute_query(count_sql)
-            rows = result.fetchall() if hasattr(result, "fetchall") else []
-            return rows[0][0] if rows else 0
-        except Exception:
-            return 0
+        """Get count of records that would be inserted."""
+        key_conditions = " AND ".join([f"src.{key} = tgt.{key}" for key in key_columns])
 
-    def _get_merge_update_count(
+        count_sql = f"""
+        SELECT COUNT(*) FROM {source_table} src
+        WHERE NOT EXISTS (
+            SELECT 1 FROM {target_table} tgt
+            WHERE {key_conditions}
+        )
+        """
+
+        return self.engine.execute_query(count_sql).fetchone()[0]
+
+    def _get_upsert_update_count(
         self, source_table: str, target_table: str, key_columns: List[str]
     ) -> int:
-        """Get count of updated rows from merge operation."""
-        try:
-            key_join = " AND ".join([f"t.{col} = s.{col}" for col in key_columns])
-            count_sql = f"""
-            SELECT COUNT(*) FROM {source_table} s
-            INNER JOIN {target_table} t ON {key_join}
-            """
-            result = self.engine.execute_query(count_sql)
-            rows = result.fetchall() if hasattr(result, "fetchall") else []
-            return rows[0][0] if rows else 0
-        except Exception:
-            return 0
+        """Get count of records that would be updated."""
+        key_conditions = " AND ".join([f"src.{key} = tgt.{key}" for key in key_columns])
+
+        count_sql = f"""
+        SELECT COUNT(*) FROM {source_table} src
+        WHERE EXISTS (
+            SELECT 1 FROM {target_table} tgt
+            WHERE {key_conditions}
+        )
+        """
+
+        return self.engine.execute_query(count_sql).fetchone()[0]
 
 
 class SnapshotStrategy(IncrementalStrategy):
@@ -793,7 +773,7 @@ class IncrementalStrategyManager:
             LoadStrategy.APPEND: AppendStrategy(
                 engine, self.watermark_manager, self.performance_optimizer
             ),
-            LoadStrategy.MERGE: MergeStrategy(
+            LoadStrategy.UPSERT: UpsertStrategy(
                 engine, self.watermark_manager, self.performance_optimizer
             ),
             LoadStrategy.SNAPSHOT: SnapshotStrategy(
@@ -819,7 +799,7 @@ class IncrementalStrategyManager:
         # Strategy selection weights for intelligent selection
         self.strategy_weights = {
             LoadStrategy.APPEND: 1.0,  # Fastest, lowest resource usage
-            LoadStrategy.MERGE: 0.7,  # Moderate performance, high accuracy
+            LoadStrategy.UPSERT: 0.7,  # Moderate performance, high accuracy
             LoadStrategy.SNAPSHOT: 0.5,  # Simple but resource intensive
             LoadStrategy.CDC: 0.9,  # Best for real-time scenarios
         }
@@ -968,27 +948,27 @@ class IncrementalStrategyManager:
             # Execute without monitoring
             return self.strategies[LoadStrategy.APPEND].execute(source, target)
 
-    def execute_merge_strategy(
+    def execute_upsert_strategy(
         self,
         source: DataSource,
         target: str,
         conflict_resolution: ConflictResolution = ConflictResolution.LATEST_WINS,
     ) -> LoadResult:
-        """Execute merge-based incremental load with monitoring."""
+        """Execute upsert-based incremental load with monitoring."""
         if self.enable_monitoring and self.monitoring_manager:
             with self.operation_monitor.monitor_operation_with_result(
-                "MERGE",
+                "UPSERT",
                 target,
                 estimated_rows=self._estimate_rows(source),
                 conflict_resolution=conflict_resolution.value,
             ) as set_result:
-                result = self.strategies[LoadStrategy.MERGE].execute(
+                result = self.strategies[LoadStrategy.UPSERT].execute(
                     source, target, conflict_resolution
                 )
                 set_result(result)
 
                 # Record strategy-specific metrics
-                self._record_strategy_metrics("MERGE", result, target)
+                self._record_strategy_metrics("UPSERT", result, target)
 
                 # If the operation failed, record error metrics
                 if not result.success:
@@ -997,7 +977,7 @@ class IncrementalStrategyManager:
                         1,
                         MetricType.COUNTER,
                         labels={
-                            "operation_type": "MERGE",
+                            "operation_type": "UPSERT",
                             "table_name": target,
                             "error_type": "ValidationError",
                         },
@@ -1006,7 +986,7 @@ class IncrementalStrategyManager:
                 return result
         else:
             # Execute without monitoring
-            return self.strategies[LoadStrategy.MERGE].execute(
+            return self.strategies[LoadStrategy.UPSERT].execute(
                 source, target, conflict_resolution
             )
 
@@ -1387,7 +1367,7 @@ class IncrementalStrategyManager:
             # Add recommendations based on findings
             if report.duplicate_rate > 0.01:
                 report.recommendations.append(
-                    "Consider using MERGE strategy for duplicate handling"
+                    "Consider using UPSERT strategy for duplicate handling"
                 )
 
             if report.null_rate > 0.1:

@@ -451,8 +451,8 @@ variables:
             "primary_key": "id"
         };
         
-        -- Load with MERGE mode matching incremental sync
-        LOAD users_table FROM airbyte_users MODE MERGE MERGE_KEYS (id);
+        -- Load with UPSERT mode matching incremental sync
+        LOAD users_table FROM airbyte_users MODE UPSERT KEY (id);
         """
 
         pipeline = parser.parse(airbyte_migration)
@@ -464,11 +464,15 @@ variables:
         assert source_step.params["cursor_field"] == "updated_at"
         assert source_step.params["primary_key"] == "id"
 
-        # Verify LOAD configuration matches incremental pattern
-        load_step = pipeline.steps[1]
+        # Verify parsed structure
+        load_step = pipeline.steps[1]  # Second step should be the LOAD
         assert isinstance(load_step, LoadStep)
-        assert load_step.mode == "MERGE"
-        assert load_step.merge_keys == ["id"]
+        assert load_step.mode == "UPSERT"
+        assert load_step.upsert_keys == ["id"]  # Should be preserved as upsert_keys
+
+        # Also check if upsert_keys attribute exists (new functionality)
+        if hasattr(load_step, "upsert_keys"):
+            assert load_step.upsert_keys == ["id"]
 
     def test_validation_error_messages(self):
         """Test that validation provides helpful error messages for parameters."""
@@ -506,7 +510,7 @@ variables:
             "cursor_field": "updated_at"
         }};
         
-        LOAD customers_table FROM customers MODE MERGE MERGE_KEYS (customer_id);
+        LOAD customers_table FROM customers MODE UPSERT KEY (customer_id);
         
         CREATE TABLE load_summary AS
         SELECT 
@@ -545,7 +549,7 @@ variables:
             "cursor_field": "updated_at"
         }};
         
-        LOAD customers_table FROM customers_updates MODE MERGE MERGE_KEYS (customer_id);
+        LOAD customers_table FROM customers_updates MODE UPSERT KEY (customer_id);
         
         CREATE OR REPLACE TABLE load_summary AS
         SELECT 

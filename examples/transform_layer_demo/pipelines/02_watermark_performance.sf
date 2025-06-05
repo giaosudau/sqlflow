@@ -92,7 +92,7 @@ FROM customers_base;
 -- ============================================================================
 
 -- 3. Schema Evolution with Type Widening and Column Addition
-CREATE TABLE schema_evolution_demo MODE MERGE KEY (id) AS
+CREATE TABLE schema_evolution_demo MODE UPSERT KEY (id) AS
 SELECT 
     id,
     name,

@@ -158,15 +158,15 @@ class LoadStep(PipelineStep):
     Example with MODE:
         LOAD users_table FROM users_source MODE REPLACE;
 
-    Example with MERGE and MERGE_KEYS:
-        LOAD users_table FROM users_source MODE MERGE MERGE_KEYS user_id;
+    Example with UPSERT and KEY:
+        LOAD users_table FROM users_source MODE UPSERT KEY user_id;
 
     """
 
     table_name: str
     source_name: str
     mode: str = "REPLACE"  # Default mode is REPLACE
-    merge_keys: List[str] = field(default_factory=list)  # For MERGE mode
+    upsert_keys: List[str] = field(default_factory=list)  # For UPSERT mode
     line_number: Optional[int] = None
 
     def validate(self) -> List[str]:
@@ -184,15 +184,15 @@ class LoadStep(PipelineStep):
             errors.append("LOAD directive requires a source name")
 
         # Validate mode
-        valid_modes = ["REPLACE", "APPEND", "MERGE"]
+        valid_modes = ["REPLACE", "APPEND", "UPSERT"]
         if self.mode.upper() not in valid_modes:
             errors.append(
                 f"Invalid MODE: {self.mode}. Must be one of: {', '.join(valid_modes)}"
             )
 
-        # Validate merge keys when MODE is MERGE
-        if self.mode.upper() == "MERGE" and not self.merge_keys:
-            errors.append("MERGE mode requires MERGE_KEYS to be specified")
+        # Validate upsert keys when MODE is UPSERT
+        if self.mode.upper() == "UPSERT" and not self.upsert_keys:
+            errors.append("UPSERT mode requires KEY to be specified")
 
         return errors
 
@@ -332,7 +332,7 @@ class SQLBlockStep(PipelineStep):
         CREATE TABLE incremental_events MODE INCREMENTAL BY event_date AS
         SELECT * FROM events WHERE event_date BETWEEN @start_date AND @end_date;
 
-        CREATE TABLE customer_summary MODE MERGE KEY customer_id AS
+        CREATE TABLE customer_summary MODE UPSERT KEY customer_id AS
         SELECT customer_id, COUNT(*) as orders FROM orders GROUP BY customer_id;
 
     """
@@ -343,9 +343,9 @@ class SQLBlockStep(PipelineStep):
     is_replace: bool = False  # True if CREATE OR REPLACE was used
 
     # NEW: Transform mode fields
-    mode: Optional[str] = None  # REPLACE/APPEND/MERGE/INCREMENTAL
+    mode: Optional[str] = None  # REPLACE/APPEND/UPSERT/INCREMENTAL
     time_column: Optional[str] = None  # For INCREMENTAL BY column
-    merge_keys: List[str] = field(default_factory=list)  # For MERGE KEY (...)
+    upsert_keys: List[str] = field(default_factory=list)  # For UPSERT KEY (...)
     lookback: Optional[str] = None  # For LOOKBACK duration
 
     def validate(self) -> List[str]:
@@ -380,7 +380,7 @@ class SQLBlockStep(PipelineStep):
             return errors
 
         # Validate mode value
-        valid_modes = ["REPLACE", "APPEND", "MERGE", "INCREMENTAL"]
+        valid_modes = ["REPLACE", "APPEND", "UPSERT", "INCREMENTAL"]
         if self.mode.upper() not in valid_modes:
             errors.append(
                 f"Invalid MODE '{self.mode}'. Expected: {', '.join(valid_modes)}"
@@ -409,8 +409,8 @@ class SQLBlockStep(PipelineStep):
         """
         if mode_upper == "INCREMENTAL":
             return self._validate_incremental_mode()
-        elif mode_upper == "MERGE":
-            return self._validate_merge_mode()
+        elif mode_upper == "UPSERT":
+            return self._validate_upsert_mode()
         elif mode_upper in ["REPLACE", "APPEND"]:
             return self._validate_simple_mode(mode_upper)
         return []
@@ -420,21 +420,19 @@ class SQLBlockStep(PipelineStep):
         errors = []
         if not self.time_column:
             errors.append("INCREMENTAL mode requires BY <time_column>")
-        if self.merge_keys:
-            errors.append("INCREMENTAL mode cannot use merge keys")
+        if self.upsert_keys:
+            errors.append("INCREMENTAL mode cannot use upsert keys")
         return errors
 
-    def _validate_merge_mode(self) -> List[str]:
-        """Validate MERGE mode fields."""
+    def _validate_upsert_mode(self) -> List[str]:
+        """Validate UPSERT mode fields."""
         errors = []
-        if not self.merge_keys:
-            errors.append(
-                "MERGE mode requires KEY <column> or KEY (<col1>, <col2>, ...)"
-            )
+        if not self.upsert_keys:
+            errors.append("UPSERT mode requires KEY to be specified")
         if self.time_column:
-            errors.append("MERGE mode cannot use time column")
+            errors.append("UPSERT mode cannot use time column")
         if self.lookback:
-            errors.append("MERGE mode cannot use LOOKBACK")
+            errors.append("UPSERT mode cannot use LOOKBACK")
         return errors
 
     def _validate_simple_mode(self, mode_upper: str) -> List[str]:
@@ -442,8 +440,8 @@ class SQLBlockStep(PipelineStep):
         errors = []
         if self.time_column:
             errors.append(f"{mode_upper} mode cannot use time column")
-        if self.merge_keys:
-            errors.append(f"{mode_upper} mode cannot use merge keys")
+        if self.upsert_keys:
+            errors.append(f"{mode_upper} mode cannot use upsert keys")
         if self.lookback:
             errors.append(f"{mode_upper} mode cannot use LOOKBACK")
         return errors

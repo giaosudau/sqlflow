@@ -7,7 +7,9 @@
 
 ---
 
-## 🎯 Why SQLFlow Transform Layer?
+## 🎯 Why SQL-- Account balances (UPSERT fo-- Device status (UPSERT for current state)
+CREATE TABLE device_status MODE UPSERT KEY (device_id) ASconsistency)
+CREATE TABLE account_balances MODE UPSERT KEY (account_id) ASow Transform Layer?
 
 As a Principal Developer Advocate with experience at Snowflake and Databricks, I've seen countless teams struggle with complex data transformation frameworks. SQLFlow's Transform Layer solves these pain points with **pure SQL syntax** that's familiar, powerful, and production-ready.
 
@@ -53,7 +55,7 @@ GROUP BY order_date;
 ### 2. Customer Profile Management
 ```sql
 -- Upsert customer data automatically:
-CREATE TABLE customer_profiles MODE MERGE KEY (customer_id) AS
+CREATE TABLE customer_profiles MODE UPSERT KEY (customer_id) AS
 SELECT 
     customer_id,
     latest_address,
@@ -115,17 +117,17 @@ WHERE processed_at IS NULL;
 - Perfect for event streams
 - No data loss risk
 
-### 🔀 MERGE Mode: Master Data Management
+### 🔀 UPSERT Mode: Master Data Management
 **Use When:** Customer data, product catalogs, dimension tables
 
 ```sql
--- Single key merge
-CREATE TABLE products MODE MERGE KEY (product_id) AS
+-- Single key upsert
+CREATE TABLE products MODE UPSERT KEY (product_id) AS
 SELECT product_id, name, category, price, updated_at
 FROM product_updates;
 
--- Composite key merge for complex relationships
-CREATE TABLE order_line_items MODE MERGE KEY (order_id, line_number) AS
+-- Composite key upsert for complex relationships
+CREATE TABLE order_line_items MODE UPSERT KEY (order_id, line_number) AS
 SELECT order_id, line_number, product_id, quantity, unit_price
 FROM updated_line_items;
 ```
@@ -178,8 +180,8 @@ JOIN orders o ON oi.order_id = o.order_id
 WHERE o.order_date > @start_date AND o.order_date <= @end_date
 GROUP BY order_date, product_id;
 
--- Customer lifetime value (MERGE for master data)
-CREATE TABLE customer_ltv MODE MERGE KEY (customer_id) AS
+-- Customer lifetime value (UPSERT for master data)
+CREATE TABLE customer_ltv MODE UPSERT KEY (customer_id) AS
 SELECT 
     customer_id,
     SUM(order_total) as lifetime_value,
@@ -221,8 +223,8 @@ JOIN exchange_rates er ON rt.currency = er.currency
     AND rt.transaction_date = er.rate_date
 WHERE rt.transaction_date > @start_date AND rt.transaction_date <= @end_date;
 
--- Account balances (MERGE for consistency)
-CREATE TABLE account_balances MODE MERGE KEY (account_id) AS
+-- Account balances (UPSERT for consistency)
+CREATE TABLE account_balances MODE UPSERT KEY (account_id) AS
 SELECT 
     account_id,
     SUM(CASE WHEN transaction_type = 'CREDIT' THEN amount ELSE -amount END) as balance,
@@ -250,8 +252,8 @@ WHERE reading_timestamp > @start_dt AND reading_timestamp <= @end_dt
   AND quality_score >= 0.8  -- Data quality filter
 GROUP BY sensor_id, hour;
 
--- Device status (MERGE for current state)
-CREATE TABLE device_status MODE MERGE KEY (device_id) AS
+-- Device status (UPSERT for current state)
+CREATE TABLE device_status MODE UPSERT KEY (device_id) AS
 SELECT 
     device_id,
     last_seen,
@@ -383,7 +385,7 @@ GROUP BY order_date;
 - ✅ **Built-in monitoring**: No additional setup required
 - ✅ **Data quality**: Automatic validation and alerts
 
-### dbt Snapshot → SQLFlow MERGE
+### dbt Snapshot → SQLFlow UPSERT
 **Before (dbt):**
 ```sql
 -- snapshots/customers_snapshot.sql
@@ -403,7 +405,7 @@ GROUP BY order_date;
 **After (SQLFlow):**
 ```sql
 -- Much more straightforward
-CREATE TABLE customers_current MODE MERGE KEY (customer_id) AS
+CREATE TABLE customers_current MODE UPSERT KEY (customer_id) AS
 SELECT * FROM customers_staging;
 ```
 
@@ -441,7 +443,7 @@ SQLFlow's transform layer delivers significant performance improvements through:
 
 #### Processing Efficiency  
 - **AppendStrategy**: ~0.1ms/row for append-only data
-- **MergeStrategy**: ~0.5ms/row for upsert operations  
+- **UpsertStrategy**: ~0.5ms/row for upsert operations  
 - **SnapshotStrategy**: ~0.3ms/row for complete refreshes
 - **CDCStrategy**: ~0.8ms/row for change data capture
 

@@ -525,191 +525,179 @@ class Parser:
     def _parse_load_statement(self) -> LoadStep:
         """Parse a LOAD statement.
 
-        Supports three formats:
-        1. LOAD table_name FROM source_name;  (default MODE is REPLACE)
-        2. LOAD table_name FROM source_name MODE mode_type;
-        3. LOAD table_name FROM source_name MODE MERGE MERGE_KEYS key1, key2, ...;
-
-        Returns
+        Grammar:
         -------
-            LoadStep
-
-        Raises
-        ------
-            ParserError: If the LOAD statement cannot be parsed
+        1. LOAD table_name FROM source_name;
+        2. LOAD table_name FROM source_name MODE mode_type;
+        3. LOAD table_name FROM source_name MODE UPSERT KEY key1, key2, ...;
 
         """
-        load_token = self._consume(TokenType.LOAD, "Expected 'LOAD'")
+        # Consume the LOAD token
+        self._advance()
 
+        # Parse table name
         table_name_token = self._consume(
-            TokenType.IDENTIFIER, "Expected table name after 'LOAD'"
+            TokenType.IDENTIFIER, "Expected table name after LOAD"
         )
 
-        self._consume(TokenType.FROM, "Expected 'FROM' after table name")
+        # Consume FROM
+        self._consume(TokenType.FROM, "Expected FROM after table name")
 
+        # Parse source name
         source_name_token = self._consume(
-            TokenType.IDENTIFIER, "Expected source name after 'FROM'"
+            TokenType.IDENTIFIER, "Expected source name after FROM"
         )
 
-        # Default mode is REPLACE if not specified
-        mode = "REPLACE"
-        merge_keys = []
+        # Parse optional mode and upsert keys
+        mode = "REPLACE"  # default mode
+        upsert_keys = []
 
-        # Check if MODE is specified
         if self._check(TokenType.MODE):
-            mode, merge_keys = self._parse_load_mode()
+            mode, upsert_keys = self._parse_load_mode()
 
-        self._consume(TokenType.SEMICOLON, "Expected ';' after LOAD statement")
-
-        return LoadStep(
+        # Create LoadStep
+        load_step = LoadStep(
             table_name=table_name_token.value,
             source_name=source_name_token.value,
             mode=mode,
-            merge_keys=merge_keys,
-            line_number=load_token.line,
+            upsert_keys=upsert_keys,
+            line_number=table_name_token.line,
         )
 
+        return load_step
+
     def _parse_load_mode(self) -> tuple[str, list[str]]:
-        """Parse the MODE clause of a LOAD statement.
-
-        Returns
-        -------
-            Tuple of (mode, merge_keys)
-
-        Raises
-        ------
-            ParserError: If the MODE clause cannot be parsed
-
-        """
-        self._advance()  # Consume MODE token
-
-        # Parse the mode type
-        if self._check(TokenType.REPLACE):
-            self._advance()  # Consume REPLACE token
-            return "REPLACE", []
-        elif self._check(TokenType.APPEND):
-            self._advance()  # Consume APPEND token
-            return "APPEND", []
-        elif self._check(TokenType.MERGE):
-            self._advance()  # Consume MERGE token
-            merge_keys = self._parse_merge_keys()
-            return "MERGE", merge_keys
-        else:
-            token = self._peek()
-            raise ParserError(
-                "Expected 'REPLACE', 'APPEND', or 'MERGE' after 'MODE'",
-                token.line,
-                token.column,
-            )
-
-    def _parse_merge_keys(self) -> list[str]:
-        """Parse MERGE_KEYS clause with optional parentheses.
-
-        Supports both:
-        - MERGE_KEYS key1, key2
-        - MERGE_KEYS (key1, key2)
-
-        Returns
-        -------
-            List of merge key column names
-
-        Raises
-        ------
-            ParserError: If the MERGE_KEYS clause cannot be parsed
-
-        """
-        # For MERGE mode, MERGE_KEYS is required
-        if not self._check(TokenType.MERGE_KEYS):
-            token = self._peek()
-            raise ParserError(
-                "Expected 'MERGE_KEYS' after 'MERGE'",
-                token.line,
-                token.column,
-            )
-
-        self._advance()  # Consume MERGE_KEYS token
-
-        # Check for optional opening parenthesis
-        has_parentheses = False
-        if self._check(TokenType.LEFT_PAREN):
-            self._advance()  # Consume '(' token
-            has_parentheses = True
-
-        merge_keys = []
-
-        # Parse comma-separated list of merge keys
-        while (
-            not self._check(TokenType.SEMICOLON)
-            and not (has_parentheses and self._check(TokenType.RIGHT_PAREN))
-            and not self._is_at_end()
-        ):
-            key_token = self._consume(
-                TokenType.IDENTIFIER, "Expected column name for MERGE_KEYS"
-            )
-            merge_keys.append(key_token.value)
-
-            # Check if there's a comma after the key
-            if self._check(TokenType.COMMA):
-                self._advance()  # Consume comma
-            elif not self._check(TokenType.SEMICOLON) and not (
-                has_parentheses and self._check(TokenType.RIGHT_PAREN)
-            ):
-                # If we don't see a semicolon or closing paren, we expect a comma
-                token = self._peek()
-                expected_tokens = "comma between merge keys"
-                if has_parentheses:
-                    expected_tokens += " or ')'"
-                raise ParserError(
-                    f"Expected {expected_tokens}",
-                    token.line,
-                    token.column,
-                )
-
-        # If we started with a parenthesis, we must close it
-        if has_parentheses:
-            self._consume(
-                TokenType.RIGHT_PAREN,
-                "Expected ')' to close merge keys list",
-            )
-
-        return merge_keys
-
-    def _parse_transform_merge_keys(self) -> List[str]:
-        """Parse MERGE mode keys for transform syntax: KEY <column> or KEY (<col1>, <col2>, ...).
+        """Parse LOAD mode and optional keys.
 
         Returns:
-            List of merge key column names
+        -------
+            Tuple of (mode, upsert_keys)
+
         """
-        merge_keys = []
+        # Consume MODE token
+        self._advance()
 
+        # Get mode type - accept specific mode tokens or identifiers
+        mode = self._parse_mode_token()
+        upsert_keys = []
+
+        # Check for KEY after UPSERT mode
+        if mode == "UPSERT":
+            upsert_keys = self._parse_upsert_keys_for_load()
+
+        return mode, upsert_keys
+
+    def _parse_mode_token(self) -> str:
+        """Parse and validate mode token.
+
+        Returns:
+            The mode string in uppercase
+        """
+        current_token = self._peek()
+        if current_token.type in [
+            TokenType.REPLACE,
+            TokenType.APPEND,
+            TokenType.UPSERT,
+            TokenType.INCREMENTAL,
+        ]:
+            mode_token = self._advance()
+        elif (
+            current_token.type == TokenType.IDENTIFIER
+            and current_token.value.upper()
+            in ["REPLACE", "APPEND", "UPSERT", "INCREMENTAL"]
+        ):
+            mode_token = self._advance()
+        else:
+            raise ParserError(
+                "Expected mode type (REPLACE, APPEND, UPSERT) after MODE",
+                current_token.line,
+                current_token.column,
+            )
+        return mode_token.value.upper()
+
+    def _parse_upsert_keys_for_load(self) -> list[str]:
+        """Parse upsert keys for LOAD statement.
+
+        Returns:
+            List of upsert key column names
+        """
         if self._check(TokenType.KEY):
-            self._advance()  # Consume KEY
+            self._advance()  # consume KEY token
+            return self._parse_key_list()
+        else:
+            # UPSERT mode requires KEY
+            mode_token = self._previous()
+            raise ParserError(
+                "UPSERT mode requires KEY to be specified",
+                mode_token.line,
+                mode_token.column,
+            )
 
-            # Check for parentheses (composite keys)
-            if self._check(TokenType.LEFT_PAREN):
-                self._advance()  # Consume (
+    def _parse_key_list(self) -> list[str]:
+        """Parse a list of keys (with or without parentheses).
 
-                # Parse comma-separated list
-                while True:
-                    key_token = self._consume(
-                        TokenType.IDENTIFIER, "Expected column name in merge keys"
-                    )
-                    merge_keys.append(key_token.value)
+        Returns:
+            List of key column names
+        """
+        upsert_keys = []
 
-                    if self._check(TokenType.COMMA):
-                        self._advance()  # Consume comma
-                    else:
-                        break
+        # Parse upsert keys (with or without parentheses)
+        if self._check(TokenType.LEFT_PAREN):
+            upsert_keys = self._parse_parenthesized_key_list()
+        else:
+            upsert_keys = self._parse_comma_separated_keys()
 
-                self._consume(TokenType.RIGHT_PAREN, "Expected ')' after merge keys")
+        return upsert_keys
+
+    def _parse_parenthesized_key_list(self) -> list[str]:
+        """Parse keys within parentheses.
+
+        Returns:
+            List of key column names
+        """
+        upsert_keys = []
+        self._advance()  # consume LEFT_PAREN
+
+        while not self._check(TokenType.RIGHT_PAREN) and not self._is_at_end():
+            key_token = self._consume(
+                TokenType.IDENTIFIER, "Expected column name in upsert keys"
+            )
+            upsert_keys.append(key_token.value)
+
+            if self._check(TokenType.COMMA):
+                self._advance()  # consume comma
+            elif self._check(TokenType.RIGHT_PAREN):
+                break
             else:
-                # Single key
-                key_token = self._consume(
-                    TokenType.IDENTIFIER, "Expected column name after KEY"
+                raise ParserError(
+                    "Expected ',' or ')' in upsert keys list",
+                    self._peek().line,
+                    self._peek().column,
                 )
-                merge_keys.append(key_token.value)
 
-        return merge_keys
+        self._consume(TokenType.RIGHT_PAREN, "Expected ')' after upsert keys")
+        return upsert_keys
+
+    def _parse_comma_separated_keys(self) -> list[str]:
+        """Parse comma-separated keys without parentheses.
+
+        Returns:
+            List of key column names
+        """
+        upsert_keys = []
+
+        while True:
+            key_token = self._consume(
+                TokenType.IDENTIFIER, "Expected column name in upsert keys"
+            )
+            upsert_keys.append(key_token.value)
+
+            if self._check(TokenType.COMMA):
+                self._advance()  # consume comma
+            else:
+                break
+
+        return upsert_keys
 
     def _parse_export_statement(self) -> ExportStep:
         """Parse an EXPORT statement.
@@ -917,44 +905,10 @@ class Parser:
         """
         try:
             self._consume(TokenType.MODE, "Expected MODE")
-            mode_token = self._advance()
-
-            # Validate mode token
-            if mode_token.type not in [
-                TokenType.REPLACE,
-                TokenType.APPEND,
-                TokenType.MERGE,
-                TokenType.INCREMENTAL,
-            ]:
-                raise ParserError(
-                    f"Invalid MODE '{mode_token.value}'. Expected: REPLACE, APPEND, MERGE, INCREMENTAL",
-                    mode_token.line,
-                    mode_token.column,
-                )
-
-            mode = mode_token.value.upper()
+            mode = self._parse_and_validate_mode()
 
             # Parse mode-specific options with validation
-            time_column = None
-            merge_keys = []
-            lookback = None
-
-            if mode == "INCREMENTAL":
-                time_column, lookback = self._parse_incremental_options()
-                if not time_column:
-                    raise ParserError(
-                        "INCREMENTAL mode requires BY <time_column>",
-                        mode_token.line,
-                        mode_token.column,
-                    )
-            elif mode == "MERGE":
-                merge_keys = self._parse_transform_merge_keys()
-                if not merge_keys:
-                    raise ParserError(
-                        "MERGE mode requires KEY <column> or KEY (<col1>, <col2>, ...)",
-                        mode_token.line,
-                        mode_token.column,
-                    )
+            time_column, upsert_keys, lookback = self._parse_mode_options(mode)
 
             self._consume(TokenType.AS, "Expected AS after MODE specification")
             sql_query = self._parse_sql_query()
@@ -964,7 +918,7 @@ class Parser:
                 sql_query=sql_query,
                 mode=mode,
                 time_column=time_column,
-                merge_keys=merge_keys,
+                upsert_keys=upsert_keys,
                 lookback=lookback,
                 line_number=create_token.line,
                 is_replace=is_replace,
@@ -978,6 +932,72 @@ class Parser:
                 create_token.line,
                 create_token.column,
             ) from e
+
+    def _parse_and_validate_mode(self) -> str:
+        """Parse and validate the mode token.
+
+        Returns:
+            The uppercase mode string
+
+        Raises:
+            ParserError: If mode is invalid
+        """
+        current_token = self._peek()
+        valid_modes = ["REPLACE", "APPEND", "UPSERT", "INCREMENTAL"]
+
+        if current_token.type in [
+            TokenType.REPLACE,
+            TokenType.APPEND,
+            TokenType.UPSERT,
+            TokenType.INCREMENTAL,
+        ]:
+            mode_token = self._advance()
+        elif (
+            current_token.type == TokenType.IDENTIFIER
+            and current_token.value.upper() in valid_modes
+        ):
+            mode_token = self._advance()
+        else:
+            raise ParserError(
+                f"Invalid MODE '{current_token.value}'. Expected: {', '.join(valid_modes)}",
+                current_token.line,
+                current_token.column,
+            )
+
+        return mode_token.value.upper()
+
+    def _parse_mode_options(
+        self, mode: str
+    ) -> tuple[Optional[str], list[str], Optional[str]]:
+        """Parse mode-specific options.
+
+        Args:
+            mode: The mode string
+
+        Returns:
+            Tuple of (time_column, upsert_keys, lookback)
+
+        Raises:
+            ParserError: If required options are missing
+        """
+        time_column = None
+        upsert_keys = []
+        lookback = None
+
+        if mode == "INCREMENTAL":
+            time_column, lookback = self._parse_incremental_options()
+            if not time_column:
+                raise ParserError(
+                    "INCREMENTAL mode requires BY <time_column>",
+                    self._peek().line,
+                    self._peek().column,
+                )
+        elif mode == "UPSERT":
+            if self._check(TokenType.KEY):
+                upsert_keys = self._parse_transform_upsert_keys()
+            # Validation will happen later in AST validation, not here
+
+        return time_column, upsert_keys, lookback
 
     def _parse_standard_sql_statement(
         self, create_token: Token, table_name_token: Token, is_replace: bool
@@ -1541,3 +1561,36 @@ class Parser:
                 fixed = fixed.replace(f"${{{old_var_expr}}}", f"${{{new_var_expr}}}")
 
         return fixed
+
+    def _parse_transform_upsert_keys(self) -> List[str]:
+        """Parse UPSERT mode keys for transform syntax: KEY <column> or KEY (<col1>, <col2>, ...).
+
+        Returns:
+            List of upsert key column names
+        """
+        upsert_keys = []
+
+        # Consume KEY token
+        self._advance()
+
+        # Check for parentheses
+        if self._check(TokenType.LEFT_PAREN):
+            self._advance()  # consume '('
+
+            # Parse comma-separated list
+            while not self._check(TokenType.RIGHT_PAREN) and not self._is_at_end():
+                key_token = self._consume(
+                    TokenType.IDENTIFIER, "Expected column name in upsert keys"
+                )
+                upsert_keys.append(key_token.value)
+
+                if self._check(TokenType.COMMA):
+                    self._advance()  # consume ','
+
+            self._consume(TokenType.RIGHT_PAREN, "Expected ')' after upsert keys")
+        else:
+            # Single key without parentheses
+            key_token = self._consume(TokenType.IDENTIFIER, "Expected column name")
+            upsert_keys.append(key_token.value)
+
+        return upsert_keys

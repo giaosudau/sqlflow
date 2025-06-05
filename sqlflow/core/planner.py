@@ -1614,7 +1614,7 @@ class ExecutionPlanBuilder:
             "target_table": step.table_name,  # Top-level for executor compatibility
             "source_connector_type": source_connector_type,
             "mode": getattr(step, "mode", "REPLACE"),  # Include load mode
-            "merge_keys": getattr(step, "merge_keys", []),  # Include merge keys if any
+            "upsert_keys": getattr(step, "upsert_keys", []),
             "query": {
                 "source_name": step.source_name,
                 "table_name": step.table_name,

@@ -18,9 +18,9 @@ from sqlflow.core.engines.duckdb.transform.incremental_strategies import (
     LoadPattern,
     LoadResult,
     LoadStrategy,
-    MergeStrategy,
     QualityReport,
     SnapshotStrategy,
+    UpsertStrategy,
 )
 from sqlflow.core.engines.duckdb.transform.performance import PerformanceOptimizer
 from sqlflow.core.engines.duckdb.transform.watermark import OptimizedWatermarkManager
@@ -125,7 +125,7 @@ class TestLoadResult(unittest.TestCase):
     def test_total_rows_affected_property(self):
         """Test total_rows_affected property calculation."""
         result = LoadResult(
-            strategy_used=LoadStrategy.MERGE,
+            strategy_used=LoadStrategy.UPSERT,
             rows_inserted=100,
             rows_updated=50,
             rows_deleted=10,
@@ -318,23 +318,22 @@ class TestAppendStrategy(unittest.TestCase):
         self.assertIn("Append strategy failed", result.validation_errors[0])
 
 
-class TestMergeStrategy(unittest.TestCase):
-    """Test MergeStrategy behavior."""
+class TestUpsertStrategy(unittest.TestCase):
+    """Test UpsertStrategy behavior."""
 
     def setUp(self):
         """Set up test fixtures."""
-        self.mock_engine = Mock()
-        self.mock_watermark_manager = Mock(spec=OptimizedWatermarkManager)
-        self.mock_performance_optimizer = Mock(spec=PerformanceOptimizer)
-
-        self.strategy = MergeStrategy(
-            self.mock_engine,
-            self.mock_watermark_manager,
-            self.mock_performance_optimizer,
+        self.engine = Mock()
+        self.watermark_manager = Mock()
+        self.performance_optimizer = Mock()
+        self.strategy = UpsertStrategy(
+            self.engine,
+            self.watermark_manager,
+            self.performance_optimizer,
         )
 
-    def test_can_handle_merge_suitable_pattern(self):
-        """Test can_handle returns True for merge-suitable patterns."""
+    def test_can_handle_upsert_suitable_pattern(self):
+        """Test can_handle returns True for upsert-suitable patterns."""
         pattern = LoadPattern(
             has_primary_key=True,
             update_rate=0.3,  # Significant updates
@@ -351,31 +350,32 @@ class TestMergeStrategy(unittest.TestCase):
         self.assertFalse(self.strategy.can_handle(pattern))
 
     def test_estimate_performance(self):
-        """Test merge performance estimation."""
+        """Test upsert performance estimation."""
         pattern = LoadPattern(row_count_estimate=5000)
 
         estimate = self.strategy.estimate_performance(pattern)
 
-        self.assertEqual(estimate["strategy"], "merge")
+        self.assertEqual(estimate["strategy"], "upsert")
         self.assertEqual(estimate["estimated_time_ms"], 2500.0)  # 5000 * 0.5
         self.assertEqual(estimate["memory_mb"], 50.0)  # max(50, 5000 * 0.002)
         self.assertEqual(estimate["cpu_intensity"], "high")
         self.assertEqual(estimate["io_pattern"], "random_read_write")
 
-    def test_generate_merge_sql(self):
-        """Test merge SQL generation."""
+    def test_generate_upsert_sql(self):
+        """Test upsert SQL generation."""
         key_columns = ["id", "name"]
         conflict_resolution = ConflictResolution.SOURCE_WINS
 
-        sql = self.strategy._generate_merge_sql(
+        sql = self.strategy._generate_upsert_sql(
             "temp_table", "target_table", key_columns, conflict_resolution
         )
 
-        # Verify SQL contains expected patterns
+        # Verify SQL contains expected patterns - updated to match actual implementation
         self.assertIn("INSERT INTO target_table", sql)
-        self.assertIn("LEFT JOIN target_table t ON", sql)
-        self.assertIn("t.id = s.id AND t.name = s.name", sql)
-        self.assertIn("UPDATE target_table t", sql)
+        self.assertIn("NOT EXISTS", sql)
+        self.assertIn("src.id = tgt.id AND src.name = tgt.name", sql)
+        self.assertIn("UPDATE target_table", sql)
+        self.assertIn("FROM temp_table src", sql)
 
     def test_execute_without_key_columns(self):
         """Test execution fails without key columns."""
@@ -389,7 +389,7 @@ class TestMergeStrategy(unittest.TestCase):
 
         self.assertFalse(result.success)
         self.assertIn(
-            "Merge strategy requires key columns", result.validation_errors[0]
+            "Upsert strategy requires key columns", result.validation_errors[0]
         )
 
 
@@ -539,13 +539,13 @@ class TestIncrementalStrategyManager(unittest.TestCase):
         """Test manager initialization."""
         self.assertEqual(len(self.manager.strategies), 4)
         self.assertIn(LoadStrategy.APPEND, self.manager.strategies)
-        self.assertIn(LoadStrategy.MERGE, self.manager.strategies)
+        self.assertIn(LoadStrategy.UPSERT, self.manager.strategies)
         self.assertIn(LoadStrategy.SNAPSHOT, self.manager.strategies)
         self.assertIn(LoadStrategy.CDC, self.manager.strategies)
 
         # Verify strategy weights
         self.assertEqual(self.manager.strategy_weights[LoadStrategy.APPEND], 1.0)
-        self.assertEqual(self.manager.strategy_weights[LoadStrategy.MERGE], 0.7)
+        self.assertEqual(self.manager.strategy_weights[LoadStrategy.UPSERT], 0.7)
         self.assertEqual(self.manager.strategy_weights[LoadStrategy.SNAPSHOT], 0.5)
         self.assertEqual(self.manager.strategy_weights[LoadStrategy.CDC], 0.9)
 
@@ -562,8 +562,8 @@ class TestIncrementalStrategyManager(unittest.TestCase):
 
         self.assertEqual(selected, LoadStrategy.APPEND)
 
-    def test_select_strategy_merge_suitable(self):
-        """Test strategy selection for merge-suitable pattern."""
+    def test_select_strategy_upsert_suitable(self):
+        """Test strategy selection for upsert-suitable pattern."""
         from sqlflow.core.engines.duckdb.load.handlers import TableInfo
 
         table_info = TableInfo(exists=True, schema={"columns": []})
@@ -573,7 +573,7 @@ class TestIncrementalStrategyManager(unittest.TestCase):
 
         selected = self.manager.select_strategy(table_info, pattern)
 
-        self.assertEqual(selected, LoadStrategy.MERGE)
+        self.assertEqual(selected, LoadStrategy.UPSERT)
 
     def test_select_strategy_no_suitable_fallback(self):
         """Test strategy selection fallback when no strategy suitable."""
@@ -634,23 +634,23 @@ class TestIncrementalStrategyManager(unittest.TestCase):
         self.assertEqual(result.strategy_used, LoadStrategy.APPEND)
         self.assertEqual(result.rows_inserted, 50)
 
-    def test_execute_merge_strategy(self):
-        """Test direct merge strategy execution."""
+    def test_execute_upsert_strategy(self):
+        """Test direct upsert strategy execution."""
         source = DataSource(
             source_query="SELECT * FROM source", table_name="target", key_columns=["id"]
         )
 
         # Mock the strategy execution
-        mock_result = LoadResult(strategy_used=LoadStrategy.MERGE, rows_updated=25)
-        self.manager.strategies[LoadStrategy.MERGE].execute = Mock(
+        mock_result = LoadResult(strategy_used=LoadStrategy.UPSERT, rows_updated=25)
+        self.manager.strategies[LoadStrategy.UPSERT].execute = Mock(
             return_value=mock_result
         )
 
-        result = self.manager.execute_merge_strategy(
+        result = self.manager.execute_upsert_strategy(
             source, "target", ConflictResolution.LATEST_WINS
         )
 
-        self.assertEqual(result.strategy_used, LoadStrategy.MERGE)
+        self.assertEqual(result.strategy_used, LoadStrategy.UPSERT)
         self.assertEqual(result.rows_updated, 25)
 
     def test_rollback_incremental_load_success(self):

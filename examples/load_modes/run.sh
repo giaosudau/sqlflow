@@ -38,7 +38,7 @@ else
     done
 fi
 
-PIPELINES=("01_basic_load_modes" "02_multiple_merge_keys" "03_schema_compatibility")
+PIPELINES=("01_basic_load_modes" "02_multiple_upsert_keys" "03_schema_compatibility")
 
 # Function to print colored output
 print_status() {
@@ -174,8 +174,8 @@ main() {
     echo "What was demonstrated:"
     echo "  ✅ REPLACE mode - Create/replace tables"
     echo "  ✅ APPEND mode - Add records to existing tables" 
-    echo "  ✅ MERGE mode - Update existing and insert new records"
-    echo "  ✅ Multiple merge keys - Composite key merging"
+    echo "  ✅ UPSERT mode - Update existing and insert new records"
+    echo "  ✅ Multiple upsert keys - Composite key upserting"
     echo "  ✅ Schema compatibility - Cross-mode compatibility"
     echo ""
     echo "Next steps:"

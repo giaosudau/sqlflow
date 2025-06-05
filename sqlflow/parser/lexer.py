@@ -57,13 +57,12 @@ class TokenType(Enum):
     MODE = auto()
     REPLACE = auto()
     APPEND = auto()
-    MERGE = auto()
+    UPSERT = auto()
     INCREMENTAL = auto()  # NEW: For INCREMENTAL mode
-    MERGE_KEYS = auto()
 
     # Transform mode tokens
     BY = auto()  # NEW: For INCREMENTAL BY column
-    KEY = auto()  # NEW: For MERGE KEY (...)
+    KEY = auto()  # NEW: For UPSERT KEY (...)
     LOOKBACK = auto()  # NEW: For LOOKBACK duration
 
     # Conditional execution tokens
@@ -87,8 +86,8 @@ class TokenType(Enum):
     DOLLAR = auto()  # For variable references
     LEFT_BRACE = auto()
     RIGHT_BRACE = auto()
-    LEFT_PAREN = auto()  # For optional parentheses around merge keys
-    RIGHT_PAREN = auto()  # For optional parentheses around merge keys
+    LEFT_PAREN = auto()  # For optional parentheses around upsert keys
+    RIGHT_PAREN = auto()  # For optional parentheses around upsert keys
     COMMA = auto()  # For comma-separated lists
     DOT = auto()  # For SQL table.column references
 
@@ -175,9 +174,8 @@ class Lexer:
             (TokenType.MODE, re.compile(r"MODE\b", re.IGNORECASE)),
             (TokenType.REPLACE, re.compile(r"REPLACE\b", re.IGNORECASE)),
             (TokenType.APPEND, re.compile(r"APPEND\b", re.IGNORECASE)),
-            (TokenType.MERGE, re.compile(r"MERGE\b", re.IGNORECASE)),
+            (TokenType.UPSERT, re.compile(r"UPSERT\b", re.IGNORECASE)),
             (TokenType.INCREMENTAL, re.compile(r"INCREMENTAL\b", re.IGNORECASE)),  # NEW
-            (TokenType.MERGE_KEYS, re.compile(r"MERGE_KEYS\b", re.IGNORECASE)),
             # Transform mode patterns
             (TokenType.BY, re.compile(r"BY\b", re.IGNORECASE)),  # NEW
             (TokenType.KEY, re.compile(r"KEY\b", re.IGNORECASE)),  # NEW

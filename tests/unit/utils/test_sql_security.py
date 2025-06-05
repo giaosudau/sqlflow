@@ -372,21 +372,21 @@ class TestIntegrationWithExistingCode:
         assert final_query == 'SELECT * FROM "users" WHERE "name" = ?'
         assert params == ["John'; DROP TABLE users; --"]
 
-    def test_merge_sql_generation_safety(self):
-        """Test that merge SQL generation is safe."""
+    def test_upsert_sql_generation_safety(self):
+        """Test that upsert SQL generation is safe."""
         formatter = SQLSafeFormatter("duckdb")
 
         # Simulate what the fixed SQL generator should do
         table_name = "target_table"
         source_name = "source_table"
-        merge_keys = ["id", "customer_id"]
+        upsert_keys = ["id", "customer_id"]
 
         # All identifiers are validated and quoted
         quoted_table = formatter.quote_identifier(table_name)
         quoted_source = formatter.quote_identifier(source_name)
-        quoted_keys = [formatter.quote_identifier(key) for key in merge_keys]
+        quoted_keys = [formatter.quote_identifier(key) for key in upsert_keys]
 
-        # Build safe merge conditions
+        # Build safe upsert conditions
         join_conditions = []
         for key in quoted_keys:
             join_conditions.append(f"t.{key} = s.{key}")
@@ -394,7 +394,7 @@ class TestIntegrationWithExistingCode:
         join_clause = " AND ".join(join_conditions)
 
         # This is now safe from injection
-        merge_sql = f"""
+        upsert_sql = f"""
         INSERT INTO {quoted_table}
         SELECT s.* FROM {quoted_source} s
         LEFT JOIN {quoted_table} t ON {join_clause}
@@ -402,7 +402,7 @@ class TestIntegrationWithExistingCode:
         """
 
         # Verify no unquoted identifiers remain
-        assert '"target_table"' in merge_sql
-        assert '"source_table"' in merge_sql
-        assert '"id"' in merge_sql
-        assert '"customer_id"' in merge_sql
+        assert '"target_table"' in upsert_sql
+        assert '"source_table"' in upsert_sql
+        assert '"id"' in upsert_sql
+        assert '"customer_id"' in upsert_sql

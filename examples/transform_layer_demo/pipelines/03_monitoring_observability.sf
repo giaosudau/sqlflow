@@ -74,7 +74,7 @@ SELECT
 FROM transactions_data;
 
 -- 3. Schema Evolution & Compatibility Monitoring
-CREATE TABLE schema_evolution_demo MODE MERGE KEY (transaction_id) AS
+CREATE TABLE schema_evolution_demo MODE UPSERT KEY (transaction_id) AS
 SELECT 
     transaction_id,
     customer_id,

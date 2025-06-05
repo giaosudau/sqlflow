@@ -288,13 +288,13 @@ class AppendTransformHandler(TransformModeHandler):
             return [insert_sql], {}
 
 
-class MergeTransformHandler(TransformModeHandler):
-    """MERGE mode - upserts data based on specified merge keys."""
+class UpsertTransformHandler(TransformModeHandler):
+    """UPSERT mode - upserts data based on specified upsert keys."""
 
     def generate_sql_with_params(
         self, transform_step: SQLBlockStep
     ) -> Tuple[List[str], Dict[str, Any]]:
-        """Generate MERGE SQL for MERGE mode.
+        """Generate UPSERT SQL for UPSERT mode.
 
         Args:
             transform_step: Transform step configuration
@@ -305,12 +305,12 @@ class MergeTransformHandler(TransformModeHandler):
         # Get table information (reuse LOAD validation)
         table_info = self.validation_helper.get_table_info(transform_step.table_name)
 
-        return self._generate_merge_sql(transform_step, table_info)
+        return self._generate_upsert_sql(transform_step, table_info)
 
-    def _generate_merge_sql(
+    def _generate_upsert_sql(
         self, transform_step: SQLBlockStep, table_info: TableInfo
     ) -> Tuple[List[str], Dict[str, Any]]:
-        """Generate MERGE SQL using DELETE + INSERT since DuckDB doesn't support MERGE syntax.
+        """Generate UPSERT SQL using DELETE + INSERT since DuckDB doesn't have full UPSERT syntax support.
 
         Args:
             transform_step: Transform step configuration
@@ -328,20 +328,20 @@ class MergeTransformHandler(TransformModeHandler):
             return [create_sql], {}
 
         # Generate UPSERT logic using DELETE + INSERT (DuckDB compatible)
-        merge_keys_str = ", ".join(transform_step.merge_keys)
+        upsert_keys_str = ", ".join(transform_step.upsert_keys)
 
         # Create temporary view for source data
-        temp_view = f"temp_merge_{transform_step.table_name}_{int(time.time())}"
+        temp_view = f"temp_upsert_{transform_step.table_name}_{int(time.time())}"
         create_view_sql = f"""
             CREATE TEMPORARY VIEW {temp_view} AS
             {transform_step.sql_query}
         """
 
-        # Delete existing records that match the merge keys
+        # Delete existing records that match the upsert keys
         delete_sql = f"""
             DELETE FROM {transform_step.table_name}
-            WHERE ({merge_keys_str}) IN (
-                SELECT {merge_keys_str} FROM {temp_view}
+            WHERE ({upsert_keys_str}) IN (
+                SELECT {upsert_keys_str} FROM {temp_view}
             )
         """
 
@@ -519,7 +519,7 @@ class TransformModeHandlerFactory:
         """Create appropriate transform mode handler.
 
         Args:
-            mode: Transform mode (REPLACE, APPEND, MERGE, INCREMENTAL)
+            mode: Transform mode (REPLACE, APPEND, UPSERT, INCREMENTAL)
             engine: DuckDB engine instance
 
         Returns:
@@ -534,10 +534,10 @@ class TransformModeHandlerFactory:
             return ReplaceTransformHandler(engine)
         elif mode == "APPEND":
             return AppendTransformHandler(engine)
-        elif mode == "MERGE":
-            return MergeTransformHandler(engine)
+        elif mode == "UPSERT":
+            return UpsertTransformHandler(engine)
         elif mode == "INCREMENTAL":
             return IncrementalTransformHandler(engine)
         else:
-            valid_modes = ["REPLACE", "APPEND", "MERGE", "INCREMENTAL"]
+            valid_modes = ["REPLACE", "APPEND", "UPSERT", "INCREMENTAL"]
             raise InvalidLoadModeError(mode, valid_modes)

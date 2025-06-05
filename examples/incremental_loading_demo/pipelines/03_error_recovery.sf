@@ -130,7 +130,7 @@ SOURCE customers_updates TYPE CSV PARAMS {
     "has_header": true
 };
 
-LOAD customers_table FROM customers_updates MODE MERGE MERGE_KEYS (customer_id);
+LOAD customers_table FROM customers_updates MODE UPSERT KEY (customer_id);
 
 -- Export final state showing complete processing
 EXPORT SELECT 

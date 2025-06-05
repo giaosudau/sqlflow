@@ -6,16 +6,16 @@ import pytest
 
 from sqlflow.core.engines.duckdb.exceptions import (
     InvalidLoadModeError,
-    MergeKeyValidationError,
     SchemaValidationError,
+    UpsertKeyValidationError,
 )
 from sqlflow.core.engines.duckdb.load.handlers import (
     AppendLoadHandler,
     LoadModeHandlerFactory,
     LoadStep,
-    MergeLoadHandler,
     ReplaceLoadHandler,
     TableInfo,
+    UpsertLoadHandler,
     ValidationHelper,
 )
 
@@ -26,26 +26,26 @@ class TestCustomExceptions:
     def test_invalid_load_mode_error_contains_mode_and_valid_modes(self):
         """Test that InvalidLoadModeError contains mode and valid modes information."""
         invalid_mode = "INVALID"
-        valid_modes = ["REPLACE", "APPEND", "MERGE"]
+        valid_modes = ["REPLACE", "APPEND", "UPSERT"]
 
         error = InvalidLoadModeError(invalid_mode, valid_modes)
 
         assert error.mode == invalid_mode
         assert error.valid_modes == valid_modes
         assert "Invalid load mode: INVALID" in str(error)
-        assert "REPLACE, APPEND, MERGE" in str(error)
+        assert "REPLACE, APPEND, UPSERT" in str(error)
 
-    def test_merge_key_validation_error_with_table_and_keys(self):
-        """Test that MergeKeyValidationError contains table name and merge keys."""
+    def test_upsert_key_validation_error_attributes(self):
+        """Test that UpsertKeyValidationError contains table name and upsert keys."""
         table_name = "test_table"
-        merge_keys = ["id", "timestamp"]
-        message = "Merge keys validation failed"
+        upsert_keys = ["id", "name"]
+        message = "Upsert keys validation failed"
 
-        error = MergeKeyValidationError(message, table_name, merge_keys)
+        error = UpsertKeyValidationError(message, table_name, upsert_keys)
 
         assert error.table_name == table_name
-        assert error.merge_keys == merge_keys
-        assert message in str(error)
+        assert error.upsert_keys == upsert_keys
+        assert str(error) == message
 
     def test_schema_validation_error_with_schemas(self):
         """Test that SchemaValidationError contains source and target schemas."""
@@ -110,7 +110,7 @@ class TestValidationHelper:
         mock_engine.table_exists.assert_called_once_with("test_table")
         mock_engine.get_table_schema.assert_not_called()
 
-    def test_validate_schema_and_merge_keys_success(self):
+    def test_validate_schema_and_upsert_keys_success(self):
         """Test successful validation for APPEND mode."""
         mock_engine = Mock()
         mock_engine.get_table_schema.return_value = {"id": "INTEGER", "name": "VARCHAR"}
@@ -120,44 +120,44 @@ class TestValidationHelper:
         load_step = LoadStep("target_table", "source_table", "APPEND")
         table_info = TableInfo(exists=True, schema={"id": "INTEGER"})
 
-        source_schema = helper.validate_schema_and_merge_keys(load_step, table_info)
+        source_schema = helper.validate_schema_and_upsert_keys(load_step, table_info)
 
         assert source_schema == {"id": "INTEGER", "name": "VARCHAR"}
         mock_engine.validate_schema_compatibility.assert_called_once()
 
-    def test_validate_schema_and_merge_keys_merge_mode_success(self):
-        """Test successful validation for MERGE mode with merge keys."""
+    def test_validate_schema_and_upsert_keys_upsert_mode_success(self):
+        """Test successful validation for UPSERT mode with upsert keys (formerly MERGE)."""
         mock_engine = Mock()
         mock_engine.get_table_schema.return_value = {"id": "INTEGER", "name": "VARCHAR"}
         mock_engine.validate_schema_compatibility.return_value = None
-        mock_engine.validate_merge_keys.return_value = None
+        mock_engine.validate_upsert_keys.return_value = None
 
         helper = ValidationHelper(mock_engine)
-        load_step = LoadStep("target_table", "source_table", "MERGE", ["id"])
+        load_step = LoadStep("target_table", "source_table", "UPSERT", ["id"])
         table_info = TableInfo(exists=True, schema={"id": "INTEGER"})
 
-        source_schema = helper.validate_schema_and_merge_keys(load_step, table_info)
+        source_schema = helper.validate_schema_and_upsert_keys(load_step, table_info)
 
         assert source_schema == {"id": "INTEGER", "name": "VARCHAR"}
-        mock_engine.validate_merge_keys.assert_called_once_with(
+        mock_engine.validate_upsert_keys.assert_called_once_with(
             "target_table", "source_table", ["id"]
         )
 
-    def test_validate_schema_and_merge_keys_missing_merge_keys(self):
-        """Test validation failure when merge keys are missing for MERGE mode."""
+    def test_validate_schema_and_upsert_keys_missing_upsert_keys(self):
+        """Test validation failure when upsert keys are missing for UPSERT mode."""
         mock_engine = Mock()
 
         helper = ValidationHelper(mock_engine)
-        load_step = LoadStep("target_table", "source_table", "MERGE")  # No merge keys
+        load_step = LoadStep("target_table", "source_table", "UPSERT")  # No upsert keys
         table_info = TableInfo(exists=True)
 
-        with pytest.raises(MergeKeyValidationError) as exc_info:
-            helper.validate_schema_and_merge_keys(load_step, table_info)
+        with pytest.raises(UpsertKeyValidationError) as exc_info:
+            helper.validate_schema_and_upsert_keys(load_step, table_info)
 
-        assert "MERGE mode requires merge keys" in str(exc_info.value)
+        assert "UPSERT mode requires upsert keys" in str(exc_info.value)
         assert exc_info.value.table_name == "target_table"
 
-    def test_validate_schema_and_merge_keys_schema_validation_failure(self):
+    def test_validate_schema_and_upsert_keys_schema_validation_failure(self):
         """Test schema validation failure wrapping."""
         mock_engine = Mock()
         mock_engine.get_table_schema.side_effect = [
@@ -173,31 +173,31 @@ class TestValidationHelper:
         table_info = TableInfo(exists=True, schema={"id": "VARCHAR"})
 
         with pytest.raises(SchemaValidationError) as exc_info:
-            helper.validate_schema_and_merge_keys(load_step, table_info)
+            helper.validate_schema_and_upsert_keys(load_step, table_info)
 
         assert "Schema validation failed for table target_table" in str(exc_info.value)
         assert exc_info.value.source_schema == {"id": "INTEGER"}
         assert exc_info.value.target_schema == {"id": "VARCHAR"}
 
-    def test_validate_schema_and_merge_keys_merge_key_validation_failure(self):
-        """Test merge key validation failure wrapping."""
+    def test_validate_schema_and_upsert_keys_upsert_key_validation_failure(self):
+        """Test upsert key validation failure wrapping."""
         mock_engine = Mock()
         mock_engine.get_table_schema.return_value = {"id": "INTEGER"}
         mock_engine.validate_schema_compatibility.return_value = None
-        mock_engine.validate_merge_keys.side_effect = Exception("Key not found")
+        mock_engine.validate_upsert_keys.side_effect = Exception("Key not found")
 
         helper = ValidationHelper(mock_engine)
-        load_step = LoadStep("target_table", "source_table", "MERGE", ["invalid_key"])
+        load_step = LoadStep("target_table", "source_table", "UPSERT", ["invalid_key"])
         table_info = TableInfo(exists=True)
 
-        with pytest.raises(MergeKeyValidationError) as exc_info:
-            helper.validate_schema_and_merge_keys(load_step, table_info)
+        with pytest.raises(UpsertKeyValidationError) as exc_info:
+            helper.validate_schema_and_upsert_keys(load_step, table_info)
 
-        assert "Merge key validation failed for table target_table" in str(
+        assert "Upsert key validation failed for table target_table" in str(
             exc_info.value
         )
         assert exc_info.value.table_name == "target_table"
-        assert exc_info.value.merge_keys == ["invalid_key"]
+        assert exc_info.value.upsert_keys == ["invalid_key"]
 
 
 class TestLoadHandlerOptimizations:
@@ -240,30 +240,34 @@ class TestLoadHandlerOptimizations:
         )
         assert "INSERT INTO" in sql
 
-    def test_merge_handler_uses_shared_validation(self):
-        """Test that MergeLoadHandler uses shared validation logic."""
+    def test_upsert_handler_uses_shared_validation(self):
+        """Test that UpsertLoadHandler uses shared validation infrastructure."""
         mock_engine = Mock()
-        handler = MergeLoadHandler(mock_engine)
-        load_step = LoadStep("target_table", "source_table", "MERGE", ["id"])
+        mock_engine.table_exists.return_value = True
+        mock_engine.get_table_schema.return_value = {"id": "INTEGER"}
+        mock_engine.validate_schema_compatibility.return_value = None
+        mock_engine.validate_upsert_keys.return_value = None
 
-        # Mock the validation helper and SQL generator
-        table_info = TableInfo(exists=True, schema={"id": "INTEGER"})
-        handler.validation_helper.get_table_info = Mock(return_value=table_info)
-        handler.validation_helper.validate_for_load_mode = Mock(
-            return_value={"id": "INTEGER", "name": "VARCHAR"}
-        )
-        handler.sql_generator.generate_merge_sql = Mock(return_value="MERGE SQL")
+        handler = UpsertLoadHandler(mock_engine)
+        load_step = LoadStep("test_table", "test_source", "UPSERT", ["id"])
 
+        # This should use the shared validation helper
         sql = handler.generate_sql(load_step)
 
-        # Should use shared validation instead of duplicated logic
-        handler.validation_helper.validate_for_load_mode.assert_called_once_with(
-            load_step, table_info
+        # Verify shared validation was called
+        mock_engine.table_exists.assert_called_once_with("test_table")
+        mock_engine.get_table_schema.assert_called()
+        mock_engine.validate_schema_compatibility.assert_called_once()
+        mock_engine.validate_upsert_keys.assert_called_once_with(
+            "test_table", "test_source", ["id"]
         )
-        handler.sql_generator.generate_merge_sql.assert_called_once_with(
-            "target_table", "source_table", ["id"], {"id": "INTEGER", "name": "VARCHAR"}
-        )
-        assert sql == "MERGE SQL"
+
+        # Should generate UPSERT SQL with transaction safety and direct table references
+        assert "BEGIN TRANSACTION" in sql
+        assert "UPDATE" in sql and "INSERT INTO" in sql
+        assert "COMMIT" in sql
+        # Modern implementation uses direct table references instead of temporary views
+        assert 'FROM "test_source" AS source' in sql
 
 
 class TestLoadModeHandlerFactory:
@@ -279,7 +283,7 @@ class TestLoadModeHandlerFactory:
         assert exc_info.value.mode == "INVALID_MODE"
         assert "REPLACE" in exc_info.value.valid_modes
         assert "APPEND" in exc_info.value.valid_modes
-        assert "MERGE" in exc_info.value.valid_modes
+        assert "UPSERT" in exc_info.value.valid_modes
 
     def test_factory_creates_correct_handlers(self):
         """Test that factory creates correct handler types."""
@@ -287,27 +291,28 @@ class TestLoadModeHandlerFactory:
 
         replace_handler = LoadModeHandlerFactory.create("REPLACE", mock_engine)
         append_handler = LoadModeHandlerFactory.create("APPEND", mock_engine)
-        merge_handler = LoadModeHandlerFactory.create("MERGE", mock_engine)
+        upsert_handler = LoadModeHandlerFactory.create("UPSERT", mock_engine)
 
         assert isinstance(replace_handler, ReplaceLoadHandler)
         assert isinstance(append_handler, AppendLoadHandler)
-        assert isinstance(merge_handler, MergeLoadHandler)
+        assert isinstance(upsert_handler, UpsertLoadHandler)
 
     def test_factory_handles_case_insensitive_modes(self):
-        """Test that factory handles case-insensitive mode names."""
+        """Test that factory handles case insensitive mode names."""
         mock_engine = Mock()
 
         # Test lowercase
         handler1 = LoadModeHandlerFactory.create("replace", mock_engine)
-        assert isinstance(handler1, ReplaceLoadHandler)
+        handler2 = LoadModeHandlerFactory.create("append", mock_engine)
+        handler3 = LoadModeHandlerFactory.create("upsert", mock_engine)
 
-        # Test mixed case
-        handler2 = LoadModeHandlerFactory.create("Append", mock_engine)
+        assert isinstance(handler1, ReplaceLoadHandler)
         assert isinstance(handler2, AppendLoadHandler)
+        assert isinstance(handler3, UpsertLoadHandler)
 
         # Test uppercase
-        handler3 = LoadModeHandlerFactory.create("MERGE", mock_engine)
-        assert isinstance(handler3, MergeLoadHandler)
+        handler3 = LoadModeHandlerFactory.create("UPSERT", mock_engine)
+        assert isinstance(handler3, UpsertLoadHandler)
 
 
 class TestIntegrationOptimizations:

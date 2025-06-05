@@ -647,7 +647,7 @@ class DuckDBEngine(SQLEngine):
 
         Args:
         ----
-            load_step: The LoadStep containing table_name, source_name, mode, and merge_keys
+            load_step: The LoadStep containing table_name, source_name, mode, and upsert_keys
 
         Returns:
         -------
@@ -665,9 +665,7 @@ class DuckDBEngine(SQLEngine):
                 table_name=load_step.table_name,
                 source_name=load_step.source_name,
                 mode=load_step.mode,
-                merge_keys=(
-                    load_step.merge_keys if hasattr(load_step, "merge_keys") else None
-                ),
+                upsert_keys=getattr(load_step, "upsert_keys", []),
             )
 
         handler = LoadModeHandlerFactory.create(internal_load_step.mode, self)
@@ -884,7 +882,7 @@ class DuckDBEngine(SQLEngine):
             "python_udfs": True,
             "arrow": True,
             "json": True,
-            "merge": True,
+            "upsert": True,
             "window_functions": True,
             "ctes": True,
         }
@@ -992,77 +990,155 @@ class DuckDBEngine(SQLEngine):
 
         return norm_source == norm_target
 
-    def validate_merge_keys(
-        self, target_table: str, source_name: str, merge_keys: List[str]
+    def validate_upsert_keys(
+        self, target_table: str, source_name: str, upsert_keys: List[str]
     ) -> bool:
-        """Validate that merge keys exist in both source and target tables.
+        """Validate that upsert keys exist in both source and target tables.
 
         Args:
         ----
             target_table: Name of the target table
             source_name: Name of the source table/view
-            merge_keys: List of column names to be used as merge keys
+            upsert_keys: List of column names to be used as upsert keys
 
         Returns:
         -------
-            True if merge keys are valid
+            True if upsert keys are valid
 
         Raises:
         ------
-            ValueError: If merge keys are invalid
+            ValueError: If upsert keys are invalid
 
         """
-        if not merge_keys:
-            raise ValueError("MERGE operation requires at least one merge key")
+        if not upsert_keys:
+            raise ValueError("UPSERT operation requires at least one upsert key")
 
         logger.debug(
-            f"Validating merge keys for MERGE operation: {', '.join(merge_keys)}"
+            f"Validating upsert keys for UPSERT operation: {', '.join(upsert_keys)}"
         )
 
-        # If target table doesn't exist, no validation needed
+        # Check if target table exists
         if not self.table_exists(target_table):
             logger.debug(
-                f"Target table {target_table} doesn't exist, no merge key validation needed"
+                f"Target table {target_table} doesn't exist, no upsert key validation needed"
             )
             return True
 
-        # Get schemas for source and target
+        # Get schemas for both tables
         source_schema = self.get_table_schema(source_name)
         target_schema = self.get_table_schema(target_table)
 
-        # Validate each merge key
-        for key in merge_keys:
+        # Collect all validation errors to provide comprehensive feedback
+        validation_errors = []
+
+        # Validate each upsert key
+        for key in upsert_keys:
             # Check if key exists in source
             if key not in source_schema:
-                error_msg = (
-                    f"Merge key '{key}' does not exist in source '{source_name}'"
+                validation_errors.append(
+                    f"Upsert key '{key}' does not exist in source '{source_name}'. "
+                    f"Available columns: {', '.join(sorted(source_schema.keys()))}"
                 )
-                logger.error(error_msg)
-                raise ValueError(error_msg)
 
             # Check if key exists in target
-            if key not in target_schema:
-                error_msg = (
-                    f"Merge key '{key}' does not exist in target table '{target_table}'"
+            elif key not in target_schema:
+                validation_errors.append(
+                    f"Upsert key '{key}' does not exist in target table '{target_table}'. "
+                    f"Available columns: {', '.join(sorted(target_schema.keys()))}"
                 )
-                logger.error(error_msg)
-                raise ValueError(error_msg)
 
-            # Check type compatibility of merge keys
-            source_type = source_schema[key].upper()
-            target_type = target_schema[key].upper()
-
-            if not self._are_types_compatible(source_type, target_type):
-                error_msg = (
-                    f"Merge key '{key}' has incompatible types: "
-                    f"source={source_type}, target={target_type}. "
-                    f"Merge keys must have compatible types."
+            # Check type compatibility of upsert keys
+            elif not self._are_types_compatible(source_schema[key], target_schema[key]):
+                validation_errors.append(
+                    f"Upsert key '{key}' has incompatible types: "
+                    f"source='{source_schema[key]}', target='{target_schema[key]}'. "
+                    f"Upsert keys must have compatible types."
                 )
-                logger.error(error_msg)
-                raise ValueError(error_msg)
 
-        logger.debug(f"Merge key validation successful for {', '.join(merge_keys)}")
+        # If there are validation errors, raise a comprehensive error message
+        if validation_errors:
+            error_msg = "UPSERT key validation failed:\n" + "\n".join(
+                f"  - {error}" for error in validation_errors
+            )
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        logger.debug(f"Upsert key validation successful for {', '.join(upsert_keys)}")
         return True
+
+    def execute_upsert_operation(
+        self, table_name: str, source_name: str, upsert_keys: List[str]
+    ) -> Dict[str, Any]:
+        """Execute an UPSERT operation with proper transaction handling.
+
+        Args:
+        ----
+            table_name: Target table name
+            source_name: Source table/view name
+            upsert_keys: List of upsert key columns
+
+        Returns:
+        -------
+            Dictionary with operation results including row counts
+
+        Raises:
+        ------
+            Exception: If UPSERT operation fails
+
+        """
+        if not self.connection:
+            raise DuckDBConnectionError("No database connection available")
+
+        logger.info(f"Executing UPSERT operation: {source_name} → {table_name}")
+
+        try:
+            # Validate upsert keys first
+            self.validate_upsert_keys(table_name, source_name, upsert_keys)
+
+            # Get source schema for SQL generation
+            source_schema = self.get_table_schema(source_name)
+
+            # Generate UPSERT SQL
+            from .load.sql_generators import SQLGenerator
+
+            sql_generator = SQLGenerator()
+            upsert_sql = sql_generator.generate_upsert_sql(
+                table_name, source_name, upsert_keys, source_schema
+            )
+
+            # Execute the UPSERT operation
+            logger.debug("Executing UPSERT SQL")
+            self.execute_query(upsert_sql)
+
+            # Get final row count for reporting
+            final_count_result = self.execute_query(
+                f"SELECT COUNT(*) FROM {table_name}"
+            )
+            final_count = final_count_result.fetchone()[0]
+
+            logger.info(
+                f"UPSERT operation completed. Final table size: {final_count} rows"
+            )
+
+            return {
+                "status": "success",
+                "operation": "UPSERT",
+                "target_table": table_name,
+                "source_table": source_name,
+                "upsert_keys": upsert_keys,
+                "final_row_count": final_count,
+            }
+
+        except Exception as e:
+            logger.error(f"UPSERT operation failed: {e}")
+            # Try to rollback if we're in a transaction
+            try:
+                self.connection.execute("ROLLBACK;")
+                logger.debug("Rolled back failed UPSERT transaction")
+            except Exception:
+                pass  # Rollback might fail if no transaction was active
+
+            raise Exception(f"UPSERT operation failed: {str(e)}") from e
 
     # Simplified stubs for methods that need full implementation
     def create_temp_table(self, name: str, data: Any) -> None:

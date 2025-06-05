@@ -56,13 +56,13 @@ LOAD sales_table FROM sales_data MODE APPEND;
 **Architecture Flow:**
 ```
 SOURCE definition → Store connector config → LOAD step → ConnectorEngine → 
-Load from SOURCE → Register with DuckDB → Apply MODE (REPLACE/APPEND/MERGE)
+Load from SOURCE → Register with DuckDB → Apply MODE (REPLACE/APPEND/UPSERT)
 ```
 
 **Load Modes:**
 - ✅ **REPLACE:** Complete table replacement (default)
 - ✅ **APPEND:** Add records with schema validation
-- ✅ **MERGE:** Upsert based on merge keys with composite key support
+- ✅ **UPSERT:** Upsert based on upsert keys with composite key support
 
 **Test Coverage:**
 - ✅ 20/20 integration tests passing
@@ -300,8 +300,8 @@ LOAD customer_snapshot FROM customers MODE REPLACE;
 -- APPEND: Add new records
 LOAD orders_raw FROM orders MODE APPEND;
 
--- MERGE: Upsert based on merge keys
-LOAD products_current FROM product_updates MODE MERGE MERGE_KEYS product_id;
+-- UPSERT: Upsert based on upsert keys
+LOAD products_current FROM product_updates MODE UPSERT UPSERT_KEYS product_id;
 ```
 
 **2. Incremental Loading via SOURCE Configuration**
@@ -331,7 +331,7 @@ SOURCE user_events TYPE KAFKA PARAMS {
 };
 
 -- LOAD benefits from SOURCE intelligence
-LOAD users_clean FROM user_events MODE MERGE MERGE_KEYS user_id;
+LOAD users_clean FROM user_events MODE UPSERT UPSERT_KEYS user_id;
 
 -- Partition awareness in SOURCE
 SOURCE sales_data TYPE S3 PARAMS {
@@ -348,7 +348,7 @@ LOAD daily_sales FROM sales_data MODE APPEND;
 
 **4. Benefits of This Approach**
 - ✅ **Zero Breaking Changes**: All existing pipelines continue to work
-- ✅ **SQL-Centric**: Users understand REPLACE, APPEND, MERGE immediately  
+- ✅ **SQL-Centric**: Users understand REPLACE, APPEND, UPSERT immediately  
 - ✅ **Industry Familiar**: SOURCE uses Airbyte/Fivetran parameter naming
 - ✅ **Separation of Concerns**: SOURCE = capabilities, LOAD = strategy
 - ✅ **No Mode Explosion**: Three modes cover 95% of use cases
@@ -442,15 +442,15 @@ class LocalExecutor:
         mode_handlers = {
             "REPLACE": self._execute_replace_load,
             "APPEND": self._execute_append_load,
-            "MERGE": self._execute_merge_load
+            "UPSERT": self._execute_upsert_load
         }
         
         if load_mode not in mode_handlers:
-            raise ExecutionError(f"Unsupported load mode: {load_mode}. Use REPLACE, APPEND, or MERGE.")
+            raise ExecutionError(f"Unsupported load mode: {load_mode}. Use REPLACE, APPEND, or UPSERT.")
         
         return mode_handlers[load_mode](step_config)
     
-    # Existing APPEND and MERGE methods remain unchanged
+    # Existing APPEND and UPSERT methods remain unchanged
     # They automatically benefit from incremental source data
 ```
 
@@ -501,7 +501,7 @@ class ExecutionPlanBuilder:
         load_mode = getattr(step, "mode", "REPLACE").upper()
         
         # Validate against existing three modes only
-        valid_modes = ["REPLACE", "APPEND", "MERGE"]
+        valid_modes = ["REPLACE", "APPEND", "UPSERT"]
         if load_mode not in valid_modes:
             raise PlanningError(
                 f"Invalid load mode '{load_mode}' for LOAD {step.table_name}. "
@@ -525,12 +525,12 @@ class ExecutionPlanBuilder:
             "depends_on": depends_on
         }
         
-        # Add merge keys for MERGE mode (existing logic)
-        if load_mode == "MERGE":
-            merge_keys = getattr(step, "merge_keys", source_def.get("primary_key", []))
-            if not merge_keys:
-                raise PlanningError(f"MERGE mode requires merge_keys for LOAD {step.table_name}")
-            load_config["merge_keys"] = merge_keys
+        # Add upsert keys for UPSERT mode (existing logic)
+        if load_mode == "UPSERT":
+            upsert_keys = getattr(step, "upsert_keys", source_def.get("primary_key", []))
+            if not upsert_keys:
+                raise PlanningError(f"UPSERT mode requires upsert_keys for LOAD {step.table_name}")
+            load_config["upsert_keys"] = upsert_keys
             
         return load_config
 ```
@@ -549,29 +549,29 @@ class Parser:
         
         # Parse existing MODE clause (no changes)
         mode = "REPLACE"  # Default
-        merge_keys = []
+        upsert_keys = []
         
         if self._current_token_is("MODE"):
             self._consume_token("MODE")
             mode = self._consume_identifier().upper()
             
             # Validate against existing three modes
-            valid_modes = ["REPLACE", "APPEND", "MERGE"]
+            valid_modes = ["REPLACE", "APPEND", "UPSERT"]
             if mode not in valid_modes:
                 raise ParseError(f"Invalid load mode '{mode}'. Valid modes: {valid_modes}")
             
-            # Parse MERGE_KEYS for MERGE mode (existing logic)
-            if mode == "MERGE":
-                if self._current_token_is("MERGE_KEYS"):
-                    self._consume_token("MERGE_KEYS")
-                    merge_keys = self._parse_identifier_list()
+            # Parse UPSERT_KEYS for UPSERT mode (existing logic)
+            if mode == "UPSERT":
+                if self._current_token_is("UPSERT_KEYS"):
+                    self._consume_token("UPSERT_KEYS")
+                    upsert_keys = self._parse_identifier_list()
         
         # Create LoadStep with existing structure
         return LoadStep(
             table_name=table_name,
             source_name=source_name,
             mode=mode,
-            merge_keys=merge_keys,
+            upsert_keys=upsert_keys,
             line_number=self.current_line
         )
 ```
@@ -658,7 +658,7 @@ MODE INCREMENTAL
 WATERMARK updated_at
 BATCH_SIZE 10000;
 
--- Complex merge with incremental
+-- Complex upsert with incremental
 LOAD products FROM product_updates 
 MODE UPSERT
 PRIMARY_KEY (product_id)
@@ -798,7 +798,7 @@ CREATE TABLE IF NOT EXISTS sqlflow_execution_history (
 **Sprint 13-14: Cloud Storage & Advanced Patterns**
 - Enhanced S3 connector with complex partitioning
 - Google Sheets connector improvements
-- Advanced merge strategies (SCD Type 2, etc.)
+- Advanced upsert strategies (SCD Type 2, etc.)
 - Cross-connector compatibility testing
 
 **Sprint 15-16: Integration & Polish**
@@ -1145,7 +1145,7 @@ SOURCE expensive_api TYPE REST_API PARAMS {
 **Sprint 13-14: Cloud Storage & Advanced Patterns**
 - Enhanced S3 connector with complex partitioning
 - Google Sheets connector improvements
-- Advanced merge strategies (SCD Type 2, etc.)
+- Advanced upsert strategies (SCD Type 2, etc.)
 - Cross-connector compatibility testing
 
 **Sprint 15-16: Integration & Polish**

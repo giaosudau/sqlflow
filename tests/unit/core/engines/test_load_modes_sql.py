@@ -64,13 +64,13 @@ def test_generate_sql_for_append_mode(duckdb_engine):
     assert "INSERT INTO users_table SELECT * FROM users_source" in sql
 
 
-def test_generate_sql_for_merge_mode(duckdb_engine):
-    """Test SQL generation for MERGE mode."""
+def test_generate_sql_for_upsert_mode(duckdb_engine):
+    """Test SQL generation for UPSERT mode (formerly MERGE)."""
     load_step = LoadStep(
         table_name="users_table",
         source_name="users_source",
-        mode="MERGE",
-        merge_keys=["user_id"],
+        mode="UPSERT",
+        upsert_keys=["user_id"],  # Updated to use upsert_keys field name
         line_number=1,
     )
 
@@ -83,20 +83,20 @@ def test_generate_sql_for_merge_mode(duckdb_engine):
 
     sql = duckdb_engine.generate_load_sql(load_step)
 
-    # MERGE mode should use UPDATE/INSERT pattern for DuckDB compatibility with quoted identifiers
+    # UPSERT mode should use UPDATE/INSERT pattern for DuckDB compatibility with quoted identifiers
     assert 'UPDATE "users_table"' in sql or 'INSERT INTO "users_table"' in sql
     assert '"users_table"' in sql
     assert '"users_source"' in sql
     assert '"user_id"' in sql
 
 
-def test_generate_sql_for_merge_mode_multiple_keys(duckdb_engine):
-    """Test SQL generation for MERGE mode with multiple merge keys."""
+def test_generate_sql_for_upsert_mode_multiple_keys(duckdb_engine):
+    """Test SQL generation for UPSERT mode with multiple upsert keys."""
     load_step = LoadStep(
         table_name="users_table",
         source_name="users_source",
-        mode="MERGE",
-        merge_keys=["user_id", "timestamp"],
+        mode="UPSERT",
+        upsert_keys=["user_id", "timestamp"],  # Updated to use upsert_keys field name
         line_number=1,
     )
 
@@ -109,7 +109,7 @@ def test_generate_sql_for_merge_mode_multiple_keys(duckdb_engine):
 
     sql = duckdb_engine.generate_load_sql(load_step)
 
-    # Should include both merge keys in the ON clause
+    # Should include both upsert keys in the ON clause
     assert "user_id" in sql
     assert "timestamp" in sql
     assert "AND" in sql  # Should join multiple keys with AND
@@ -133,8 +133,8 @@ def test_table_creation_for_replace_mode(duckdb_engine):
     assert "CREATE TABLE users_table AS SELECT * FROM users_source" in sql
 
 
-def test_table_creation_for_append_and_merge_modes(duckdb_engine):
-    """Test that APPEND and MERGE modes create the table if it doesn't exist."""
+def test_table_creation_for_append_and_upsert_modes(duckdb_engine):
+    """Test that APPEND and UPSERT modes create the table if it doesn't exist."""
     # Test APPEND
     append_step = LoadStep(
         table_name="users_table",
@@ -151,23 +151,23 @@ def test_table_creation_for_append_and_merge_modes(duckdb_engine):
     # Should create the table first before appending
     assert "CREATE TABLE" in sql_append
 
-    # Test MERGE
-    merge_step = LoadStep(
+    # Test UPSERT
+    upsert_step = LoadStep(
         table_name="users_table",
         source_name="users_source",
-        mode="MERGE",
-        merge_keys=["user_id"],
+        mode="UPSERT",
+        upsert_keys=["user_id"],  # Updated to use upsert_keys field name
         line_number=1,
     )
 
-    sql_merge = duckdb_engine.generate_load_sql(merge_step)
+    sql_upsert = duckdb_engine.generate_load_sql(upsert_step)
 
-    # Should create the table first before merging
-    assert "CREATE TABLE" in sql_merge
+    # Should create the table first before upserting
+    assert "CREATE TABLE" in sql_upsert
 
 
 def test_schema_validation(duckdb_engine):
-    """Test that schema validation is called for APPEND and MERGE modes."""
+    """Test that schema validation is called for APPEND and UPSERT modes."""
     # Mock validate_schema_compatibility to track calls
     duckdb_engine.validate_schema_compatibility = MagicMock(return_value=True)
 

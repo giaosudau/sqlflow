@@ -1,4 +1,4 @@
-"""Integration tests for load modes (REPLACE, APPEND, MERGE) in SQLFlow."""
+"""Integration tests for load modes (REPLACE, APPEND, UPSERT) in SQLFlow."""
 
 import os
 import tempfile
@@ -98,7 +98,6 @@ def test_replace_mode(engine, executor, sample_data):
         table_name="users_target",
         source_name="users_source",
         mode="REPLACE",
-        merge_keys=[],
     )
 
     # Execute the load step
@@ -127,7 +126,6 @@ def test_replace_mode(engine, executor, sample_data):
         table_name="users_target",
         source_name="users_source_new",
         mode="REPLACE",
-        merge_keys=[],
     )
 
     result = executor.execute_load_step(load_step)
@@ -154,7 +152,6 @@ def test_append_mode(engine, executor, sample_data):
         table_name="users_target",
         source_name="users_source",
         mode="REPLACE",
-        merge_keys=[],
     )
 
     executor.execute_load_step(load_step)
@@ -167,7 +164,6 @@ def test_append_mode(engine, executor, sample_data):
         table_name="users_target",
         source_name="users_updates",
         mode="APPEND",
-        merge_keys=[],
     )
 
     # Execute the load step
@@ -202,12 +198,12 @@ def test_append_mode(engine, executor, sample_data):
     )
 
 
-def test_merge_mode_manual(engine, executor, sample_data):
-    """Test MERGE mode functionality by implementing it manually.
+def test_upsert_mode_manual(engine, executor, sample_data):
+    """Test UPSERT mode functionality by implementing it manually.
 
-    This test simulates the MERGE mode behavior by manually implementing the same logic
-    that would happen with the MERGE SQL statement, since not all DuckDB versions
-    support the MERGE syntax directly. This approach ensures compatibility with
+    This test simulates the UPSERT mode behavior by manually implementing the same logic
+    that would happen with the UPSERT SQL statement, since not all DuckDB versions
+    support the UPSERT syntax directly. This approach ensures compatibility with
     different DuckDB versions.
     """
     # Register initial data
@@ -224,7 +220,51 @@ def test_merge_mode_manual(engine, executor, sample_data):
     # Register update data
     engine.register_table("users_updates", sample_data["users_updates"])
 
-    # Simulate MERGE manually
+    # Simulate UPSERT manually
+    # 1. Update existing records
+    engine.execute_query(
+        """
+    UPDATE users_target 
+    SET 
+        name = users_updates.name,
+        email = users_updates.email,
+        is_active = users_updates.is_active
+    FROM users_updates
+    WHERE users_target.user_id = users_updates.user_id
+    """
+    )
+
+    # 2. Insert new records
+    engine.execute_query(
+        """
+    INSERT INTO users_target
+    SELECT * FROM users_updates
+    WHERE user_id NOT IN (SELECT user_id FROM users_target)
+    """
+    )
+
+
+def test_upsert_mode_complete(engine, executor, sample_data):
+    """Test UPSERT mode functionality with comprehensive validation.
+
+    This test provides complete coverage of UPSERT mode behavior including
+    updates, inserts, and verification of final state.
+    """
+    # Register initial data
+    engine.register_table("users_source", sample_data["users_data"])
+
+    # Create the target table first
+    engine.execute_query(
+        """
+    CREATE TABLE users_target AS 
+    SELECT * FROM users_source
+    """
+    )
+
+    # Register update data
+    engine.register_table("users_updates", sample_data["users_updates"])
+
+    # Simulate UPSERT manually
     # 1. Update existing records
     engine.execute_query(
         """
@@ -296,13 +336,13 @@ def test_merge_mode_manual(engine, executor, sample_data):
     assert bool(unchanged_row["is_active"])
 
 
-def test_merge_with_multiple_keys_manual(engine, executor):
-    """Test MERGE mode with multiple merge keys using manual implementation.
+def test_upsert_with_multiple_keys_manual(engine, executor, sample_data):
+    """Test UPSERT mode with multiple upsert keys using manual implementation.
 
-    This test verifies that a MERGE operation works correctly with composite keys
+    This test verifies that an UPSERT operation works correctly with composite keys
     (in this case, product_id AND warehouse_id). The test manually implements the
-    merge logic since DuckDB versions may have different levels of support for the
-    MERGE syntax.
+    upsert logic since DuckDB versions may have different levels of support for the
+    UPSERT syntax.
     """
     # Create inventory data
     inventory_data = pd.DataFrame(
@@ -342,7 +382,7 @@ def test_merge_with_multiple_keys_manual(engine, executor):
     """
     )
 
-    # Simulate MERGE with multiple keys manually
+    # Simulate UPSERT with multiple keys manually
     # 1. Update existing records
     engine.execute_query(
         """
@@ -434,7 +474,7 @@ def test_merge_with_multiple_keys_manual(engine, executor):
 
 
 def test_schema_compatibility_validation(engine, executor, sample_data):
-    """Test schema compatibility validation for APPEND and MERGE modes."""
+    """Test schema compatibility validation for APPEND and UPSERT modes."""
     # Register initial data
     engine.register_table("users_source", sample_data["users_data"])
 
@@ -496,8 +536,8 @@ def test_schema_compatibility_validation(engine, executor, sample_data):
         assert False, "Schema validation should detect missing column in source"
 
 
-def test_merge_key_validation(engine, executor, sample_data):
-    """Test merge key validation for MERGE mode."""
+def test_upsert_key_validation(engine, executor, sample_data):
+    """Test upsert key validation for UPSERT mode."""
     # Register initial data
     engine.register_table("users_source", sample_data["users_data"])
 
@@ -512,21 +552,21 @@ def test_merge_key_validation(engine, executor, sample_data):
     # Register update data
     engine.register_table("users_updates", sample_data["users_updates"])
 
-    # Test with non-existent merge key
+    # Test with non-existent upsert key
     try:
         # Get source schema
         source_schema = engine.get_table_schema("users_updates")
 
-        # Check if merge key exists in source
+        # Check if upsert key exists in source
         if "non_existent_key" not in source_schema:
             # This should happen - the test passes
             assert True
         else:
-            assert False, "Should detect non-existent merge key"
+            assert False, "Should detect non-existent upsert key"
     except Exception as e:
         assert False, f"Unexpected error: {str(e)}"
 
-    # Test with incompatible merge key types
+    # Test with incompatible upsert key types
     # Create a table with string user_id
     string_id_data = pd.DataFrame(
         {
@@ -557,10 +597,10 @@ def test_merge_key_validation(engine, executor, sample_data):
     except Exception as e:
         assert False, f"Unexpected error: {str(e)}"
 
-    # Test with missing merge keys
+    # Test with missing upsert keys
     try:
-        if not []:  # Empty list of merge keys
-            # For MERGE mode, merge keys are required
+        if not []:  # Empty list of upsert keys
+            # For UPSERT mode, upsert keys are required
             assert True  # This should happen
     except Exception as e:
         assert False, f"Unexpected error: {str(e)}"
@@ -679,7 +719,7 @@ def test_full_pipeline_with_load_modes_manual(engine, executor):
     """
     )
 
-    # Step 3: Update existing users and insert new ones (MERGE operation)
+    # Step 3: Update existing users and insert new ones (UPSERT operation)
     # Create temporary table with updates
     engine.execute_query(
         """
@@ -848,7 +888,6 @@ def test_schema_compatibility_column_subset_selection(engine, executor):
         table_name="narrow_target",
         source_name="compatible_source_table",
         mode="APPEND",
-        merge_keys=[],
     )
 
     # Execute the load step
@@ -978,8 +1017,8 @@ def test_load_append_mode_with_source(executor_with_source):
     assert len(data) == 10  # Should have 5 + 5 = 10 rows
 
 
-def test_load_merge_mode_with_source(executor_with_source):
-    """Test LOAD with MERGE mode using SOURCE connector."""
+def test_load_upsert_mode_with_source(executor_with_source):
+    """Test LOAD with UPSERT mode using SOURCE connector."""
     # First, create the target table with some initial data
     load_step_1 = LoadStep(
         table_name="users_table", source_name="users", mode="REPLACE"
@@ -987,21 +1026,21 @@ def test_load_merge_mode_with_source(executor_with_source):
     result_1 = executor_with_source.execute_load_step(load_step_1)
     assert result_1["status"] == "success"
 
-    # Now merge the same data (should update, not insert new rows)
+    # Now upsert the same data (should update, not insert new rows)
     load_step_2 = LoadStep(
-        table_name="users_table", source_name="users", mode="MERGE", merge_keys=["id"]
+        table_name="users_table", source_name="users", mode="UPSERT", upsert_keys=["id"]
     )
     result_2 = executor_with_source.execute_load_step(load_step_2)
 
     # Verify success
     assert result_2["status"] == "success"
     assert result_2["table"] == "users_table"
-    assert result_2["mode"] == "MERGE"
+    assert result_2["mode"] == "UPSERT"
 
-    # Verify data count remains the same (merged, not appended)
+    # Verify data count remains the same (upserted, not appended)
     engine = executor_with_source.duckdb_engine
     data = engine.execute_query("SELECT * FROM users_table").fetchall()
-    assert len(data) == 5  # Should still have 5 rows (merged)
+    assert len(data) == 5  # Should still have 5 rows (upserted)
 
 
 def test_load_with_missing_source():
@@ -1018,18 +1057,18 @@ def test_load_with_missing_source():
     assert "SOURCE 'nonexistent_source' is not defined" in result["message"]
 
 
-def test_load_merge_without_keys(executor_with_source):
-    """Test LOAD with MERGE mode fails when merge keys are not specified."""
+def test_load_upsert_without_keys(executor_with_source):
+    """Test LOAD with UPSERT mode fails when upsert keys are not specified."""
     load_step = LoadStep(
         table_name="users_table",
         source_name="users",
-        mode="MERGE",
-        # No merge_keys specified
+        mode="UPSERT",
+        # No upsert_keys specified
     )
 
     result = executor_with_source.execute_load_step(load_step)
     assert result["status"] == "error"
-    assert "MERGE operation requires at least one merge key" in result["message"]
+    assert "UPSERT operation requires at least one upsert key" in result["message"]
 
 
 def test_source_connector_registration(temp_csv_file):
@@ -1266,3 +1305,179 @@ def test_load_with_profile_based_source():
     # Should attempt to load (will fail on file access but that's expected)
     result = executor.execute_load_step(load_step)
     assert result["status"] == "error"  # Expected due to dummy file path
+
+
+def test_enhanced_upsert_mode_comprehensive(engine, executor, sample_data):
+    """Test enhanced UPSERT mode with comprehensive validation and metrics.
+
+    This test validates the improved UPSERT implementation including:
+    - Enhanced error messages
+    - Detailed operation metrics (inserted vs updated rows)
+    - Transaction safety
+    - Proper schema validation
+    """
+    # Register initial data
+    engine.register_table("users_source", sample_data["users_data"])
+
+    # Create the target table first
+    engine.execute_query(
+        """
+    CREATE TABLE users_target AS 
+    SELECT * FROM users_source
+    """
+    )
+
+    # Get initial row count
+    initial_count = engine.execute_query(
+        "SELECT COUNT(*) FROM users_target"
+    ).fetchone()[0]
+    assert initial_count == 3  # Should have 3 initial users
+
+    # Register update data with both updates and new records
+    engine.register_table("users_updates", sample_data["users_updates"])
+
+    # Execute UPSERT using the enhanced load step execution
+    from sqlflow.parser.ast import LoadStep
+
+    load_step = LoadStep(
+        table_name="users_target",
+        source_name="users_updates",
+        mode="UPSERT",
+        upsert_keys=["user_id"],
+        line_number=1,
+    )
+
+    # Execute the enhanced UPSERT
+    result = executor.execute_load_step(load_step)
+
+    # Validate the result contains detailed metrics
+    assert result["status"] == "success"
+    assert result["operation"] == "UPSERT"
+    assert result["mode"] == "UPSERT"
+    assert "rows_inserted" in result
+    assert "rows_updated" in result
+    assert "final_row_count" in result
+    assert result["upsert_keys"] == ["user_id"]
+
+    # Validate final state
+    final_count = engine.execute_query("SELECT COUNT(*) FROM users_target").fetchone()[
+        0
+    ]
+    assert final_count == 4  # Should have 4 users total (3 original + 1 new)
+
+    # Validate specific record updates
+    # Check that user_id=2 was updated
+    updated_row = (
+        engine.execute_query("SELECT * FROM users_target WHERE user_id = 2")
+        .fetchdf()
+        .iloc[0]
+    )
+    assert updated_row["name"] == "Jane Updated"
+    assert updated_row["email"] == "jane.new@example.com"
+
+    # Check that user_id=4 was inserted (new record)
+    new_row = (
+        engine.execute_query("SELECT * FROM users_target WHERE user_id = 4")
+        .fetchdf()
+        .iloc[0]
+    )
+    assert new_row["name"] == "Alice New"
+    assert new_row["email"] == "alice@example.com"
+
+    # Check that user_id=1 was unchanged (not in updates)
+    unchanged_row = (
+        engine.execute_query("SELECT * FROM users_target WHERE user_id = 1")
+        .fetchdf()
+        .iloc[0]
+    )
+    assert unchanged_row["name"] == "John Doe"
+    assert unchanged_row["email"] == "john@example.com"
+
+
+def test_enhanced_upsert_error_handling(engine, executor, sample_data):
+    """Test enhanced UPSERT error handling with detailed error messages.
+
+    This test validates that the improved UPSERT implementation provides
+    helpful error messages for common issues like missing upsert keys,
+    incompatible types, and missing columns.
+    """
+    # Register initial data
+    engine.register_table("users_source", sample_data["users_data"])
+
+    # Create the target table
+    engine.execute_query(
+        """
+    CREATE TABLE users_target AS 
+    SELECT * FROM users_source
+    """
+    )
+
+    # Test 1: UPSERT with non-existent upsert key
+    from sqlflow.parser.ast import LoadStep
+
+    # Create a source with a different schema (missing the upsert key)
+    engine.execute_query(
+        """
+    CREATE TABLE bad_source AS 
+    SELECT name, email, is_active FROM users_source
+    """
+    )
+
+    load_step_bad_key = LoadStep(
+        table_name="users_target",
+        source_name="bad_source",
+        mode="UPSERT",
+        upsert_keys=["user_id"],  # This column doesn't exist in bad_source
+        line_number=1,
+    )
+
+    # Execute and expect detailed error message
+    result = executor.execute_load_step(load_step_bad_key)
+    assert result["status"] == "error"
+    assert "UPSERT" in result["message"]
+    assert "user_id" in result["message"]
+    assert "does not exist in source" in result["message"]
+
+    # Test 2: UPSERT with incompatible types
+    # Create a source with incompatible user_id type
+    engine.execute_query(
+        """
+    CREATE TABLE incompatible_source AS 
+    SELECT 
+        CAST(user_id AS VARCHAR) as user_id,  -- Different type
+        name, 
+        email, 
+        is_active 
+    FROM users_source
+    """
+    )
+
+    load_step_incompatible = LoadStep(
+        table_name="users_target",
+        source_name="incompatible_source",
+        mode="UPSERT",
+        upsert_keys=["user_id"],
+        line_number=1,
+    )
+
+    # Execute and expect type compatibility error
+    result = executor.execute_load_step(load_step_incompatible)
+    assert result["status"] == "error"
+    assert "UPSERT" in result["message"]
+    assert (
+        "incompatible types" in result["message"] or "type" in result["message"].lower()
+    )
+
+    # Test 3: UPSERT with missing upsert keys (empty list)
+    load_step_no_keys = LoadStep(
+        table_name="users_target",
+        source_name="users_source",
+        mode="UPSERT",
+        upsert_keys=[],  # Empty upsert keys
+        line_number=1,
+    )
+
+    result = executor.execute_load_step(load_step_no_keys)
+    assert result["status"] == "error"
+    assert "UPSERT" in result["message"]
+    assert "at least one upsert key" in result["message"]

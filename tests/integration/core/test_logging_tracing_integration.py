@@ -440,7 +440,7 @@ class TestLoggingTracingIntegration(unittest.TestCase):
         logger = self.observability.get_logger("aggregation")
 
         # Generate logs with different operations and metadata
-        operations = ["APPEND", "MERGE", "SNAPSHOT"]
+        operations = ["APPEND", "UPSERT", "SNAPSHOT"]
         tables = ["table_a", "table_b", "table_c"]
 
         for i, (op, table) in enumerate(zip(operations, tables)):
