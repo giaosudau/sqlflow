@@ -133,46 +133,36 @@ Load data from sources into tables with various processing modes.
 
 **Syntax:**
 ```sql
-LOAD <table_name> FROM <source_name> [MODE <load_mode> [KEY (<key_list>)]];
+LOAD <table_name> FROM <source_name> [MODE <load_mode>] [KEY (<key_list>)];
 ```
 
 **Load Modes:**
-
-#### REPLACE Mode (Default)
-```sql
--- Replace all data (default behavior)
-LOAD users FROM users_source;
-LOAD users FROM users_source MODE REPLACE;
-```
-
-#### APPEND Mode
-```sql
--- Append new data to existing table
-LOAD events FROM new_events MODE APPEND;
-```
-
-#### UPSERT Mode
-```sql
--- Upsert with single key
-LOAD users FROM users_source MODE UPSERT KEY (user_id);
-
--- Upsert with multiple keys
-LOAD order_items FROM items_source MODE UPSERT KEY (order_id, product_id);
-
--- Upsert with parentheses optional (from examples)
-LOAD customers_table FROM customers_updates MODE UPSERT KEY (customer_id);
-```
+- `REPLACE` (default) - Create new table or replace existing
+- `APPEND` - Add new data to existing table  
+- `UPSERT` - Update existing records and insert new ones (requires KEY)
 
 **Examples from working pipelines:**
 ```sql
--- Basic data loading
-LOAD customers FROM customer_csv;
-LOAD orders FROM order_database MODE REPLACE;
+-- Basic data loading (REPLACE mode is default)
+LOAD users_table FROM users_csv;
 
--- Advanced loading patterns
-LOAD user_profiles FROM api_data MODE UPSERT KEY (user_id);
+-- Explicit REPLACE mode
+LOAD customers FROM customer_database MODE REPLACE;
+
+-- Append new data to existing table
 LOAD users_table FROM new_users_csv MODE APPEND;
+
+-- Upsert with single key
+LOAD users_table FROM users_updates_csv MODE UPSERT KEY (user_id);
+
+-- Upsert with multiple keys (composite key)
+LOAD inventory_table FROM inventory_updates_csv MODE UPSERT KEY (product_id, warehouse_id);
 ```
+
+**Key Notes:**
+- UPSERT mode requires KEY clause with column names in parentheses
+- Multiple keys are comma-separated within parentheses
+- See [Load Modes Reference](../user/reference/load_modes.md) for detailed mode documentation
 
 ### CREATE TABLE Directive
 
