@@ -60,7 +60,7 @@ Everything you need in one file, using SQL you already know.
 
 **Traditional approach**: Setting up dbt requires a data warehouse. Setting up Airflow requires servers, databases, schedulers. Each tool adds operational complexity.
 
-**SQLFlow approach**: Install with `pip install sqlflow`, run anywhere Python runs. No servers, no databases to manage, no infrastructure to maintain.
+**SQLFlow approach**: Install with `pip install sqlflow-core`, run anywhere Python runs. No servers, no databases to manage, no infrastructure to maintain.
 
 ```python
 # From: sqlflow/core/engines/duckdb/engine.py
