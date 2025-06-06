@@ -959,9 +959,11 @@ class ExecutionPlanBuilder:
                 f"Built source definitions mapping with {len(self._source_definitions)} sources"
             )
 
+            # Add load dependencies using the flattened pipeline objects
+            # This ensures dependencies are built with the same object IDs that will be used for step mapping
             self._add_load_dependencies(source_steps, load_steps)
 
-            # Generate unique IDs for each step
+            # Generate unique IDs for each step using the flattened pipeline
             self._generate_step_ids(flattened_pipeline)
 
             # Check for cycles in the dependency graph
@@ -1145,7 +1147,7 @@ class ExecutionPlanBuilder:
             pipeline: The pipeline to analyze
 
         """
-        # Initialize step dependencies dict
+        # Initialize step dependencies dict early
         self.step_dependencies = {}
 
         # Generate step IDs for all steps
@@ -1231,9 +1233,17 @@ class ExecutionPlanBuilder:
     def _add_dependency(
         self, dependent_step: PipelineStep, dependency_step: PipelineStep
     ) -> None:
-        dependent_id = str(id(dependent_step))
-        dependency_id = str(id(dependency_step))
-        self.dependency_resolver.add_dependency(dependent_id, dependency_id)
+        # Use deterministic step IDs instead of object IDs to avoid issues with conditional flattening
+        dependent_id = self._generate_step_id(dependent_step, 0)
+        dependency_id = self._generate_step_id(dependency_step, 0)
+
+        # Add to step_dependencies directly instead of using dependency_resolver
+        if dependent_id not in self.step_dependencies:
+            self.step_dependencies[dependent_id] = []
+
+        if dependency_id not in self.step_dependencies[dependent_id]:
+            self.step_dependencies[dependent_id].append(dependency_id)
+            logger.debug(f"Added dependency: {dependent_id} -> {dependency_id}")
 
     def _get_sources_and_loads(
         self, pipeline: Pipeline
@@ -1272,37 +1282,13 @@ class ExecutionPlanBuilder:
 
     def _create_clean_dependencies(self) -> None:
         """Create clean step dependencies using the new IDs."""
-        # Reset step_dependencies to ensure clean state
-        self.step_dependencies = {}
+        # Note: Dependencies are now added directly to step_dependencies in _add_dependency
+        # so this method mainly ensures all steps have a dependency entry (even if empty)
 
-        # Convert dependency_resolver dependencies to step IDs
-        for str_object_id, dependencies in list(
-            self.dependency_resolver.dependencies.items()
-        ):
-            # Convert string object ID back to integer for lookup
-            try:
-                object_id = int(str_object_id)
-            except ValueError:
-                continue
-
-            step_id = self.step_id_map.get(object_id)
-            if not step_id:
-                continue
-
-            # Convert dependency object IDs to step IDs
-            step_dependencies = []
-            for dep_str_object_id in dependencies:
-                try:
-                    dep_object_id = int(dep_str_object_id)
-                except ValueError:
-                    continue
-
-                dep_step_id = self.step_id_map.get(dep_object_id)
-                if dep_step_id:
-                    step_dependencies.append(dep_step_id)
-
-            if step_dependencies:
-                self.step_dependencies[step_id] = step_dependencies
+        # Ensure all steps have a dependency entry (even if empty)
+        for step_id in self.step_id_map.values():
+            if step_id not in self.step_dependencies:
+                self.step_dependencies[step_id] = []
 
     def _generate_step_id(self, step: PipelineStep, index: int) -> str:
         if isinstance(step, SourceDefinitionStep):

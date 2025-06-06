@@ -336,16 +336,22 @@ def _provide_compilation_context(warnings: List[str], pipeline_text: str) -> Non
             if len(parts) > 1:
                 undefined_table = parts[1].strip()
 
-        # Check for close matches that suggest typos
+        # Check for actual missing tables vs. conditional table references
         if undefined_table and available_tables:
-            # Check for close matches using difflib
-            close_matches = difflib.get_close_matches(
-                undefined_table, available_tables, n=3, cutoff=0.6
-            )
-            if close_matches:
-                compilation_errors.append(
-                    f"Table '{undefined_table}' not found. Did you mean '{close_matches[0]}'?"
+            # If table is actually available (exact match), this is likely a conditional table reference
+            if undefined_table in available_tables:
+                # Table exists - this is likely a conditional reference issue, not a true error
+                # Skip adding to compilation_errors
+                pass
+            else:
+                # Table doesn't exist - check for close matches that suggest typos
+                close_matches = difflib.get_close_matches(
+                    undefined_table, available_tables, n=3, cutoff=0.6
                 )
+                if close_matches:
+                    compilation_errors.append(
+                        f"Table '{undefined_table}' not found. Did you mean '{close_matches[0]}'?"
+                    )
 
         # Provide helpful context
         if available_tables or available_sources:

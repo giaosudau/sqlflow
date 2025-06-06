@@ -555,6 +555,9 @@ class Parser:
         if self._check(TokenType.MODE):
             mode, upsert_keys = self._parse_load_mode()
 
+        # Consume semicolon (required for proper statement termination)
+        self._consume(TokenType.SEMICOLON, "Expected ';' after LOAD statement")
+
         # Create LoadStep
         load_step = LoadStep(
             table_name=table_name_token.value,

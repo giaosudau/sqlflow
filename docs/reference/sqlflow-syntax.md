@@ -482,6 +482,60 @@ condition1 AND condition2  -- Logical AND
 condition1 OR condition2   -- Logical OR
 ```
 
+### Table Reference Validation in Conditionals
+
+SQLFlow's validation system properly handles table references within conditional blocks. Tables created within conditional statements are correctly recognized when referenced later in the same conditional block.
+
+**Valid Conditional Table References:**
+```sql
+IF ${env} == 'dev' THEN
+    -- Load raw data
+    LOAD customers_raw FROM customers_source;
+    LOAD sales_raw FROM sales_source;
+    
+    -- Reference tables created above - this will NOT cause validation errors
+    CREATE TABLE processed_data AS
+    SELECT c.customer_id, s.order_id
+    FROM customers_raw c               -- ✅ Valid reference
+    JOIN sales_raw s ON c.customer_id = s.customer_id;  -- ✅ Valid reference
+    
+ELSE
+    -- Load production data
+    LOAD customers FROM customers_source;
+    LOAD sales FROM sales_source;
+    
+    -- Reference production tables - also valid
+    CREATE TABLE processed_data AS
+    SELECT c.customer_id, s.order_id
+    FROM customers c                   -- ✅ Valid reference
+    JOIN sales s ON c.customer_id = s.customer_id;      -- ✅ Valid reference
+END IF;
+```
+
+**Validation Behavior:**
+- **Tables that exist in conditional blocks**: Pass validation (no errors)
+- **Tables with typos that have close matches**: Fail validation with helpful suggestions
+- **External tables that don't exist**: Show warnings but allow compilation to proceed
+
+**Example showing different validation outcomes:**
+```sql
+IF ${env} == 'dev' THEN
+    LOAD sales_raw FROM sales_source;
+    
+    -- ✅ This passes validation (table exists in same conditional block)
+    CREATE TABLE valid_table AS
+    SELECT * FROM sales_raw;
+    
+    -- ❌ This fails validation (clear typo with close match)
+    CREATE TABLE typo_table AS
+    SELECT * FROM sales_raw_typo;  -- Error: Did you mean 'sales_raw'?
+    
+    -- ⚠️ This shows warning but passes (might be external table)
+    CREATE TABLE external_table AS
+    SELECT * FROM completely_different_table;  -- Warning: might not be defined
+END IF;
+```
+
 ## Advanced Features
 
 ### SQL Query Integration
@@ -657,6 +711,22 @@ SOURCE user_data TYPE CSV PARAMS {"path": "users.csv"};
 LOAD users FROM user_data;
 ```
 
+**Conditional Table References:**
+```sql
+-- ❌ Error: Table referenced outside its conditional block
+LOAD sales_raw FROM sales_source;  -- This is inside an IF block
+
+CREATE TABLE analysis AS          -- This is outside the IF block
+SELECT * FROM sales_raw;          -- ❌ Error: sales_raw not accessible here
+
+-- ✅ Correct: Reference tables within the same conditional scope
+IF ${env} == 'dev' THEN
+    LOAD sales_raw FROM sales_source;
+    CREATE TABLE analysis AS
+    SELECT * FROM sales_raw;       -- ✅ Valid: same conditional block
+END IF;
+```
+
 ### Validation
 
 SQLFlow validates syntax and references:
@@ -670,7 +740,13 @@ sqlflow pipeline validate my_pipeline
 # - Invalid JSON parameters  
 # - Circular dependencies
 # - Missing required parameters
+# - Table references outside their conditional scope
 ```
+
+**Conditional Validation Notes:**
+- Tables created within conditional blocks are only accessible within the same conditional scope
+- SQLFlow distinguishes between typos (fail compilation) and external tables (warn but proceed)
+- Use `sqlflow pipeline validate` to check conditional table references before running pipelines
 
 ## Complete Example
 

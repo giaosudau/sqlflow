@@ -56,12 +56,10 @@ def test_table_udf_dependency_in_pipeline():
     planner._build_table_to_step_mapping(pipeline)
     planner._build_dependency_graph(pipeline)
 
-    # Verify the step_dependencies dict has the correct dependency
-    step_ids = {id(step): i for i, step in enumerate(pipeline.steps)}
+    # Get step IDs using the planner's step ID generation
+    load_step_id = planner._generate_step_id(load_step, 0)
+    udf_step_id = planner._generate_step_id(udf_step, 1)
 
-    # Get dependency IDs
-    load_id = str(id(load_step))
-    udf_id = str(id(udf_step))
-
-    # Check that UDF step depends on load step
-    assert load_id in planner.dependency_resolver.dependencies.get(udf_id, [])
+    # Check that UDF step depends on load step in the step_dependencies dict
+    udf_dependencies = planner.step_dependencies.get(udf_step_id, [])
+    assert load_step_id in udf_dependencies
