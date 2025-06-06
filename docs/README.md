@@ -1,67 +1,127 @@
 # SQLFlow Documentation
 
-Welcome to the SQLFlow documentation. This guide will help you navigate the available documentation resources.
+Welcome to SQLFlow documentation. This guide helps you solve data pipeline problems fast using SQL you already know.
 
-## User Documentation
+## 🚀 New to SQLFlow? Start Here
 
-Documentation for users of SQLFlow:
+### **Get Working Results in 2 Minutes**
+- [**Installation Guide**](installation.md) - Get SQLFlow running on your system
+- [**2-Minute Quickstart**](quickstart.md) - See SQLFlow in action immediately  
+- [**Why SQLFlow?**](../README.md) - Problem-solving approach vs alternatives
 
-### Getting Started
+## 👥 For Data Analysts & Business Users
 
-- [Getting Started Guide](user/getting_started.md) - A step-by-step introduction to SQLFlow
-- [Core Concepts](user/concepts.md) - Key concepts and terminology in SQLFlow
+**Problem**: "I need working analytics fast without learning new tools"
 
-### Guides
+### **User Guides - Solve Real Problems**
+- [**Building Analytics Pipelines**](user-guides/building-analytics-pipelines.md) - Customer analytics, sales reporting, data quality
+- [**Connecting Data Sources**](user-guides/connecting-data-sources.md) - Load from CSV, PostgreSQL, S3, APIs
+- [**Troubleshooting Guide**](user-guides/troubleshooting.md) - Fix common issues quickly
 
-- [Working with Profiles](user/guides/profiles.md) - How to configure and use profiles
-- [Using Variables](user/guides/variables.md) - Working with variables and substitution
-- [Conditional Execution](user/guides/conditionals.md) - Using conditionals in your pipelines
-- [Logging Configuration](user/guides/logging.md) - How to configure logging
+**User Journey**: Problem → [Installation](installation.md) → [Quickstart](quickstart.md) → [Building Pipelines](user-guides/building-analytics-pipelines.md) → Success
 
-### Reference
+## 🔧 For Developers & Engineers
 
-- [Syntax Reference](user/reference/syntax.md) - Complete SQLFlow syntax documentation
-- [CLI Reference](user/reference/cli.md) - Command-line interface reference
-- [Connector Reference](user/reference/connectors.md) - Available connectors and their configuration
-- [Python UDFs Reference](user/reference/python_udfs.md) - Working with Python User-Defined Functions
+**Problem**: "I need to evaluate, understand, and extend SQLFlow"
 
-### Tutorials
+### **Developer Guides - Technical Deep Dive**
+- [**Technical Overview**](developer-guides/technical-overview.md) - Why SQLFlow exists, architecture decisions
+- [**Architecture Deep Dive**](developer-guides/architecture-deep-dive.md) - System design, DuckDB choice, implementation  
+- [**Extending SQLFlow**](developer-guides/extending-sqlflow.md) - Build connectors, UDFs, integrations
+- [**Contributing Guide**](developer-guides/contributing.md) - Code contribution, testing, CI/CD
 
-- [Basic Pipeline Tutorial](user/tutorials/basic_pipeline.md) - Building your first pipeline
-- [E-commerce Analysis](user/tutorials/ecommerce_analysis.md) - E-commerce data analysis tutorial
-- [Python Integration](user/tutorials/python_integration.md) - Integrating Python with SQLFlow
+**Developer Journey**: Evaluation → [Technical Overview](developer-guides/technical-overview.md) → [Architecture](developer-guides/architecture-deep-dive.md) → [Extension](developer-guides/extending-sqlflow.md) → Contribution
 
-## Developer Documentation
+## 📚 Reference Materials
 
-Documentation for developers contributing to SQLFlow:
+**Find detailed specifications when you need them:**
 
-- [Contributing Guide](developer/contributing.md) - How to contribute to SQLFlow
-- [Architecture Overview](developer/architecture.md) - System architecture and design
-- [Code Organization](developer/code_organization.md) - How the codebase is organized
+- [**CLI Commands**](reference/cli-commands.md) - Complete command reference
+- [**SQLFlow Syntax**](reference/sqlflow-syntax.md) - Language specification and grammar
+- [**Connectors**](reference/connectors.md) - All connector types and configurations
+- [**Python UDFs**](reference/udfs.md) - UDF development and integration
+- [**Profiles**](reference/profiles.md) - Environment configuration and variables
 
-### Technical Design
+## 🎯 Common Use Cases
 
-- [CREATE TABLE AS MODE Design](developer/technical/implementation/create_table_as_mode_design.md) - Technical design for extending CREATE TABLE AS with MODE parameter support
-- [Incremental Loading Implementation](developer/technical/incremental_loading_implementation.md) - Technical implementation guide for incremental loading capabilities
-- [DAG Planner & Executor](developer/technical/dag_planner_executor.md) - Architecture of the DAG planning and execution system
+### **"I need customer analytics for my dashboard"**
+→ [2-Minute Quickstart](quickstart.md) → [Building Analytics Pipelines](user-guides/building-analytics-pipelines.md)
 
-### Extending SQLFlow
+### **"I have data in multiple places and need to combine it"**  
+→ [Connecting Data Sources](user-guides/connecting-data-sources.md) → [Multi-source Integration Examples](user-guides/connecting-data-sources.md#-multi-source-data-integration)
 
-- [Creating Connectors](developer/extending/connectors.md) - How to create new connectors
-- [Developing UDFs](developer/extending/udfs.md) - Developing User-Defined Functions
-- [Custom Engine Integration](developer/extending/engines.md) - Integrating custom engines
+### **"Something's not working and I need to fix it"**
+→ [Troubleshooting Guide](user-guides/troubleshooting.md) → [Community Support](user-guides/troubleshooting.md#-getting-more-help)
 
-### Process
+### **"I want to understand if SQLFlow fits our architecture"**
+→ [Technical Overview](developer-guides/technical-overview.md) → [Architecture Deep Dive](developer-guides/architecture-deep-dive.md)
 
-- [Testing Guidelines](developer/testing.md) - How to test SQLFlow
-- [Release Process](developer/release_process.md) - The SQLFlow release process
+### **"I need to build custom connectors or UDFs"**
+→ [Extending SQLFlow](developer-guides/extending-sqlflow.md) → [UDF Reference](reference/udfs.md)
 
-## Comparisons
+## 💡 Working Examples
 
-- [SQLFlow vs dbt](comparison/vs_dbt.md) - Comparison with dbt
-- [SQLFlow vs Airflow](comparison/vs_airflow.md) - Comparison with Airflow
-- [Feature Matrix](comparison/feature_matrix.md) - Feature comparison with other tools
+**Every guide is backed by working code:**
 
-## Note on Current Status
+- **Basic Analytics**: [`/examples/conditional_pipelines/`](../examples/conditional_pipelines/)
+- **Load Modes**: [`/examples/load_modes/`](../examples/load_modes/) 
+- **E-commerce Analytics**: [`/examples/shopify_ecommerce_analytics/`](../examples/shopify_ecommerce_analytics/)
+- **Database Integration**: [`/examples/phase2_integration_demo/`](../examples/phase2_integration_demo/)
+- **Python UDFs**: [`/examples/udf_examples/`](../examples/udf_examples/)
+- **Incremental Processing**: [`/examples/incremental_loading_demo/`](../examples/incremental_loading_demo/)
 
-> **MVP Status**: SQLFlow is currently in its Minimum Viable Product (MVP) phase. Some features may be limited in functionality, and documentation is actively being improved. We welcome community feedback and contributions to help shape the future of SQLFlow. 
+## 🔍 Documentation Philosophy
+
+**Problem-Focused Approach:**
+- Start with user problems, not feature lists
+- Provide working examples for everything  
+- Clear paths from evaluation to success
+- Community-ready contribution guidelines
+
+**Quality Standards:**
+- ✅ All code examples execute successfully
+- ✅ Examples linked to working [`/examples/`](../examples/) projects
+- ✅ User-tested for clarity and completeness
+- ✅ Regular verification and updates
+
+## 🤝 Community & Support
+
+### **Get Help**
+- 💬 [**GitHub Discussions**](https://github.com/sqlflow/sqlflow/discussions) - Ask questions and share use cases
+- 🐞 [**GitHub Issues**](https://github.com/sqlflow/sqlflow/issues) - Report bugs and request features
+- 📖 [**Troubleshooting Guide**](user-guides/troubleshooting.md) - Solve common issues
+
+### **Contribute**
+- 🧑‍💻 [**Contributing Guide**](developer-guides/contributing.md) - How to contribute code
+- 📝 **Improve Documentation** - Found something unclear? Submit a PR
+- ⭐ **Star on GitHub** - [github.com/sqlflow/sqlflow](https://github.com/sqlflow/sqlflow)
+
+## 📋 Legacy Documentation
+
+**Transitioning from old structure?** Some content is still available:
+
+- [**Legacy User Guides**](user/) - Previous documentation structure
+- [**Developer Documentation**](developer/) - Previous technical docs
+- [**Comparisons**](comparison/) - Feature comparisons with other tools
+
+**Note**: Legacy documentation will be gradually migrated to the new structure. For the best experience, use the guides above.
+
+---
+
+## 🎯 Quick Navigation
+
+| **I Want To...** | **Go Here** |
+|-------------------|-------------|
+| Get started immediately | [2-Minute Quickstart](quickstart.md) |
+| Install SQLFlow | [Installation Guide](installation.md) |
+| Build customer analytics | [Building Analytics Pipelines](user-guides/building-analytics-pipelines.md) |
+| Connect my data sources | [Connecting Data Sources](user-guides/connecting-data-sources.md) |
+| Fix a problem | [Troubleshooting Guide](user-guides/troubleshooting.md) |
+| Understand the architecture | [Technical Overview](developer-guides/technical-overview.md) |
+| Extend SQLFlow | [Extending SQLFlow](developer-guides/extending-sqlflow.md) |
+| Find a specific command | [CLI Reference](reference/cli-commands.md) |
+| Learn the syntax | [SQLFlow Syntax](reference/sqlflow-syntax.md) |
+
+---
+
+**Built with ❤️ for data teams who value speed and simplicity.** 
