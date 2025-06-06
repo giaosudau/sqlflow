@@ -162,8 +162,8 @@ FROM customer_summary;
 ## 📚 Documentation & Getting Started
 
 ### 📖 **New to SQLFlow?**
-- [**Installation Guide**](docs/installation.md) - Get SQLFlow running on your system
-- [**2-Minute Quickstart**](docs/quickstart.md) - See SQLFlow in action immediately
+- [**Installation Guide**](docs/getting-started/installation.md) - Get SQLFlow running on your system
+- [**2-Minute Quickstart**](docs/getting-started/quickstart.md) - See SQLFlow in action immediately
 - [**Building Analytics Pipelines**](docs/user-guides/building-analytics-pipelines.md) - Solve common data problems
 
 ### 🔧 **For Developers**  
@@ -193,7 +193,7 @@ pip install "sqlflow-core[cloud]"
 pip install "sqlflow-core[all]"
 ```
 
-**Having installation issues?** See our [Installation Guide](docs/installation.md) for platform-specific troubleshooting.
+**Having installation issues?** See our [Installation Guide](docs/getting-started/installation.md) for platform-specific troubleshooting.
 
 ## 🔍 Built-in Validation & Error Prevention
 

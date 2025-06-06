@@ -5,8 +5,8 @@ Welcome to SQLFlow documentation. This guide helps you solve data pipeline probl
 ## 🚀 New to SQLFlow? Start Here
 
 ### **Get Working Results in 2 Minutes**
-- [**Installation Guide**](installation.md) - Get SQLFlow running on your system
-- [**2-Minute Quickstart**](quickstart.md) - See SQLFlow in action immediately  
+- [**Installation Guide**](getting-started/installation.md) - Get SQLFlow running on your system
+- [**2-Minute Quickstart**](getting-started/quickstart.md) - See SQLFlow in action immediately  
 - [**Why SQLFlow?**](../README.md) - Problem-solving approach vs alternatives
 
 ## 👥 For Data Analysts & Business Users
@@ -18,7 +18,7 @@ Welcome to SQLFlow documentation. This guide helps you solve data pipeline probl
 - [**Connecting Data Sources**](user-guides/connecting-data-sources.md) - Load from CSV, PostgreSQL, S3, APIs
 - [**Troubleshooting Guide**](user-guides/troubleshooting.md) - Fix common issues quickly
 
-**User Journey**: Problem → [Installation](installation.md) → [Quickstart](quickstart.md) → [Building Pipelines](user-guides/building-analytics-pipelines.md) → Success
+**User Journey**: Problem → [Installation](getting-started/installation.md) → [Quickstart](getting-started/quickstart.md) → [Building Pipelines](user-guides/building-analytics-pipelines.md) → Success
 
 ## 🔧 For Developers & Engineers
 
@@ -45,7 +45,7 @@ Welcome to SQLFlow documentation. This guide helps you solve data pipeline probl
 ## 🎯 Common Use Cases
 
 ### **"I need customer analytics for my dashboard"**
-→ [2-Minute Quickstart](quickstart.md) → [Building Analytics Pipelines](user-guides/building-analytics-pipelines.md)
+→ [2-Minute Quickstart](getting-started/quickstart.md) → [Building Analytics Pipelines](user-guides/building-analytics-pipelines.md)
 
 ### **"I have data in multiple places and need to combine it"**  
 → [Connecting Data Sources](user-guides/connecting-data-sources.md) → [Multi-source Integration Examples](user-guides/connecting-data-sources.md#-multi-source-data-integration)
@@ -100,9 +100,9 @@ Welcome to SQLFlow documentation. This guide helps you solve data pipeline probl
 
 **Transitioning from old structure?** Some content is still available:
 
-- [**Legacy User Guides**](user/) - Previous documentation structure
-- [**Developer Documentation**](developer/) - Previous technical docs
-- [**Comparisons**](comparison/) - Feature comparisons with other tools
+- [**Legacy User Guides**](legacy/user/) - Previous documentation structure
+- [**Developer Documentation**](legacy/developer/) - Previous technical docs
+- [**Comparisons**](legacy/comparison/) - Feature comparisons with other tools
 
 **Note**: Legacy documentation will be gradually migrated to the new structure. For the best experience, use the guides above.
 
@@ -112,8 +112,8 @@ Welcome to SQLFlow documentation. This guide helps you solve data pipeline probl
 
 | **I Want To...** | **Go Here** |
 |-------------------|-------------|
-| Get started immediately | [2-Minute Quickstart](quickstart.md) |
-| Install SQLFlow | [Installation Guide](installation.md) |
+| Get started immediately | [2-Minute Quickstart](getting-started/quickstart.md) |
+| Install SQLFlow | [Installation Guide](getting-started/installation.md) |
 | Build customer analytics | [Building Analytics Pipelines](user-guides/building-analytics-pipelines.md) |
 | Connect my data sources | [Connecting Data Sources](user-guides/connecting-data-sources.md) |
 | Fix a problem | [Troubleshooting Guide](user-guides/troubleshooting.md) |
