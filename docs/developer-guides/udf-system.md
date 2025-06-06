@@ -423,20 +423,18 @@ def process_large_dataset(df: pd.DataFrame) -> pd.DataFrame:
 
 **Vision**: UDFs become a community-driven ecosystem like npm or PyPI:
 
+> **Note**: This is a future vision. Currently, UDFs are discovered from local `python_udfs/` directories and used with `PYTHON_FUNC()` syntax.
+
 ```sql
--- Install UDF packages
+-- Install UDF packages (FUTURE FEATURE)
 PYTHON_UDFS INSTALL "finance-utils>=1.0.0";
 PYTHON_UDFS INSTALL "ml-preprocessing>=2.1.0";
 
--- Import specific functions
-PYTHON_UDFS FROM "finance-utils" IMPORT calculate_ltv, risk_score;
-PYTHON_UDFS FROM "ml-preprocessing" IMPORT normalize, outlier_detection;
-
--- Use in SQL
+-- Use UDFs directly (automatically discovered from python_udfs/)
 SELECT 
     customer_id,
-    calculate_ltv(revenue, churn_probability) as lifetime_value,
-    risk_score(payment_history, credit_score) as risk_level
+    PYTHON_FUNC("python_udfs.finance_utils.calculate_ltv", revenue, churn_probability) as lifetime_value,
+    PYTHON_FUNC("python_udfs.risk_analysis.risk_score", payment_history, credit_score) as risk_level
 FROM customers;
 ```
 

@@ -209,25 +209,19 @@ my_project/
 ### Usage in SQL
 
 ```sql
--- Load UDFs automatically
-PYTHON_UDFS FROM "python_udfs/";
-
 -- Use scalar UDFs in SELECT statements
 CREATE TABLE processed_customers AS
 SELECT 
     customer_id,
     name,
-    format_phone(phone) as formatted_phone,
-    validate_email(email) as email_is_valid,
-    calculate_discount(lifetime_value, tier) as available_discount
+    PYTHON_FUNC("python_udfs.text_utils.format_phone", phone) as formatted_phone,
+    PYTHON_FUNC("python_udfs.validation.validate_email", email) as email_is_valid,
+    PYTHON_FUNC("python_udfs.financial.calculate_discount", lifetime_value, tier) as available_discount
 FROM customers;
 
--- Use table UDFs for complex transformations
+-- Use table UDFs with external processing pattern
 CREATE TABLE enriched_orders AS
-SELECT * FROM calculate_order_totals(
-    SELECT customer_id, order_id, amount FROM raw_orders,
-    0.0875  -- Tax rate parameter
-);
+SELECT * FROM PYTHON_FUNC("python_udfs.data_transforms.calculate_order_totals", raw_orders);
 ```
 
 ### UDF Metadata and Introspection

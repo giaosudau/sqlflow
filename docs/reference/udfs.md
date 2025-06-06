@@ -23,11 +23,14 @@ def process_orders(df: pd.DataFrame) -> pd.DataFrame:
 
 **Usage in SQL:**
 ```sql
--- Load UDFs automatically
-PYTHON_UDFS FROM "python_udfs/";
+-- Use scalar UDFs directly in SELECT statements
+SELECT 
+    customer_id, 
+    PYTHON_FUNC("python_udfs.tax_functions.calculate_tax", amount, 0.08) as tax_amount 
+FROM orders;
 
--- Use in queries
-SELECT customer_id, calculate_tax(amount, 0.08) as tax_amount FROM orders;
+-- Use table UDFs in FROM clauses  
+SELECT * FROM PYTHON_FUNC("python_udfs.data_transforms.add_sales_metrics", raw_sales);
 ```
 
 ## UDF Types
@@ -286,16 +289,19 @@ project/
 4. Extract metadata (name, type, signature)
 5. Register with SQL execution engine
 
-**Loading UDFs:**
+**Using UDFs in SQL:**
+
+UDFs are automatically discovered from your `python_udfs/` directory and can be used directly:
+
 ```sql
--- Load all UDFs from python_udfs/ directory
-PYTHON_UDFS FROM "python_udfs/";
+-- Scalar UDFs in SELECT statements  
+SELECT 
+    customer_id,
+    PYTHON_FUNC("python_udfs.financial_functions.calculate_ltv", revenue, churn_rate) as ltv
+FROM customers;
 
--- Load specific module
-PYTHON_UDFS FROM "python_udfs.financial_functions";
-
--- Use in queries immediately
-SELECT customer_id, calculate_ltv(revenue, churn_rate) FROM customers;
+-- Table UDFs in FROM clauses (see limitations section below)
+SELECT * FROM PYTHON_FUNC("python_udfs.data_transforms.add_sales_metrics", raw_sales);
 ```
 
 ## Error Handling
@@ -433,11 +439,14 @@ def memory_efficient_processing(df: pd.DataFrame) -> pd.DataFrame:
 
 ### DuckDB Table Function Limitation
 
-**Current Reality:** DuckDB's Python API doesn't support table functions in SQL FROM clauses.
+**Current Reality:** DuckDB's Python API has limitations with table functions in SQL FROM clauses.
 
 ```sql
--- ❌ This doesn't work:
+-- ❌ This syntax has limitations in DuckDB Python API:
 SELECT * FROM PYTHON_FUNC("process_orders", raw_orders);
+
+-- ✅ This works for scalar UDFs:
+SELECT *, PYTHON_FUNC("process_value", column_name) as processed FROM raw_orders;
 ```
 
 ### Workaround 1: Scalar UDF Chain
