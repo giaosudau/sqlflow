@@ -405,6 +405,149 @@ SOURCE events TYPE S3 PARAMS {
 };
 ```
 
+### Profile-Based Configuration Loading
+
+SQLFlow automatically loads connector configurations from the active profile, eliminating the need to duplicate connection details across pipelines:
+
+**Profile Structure:**
+```yaml
+# profiles/production.yml
+engines:
+  duckdb:
+    mode: persistent
+    path: "/data/production.db"
+
+# Connector configurations loaded automatically
+connections:
+  warehouse:
+    type: postgres
+    host: warehouse.company.com
+    port: 5432
+    database: analytics
+    username: sqlflow_prod
+    password: ${WAREHOUSE_PASSWORD}
+    
+  data_lake:
+    type: s3
+    aws_access_key_id: ${AWS_ACCESS_KEY_ID}
+    aws_secret_access_key: ${AWS_SECRET_ACCESS_KEY}
+    region: us-east-1
+    bucket: prod-data-lake
+
+# Variables available to all pipelines
+variables:
+  environment: production
+  batch_size: 50000
+```
+
+**Pipeline Usage:**
+```sql
+-- Simply reference connection by name
+SOURCE customers TYPE POSTGRES PARAMS {
+  "connection": "warehouse",
+  "table": "customers"
+};
+
+SOURCE events TYPE S3 PARAMS {
+  "connection": "data_lake",
+  "key": "events/${YEAR}/${MONTH}/",
+  "format": "parquet"
+};
+```
+
+### Automatic .env File Integration
+
+SQLFlow automatically loads environment variables from `.env` files in your project root, providing seamless integration with connector configurations:
+
+**Create .env file:**
+```bash
+# Create template
+sqlflow env template
+
+# Check current status
+sqlflow env check
+
+# List loaded variables
+sqlflow env list
+```
+
+**Example .env file:**
+```bash
+# Database credentials
+WAREHOUSE_PASSWORD=secure_db_password
+POSTGRES_HOST=localhost
+POSTGRES_USER=sqlflow_user
+
+# Cloud credentials  
+AWS_ACCESS_KEY_ID=AKIA...
+AWS_SECRET_ACCESS_KEY=...
+S3_BUCKET=my-data-bucket
+
+# API credentials
+SHOPIFY_TOKEN=shpat_...
+API_KEY=your_api_key
+```
+
+**Automatic Loading:**
+Environment variables are automatically available in connector configurations without any additional setup:
+
+```yaml
+# profiles/dev.yml - automatically uses .env values
+connections:
+  local_db:
+    type: postgres
+    host: ${POSTGRES_HOST}      # From .env file
+    username: ${POSTGRES_USER}  # From .env file
+    password: ${WAREHOUSE_PASSWORD}  # From .env file
+    
+  s3_storage:
+    type: s3
+    aws_access_key_id: ${AWS_ACCESS_KEY_ID}     # From .env file
+    aws_secret_access_key: ${AWS_SECRET_ACCESS_KEY}  # From .env file
+    bucket: ${S3_BUCKET}        # From .env file
+```
+
+**Pipeline Integration:**
+```sql
+-- No additional configuration needed
+SOURCE customers TYPE POSTGRES PARAMS {
+  "connection": "local_db",
+  "table": "customers"
+};
+
+-- Variables from .env also available directly
+SOURCE api_data TYPE REST PARAMS {
+  "url": "https://api.service.com/data",
+  "headers": {
+    "Authorization": "Bearer ${API_KEY}"  -- From .env file
+  }
+};
+```
+
+**Variable Priority:**
+1. CLI `--vars` parameters (highest)
+2. Profile `variables` section
+3. Pipeline `SET` statements
+4. `.env` file variables
+5. System environment variables
+6. Default values (`${VAR|default}`) (lowest)
+
+### Profile Management Commands
+
+```bash
+# List available profiles
+sqlflow profile list
+
+# Validate profile configuration
+sqlflow profile validate production
+
+# Test connections in profile
+sqlflow connect test warehouse --profile production
+
+# List connections in profile
+sqlflow connect list --profile production
+```
+
 ## Error Handling
 
 ### Connection Testing

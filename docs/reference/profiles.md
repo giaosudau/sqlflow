@@ -54,6 +54,26 @@ connections:              # Optional: Named connections
     type: connector_type
     param1: value1
     param2: ${ENV_VAR}
+
+# Advanced sections (from actual examples)
+connectors:               # Alternative connection format
+  postgres:
+    type: POSTGRES
+    params:
+      host: localhost
+      port: 5432
+
+performance:              # Performance tuning
+  batch_size: 1000
+  max_memory_mb: 2048
+
+logging:                  # Advanced logging configuration
+  level: INFO
+  format: structured
+  
+testing:                  # Testing configuration
+  enabled: true
+  data_validation: true
 ```
 
 ## Engine Configuration
@@ -117,6 +137,23 @@ connections:
     password: ${POSTGRES_PASSWORD}
 ```
 
+**Alternative Format (connectors section):**
+```yaml
+connectors:
+  postgres:
+    type: POSTGRES
+    params:
+      host: "postgres"
+      port: 5432
+      dbname: "demo"
+      user: "sqlflow"
+      password: "sqlflow123"
+      schema: "public"
+      sslmode: "prefer"
+      connect_timeout: 30
+      pool_size: 5
+```
+
 **Advanced PostgreSQL:**
 ```yaml
 connections:
@@ -165,6 +202,20 @@ connections:
     bucket: company-data-lake
 ```
 
+**Alternative Format (connectors section):**
+```yaml
+connectors:
+  s3:
+    type: S3
+    params:
+      endpoint_url: "http://minio:9000"
+      access_key_id: "minioadmin"
+      secret_access_key: "minioadmin"
+      region: "us-east-1"
+      bucket: "sqlflow-demo"
+      use_ssl: false
+```
+
 **Advanced S3 Configuration:**
 ```yaml
 connections:
@@ -191,20 +242,18 @@ connections:
     use_iam_role: true        # Use IAM instance profile/role
 ```
 
-### Shopify Connections
+### REST API Connections
 
 ```yaml
-connections:
-  shopify_store:
-    type: shopify
-    shop_name: my-store       # Shopify store name
-    access_token: ${SHOPIFY_ACCESS_TOKEN}
-    api_version: "2024-01"    # API version
-    rate_limit_delay: 0.5     # Delay between requests (seconds)
-    timeout: 30               # Request timeout
+connectors:
+  rest:
+    type: REST
+    params:
+      base_url: "http://mockserver:1080"
+      auth_method: "bearer"
+      auth_params:
+        token: "${API_TOKEN}"
 ```
-
-### REST API Connections
 
 ```yaml
 connections:
@@ -232,6 +281,11 @@ variables:
   debug_mode: false
   start_date: "2024-01-01"
   data_path: "/data/warehouse"
+  
+  # From actual examples
+  date: ${DATE}
+  API_TOKEN: ${API_TOKEN}
+  DB_CONN: "postgresql://sqlflow:sqlflow123@postgres:5432/ecommerce"
 ```
 
 ### Environment Variable References
@@ -251,17 +305,54 @@ variables:
   s3_path: s3://${S3_BUCKET}/${S3_PREFIX|data}/
 ```
 
-### Computed Variables
+### Automatic .env File Integration
+
+SQLFlow automatically loads environment variables from `.env` files in your project root:
+
+**Create .env file:**
+```bash
+# Create template
+sqlflow env template
+
+# Check status
+sqlflow env check
+
+# List variables
+sqlflow env list
+```
+
+**Example .env file:**
+```bash
+# Database connections
+POSTGRES_PASSWORD=secure_password
+DB_HOST=localhost
+DB_PORT=5432
+
+# API credentials
+API_TOKEN=your_token_here
+SHOPIFY_TOKEN=shpat_token
+
+# Environment settings
+ENVIRONMENT=production
+DATE=2024-01-01
+BATCH_SIZE=5000
+```
+
+**Automatic Usage:**
+Variables from `.env` files are automatically available in profiles without any additional configuration:
 
 ```yaml
+# profiles/production.yml - uses .env variables automatically
 variables:
-  # Date-based variables
-  current_date: "{{ 'now' | strftime('%Y-%m-%d') }}"
-  year_month: "{{ 'now' | strftime('%Y-%m') }}"
-  
-  # Environment-specific settings
-  batch_size: "{{ 10000 if environment == 'production' else 1000 }}"
-  log_level: "{{ 'warning' if environment == 'production' else 'debug' }}"
+  environment: ${ENVIRONMENT}      # From .env file
+  api_token: ${API_TOKEN}         # From .env file
+  batch_size: ${BATCH_SIZE|1000}  # From .env file with default
+
+connections:
+  postgres:
+    type: postgres
+    host: ${DB_HOST}              # From .env file
+    password: ${POSTGRES_PASSWORD} # From .env file
 ```
 
 ## Logging Configuration
@@ -277,24 +368,14 @@ log_level: info
 log_file: logs/sqlflow.log
 ```
 
-### Advanced Logging
+### Advanced Logging (from examples)
 
 ```yaml
 logging:
-  level: info                    # Global log level
-  file: /var/log/sqlflow.log    # Log file path
-  max_size: 100MB               # Maximum file size
-  backup_count: 5               # Number of backup files
-  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-  
-  # Component-specific logging
-  loggers:
-    sqlflow.connectors:
-      level: debug
-    sqlflow.udfs:
-      level: warning
-    duckdb:
-      level: error
+  level: "INFO"                    # Log level
+  format: "structured"             # Output format
+  output: "console"                # Output destination
+  include_performance_metrics: true
 ```
 
 ### Structured Logging
@@ -312,7 +393,7 @@ logging:
 
 ## Profile Examples
 
-### Development Profile
+### Development Profile (from examples)
 
 ```yaml
 # profiles/dev.yml
@@ -321,60 +402,92 @@ engines:
     mode: memory              # Fast, non-persistent
     memory_limit: 2GB
 
-log_level: debug              # Verbose logging
-log_file: logs/dev.log
-
 variables:
-  environment: development
-  batch_size: 1000            # Small batches for testing
-  debug_mode: true
-  data_path: data/sample
+  date: ${DATE}
+  API_TOKEN: ${API_TOKEN}
+  DB_CONN: "postgresql://sqlflow:sqlflow123@postgres:5432/ecommerce"
 
-connections:
-  dev_postgres:
-    type: postgres
-    host: localhost
-    port: 5432
-    database: dev_analytics
-    username: dev_user
-    password: ${DEV_DB_PASSWORD}
+connectors:
+  postgres:
+    type: POSTGRES
+    params:
+      host: "postgres"
+      port: 5432
+      dbname: "ecommerce"
+      user: "sqlflow"
+      password: "sqlflow123"
+      
+  s3:
+    type: S3
+    params:
+      endpoint_url: "http://minio:9000"
+      region: "us-east-1"
+      access_key_id: "minioadmin"
+      secret_access_key: "minioadmin"
+      bucket: "analytics"
 ```
 
-### Staging Profile
+### Docker Environment Profile (from examples)
 
 ```yaml
-# profiles/staging.yml
+# profiles/docker.yml
 engines:
   duckdb:
-    mode: persistent          # Persistent for testing
-    path: target/staging.db
-    memory_limit: 4GB
+    mode: persistent
+    path: "/app/target/demo.duckdb"
+    memory_limit: 2GB
 
 log_level: info
-log_file: logs/staging.log
 
 variables:
-  environment: staging
-  batch_size: 5000
-  debug_mode: false
-  data_path: /staging/data
+  data_dir: "/app/data"
+  output_dir: "/app/output"
+  start_date: "2024-01-01"
+  end_date: "2024-12-31"
+  demo_mode: true
+  benchmark_mode: true
+  environment: "docker"
 
-connections:
-  staging_postgres:
-    type: postgres
-    host: staging-db.company.com
-    port: 5432
-    database: staging_analytics
-    username: sqlflow_staging
-    password: ${STAGING_DB_PASSWORD}
-    ssl_mode: require
+connectors:
+  postgres:
+    type: POSTGRES
+    params:
+      host: "postgres"
+      port: 5432
+      dbname: "demo"
+      user: "sqlflow"
+      password: "sqlflow123"
+      schema: "public"
+      sslmode: "prefer"
+      connect_timeout: 30
+      pool_size: 5
     
-  staging_s3:
-    type: s3
-    aws_access_key_id: ${STAGING_AWS_ACCESS_KEY_ID}
-    aws_secret_access_key: ${STAGING_AWS_SECRET_ACCESS_KEY}
-    region: us-east-1
-    bucket: staging-data-lake
+  s3:
+    type: S3
+    params:
+      endpoint_url: "http://minio:9000"
+      access_key_id: "minioadmin"
+      secret_access_key: "minioadmin"
+      region: "us-east-1"
+      bucket: "sqlflow-demo"
+      use_ssl: false
+
+performance:
+  batch_size: 1000
+  max_memory_mb: 2048
+  parallel_workers: 2
+  
+logging:
+  level: "INFO"
+  format: "structured"
+  output: "console"
+  include_performance_metrics: true
+  
+testing:
+  enabled: true
+  data_validation: true
+  performance_benchmarks: true
+  error_simulation: false
 ```
 
 ### Production Profile
@@ -417,12 +530,6 @@ connections:
     region: us-east-1
     bucket: prod-data-lake
     use_iam_role: true        # Use IAM role instead of keys
-    
-  shopify_prod:
-    type: shopify
-    shop_name: company-store
-    access_token: ${SHOPIFY_PROD_TOKEN}
-    api_version: "2024-01"
 ```
 
 ## Profile Management
@@ -606,106 +713,4 @@ connections:
 
 ### Access Control
 
-```yaml
-# ✅ Use dedicated service accounts
-connections:
-  restricted_db:
-    type: postgres
-    username: sqlflow_readonly  # Read-only user
-    # Grant minimal required permissions
 ```
-
-## Performance Tuning
-
-### Memory Optimization
-
-```yaml
-engines:
-  duckdb:
-    mode: persistent
-    memory_limit: "75%"         # Use 75% of system memory
-    threads: 8                  # Match CPU cores
-    temp_directory: /fast/ssd   # Use fast storage for temp files
-```
-
-### Connection Pooling
-
-```yaml
-connections:
-  optimized_postgres:
-    type: postgres
-    host: db.company.com
-    pool_settings:
-      min_connections: 2        # Keep minimum connections alive
-      max_connections: 10       # Limit concurrent connections
-      connection_timeout: 30    # Quick connection timeout
-      idle_timeout: 300         # Close idle connections
-```
-
-### Batch Processing
-
-```yaml
-variables:
-  # Environment-specific batch sizes
-  batch_size: "{{ 50000 if environment == 'production' else 1000 }}"
-  parallel_streams: "{{ 8 if environment == 'production' else 2 }}"
-```
-
-## Profile Templates
-
-### Minimal Profile Template
-
-```yaml
-# profiles/minimal.yml
-engines:
-  duckdb:
-    mode: memory
-
-variables:
-  environment: development
-```
-
-### Complete Profile Template
-
-```yaml
-# profiles/complete.yml
-engines:
-  duckdb:
-    mode: persistent
-    path: "target/{{ environment }}.db"
-    memory_limit: 4GB
-    threads: 4
-
-log_level: info
-log_file: "logs/{{ environment }}.log"
-
-variables:
-  environment: development
-  batch_size: 5000
-  parallel_streams: 2
-  debug_mode: false
-
-connections:
-  main_db:
-    type: postgres
-    host: ${DB_HOST}
-    port: ${DB_PORT|5432}
-    database: ${DB_NAME}
-    username: ${DB_USER}
-    password: ${DB_PASSWORD}
-    ssl_mode: prefer
-    
-  data_storage:
-    type: s3
-    aws_access_key_id: ${AWS_ACCESS_KEY_ID}
-    aws_secret_access_key: ${AWS_SECRET_ACCESS_KEY}
-    region: ${AWS_REGION|us-east-1}
-    bucket: ${S3_BUCKET}
-```
-
----
-
-**Related Documentation:**
-- [Connecting Data Sources Guide](../user-guides/connecting-data-sources.md) - Using connections in pipelines
-- [Connector Reference](connectors.md) - Complete connector parameter specifications
-- [CLI Commands Reference](cli-commands.md) - Profile management commands 
