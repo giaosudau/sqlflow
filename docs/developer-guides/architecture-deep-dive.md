@@ -1,711 +1,527 @@
 # SQLFlow Architecture Deep Dive
 
-## Introduction
+## System Philosophy and Design
 
-This document provides a comprehensive technical deep dive into SQLFlow's architecture, covering system design decisions, implementation details, and the technical rationale behind key components. This is essential reading for developers who want to understand how SQLFlow works internally and how to contribute to its development.
+SQLFlow's architecture embodies a fundamental belief: **sophisticated data pipelines shouldn't require sophisticated infrastructure**. Every architectural decision stems from the real-world experience of managing thousands of data pipelines at App Annie, where complexity was the enemy of productivity.
 
-## System Architecture Overview
-
-### Core Design Principles
-
-SQLFlow's architecture is built around several key design principles:
-
-1. **Embedded Execution**: No external infrastructure dependencies
-2. **SQL-Native Processing**: SQL as the primary transformation language
-3. **Modular Extensibility**: Clean interfaces for connectors and UDFs
-4. **Dependency-Driven Execution**: Automatic dependency resolution and execution ordering
-5. **ACID Compliance**: Reliable data processing with transaction guarantees
-
-### High-Level Architecture
+### The Problem SQLFlow Solves
 
 ```mermaid
 graph TB
-    subgraph "User Interface Layer"
-        CLI[CLI Commands]
-        API[Python API]
+    subgraph "Traditional Data Stack Complexity"
+        Dev[Data Engineer] --> K8s[Kubernetes Setup]
+        K8s --> Airflow[Airflow Orchestration]
+        Airflow --> Spark[Spark Processing]
+        Spark --> DB[Data Warehouse]
+        DB --> BI[Business Intelligence]
+        
+        K8s -.-> Infra[Infrastructure Team]
+        Airflow -.-> Ops[Operations Team] 
+        Spark -.-> DataEng[Data Engineering Team]
+        DB -.-> DBA[Database Team]
+        BI -.-> Analyst[Data Analyst]
     end
     
-    subgraph "Processing Layer"
-        Parser[SQLFlow Parser]
+    subgraph "SQLFlow Approach"
+        Analyst2[Data Analyst] --> SQL[SQL Pipeline]
+        SQL --> Results[Insights]
+    end
+    
+    style Dev fill:#ffcccc
+    style Analyst2 fill:#ccffcc
+    style Results fill:#ccffcc
+```
+
+**Traditional Stack Problems**:
+- Multiple teams needed for single pipeline
+- Infrastructure complexity before business logic
+- Tool fragmentation and context switching
+- Long feedback loops between idea and insight
+
+**SQLFlow Solution**:
+- Single analyst can build complete pipelines
+- Zero infrastructure management
+- SQL-native with Python extensions
+- Immediate feedback and iteration
+
+## Architectural Principles
+
+### 1. Embedded Intelligence
+
+**Principle**: The system should be smarter, not the user.
+
+```mermaid
+graph LR
+    subgraph "Smart Defaults"
+        Auto[Automatic Discovery] --> Deps[Dependency Resolution]
+        Deps --> Opt[Performance Optimization]
+        Opt --> Recovery[Error Recovery]
+    end
+    
+    subgraph "User Control"
+        Override[Override Defaults] --> Custom[Custom Logic]
+        Custom --> Extend[Extensions]
+    end
+    
+    Auto -.->|"When needed"| Override
+```
+
+**Implementation**:
+- Automatic UDF discovery and registration
+- Dependency-driven execution planning
+- Intelligent memory management and spilling
+- Built-in state management and recovery
+
+### 2. Progressive Complexity
+
+**Principle**: Start simple, add power when needed.
+
+```sql
+-- Level 1: Basic SQL transformation
+CREATE TABLE customer_metrics AS
+SELECT customer_id, COUNT(*) as orders
+FROM sales GROUP BY customer_id;
+
+-- Level 2: Add custom calculations
+SELECT customer_id, 
+       calculate_ltv(revenue, churn_rate) as lifetime_value
+FROM customers;
+
+-- Level 3: Complex external processing
+-- (Python preprocessing → SQL analytics → Python ML)
+```
+
+**Benefits**:
+- Analysts start with familiar SQL
+- Advanced features don't overwhelm beginners  
+- Natural learning progression
+- No ceiling on complexity
+
+### 3. Composable Architecture
+
+**Principle**: Every component should be independently useful and collectively powerful.
+
+```mermaid
+graph TB
+    subgraph "Core Components"
+        Parser[SQL Parser]
         Planner[Execution Planner]
-        Executor[Local Executor]
+        Engine[DuckDB Engine]
+        Executor[Pipeline Executor]
     end
     
-    subgraph "Engine Layer"
+    subgraph "Extension Points"
+        UDFs[Python UDFs]
+        Connectors[Data Connectors]
+        Storage[Storage Backends]
+        Profiles[Environment Profiles]
+    end
+    
+    Parser --> Planner
+    Planner --> Executor
+    Executor --> Engine
+    
+    UDFs --> Engine
+    Connectors --> Engine
+    Storage --> Engine
+    Profiles --> Executor
+```
+
+**Design Benefits**:
+- Components can evolve independently
+- Clear interfaces enable testing
+- Extensions don't break core functionality
+- Easy to reason about system behavior
+
+## System Architecture Overview
+
+### Four-Layer Architecture
+
+```mermaid
+graph TB
+    subgraph "Interface Layer"
+        CLI[Command Line Interface]
+        API[Python API]
+        Notebooks[Jupyter Integration]
+    end
+    
+    subgraph "Orchestration Layer" 
+        Parser[SQLFlow Parser]
+        Planner[Dependency Planner]
+        Executor[Pipeline Executor]
+        State[State Manager]
+    end
+    
+    subgraph "Computation Layer"
         DuckDB[DuckDB Engine]
-        UDF[UDF System]
-        TxnMgr[Transaction Manager]
-    end
-    
-    subgraph "Connector Layer"
-        CSV[CSV Connector]
-        PG[PostgreSQL Connector] 
-        S3[S3 Connector]
-        REST[REST Connector]
-        Shopify[Shopify Connector]
+        UDFSystem[UDF Runtime]
+        ConnectorEngine[Connector Engine]
+        Profiles[Profile Manager]
     end
     
     subgraph "Storage Layer"
         Memory[In-Memory Tables]
-        Persistent[Persistent Database]
-        State[State Backend]
+        Persistent[Persistent Storage] 
+        External[External Systems]
+        StateDB[State Database]
     end
     
     CLI --> Parser
     API --> Parser
+    Notebooks --> API
+    
     Parser --> Planner
     Planner --> Executor
+    Executor --> State
+    
     Executor --> DuckDB
-    Executor --> UDF
-    DuckDB --> TxnMgr
-    Executor --> CSV
-    Executor --> PG
-    Executor --> S3
-    Executor --> REST
-    Executor --> Shopify
+    Executor --> UDFSystem
+    Executor --> ConnectorEngine
+    Executor --> Profiles
+    
     DuckDB --> Memory
     DuckDB --> Persistent
-    Executor --> State
-```
-
-## Engine Layer: DuckDB Integration
-
-### Why DuckDB?
-
-The choice of DuckDB as SQLFlow's execution engine was driven by specific technical requirements. From `sqlflow/core/engines/duckdb/engine.py`:
-
-```python
-class DuckDBEngine(SQLEngine):
-    def __init__(self, database_path: Optional[str] = None):
-        """Initialize DuckDB engine with flexible storage options."""
-        self.database_path = self._setup_database_path(database_path)
-        self.is_persistent = self.database_path != DuckDBConstants.MEMORY_DATABASE
-        
-        # DuckDB provides seamless switching between memory and disk
-        self.connection = duckdb.connect(database_path)
-        self._configure_persistence()
-```
-
-**Technical advantages of DuckDB**:
-
-1. **Columnar Storage & Vectorized Execution**: 10-100x faster analytical queries than row-based databases
-2. **Embedded Architecture**: Zero configuration, no server management
-3. **Hybrid OLTP/OLAP**: Supports both transactional operations and analytical queries
-4. **Memory + Persistent Modes**: Seamless switching for development vs production
-5. **Python Integration**: Native PyArrow and pandas support with zero-copy data transfer
-6. **Modern SQL**: Full SQL standard compliance with advanced analytical functions
-
-### Storage Mode Architecture
-
-SQLFlow supports two storage modes through DuckDB configuration. From `sqlflow/core/engines/duckdb/constants.py`:
-
-```python
-class DuckDBConstants:
-    MEMORY_DATABASE = ":memory:"
-    DEFAULT_DATABASE_PATH = "target/default.db"
-    DEFAULT_MEMORY_LIMIT = "2GB"
+    ConnectorEngine --> External
+    State --> StateDB
     
-    SQL_CHECKPOINT = "CHECKPOINT"
-    SQL_PRAGMA_MEMORY_LIMIT = "PRAGMA memory_limit='{memory_limit}'"
+    style CLI fill:#e3f2fd
+    style Parser fill:#f3e5f5
+    style DuckDB fill:#e8f5e8
+    style Memory fill:#fff3e0
 ```
 
-**Memory Mode (`:memory:`)**:
-- **Use case**: Development, testing, rapid iteration
-- **Performance**: 2-10x faster execution due to no disk I/O
-- **Limitations**: Data lost when process ends
-- **Memory management**: Configurable memory limits with automatic spilling
+### Interface Layer: Human-Centered Design
 
-**Persistent Mode (file path)**:
-- **Use case**: Production, data persistence, large datasets
-- **Performance**: Comparable to PostgreSQL for analytical workloads
-- **Durability**: ACID-compliant with automatic checkpointing
-- **Scalability**: Handles datasets larger than available memory
+**Philosophy**: The interface should disappear, leaving only the intent.
 
-### Transaction Management
+**Command Line Interface**:
+```bash
+# Discoverable, self-documenting commands
+sqlflow pipeline run customer-analysis
+sqlflow udf list
+sqlflow connector test postgres
+```
 
-SQLFlow implements robust transaction management for data reliability. From `sqlflow/core/engines/duckdb/transaction_manager.py`:
-
+**Python API**:
 ```python
-class TransactionManager:
-    def __enter__(self):
-        """Begin transaction context."""
-        logger.debug("Starting transaction")
-        self.in_transaction = True
-        return self
-        
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        """Complete transaction with proper error handling."""
-        if exc_type is None:
-            self.commit()
-        else:
-            self.rollback()
-        self.in_transaction = False
+# Pythonic integration for notebooks and scripts
+from sqlflow import Pipeline
+
+pipeline = Pipeline.from_file("customer-analysis.sf")
+results = pipeline.run(profile="production")
 ```
 
-**Transaction guarantees**:
-- **Atomicity**: All operations in a transaction succeed or fail together
-- **Consistency**: Database remains in valid state after transactions
-- **Isolation**: Concurrent transactions don't interfere with each other
-- **Durability**: Committed data survives system failures
+**Design Priorities**:
+- **Discoverability**: Help users find what they need
+- **Consistency**: Same patterns across all interfaces
+- **Feedback**: Clear progress and error messages
+- **Integration**: Works with existing workflows
 
-## Processing Layer: Parser, Planner, Executor
+### Orchestration Layer: Intelligence Engine
 
-### SQLFlow Parser
+**Philosophy**: Smart automation with human override capability.
 
-The parser converts SQLFlow syntax into an Abstract Syntax Tree (AST):
+**Key Components**:
 
-```python
-# From: sqlflow/parser/ast.py
-class Pipeline:
-    """Root AST node representing a complete SQLFlow pipeline."""
-    def __init__(self, steps: List[PipelineStep]):
-        self.steps = steps
+1. **Parser**: Understands SQLFlow syntax and business intent
+2. **Planner**: Resolves dependencies and creates execution strategy
+3. **Executor**: Manages resources and coordinates execution
+4. **State Manager**: Tracks progress and enables recovery
 
-class SQLBlockStep(PipelineStep):
-    """Represents a SQL transformation step."""
-    def __init__(self, table_name: str, sql_query: str):
-        self.table_name = table_name
-        self.sql_query = sql_query
-```
+**Intelligence Features**:
+- **Dependency Analysis**: Automatic detection from SQL references
+- **Execution Optimization**: Parallel execution where possible
+- **Resource Management**: Memory and connection pooling
+- **Error Recovery**: Graceful handling and recovery patterns
 
-**Key parser features**:
-- **SQL-first syntax**: Minimal non-SQL constructs
-- **Dependency inference**: Automatic detection of table dependencies
-- **Variable substitution**: Support for `${variable}` expressions
-- **Conditional logic**: `IF-THEN-ELSE` blocks for environment-specific logic
+### Computation Layer: Engine Abstraction
 
-### Execution Planner
+**Philosophy**: Leverage best-in-class tools while hiding their complexity.
 
-The planner converts the AST into a dependency-ordered execution plan. From `sqlflow/core/planner.py`:
-
-```python
-class ExecutionPlanBuilder:
-    def build_plan(self, pipeline: Pipeline, variables: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """Build dependency-ordered execution plan."""
-        # 1. Validate variable references
-        self._validate_variable_references(pipeline, variables)
-        
-        # 2. Flatten conditional blocks based on variable values
-        flattened_pipeline = self._flatten_conditional_blocks(pipeline, variables)
-        
-        # 3. Build dependency graph
-        self._build_dependency_graph(flattened_pipeline)
-        
-        # 4. Detect and prevent cycles
-        cycles = self._detect_cycles(resolver)
-        if cycles:
-            raise PlanningError(self._format_cycle_error(cycles))
-            
-        # 5. Resolve execution order
-        execution_order = self._build_execution_order(resolver, entry_points)
-        
-        return self._build_execution_steps(flattened_pipeline, execution_order)
-```
-
-**Dependency resolution algorithm**:
-
-1. **Table mapping**: Create mapping from table names to the steps that create them
-2. **Reference analysis**: Parse SQL to find table references in `FROM`, `JOIN` clauses
-3. **Dependency graph**: Build directed graph of step dependencies
-4. **Cycle detection**: Use depth-first search to detect circular dependencies
-5. **Topological sort**: Resolve execution order that respects all dependencies
-
-**Example dependency resolution**:
-```sql
--- SQLFlow pipeline
-SOURCE users FROM postgres PARAMS { "table": "users" };
-LOAD user_data FROM users;
-
-CREATE TABLE user_metrics AS
-SELECT user_id, COUNT(*) as event_count
-FROM user_data
-GROUP BY user_id;
-
-EXPORT user_metrics TO csv PARAMS { "path": "output/metrics.csv" };
-```
-
-**Resolved execution order**:
-1. `SOURCE users` (no dependencies)
-2. `LOAD user_data` (depends on `users` source)  
-3. `CREATE TABLE user_metrics` (depends on `user_data` table)
-4. `EXPORT user_metrics` (depends on `user_metrics` table)
-
-### Local Executor
-
-The executor runs the execution plan with support for state management and resumption. From `sqlflow/core/executors/local_executor.py`:
-
-```python
-class LocalExecutor(BaseExecutor):
-    def __init__(self, profile: Optional[Dict[str, Any]] = None):
-        """Initialize executor with DuckDB engine and state management."""
-        self.engine = DuckDBEngine(database_path)
-        self.state_backend = DuckDBStateBackend()
-        self.watermark_manager = WatermarkManager(self.state_backend)
-        
-    def execute_plan(self, plan: List[Dict[str, Any]]) -> None:
-        """Execute plan with dependency resolution and state tracking."""
-        for step in plan:
-            if self._should_skip_step(step):
-                continue
-            self._execute_step(step)
-            self._update_step_state(step, TaskState.COMPLETED)
-```
-
-**Execution features**:
-- **Incremental execution**: Skip completed steps on pipeline re-runs
-- **Error recovery**: Resume from last successful step after failures
-- **State persistence**: Track step completion in DuckDB state backend
-- **Watermark management**: Handle incremental data processing with timestamps
-
-## UDF System Architecture
-
-### UDF Type System
-
-SQLFlow supports two types of User-Defined Functions. From `sqlflow/udfs/decorators.py`:
-
-```python
-@python_scalar_udf
-def calculate_ltv(revenue: float, months: int) -> float:
-    """Scalar UDF - processes individual values."""
-    return revenue * months * 0.85
-
-@python_table_udf  
-def cohort_analysis(df: pd.DataFrame) -> pd.DataFrame:
-    """Table UDF - processes entire datasets."""
-    return df.groupby('cohort').agg({
-        'revenue': 'sum',
-        'users': 'count'
-    })
-```
-
-### UDF Registration and Execution
-
-The UDF system automatically discovers and registers Python functions. From `sqlflow/core/engines/duckdb/engine.py`:
-
-```python
-def register_python_udf(self, name: str, function: Callable) -> None:
-    """Register UDF with DuckDB engine."""
-    flat_name = name.split(".")[-1]
+```mermaid
+graph TB
+    subgraph "DuckDB Engine"
+        Analytics[Columnar Analytics]
+        ACID[ACID Transactions]
+        Memory[Memory Management]
+        SQL[Advanced SQL]
+    end
     
-    try:
-        udf_handler = UDFHandlerFactory.create(function)
-        udf_handler.register(flat_name, function, self.connection)
-        self.registered_udfs[flat_name] = function
-        
-        # Special handling for table UDFs
-        if hasattr(function, "_udf_type") and function._udf_type == "table":
-            # Custom registry for table functions due to DuckDB API limitations
-            if not hasattr(self.connection, "_sqlflow_table_functions"):
-                self.connection._sqlflow_table_functions = {}
-            self.connection._sqlflow_table_functions[flat_name] = function
-            
-    except Exception as e:
-        raise UDFRegistrationError(f"Error registering UDF {flat_name}: {e}") from e
+    subgraph "UDF System"
+        Scalar[Scalar Functions]
+        Table[Table Functions]
+        Discovery[Auto Discovery]
+        Registry[Function Registry]
+    end
+    
+    subgraph "Connector Engine"
+        Sources[Data Sources]
+        Validation[Parameter Validation]
+        Streaming[Streaming Support]
+        Resilience[Error Resilience]
+    end
+    
+    Analytics --> SQL
+    Scalar --> Discovery
+    Sources --> Validation
 ```
 
-**UDF execution flow**:
-1. **Discovery**: Scan Python modules for decorated functions
-2. **Registration**: Register functions with DuckDB engine
-3. **Type checking**: Validate function signatures and parameter types
-4. **Execution**: Call functions during SQL query execution
-5. **Error isolation**: UDF failures don't crash the entire pipeline
+**DuckDB Engine**: 
+- Columnar processing for analytical workloads
+- ACID compliance for data integrity
+- Memory-efficient operations with spilling
+- Advanced SQL features (window functions, CTEs, etc.)
 
-### Performance Optimization
+**UDF System**:
+- Seamless Python integration
+- Automatic function discovery
+- Type-safe execution
+- Performance monitoring
 
-SQLFlow includes several UDF performance optimizations:
+**Connector Engine**:
+- Unified interface to data sources
+- Automatic parameter validation
+- Built-in resilience patterns
+- Streaming data support
 
-```python
-# From: sqlflow/core/engines/duckdb/engine.py
-class UDFExecutionContext:
-    """Context manager for UDF execution with performance tracking."""
-    def __enter__(self):
-        self.start_time = time.time()
-        return self
-        
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        duration = time.time() - self.start_time
-        if exc_type is None:
-            self.logger.debug(f"UDF {self.udf_name} completed in {duration:.3f}s")
-        else:
-            self.logger.error(f"UDF {self.udf_name} failed after {duration:.3f}s")
+### Storage Layer: Flexible Persistence
+
+**Philosophy**: Match storage strategy to use case.
+
+**Storage Modes**:
+
+1. **Memory Mode**: Ultra-fast development and testing
+2. **Persistent Mode**: Production reliability with ACID guarantees
+3. **External Mode**: Integration with existing systems
+4. **Hybrid Mode**: Optimal placement for different data types
+
+**Design Benefits**:
+- **Development Speed**: Instant feedback with memory mode
+- **Production Ready**: Persistent mode for reliability
+- **Integration**: Connect to existing data infrastructure
+- **Flexibility**: Choose optimal storage per use case
+
+## Data Flow Architecture
+
+### Request Lifecycle
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant CLI
+    participant Parser
+    participant Planner
+    participant Executor
+    participant Engine
+    participant Storage
+
+    User->>CLI: sqlflow pipeline run
+    CLI->>Parser: Parse pipeline file
+    Parser->>Parser: Build AST
+    Parser->>Planner: Abstract Syntax Tree
+    
+    Planner->>Planner: Analyze dependencies
+    Planner->>Planner: Create execution plan
+    Planner->>Executor: Execution plan
+    
+    Executor->>Engine: Initialize environment
+    Executor->>Engine: Execute steps
+    Engine->>Storage: Read/write data
+    Storage->>Engine: Data results
+    Engine->>Executor: Step results
+    Executor->>CLI: Pipeline results
+    CLI->>User: Success/failure
 ```
 
-**Performance features**:
-- **Vectorized operations**: Leverage pandas/NumPy for bulk operations
-- **Memory management**: Automatic garbage collection and memory monitoring  
-- **Batch processing**: Process multiple DataFrames in single UDF calls
-- **Arrow integration**: Zero-copy data transfer between SQL and Python
+### Error Handling Philosophy
 
-## Connector Architecture
+**Principle**: Fail fast, fail clearly, recover gracefully.
 
-### Connector Interface
-
-All SQLFlow connectors implement a standardized interface:
-
-```python
-# From: sqlflow/connectors/base.py
-from abc import ABC, abstractmethod
-from typing import Any, Dict
-
-class Connector(ABC):
-    @abstractmethod
-    def read(self) -> DataChunk:
-        """Read data from the source."""
-        pass
-        
-    @abstractmethod
-    def validate_params(self, params: Dict[str, Any]) -> None:
-        """Validate connector parameters."""
-        pass
+```mermaid
+graph TB
+    Error[Error Detected] --> Isolate[Isolate Failure]
+    Isolate --> Context[Capture Context]
+    Context --> Report[Clear Error Message]
+    Report --> Decide{Recoverable?}
+    
+    Decide -->|Yes| Recover[Automatic Recovery]
+    Decide -->|No| Fail[Graceful Failure]
+    
+    Recover --> Continue[Continue Execution]
+    Fail --> Cleanup[Resource Cleanup]
+    
+    Continue --> Success[Success]
+    Cleanup --> UserAction[User Action Required]
 ```
 
-### Connector Registry System
-
-SQLFlow uses a dynamic registry for connector discovery. From `sqlflow/connectors/__init__.py`:
-
-```python
-from sqlflow.connectors.registry import (
-    CONNECTOR_REGISTRY,
-    EXPORT_CONNECTOR_REGISTRY, 
-    BIDIRECTIONAL_CONNECTOR_REGISTRY
-)
-
-# Connectors are automatically registered when modules are imported
-try:
-    from sqlflow.connectors import postgres_connector
-    from sqlflow.connectors import csv_connector
-    from sqlflow.connectors import s3_connector
-except ImportError:
-    # Graceful handling of missing dependencies
-    pass
-```
-
-**Registry categories**:
-- **Input connectors**: Read data from external sources
-- **Export connectors**: Write data to external destinations  
-- **Bidirectional connectors**: Support both reading and writing
-
-### Built-in Connector Implementation
-
-**CSV Connector Example**:
-```python
-class CSVConnector(Connector):
-    def read(self) -> DataChunk:
-        """Read CSV file with automatic schema inference."""
-        df = pd.read_csv(
-            self.params["path"],
-            **self._build_pandas_options()
-        )
-        return DataChunk(data=df, metadata=self._extract_metadata(df))
-        
-    def validate_params(self, params: Dict[str, Any]) -> None:
-        """Validate CSV-specific parameters."""
-        required_params = ["path"]
-        for param in required_params:
-            if param not in params:
-                raise ConnectorError(f"Missing required parameter: {param}")
-```
-
-**PostgreSQL Connector Features**:
-- **Connection pooling**: Reuse database connections across operations
-- **Schema inference**: Automatic detection of column types and constraints
-- **Batch operations**: Efficient bulk inserts and updates
-- **Error handling**: Comprehensive PostgreSQL error translation
-
-## State Management and Persistence
-
-### State Backend Architecture
-
-SQLFlow uses DuckDB itself as the state backend for execution state:
-
-```python
-# From: sqlflow/core/state/backends.py
-class DuckDBStateBackend:
-    def __init__(self, db_path: Optional[str] = None):
-        """Initialize state backend with dedicated DuckDB instance."""
-        if db_path is None:
-            # Default to user's home directory
-            home_dir = os.path.expanduser("~")
-            sqlflow_dir = os.path.join(home_dir, ".sqlflow")
-            os.makedirs(sqlflow_dir, exist_ok=True)
-            db_path = os.path.join(sqlflow_dir, "state.db")
-            
-        self.db_path = db_path
-        self.conn = duckdb.connect(db_path)
-        self._initialize_tables()
-        
-    def _initialize_tables(self):
-        """Create state management tables."""
-        self.conn.execute("""
-            CREATE TABLE IF NOT EXISTS task_status (
-                task_id TEXT PRIMARY KEY,
-                status TEXT NOT NULL,
-                started_at TIMESTAMP,
-                completed_at TIMESTAMP,
-                error_message TEXT
-            )
-        """)
-```
-
-### Watermark Management
-
-For incremental data processing, SQLFlow implements watermark management:
-
-```python
-# From: sqlflow/core/state/watermark_manager.py
-class WatermarkManager:
-    def get_watermark(self, pipeline_name: str, step_name: str) -> Optional[Any]:
-        """Get the last processed watermark value."""
-        result = self.state_backend.get_watermark(pipeline_name, step_name)
-        return result.value if result else None
-        
-    def update_watermark(self, pipeline_name: str, step_name: str, value: Any) -> None:
-        """Update watermark after successful processing."""
-        self.state_backend.save_watermark(pipeline_name, step_name, value)
-```
-
-**Watermark use cases**:
-- **Incremental ETL**: Process only new/changed records since last run
-- **Time-based processing**: Handle event streams with timestamps
-- **Change data capture**: Track last processed change sequence numbers
+**Error Categories**:
+1. **Syntax Errors**: Clear parsing messages with line numbers
+2. **Dependency Errors**: Cycle detection and resolution suggestions
+3. **Runtime Errors**: Context-aware error messages with recovery options
+4. **Resource Errors**: Automatic retry with backoff strategies
 
 ## Performance Architecture
 
-### Execution Statistics
+### Execution Strategy
 
-SQLFlow tracks detailed performance metrics. From `sqlflow/core/engines/duckdb/engine.py`:
+**Philosophy**: Optimize for the common case, handle edge cases gracefully.
 
-```python
-class ExecutionStats:
-    def __init__(self):
-        """Initialize performance tracking."""
-        self.query_count = 0
-        self.udf_executions = 0
-        self.udf_errors = 0
-        self.query_times = []
-        
-    def record_query(self, duration: float):
-        """Track query execution time."""
-        self.query_count += 1
-        self.query_times.append(duration)
-        
-    def get_avg_query_time(self) -> float:
-        """Calculate average query execution time."""
-        return sum(self.query_times) / len(self.query_times) if self.query_times else 0.0
+```mermaid
+graph TB
+    subgraph "Optimization Layers"
+        SQL[SQL Optimization] --> Parallel[Parallel Execution]
+        Parallel --> Memory[Memory Management]
+        Memory --> Streaming[Streaming Processing]
+    end
+    
+    subgraph "Performance Monitoring"
+        Metrics[Execution Metrics] --> Profiling[Performance Profiling]
+        Profiling --> Adaptation[Adaptive Optimization]
+    end
+    
+    SQL --> Metrics
+    Streaming --> Adaptation
 ```
 
-### Memory Management
+**Optimization Strategies**:
+- **DuckDB Columnar**: Vectorized operations for analytical workloads
+- **Parallel Execution**: Multi-core utilization for independent operations
+- **Memory Management**: Intelligent spilling for larger-than-memory datasets
+- **Connection Pooling**: Efficient resource reuse across operations
 
-DuckDB provides configurable memory management:
+### Scalability Model
 
-```python
-# Memory limit configuration in profiles
-engines:
-  duckdb:
-    mode: persistent
-    path: "data/sqlflow.duckdb"
-    memory_limit: "4GB"  # Configurable memory ceiling
+**Vertical First**: Optimize single-machine performance before distributed complexity.
+
+```mermaid
+graph LR
+    subgraph "Vertical Scaling"
+        CPU[Multi-Core Processing]
+        Memory[Memory Optimization]
+        Storage[NVMe Storage]
+        Network[Local Processing]
+    end
+    
+    subgraph "Horizontal Scaling"
+        Temporal[Temporal Decomposition]
+        Domain[Domain Decomposition]
+        Pipeline[Pipeline Parallelism]
+    end
+    
+    CPU --> Temporal
+    Memory --> Domain
+    Storage --> Pipeline
 ```
 
-**Memory optimization strategies**:
-- **Automatic spilling**: Large operations spill to disk when memory is limited
-- **Columnar compression**: Efficient storage of analytical data
-- **Lazy evaluation**: Load data only when needed for operations
-- **Garbage collection**: Automatic cleanup of temporary objects
+**Rationale**:
+- 80% of analytical workloads fit on single machines
+- Vertical scaling eliminates network overhead
+- Simpler debugging and operations
+- Lower total cost of ownership
 
-## Error Handling and Debugging
+## Extension Architecture
 
-### Error Categories
+### Plugin System Design
 
-SQLFlow implements comprehensive error handling across multiple layers:
+**Philosophy**: Extensions should enhance, never complicate.
 
-1. **Parsing errors**: Invalid SQLFlow syntax
-2. **Planning errors**: Dependency cycles, undefined references
-3. **Execution errors**: SQL errors, connector failures, UDF exceptions
-4. **Resource errors**: Memory limits, disk space, network timeouts
-
-### Debugging Infrastructure
-
-```python
-# From: sqlflow/logging.py
-def get_logger(name: str) -> logging.Logger:
-    """Get configured logger with SQLFlow-specific formatting."""
-    logger = logging.getLogger(name)
-    if not logger.handlers:
-        handler = logging.StreamHandler()
-        formatter = logging.Formatter(
-            '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-        )
-        handler.setFormatter(formatter)
-        logger.addHandler(handler)
-    return logger
+```mermaid
+graph TB
+    subgraph "Core System"
+        Registry[Component Registry]
+        Interface[Standard Interfaces]
+        Discovery[Auto Discovery]
+    end
+    
+    subgraph "Extension Types"
+        UDFs[Python UDFs]
+        Connectors[Data Connectors]
+        Engines[Execution Engines]
+        Formats[Data Formats]
+    end
+    
+    Registry --> UDFs
+    Registry --> Connectors
+    Registry --> Engines
+    Registry --> Formats
+    
+    Interface --> Registry
+    Discovery --> Registry
 ```
 
-**Debugging features**:
-- **Structured logging**: Consistent log format across all components
-- **Performance profiling**: Detailed timing information for operations
-- **SQL query logging**: Log all generated SQL for troubleshooting
-- **Dependency visualization**: Generate dependency graphs for complex pipelines
+**Extension Principles**:
+1. **Auto-discovery**: Extensions register themselves
+2. **Standard interfaces**: Consistent patterns across extension types
+3. **Graceful degradation**: Missing extensions don't break core functionality
+4. **Isolated execution**: Extension failures don't crash the system
 
-## Scalability Architecture
+## Future Architecture Vision
 
-### Vertical Scaling
+### Extensible Ecosystem
 
-SQLFlow is optimized for single-machine performance:
-
-```python
-# Multi-core utilization in DuckDB
-engines:
-  duckdb:
-    mode: persistent
-    threads: 8  # Utilize multiple CPU cores
-    memory_limit: "16GB"
-```
-
-### Horizontal Scaling Patterns
-
-While SQLFlow runs on single machines, it supports horizontal scaling through decomposition:
+**Vision**: SQLFlow becomes a platform for data pipeline innovation.
 
 ```sql
--- Pattern 1: Temporal decomposition
--- Daily ingestion pipeline
-SOURCE daily_events FROM s3 PARAMS { "path": "s3://data/events/{{ date }}" };
-LOAD events_{{ date }} FROM daily_events;
+-- Community-driven function ecosystem
+PYTHON_UDFS FROM "ml-preprocessing>=2.0";
+PYTHON_UDFS FROM "finance-analytics>=1.5";
 
--- Hourly aggregation pipeline  
-CREATE TABLE hourly_metrics AS
-SELECT hour, COUNT(*) as events
-FROM events_{{ date }}
-WHERE created_at >= '{{ hour }}:00:00'
-GROUP BY hour;
+-- Industry-specific connectors
+SOURCE customer_data FROM salesforce;
+SOURCE financial_data FROM bloomberg;
+
+-- Intelligent optimization
+-- System automatically chooses optimal execution strategy
+SELECT customer_id, predict_churn(features)
+FROM large_customer_dataset;  -- Auto-detected: streaming processing
 ```
 
-```sql
--- Pattern 2: Domain decomposition
--- Customer pipeline
-CREATE TABLE customer_metrics AS
-SELECT customer_id, SUM(revenue) as total_revenue
-FROM customer_events
-GROUP BY customer_id;
+**Technical Foundation**:
+- Plugin architecture already supports extensibility
+- Registry patterns enable package management
+- Performance monitoring enables intelligent optimization
+- Clean interfaces support multiple execution engines
 
--- Product pipeline  
-CREATE TABLE product_metrics AS
-SELECT product_id, COUNT(*) as views
-FROM product_events
-GROUP BY product_id;
+### Multi-Engine Future
+
+**Vision**: Support multiple execution engines while preserving SQL simplicity.
+
+```yaml
+# Environment-specific engine selection
+profiles:
+  development:
+    engine: duckdb-memory
+    
+  production:
+    engine: duckdb-persistent
+    storage: nvme-optimized
+    
+  distributed:
+    engine: spark-cluster
+    cluster: production-hadoop
 ```
 
-### Data Size Limitations
+**Benefits**:
+- Start simple, scale when needed
+- SQL interface remains consistent
+- Existing pipelines work across engines
+- Performance optimization without rewriting
 
-SQLFlow's practical data processing limits:
+## Summary
 
-- **Memory mode**: Up to available RAM (typically 2-32GB datasets)
-- **Persistent mode**: Up to available disk space (tested up to 1TB datasets)
-- **Query complexity**: Handles complex analytical queries with multiple joins
-- **UDF processing**: Batch processing for large DataFrame operations
+SQLFlow's architecture achieves its goal of democratizing data pipeline development through principled design decisions:
 
-## Extension Points
+**For Data Analysts**: SQL they know, enhanced with Python power when needed
+**For Data Engineers**: Production-ready infrastructure without operational complexity
+**For Organizations**: Faster insights with lower total cost of ownership
 
-### Custom Connector Development
+The architecture's success comes from relentless focus on the user experience while maintaining the technical rigor needed for production data systems. Every component asks: "Does this make data analysis more accessible?" The answer shapes every interface, every optimization, and every extension point.
 
-```python
-class CustomConnector(Connector):
-    """Template for custom connector development."""
-    
-    def __init__(self, params: Dict[str, Any]):
-        self.params = params
-        self.validate_params(params)
-        
-    def read(self) -> DataChunk:
-        """Implement data reading logic."""
-        # 1. Connect to data source
-        # 2. Read data into pandas DataFrame
-        # 3. Extract metadata (schema, row count, etc.)
-        # 4. Return DataChunk with data and metadata
-        pass
-        
-    def validate_params(self, params: Dict[str, Any]) -> None:
-        """Validate connector-specific parameters."""
-        # Check required parameters
-        # Validate parameter types and values
-        # Test connectivity if needed
-        pass
-```
+---
 
-### Custom UDF Development
-
-```python
-@python_table_udf
-def custom_analytics(input_df: pd.DataFrame, config: Dict[str, Any]) -> pd.DataFrame:
-    """Template for custom UDF development."""
-    
-    # 1. Validate input DataFrame schema
-    required_columns = ['customer_id', 'revenue', 'date']
-    for col in required_columns:
-        if col not in input_df.columns:
-            raise ValueError(f"Required column {col} not found")
-    
-    # 2. Implement custom analytics logic
-    result_df = input_df.groupby('customer_id').agg({
-        'revenue': 'sum',
-        'date': 'max'
-    })
-    
-    # 3. Add computed columns
-    result_df['ltv_estimate'] = result_df['revenue'] * config.get('ltv_multiplier', 2.5)
-    
-    # 4. Return processed DataFrame
-    return result_df
-```
-
-## Security Considerations
-
-### Data Security
-
-- **Local execution**: Data doesn't leave the local environment by default
-- **Credential management**: Support for environment variables and secure credential stores
-- **Connection encryption**: TLS/SSL support for database and API connectors
-- **Access control**: File system permissions for persistent storage
-
-### Code Security
-
-- **UDF sandboxing**: Python UDFs run in the same process but with error isolation
-- **SQL injection prevention**: Parameterized queries and input validation
-- **Dependency management**: Explicit dependency declarations in connectors
-
-## Testing Architecture
-
-### Test Categories
-
-SQLFlow implements comprehensive testing at multiple levels:
-
-```python
-# From: tests/unit/ - Unit tests for individual components
-# From: tests/integration/ - Integration tests for component interactions  
-# From: tests/performance/ - Performance benchmarks and regression tests
-```
-
-**Test infrastructure**:
-- **Unit tests**: Test individual functions and classes in isolation
-- **Integration tests**: Test component interactions and full pipeline execution
-- **Performance tests**: Benchmark execution time and memory usage
-- **Example verification**: Ensure all documentation examples work correctly
-
-## Conclusion
-
-SQLFlow's architecture balances simplicity with power through careful design decisions:
-
-**Key architectural strengths**:
-- **Embedded execution**: Zero infrastructure requirements
-- **SQL-native processing**: Familiar syntax with modern tooling
-- **Comprehensive data lifecycle**: Loading, transformation, and export in single tool
-- **Performance**: Leverages DuckDB's columnar architecture for analytical workloads
-- **Extensibility**: Clean interfaces for connectors and UDFs
-- **Reliability**: ACID compliance and comprehensive error handling
-
-**Design trade-offs**:
-- **Single-machine focus**: Optimized for vertical scaling rather than distributed processing
-- **DuckDB dependency**: Tight coupling to DuckDB's capabilities and limitations
-- **Python runtime**: Requires Python environment for execution
-
-This architecture makes SQLFlow well-suited for teams that need powerful data processing capabilities without the complexity of distributed systems, providing a sweet spot between simple scripting and enterprise data platforms. 
+**Detailed Component Architectures**:
+- [Engine Layer Architecture](engine-layer.md) - DuckDB integration, storage, and transaction management
+- [Processing Layer Architecture](processing-layer.md) - Parser, planner, and execution engine details  
+- [UDF System Architecture](udf-system.md) - Python function integration and table UDF workarounds
+- [Connector Architecture](connector-architecture.md) - Data source abstraction and registry patterns
+- [State Management Architecture](state-management.md) - Pipeline state, watermarks, and recovery 
