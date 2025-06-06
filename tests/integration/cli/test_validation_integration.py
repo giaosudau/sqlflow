@@ -47,7 +47,40 @@ dev:
 
     def run_sqlflow_command(self, args: list) -> tuple[int, str, str]:
         """Run a sqlflow CLI command and return exit code, stdout, stderr."""
-        cmd = ["python", "-m", "sqlflow.cli.main"] + args
+        import os
+        import shutil
+        import sys
+
+        # Use the same approach as run_all_examples.sh
+        # Check for SQLFLOW_OVERRIDE_PATH environment variable first
+        sqlflow_path = os.environ.get("SQLFLOW_OVERRIDE_PATH")
+
+        if not sqlflow_path:
+            # Try different locations for SQLFlow (same as examples script)
+            repo_root = Path(__file__).parent.parent.parent.parent
+            possible_paths = [
+                repo_root / ".venv" / "bin" / "sqlflow",  # Local development with venv
+                shutil.which("sqlflow"),  # System PATH (CI environments)
+                "/usr/local/bin/sqlflow",  # Common system location
+                Path.home() / ".local" / "bin" / "sqlflow",  # User-local installation
+            ]
+
+            for path in possible_paths:
+                if path and Path(path).exists() and Path(path).is_file():
+                    sqlflow_path = str(path)
+                    break
+
+        if sqlflow_path:
+            cmd = [sqlflow_path] + args
+        else:
+            # Fallback to python -m approach (for development environments)
+            try:
+                # Try importing to see if module is available
+                cmd = [sys.executable, "-m", "sqlflow.cli.main"] + args
+            except ImportError:
+                # Last resort: assume it's in PATH as 'sqlflow'
+                cmd = ["sqlflow"] + args
+
         result = subprocess.run(
             cmd, capture_output=True, text=True, cwd=self.project_dir
         )

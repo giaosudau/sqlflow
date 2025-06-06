@@ -1,0 +1,44 @@
+-- Conditional Table Validation Pipeline
+-- This pipeline demonstrates the fix for conditional table reference validation
+-- It reproduces the exact scenario from the integration tests
+
+-- Define data sources
+SOURCE customers_source TYPE CSV PARAMS {
+  "path": "data/customers.csv",
+  "has_header": true
+};
+
+SOURCE sales_source TYPE CSV PARAMS {
+  "path": "data/sales.csv",
+  "has_header": true
+};
+
+-- Conditional loading based on environment (matches test case exactly)
+IF ${env} == 'production' THEN
+    LOAD customers FROM customers_source;
+    LOAD sales FROM sales_source;
+    
+    CREATE TABLE processed_customers AS
+    SELECT * FROM customers WHERE account_type = 'premium';
+    
+ELSE
+    -- In development, load raw tables first
+    LOAD customers_raw FROM customers_source;
+    LOAD sales_raw FROM sales_source;
+    
+    -- Then create processed tables from raw
+    -- This is the exact scenario that was causing the bug:
+    -- "Table 'sales_raw' not found. Did you mean 'sales_raw'?"
+    CREATE TABLE customers AS
+    SELECT * FROM customers_raw LIMIT 5;
+    
+    CREATE TABLE sales AS
+    SELECT * FROM sales_raw LIMIT 10;  -- This should NOT fail validation
+    
+END IF;
+
+-- Export results (matches test case)
+EXPORT SELECT * FROM customers
+TO "output/conditional_validation_customers.csv"
+TYPE CSV
+OPTIONS {"header": true}; 

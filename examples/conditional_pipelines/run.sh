@@ -45,6 +45,7 @@ PIPELINES=(
     "feature_flags"
     "region_based_analysis"
     "environment_based_processing"
+    "conditional_table_validation"
 )
 
 # Test scenarios for conditional variables
@@ -171,6 +172,27 @@ run_pipelines() {
         fi
     done
     
+    # Test conditional table validation fix (compilation only)
+    # This verifies that the bug fix for conditional table references is working
+    # Uses the exact same scenario as the integration tests
+    print_status "Testing conditional_table_validation compilation (dev environment)"
+    if $SQLFLOW_PATH pipeline compile "conditional_table_validation" --profile "$PROFILE" \
+        --vars '{"env":"dev"}' >/dev/null 2>&1; then
+        print_success "✅ Successfully compiled conditional_table_validation (dev) - validation fix working"
+    else
+        print_error "❌ Failed to compile conditional_table_validation (dev) - validation fix may be broken"
+        exit 1
+    fi
+    
+    print_status "Testing conditional_table_validation compilation (production environment)"
+    if $SQLFLOW_PATH pipeline compile "conditional_table_validation" --profile "$PROFILE" \
+        --vars '{"env":"production"}' >/dev/null 2>&1; then
+        print_success "✅ Successfully compiled conditional_table_validation (production) - validation fix working"
+    else
+        print_error "❌ Failed to compile conditional_table_validation (production) - validation fix may be broken"
+        exit 1
+    fi
+    
     # Run feature flags with different combinations
     print_status "Running feature_flags with enrichment enabled"
     if $SQLFLOW_PATH pipeline run "feature_flags" --profile "$PROFILE" \
@@ -254,6 +276,11 @@ main() {
     for pipeline in "${PIPELINES[@]}"; do
         echo "  - pipelines/$pipeline.sf"
     done
+    echo ""
+    echo "Validation fixes verified:"
+    echo "  ✅ Conditional table reference validation bug fix"
+    echo "  ✅ Tables created within conditional blocks are properly recognized"
+    echo "  ✅ No false positive 'table not found' errors for conditional tables"
     echo ""
     echo "Next steps:"
     echo "  - Review the pipeline files to understand conditional syntax"
