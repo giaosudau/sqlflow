@@ -353,9 +353,8 @@ The result is a platform where **SQL is truly enough** for building sophisticate
 
 ---
 
-**Next**: Explore detailed component architectures:
-- [Engine Layer](engine-layer.md) - DuckDB integration and storage
-- [Processing Layer](processing-layer.md) - Parser, planner, and executor  
-- [UDF System](udf-system.md) - Python function integration
-- [Connector Architecture](connector-architecture.md) - Data source abstraction
-- [State Management](state-management.md) - Pipeline persistence and recovery 
+**Related Architecture Documents**:
+- [Architecture Deep Dive](architecture-deep-dive.md) - Detailed system implementation and performance
+- [UDF System](udf-system.md) - Python function integration and table UDF workarounds
+- [Extending SQLFlow](extending-sqlflow.md) - Building connectors and custom functions
+- [Technical Overview](technical-overview.md) - Founder's vision and competitive positioning 
