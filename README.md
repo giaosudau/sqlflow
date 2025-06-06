@@ -2,7 +2,7 @@
 
 <div align="center">
 
-**Get working data analytics in under 2 minutes with pure SQL**
+**Solve data pipeline problems in under 2 minutes with pure SQL**
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
@@ -26,6 +26,12 @@ flowchart LR
     style P fill:#EC4899,color:white,stroke:#DB2777,stroke-width:2px
 ```
 
+## 🎯 Why SQLFlow? The Problem-Solving Approach
+
+**The Data Pipeline Problem**: Data teams spend 80% of their time on pipeline plumbing, not analysis. Multiple tools, complex setups, and lengthy development cycles slow down insights.
+
+**SQLFlow's Solution**: Complete data workflows in pure SQL with instant results. No tool switching, no complex configurations, no long setup times.
+
 ## 🚀 Get Started in 90 Seconds
 
 ```bash
@@ -46,36 +52,132 @@ cat output/top_customers.csv
 
 **That's it!** You now have working customer analytics with 1,000 customers, 5,000 orders, and 500 products.
 
-## ⚡ Fastest Time to Value in the Industry
+## ⚡ SQLFlow vs Alternatives: Speed & Simplicity
 
-**SQLFlow: Under 2 minutes to working analytics**  
-Competitors: 15-60 minutes of setup
+| **Common Problem** | **SQLFlow Solution** | **Traditional Approach** |
+|-------------------|---------------------|-------------------------|
+| **"Takes too long to see results"** | 90 seconds to working analytics | 15-60 minutes setup |
+| **"Too many tools to learn"** | Pure SQL for entire pipeline | SQL + Python + config files |
+| **"No realistic sample data"** | Auto-generated realistic data | Find/create your own |
+| **"Context switching kills productivity"** | Single tool, single language | dbt + Airflow + custom scripts |
+| **"Development vs production is painful"** | Profile switching with one flag | Complex environment management |
 
-| Framework | Time to Results | Setup Complexity | Sample Data |
-|-----------|-----------------|------------------|-------------|
-| **SQLFlow** | **1-2 minutes** | ✅ One command | ✅ Auto-generated |
-| dbt | 15-20 minutes | ❌ Manual setup | ❌ Find your own |
-| SQLMesh | 20-30 minutes | ❌ New concepts | ❌ Find your own |
-| Airflow | 30-60 minutes | ❌ Complex DAGs | ❌ Find your own |
+### Detailed Comparison
 
-## Why Teams Switch to SQLFlow
+| Feature | SQLFlow | dbt | SQLMesh | Airflow |
+|---------|---------|-----|---------|---------|
+| **Time to first results** | **1-2 min** | 15-20 min | 20-30 min | 30-60 min |
+| **Complete pipeline** | ✅ Source → Transform → Export | ❌ Transform only | ❌ Transform only | ✅ Complex DAGs |
+| **SQL-first approach** | ✅ Pure SQL + extensions | ✅ SQL transforms | ✅ SQL models | ❌ Python-first |
+| **Sample data included** | ✅ Auto-generated realistic | ❌ Manual setup | ❌ Manual setup | ❌ Manual setup |
+| **Built-in validation** | ✅ Pre-execution validation | ❌ Runtime only | ❌ Limited | ❌ Runtime only |
+| **Python integration** | ✅ UDFs when needed | ✅ Limited macros | ✅ Limited | ✅ Everything in Python |
+| **Learning curve** | ⭐ Low (SQL+) | ⭐⭐ Medium | ⭐⭐ Medium | ⭐⭐⭐ High |
+| **Setup complexity** | ⭐ One command | ⭐⭐ Multiple steps | ⭐⭐ Multiple steps | ⭐⭐⭐ Complex |
 
-**Before SQLFlow (Traditional Approach):**
-- 15+ minutes to first results
-- Multiple tools with different languages
-- Manual data setup and configuration
-- Context switching between ingestion, transformation, and export tools
+## 🔧 What Makes SQLFlow Different
 
-**After SQLFlow:**
-- Under 2 minutes to working analytics
-- One tool with SQL you already know
-- Instant realistic sample data (1,000 customers, 5,000 orders)
-- Complete pipeline in a single file
+### 1. **Problem-Focused Design**
+- **Immediate Value**: Working analytics in 90 seconds, not hours
+- **Realistic Data**: Auto-generated customers, orders, products for testing
+- **Complete Workflow**: Source → Transform → Export in one tool
 
-## 📦 Installation Options
+### 2. **SQL-First with Strategic Extensions**
+- **Familiar Language**: Leverage SQL skills your team already has
+- **Smart Extensions**: Python UDFs when SQL isn't enough
+- **Clean Syntax**: No complex configuration files or boilerplate
 
-<details>
-<summary><strong>Need database connectivity or cloud storage?</strong></summary>
+### 3. **Developer Experience Optimized**
+- **Instant Feedback**: Built-in validation catches errors before execution
+- **Easy Environments**: Development to production with profile switching
+- **Fast Iteration**: In-memory mode for development, persistent for production
+
+## 🎯 Who Should Use SQLFlow?
+
+### **Data Analysts & Business Intelligence**
+**Problem**: "I need working analytics fast without learning new tools"
+- ✅ Working customer analytics in 90 seconds
+- ✅ SQL you already know for entire pipeline
+- ✅ Real sample data for immediate testing
+- ✅ Focus on insights, not infrastructure
+
+### **Data Engineers & Developers**
+**Problem**: "I need to prototype and deploy data pipelines efficiently"
+- ✅ Unified stack reduces complexity
+- ✅ Fast prototyping: idea to working pipeline in minutes
+- ✅ Python integration for complex transformations
+- ✅ Built-in validation prevents deployment issues
+
+### **Startups & SMEs**
+**Problem**: "We need enterprise capabilities without enterprise complexity"
+- ✅ Speed to market with immediate results
+- ✅ Leverage existing SQL skills instead of training
+- ✅ Cost-effective: no expensive warehouse requirements
+- ✅ Simple architecture: one tool, clear responsibilities
+
+## 💡 Real-World Use Cases
+
+### Customer Analytics (Auto-Generated Example)
+```sql
+-- This pipeline is auto-created and ready to run
+SOURCE customers_csv TYPE CSV PARAMS {
+  "path": "data/customers.csv",
+  "has_header": true
+};
+
+LOAD customers FROM customers_csv;
+
+-- Analyze customer behavior by country and tier
+CREATE TABLE customer_summary AS
+SELECT 
+    country,
+    tier,
+    COUNT(*) as customer_count,
+    AVG(age) as avg_age,
+    COALESCE(SUM(total_revenue), 0) as total_revenue
+FROM customers c
+LEFT JOIN orders o ON c.customer_id = o.customer_id
+GROUP BY country, tier
+ORDER BY total_revenue DESC;
+
+-- Export results automatically
+EXPORT customer_summary TO 'output/customer_summary.csv' TYPE CSV;
+```
+
+### Python UDF Integration
+```python
+# When SQL isn't enough, extend with Python
+@python_scalar_udf
+def calculate_customer_score(revenue: float, order_count: int) -> float:
+    """Calculate customer value score."""
+    return (revenue * 0.7) + (order_count * 0.3)
+
+# Use in your SQL
+SELECT 
+    customer_id,
+    PYTHON_FUNC("udfs.calculate_customer_score", total_revenue, order_count) as score
+FROM customer_summary;
+```
+
+## 📚 Documentation & Getting Started
+
+### 📖 **New to SQLFlow?**
+- [**Installation Guide**](docs/installation.md) - Get SQLFlow running on your system
+- [**2-Minute Quickstart**](docs/quickstart.md) - See SQLFlow in action immediately
+- [**Building Analytics Pipelines**](docs/user-guides/building-analytics-pipelines.md) - Solve common data problems
+
+### 🔧 **For Developers**  
+- [**Technical Overview**](docs/developer-guides/technical-overview.md) - Why SQLFlow exists and architecture decisions
+- [**Architecture Deep Dive**](docs/developer-guides/architecture-deep-dive.md) - System design and implementation
+- [**Extending SQLFlow**](docs/developer-guides/extending-sqlflow.md) - Build connectors and UDFs
+
+### 📋 **Reference Materials**
+- [**CLI Commands**](docs/reference/cli-commands.md) - Complete command reference
+- [**SQLFlow Syntax**](docs/reference/sqlflow-syntax.md) - Language specification
+- [**Connectors**](docs/reference/connectors.md) - All available connectors
+- [**Python UDFs**](docs/reference/udfs.md) - UDF development guide
+
+## 🚀 Installation Options
 
 ```bash
 # Basic installation (90% of users)
@@ -91,335 +193,53 @@ pip install "sqlflow-core[cloud]"
 pip install "sqlflow-core[all]"
 ```
 
-**Having installation issues?** See our comprehensive [Installation Guide](INSTALLATION.md) for platform-specific instructions and troubleshooting.
-
-</details>
-
-## What Makes SQLFlow Different
-
-Stop stitching together complex tools. SQLFlow unifies your entire data workflow in pure SQL with intelligent extensions.
-
-### 🔄 Complete Data Workflow
-
-* **Auto-Generated Sample Data:** 1,000 customers, 5,000 orders, 500 products ready to analyze
-* **Ready-to-Run Pipelines:** Customer analytics, data quality monitoring, and basic examples
-* **Source Connectors:** Ingest from CSV, PostgreSQL, and more
-* **SQL Transformations:** Standard SQL with automatic dependency tracking
-* **Python Integration:** Extend with Python UDFs when SQL isn't enough
-* **Export Destinations:** Output to files, S3, and other targets
-
-### 💪 Powerful Yet Simple
-
-* **SQL-First:** Leverage the language data teams already know
-* **Zero Configuration:** Profiles pre-configured for immediate use
-* **Intuitive DSL:** Extended SQL with clear, purpose-built directives
-* **Automatic DAG:** Dependencies automatically tracked and visualized
-* **Clean Syntax:** No complex configuration or boilerplate
-
-### 🛠️ Developer Experience
-
-* **Instant Results:** Working analytics in under 2 minutes
-* **Easy Environment Switching:** Dev to production in seconds with profiles
-* **Fast Iteration:** Lightning-quick in-memory mode for development
-* **Robust Production:** Persistent storage mode for deployment
-* **Built-in Visualization:** Auto-generated pipeline diagrams
-
-## Real-World Example
-
-Here's what SQLFlow generates for you automatically:
-
-**Customer Analytics Pipeline** (auto-created in every project):
-
-```sql
--- Customer Analytics Pipeline (runs immediately!)
--- Load auto-generated realistic data
-CREATE TABLE customers AS
-SELECT * FROM read_csv_auto('data/customers.csv');
-
-CREATE TABLE orders AS
-SELECT * FROM read_csv_auto('data/orders.csv');
-
--- Analyze customer behavior by country and tier
-CREATE TABLE customer_summary AS
-SELECT 
-    c.country,
-    c.tier,
-    COUNT(*) as customer_count,
-    AVG(c.age) as avg_age,
-    COUNT(o.order_id) as total_orders,
-    COALESCE(SUM(o.price * o.quantity), 0) as total_revenue
-FROM customers c
-LEFT JOIN orders o ON c.customer_id = o.customer_id
-GROUP BY c.country, c.tier
-ORDER BY total_revenue DESC;
-
--- Export results (auto-saved to output/)
-EXPORT SELECT * FROM customer_summary 
-TO 'output/customer_summary.csv' 
-TYPE CSV OPTIONS { "header": true };
-```
-
-**Python UDF Integration:**
-
-```python
-# python_udfs/metrics.py (when you need more than SQL)
-from sqlflow.udfs.decorators import python_scalar_udf, python_table_udf
-import pandas as pd
-
-@python_scalar_udf
-def calculate_score(value: float, weight: float = 1.0) -> float:
-    """Calculate weighted score."""
-    return value * weight
-
-@python_table_udf
-def add_metrics(df: pd.DataFrame) -> pd.DataFrame:
-    """Add calculated metrics to the dataframe."""
-    result = df.copy()
-    result["total"] = result["quantity"] * result["price"]
-    result["discount"] = result["total"] * 0.1
-    return result
-```
-
-Use in your SQL:
-
-```sql
--- Scalar UDF
-SELECT
-  product_id,
-  price,
-  PYTHON_FUNC("python_udfs.metrics.calculate_score", price, 1.5) AS weighted_price
-FROM products;
-
--- Table UDF
-CREATE TABLE enriched_orders AS
-SELECT * FROM PYTHON_FUNC("python_udfs.metrics.add_metrics", orders);
-```
+**Having installation issues?** See our [Installation Guide](docs/installation.md) for platform-specific troubleshooting.
 
 ## 🔍 Built-in Validation & Error Prevention
 
-SQLFlow includes intelligent validation that catches errors before execution, saving you time and preventing pipeline failures.
-
-### Catch Errors Early
+SQLFlow prevents pipeline failures with intelligent pre-execution validation:
 
 ```bash
-# Validate any pipeline without running it
+# Validate before running
 sqlflow pipeline validate customer_analytics
 
-# Validate all pipelines in your project  
-sqlflow pipeline validate
-```
-
-### Helpful Error Messages & Suggestions
-
-When validation finds issues, you get clear, actionable feedback:
-
-```bash
-❌ Validation failed for my_pipeline.sf
-
-📋 Pipeline: my_pipeline
+# Get helpful error messages
 ❌ SOURCE missing_path: Missing required parameter 'path'
 💡 Suggestion: Add "path": "your_file.csv" to the PARAMS
-
-❌ SOURCE invalid_type: Unknown connector type 'unknown_connector'  
-💡 Suggestion: Use one of: csv, postgresql, s3, bigquery
-
-📊 Summary: 2 errors found
 ```
 
-### Automatic Safety Checks
+## 🧰 Technical Foundation
 
-Validation runs automatically when you compile or run pipelines:
+### **DuckDB-Powered Execution**
+- **In-memory mode**: Lightning-fast development
+- **Persistent mode**: Production reliability
+- **Larger-than-memory**: Handles datasets bigger than RAM
+- **SQL Performance**: Optimized query execution
 
+### **Environment Management**
 ```bash
-# These commands validate first, preventing bad deployments
-sqlflow pipeline run my_pipeline    # ✅ Validates, then runs
-sqlflow pipeline compile my_pipeline # ✅ Validates, then compiles
-```
-
-### What Gets Validated
-
-- ✅ **Connector Types**: Ensures you're using valid connector types
-- ✅ **Required Parameters**: Checks all required parameters are provided  
-- ✅ **File Extensions**: Validates file extensions match connector types
-- ✅ **Reference Integrity**: Ensures SOURCE references exist in LOAD statements
-- ✅ **Schema Compliance**: Validates against connector schemas
-- ✅ **Syntax Checking**: Catches SQL and SQLFlow syntax errors
-
-**Result**: Catch configuration errors in seconds, not after long execution times.
-
-## 📊 Feature Comparison
-
-| Feature | SQLFlow | dbt | SQLMesh | Airflow |
-|---------|---------|-----|---------|---------|
-| **Time to first results** | **1-2 min** | 15-20 min | 20-30 min | 30-60 min |
-| **Sample data included** | ✅ Auto-generated | ❌ Manual | ❌ Manual | ❌ Manual |
-| **SQL-based pipelines** | ✅ Complete | ✅ Transform only | ✅ Models | ❌ Python DAGs |
-| **Source connectors** | ✅ Built-in | ❌ No | ❌ Limited | ❌ No |
-| **Export destinations** | ✅ Built-in | ❌ No | ❌ Limited | ❌ No |
-| **Pipeline validation** | ✅ Built-in with suggestions | ❌ Basic syntax | ❌ Limited | ❌ Runtime only |
-| **Python integration** | ✅ UDFs | ✅ Limited | ✅ Limited | ✅ Python-first |
-| **Environment mgmt** | ✅ Profiles | ✅ Limited | ✅ Environments | ✅ Complex |
-| **Learning curve** | ⭐ Low (SQL+) | ⭐⭐ Medium | ⭐⭐ Medium | ⭐⭐⭐ High |
-| **Setup complexity** | ⭐ Minimal | ⭐⭐ Medium | ⭐⭐ Medium | ⭐⭐⭐ High |
-
-## 🔍 Why Teams Choose SQLFlow
-
-### For Data Analysts
-* **Immediate Results:** Working analytics in 90 seconds
-* **No New Tools:** Use SQL you already know for your entire workflow
-* **Real Sample Data:** 1,000 customers and 5,000 orders ready to analyze
-* **Focus on Insights:** No pipeline plumbing or configuration
-
-### For Data Engineers
-* **Faster Prototyping:** From idea to working pipeline in minutes
-* **Unified Stack:** Simplify your data architecture
-* **SQL Standardization:** One language across your organization
-* **Python When Needed:** Extend without leaving your workflow
-
-### For Startups & SMEs
-* **Speed to Market:** Get data insights faster than competitors
-* **Cost Effective:** Enterprise capabilities without enterprise complexity
-* **Team Efficiency:** Leverage existing SQL skills instead of training on new tools
-
-## 🧰 Core Concepts
-
-### 1. Enhanced Project Initialization
-
-SQLFlow creates everything you need to start analyzing data immediately:
-
-```bash
-# Default: Full analytics environment
-sqlflow init my_project
-# Creates: 1,000 customers, 5,000 orders, 500 products + 3 working pipelines
-
-# Minimal: Basic structure only
-sqlflow init my_project --minimal
-
-# Demo: Full setup + immediate results
-sqlflow init my_project --demo
-```
-
-### 2. Profiles for Environment Management
-
-Switch between development and production with a single flag:
-
-```bash
-# Development (in-memory, fast)
+# Development (fast, in-memory)
 sqlflow pipeline run customer_analytics
 
-# Production (persistent storage)
+# Production (persistent, reliable)
 sqlflow pipeline run customer_analytics --profile prod
 ```
 
-### 3. DuckDB-Powered Execution
+## 🤝 Community & Support
 
-SQLFlow uses DuckDB as its core engine, offering:
+### **Get Help**
+- 📖 [**Documentation**](docs/) - Comprehensive guides and references
+- 🐞 [**GitHub Issues**](https://github.com/sqlflow/sqlflow/issues) - Bug reports and feature requests
+- 💬 [**GitHub Discussions**](https://github.com/sqlflow/sqlflow/discussions) - Community support
 
-* **In-memory mode** for lightning-fast development
-* **Persistent mode** for production reliability  
-* **High performance** SQL execution
-* **Larger-than-memory** datasets supported
-
-## 📖 Documentation
-
-**New User?** Start here: [Getting Started Guide](docs/user/getting_started.md) - Get working results in under 2 minutes.
-
-### For Users
-* [Getting Started Guide](docs/user/getting_started.md) - 2-minute quickstart
-* [Speed Comparison](docs/user/reference/speed_comparison.md) - Why SQLFlow is fastest
-* [CLI Reference](docs/user/reference/cli.md) - Complete command reference
-* [Python UDFs Guide](docs/user/reference/python_udfs.md) - Extend with Python
-
-### For Developers
-* [Contributing Guide](docs/developer/contributing.md)
-* [Architecture Overview](docs/developer/architecture.md)
-
-### Examples & Comparisons
-* [Example Pipelines](examples/) - Real-world use cases
-* [SQLFlow vs dbt](docs/comparison/vs_dbt.md) - Detailed comparison
-* [SQLFlow vs Airflow](docs/comparison/vs_airflow.md)
-
-## 🤝 Join the Community
-
-SQLFlow is an open-source project built for data practitioners by data practitioners.
-
-* ⭐ **Star us on GitHub!** Show your support and stay updated
-* 🐞 [Report issues](https://github.com/sqlflow/sqlflow/issues) or suggest features
-* 🧑‍💻 [Contribute code](docs/developer/contributing.md) - Look for 'good first issue' tags
-* 💬 [Join discussions](https://github.com/sqlflow/sqlflow/discussions) - Share your use cases
+### **Contribute**
+- ⭐ **Star us on GitHub** - Show your support
+- 🧑‍💻 [**Contributing Guide**](docs/developer-guides/contributing.md) - Code contributions welcome
+- 📝 **Improve Documentation** - Help other users succeed
 
 ## 📜 License
 
 SQLFlow is released under the [Apache License 2.0](LICENSE).
-
-## ❓ FAQ
-
-**Q: How is SQLFlow different from dbt?**  
-A: dbt focuses on transformation within your warehouse. SQLFlow provides end-to-end pipelines (ingestion → transformation → export) with auto-generated sample data for immediate results. [Full comparison](docs/comparison/vs_dbt.md)
-
-**Q: Do I need a data warehouse to use SQLFlow?**  
-A: No! SQLFlow uses DuckDB as its engine, working entirely local-first. You can connect to warehouses when needed, but it's not required.
-
-**Q: How does SQLFlow prevent pipeline errors?**  
-A: SQLFlow includes built-in validation that checks your pipelines before execution. It validates connector types, required parameters, file extensions, and more - catching errors in seconds instead of after long runs. Use `sqlflow pipeline validate` to check any pipeline.
-
-**Q: Can SQLFlow handle large datasets?**  
-A: Yes. DuckDB uses out-of-core algorithms for datasets larger than RAM, spilling to disk as needed. Performance scales well with proper indexing and partitioning.
-
-**Q: How do I switch between development and production?**  
-A: Use profiles: `sqlflow pipeline run my_pipeline --profile prod`. Each profile defines different settings, connections, and variables.
-
-**Q: Are intermediate tables saved in persistent mode?**  
-A: Yes. All tables are persisted to disk, making debugging and data examination easier.
-
-**Q: Can I use SQLFlow in CI/CD?**  
-A: Absolutely. SQLFlow is a CLI tool designed for automation. Use `sqlflow pipeline validate` and `sqlflow pipeline run` in your CI/CD scripts for automated testing and deployment.
-
-## Testing
-
-SQLFlow uses a comprehensive testing strategy with both unit and integration tests.
-
-### Quick Testing Commands
-
-```bash
-# Run all unit tests
-pytest tests/unit/ -v
-
-# Run local integration tests (no external services)
-pytest tests/integration/ -k "not external_services" -v
-
-# Run external service integration tests (requires Docker)
-./run_integration_tests.sh
-
-# Run tests with coverage
-./run_integration_tests.sh --coverage
-```
-
-### Integration Testing with External Services
-
-SQLFlow provides a comprehensive integration test runner for tests that require external services:
-
-```bash
-# Start services, run all external tests, and cleanup
-./run_integration_tests.sh
-
-# Run specific tests
-./run_integration_tests.sh -k postgres -v
-
-# Quick smoke tests
-./run_integration_tests.sh --quick
-
-# Keep services running for debugging
-./run_integration_tests.sh --keep-services
-```
-
-The integration test runner:
-- Automatically manages Docker services (PostgreSQL, MinIO, Redis)
-- Reuses shared CI utilities to follow DRY principles
-- Provides comprehensive options for filtering and debugging
-- Works consistently across local development and CI environments
-
-For detailed testing guidelines, see [Testing Documentation](docs/developer/testing.md).
 
 ---
 
