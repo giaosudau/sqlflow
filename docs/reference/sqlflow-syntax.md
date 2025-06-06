@@ -61,7 +61,7 @@ SOURCE data TYPE CSV PARAMS {"path": "data/users.csv", "delimiter": ","};
 
 ### Variables
 
-SQLFlow supports variable substitution using `${var}` syntax:
+SQLFlow supports variable substitution using `${var}` syntax and automatic time macros:
 
 ```sql
 -- Basic variable substitution
@@ -77,6 +77,36 @@ SOURCE users TYPE CSV PARAMS {
   "path": "${data_path}/users_${run_date}.csv",
   "delimiter": "${delimiter|,}"
 };
+```
+
+**Time Macro Variables:**
+SQLFlow automatically provides time variables for incremental processing:
+
+```sql
+-- Automatic time variables (no declaration needed)
+WHERE event_timestamp > @start_dt AND event_timestamp <= @end_dt
+WHERE order_date > @start_date AND order_date <= @end_date
+
+-- Available time macros:
+-- @start_date  - Start date in YYYY-MM-DD format
+-- @end_date    - End date in YYYY-MM-DD format  
+-- @start_dt    - Start datetime in ISO format
+-- @end_dt      - End datetime in ISO format
+```
+
+**Usage Examples:**
+```sql
+-- In INCREMENTAL transforms (automatic)
+CREATE TABLE daily_sales MODE INCREMENTAL BY sale_date AS
+SELECT sale_date, SUM(amount) as total
+FROM transactions 
+WHERE sale_date > @start_date AND sale_date <= @end_date
+GROUP BY sale_date;
+
+-- In regular queries with manual variables
+SET report_date = "2023-12-31";
+CREATE TABLE monthly_report AS
+SELECT * FROM sales WHERE sale_date = '${report_date}';
 ```
 
 ## Core Directives
@@ -166,23 +196,29 @@ LOAD inventory_table FROM inventory_updates_csv MODE UPSERT KEY (product_id, war
 
 ### CREATE TABLE Directive
 
-Create derived tables using SQL transformations.
+Create derived tables using SQL transformations with optional processing modes.
 
 **Syntax:**
 ```sql
-CREATE [OR REPLACE] TABLE <table_name> AS <sql_query>;
+CREATE [OR REPLACE] TABLE <table_name> [MODE <transform_mode> [BY <time_column>] [LOOKBACK <duration>] [KEY (<key_list>)]] AS <sql_query>;
 ```
 
-**Examples:**
+**Transform Modes:**
+- `REPLACE` (default) - Replace entire table contents
+- `APPEND` - Add new rows to existing table
+- `UPSERT` - Update existing rows and insert new ones (requires KEY)
+- `INCREMENTAL` - Time-based incremental processing (requires BY)
+
+**Basic Examples:**
 ```sql
--- Basic table creation
+-- Basic table creation (REPLACE mode default)
 CREATE TABLE user_summary AS
 SELECT user_id, COUNT(*) as order_count, SUM(total) as total_spent
 FROM orders
 GROUP BY user_id;
 
--- Table with replacement
-CREATE OR REPLACE TABLE daily_metrics AS
+-- Table with explicit replacement
+CREATE OR REPLACE TABLE daily_metrics MODE REPLACE AS
 SELECT 
   DATE(created_at) as date,
   COUNT(*) as daily_orders,
@@ -190,17 +226,71 @@ SELECT
 FROM orders
 WHERE created_at >= '${start_date}'
 GROUP BY DATE(created_at);
-
--- Advanced analytics (from examples)
-CREATE TABLE customer_summary AS
-SELECT 
-    status,
-    COUNT(*) as customer_count,
-    MIN(created_at) as first_signup,
-    MAX(updated_at) as last_activity
-FROM customers_table 
-GROUP BY status;
 ```
+
+**Advanced Transform Examples:**
+```sql
+-- UPSERT mode with single key
+CREATE TABLE customer_profiles MODE UPSERT KEY (customer_id) AS
+SELECT 
+    customer_id,
+    latest_address,
+    latest_phone,
+    last_order_date,
+    total_lifetime_value
+FROM customer_updates;
+
+-- UPSERT mode with composite keys
+CREATE TABLE order_line_items MODE UPSERT KEY (order_id, line_number) AS
+SELECT order_id, line_number, product_id, quantity, unit_price
+FROM updated_line_items;
+
+-- INCREMENTAL mode with time-based processing
+CREATE TABLE hourly_metrics MODE INCREMENTAL BY event_timestamp AS
+SELECT 
+    DATE_TRUNC('hour', event_timestamp) as hour,
+    metric_name,
+    AVG(value) as avg_value,
+    MAX(value) as max_value,
+    COUNT(*) as event_count
+FROM sensor_data 
+WHERE event_timestamp > @start_dt AND event_timestamp <= @end_dt
+GROUP BY hour, metric_name;
+
+-- INCREMENTAL with LOOKBACK for late-arriving data
+CREATE TABLE processed_transactions MODE INCREMENTAL BY transaction_date LOOKBACK '1 day' AS
+SELECT 
+    transaction_id,
+    account_id,
+    amount,
+    transaction_date,
+    risk_score
+FROM raw_transactions 
+WHERE transaction_date > @start_date AND transaction_date <= @end_date;
+
+-- APPEND mode for event logging
+CREATE TABLE user_activity_log MODE APPEND AS
+SELECT 
+    user_id,
+    activity_type,
+    timestamp,
+    session_id
+FROM raw_events 
+WHERE processed_at IS NULL;
+```
+
+**Time Macro Variables:**
+SQLFlow provides automatic time variables for incremental processing:
+- `@start_date` - Start date (YYYY-MM-DD format)
+- `@end_date` - End date (YYYY-MM-DD format)  
+- `@start_dt` - Start datetime (ISO format)
+- `@end_dt` - End datetime (ISO format)
+
+**Transform Mode Details:**
+- **INCREMENTAL BY**: Requires a time column for watermark-based processing
+- **LOOKBACK**: Optional duration to reprocess recent data for late arrivals
+- **KEY**: Required for UPSERT mode, supports single or composite keys
+- **Time Variables**: Automatically populated based on incremental processing windows
 
 ### EXPORT Directive
 
@@ -735,3 +825,17 @@ sql_query = /* Standard SQL SELECT statement */
 ```
 
 This comprehensive syntax reference covers all SQLFlow language features with verified examples from the actual parser implementation. 
+
+## Related Documentation
+
+### Comprehensive Guides
+- **[Connecting Data Sources](../user-guides/connecting-data-sources.md)** - Complete guide to SOURCE directive and connector usage
+
+### Technical References  
+- **[Connector Reference](connectors.md)** - All available connectors and their parameters
+- **[Profile Configuration](profiles.md)** - Environment and connection configuration
+- **[CLI Commands](cli-commands.md)** - Command-line interface and pipeline management
+
+---
+
+**Last Updated:** January 21, 2025  

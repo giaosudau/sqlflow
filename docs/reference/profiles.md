@@ -145,8 +145,8 @@ connectors:
     params:
       host: "postgres"
       port: 5432
-      dbname: "demo"
-      user: "sqlflow"
+      database: "demo"      # Use "database" (not "dbname")
+      username: "sqlflow"   # Use "username" (not "user")
       password: "sqlflow123"
       schema: "public"
       sslmode: "prefer"
