@@ -5,7 +5,7 @@ Provides utilities for validating pipelines and formatting errors for CLI output
 
 import os
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 import typer
 
@@ -48,8 +48,12 @@ def _read_pipeline_file(pipeline_path: str) -> str:
         raise typer.Exit(1)
 
 
-def _get_profile_variables() -> dict:
+def _get_profile_variables(profile_name: Optional[str] = None) -> dict:
     """Get profile variables from the current project.
+
+    Args:
+    ----
+        profile_name: Name of the profile to use, None for default
 
     Returns:
     -------
@@ -57,7 +61,7 @@ def _get_profile_variables() -> dict:
     """
     try:
         project_dir = os.getcwd()
-        project = Project(project_dir)
+        project = Project(project_dir, profile_name=profile_name)
         profile_dict = project.get_profile()
         return (
             profile_dict.get("variables", {}) if isinstance(profile_dict, dict) else {}
@@ -217,7 +221,7 @@ def _extract_available_sources_from_pipeline(pipeline_text: str) -> List[str]:
 
 
 def _parse_and_validate_pipeline(
-    pipeline_text: str, pipeline_path: str
+    pipeline_text: str, pipeline_path: str, profile_name: Optional[str] = None
 ) -> List[ValidationError]:
     """Parse and validate pipeline text.
 
@@ -225,6 +229,7 @@ def _parse_and_validate_pipeline(
     ----
         pipeline_text: Pipeline content to parse
         pipeline_path: Path for logging purposes
+        profile_name: Name of the profile to use for variable resolution
 
     Returns:
     -------
@@ -236,7 +241,7 @@ def _parse_and_validate_pipeline(
 
     try:
         # Get profile variables and apply substitution
-        profile_variables = _get_profile_variables()
+        profile_variables = _get_profile_variables(profile_name)
         pipeline_text = _apply_variable_substitution(pipeline_text, profile_variables)
 
         # Parse with validation enabled (now with variables substituted)
@@ -244,7 +249,9 @@ def _parse_and_validate_pipeline(
         logger.debug("Pipeline parsing passed for %s", pipeline_path)
 
         # ENHANCED: Also run planner-level validation to catch table reference errors
-        planner_errors = _validate_with_planner(pipeline, pipeline_text, pipeline_path)
+        planner_errors = _validate_with_planner(
+            pipeline, pipeline_text, pipeline_path, profile_name
+        )
         errors.extend(planner_errors)
 
     except ValidationError as e:
@@ -282,7 +289,7 @@ def _parse_and_validate_pipeline(
 
 
 def _validate_with_planner(
-    pipeline, pipeline_text: str, pipeline_path: str
+    pipeline, pipeline_text: str, pipeline_path: str, profile_name: Optional[str] = None
 ) -> List[ValidationError]:
     """Run planner-level validation to catch table reference errors.
 
@@ -291,23 +298,32 @@ def _validate_with_planner(
         pipeline: Parsed pipeline AST
         pipeline_text: Original pipeline text for context
         pipeline_path: Path for logging
+        profile_name: Name of the profile to use for variable resolution
 
     Returns:
     -------
         List of validation errors from planner analysis
     """
     try:
-        captured_warnings = _capture_planner_warnings(pipeline)
+        captured_warnings = _capture_planner_warnings(pipeline, profile_name)
         if captured_warnings:
-            return _process_captured_warnings(captured_warnings, pipeline_text)
+            return _process_captured_warnings(
+                captured_warnings, pipeline_text, profile_name
+            )
         return []
     except Exception as e:
         logger.debug(f"Could not run planner validation for {pipeline_path}: {e}")
         return []
 
 
-def _capture_planner_warnings(pipeline):
-    """Capture warnings from planner execution."""
+def _capture_planner_warnings(pipeline, profile_name: Optional[str] = None):
+    """Capture warnings from planner execution.
+
+    Args:
+    ----
+        pipeline: Parsed pipeline AST
+        profile_name: Name of the profile to use for variable resolution
+    """
     import logging
 
     from sqlflow.core.planner import Planner
@@ -327,7 +343,7 @@ def _capture_planner_warnings(pipeline):
 
     try:
         planner = Planner()
-        planner_variables = _get_planner_variables()
+        planner_variables = _get_planner_variables(profile_name)
         planner.create_plan(pipeline, variables=planner_variables)
     finally:
         planner_logger.removeHandler(warning_handler)
@@ -335,12 +351,17 @@ def _capture_planner_warnings(pipeline):
     return captured_warnings
 
 
-def _get_planner_variables():
-    """Get variables for planner context."""
+def _get_planner_variables(profile_name: Optional[str] = None):
+    """Get variables for planner context.
+
+    Args:
+    ----
+        profile_name: Name of the profile to use for variable resolution
+    """
     import os
 
     planner_variables = dict(os.environ)
-    profile_variables = _get_profile_variables()
+    profile_variables = _get_profile_variables(profile_name)
     if profile_variables:
         planner_variables.update(profile_variables)
 
@@ -369,7 +390,9 @@ def _get_planner_variables():
     return planner_variables
 
 
-def _process_captured_warnings(captured_warnings, pipeline_text):
+def _process_captured_warnings(
+    captured_warnings, pipeline_text, profile_name: Optional[str] = None
+):
     """Process captured warnings and convert to validation errors."""
     validation_errors = []
     available_tables = _extract_available_tables_from_pipeline(pipeline_text)
@@ -377,7 +400,7 @@ def _process_captured_warnings(captured_warnings, pipeline_text):
 
     for warning in captured_warnings:
         error = _process_warning_for_validation(
-            warning, available_tables, available_sources
+            warning, available_tables, available_sources, profile_name
         )
         if error:
             validation_errors.append(error)
@@ -385,7 +408,9 @@ def _process_captured_warnings(captured_warnings, pipeline_text):
     return validation_errors
 
 
-def _process_warning_for_validation(warning, available_tables, available_sources):
+def _process_warning_for_validation(
+    warning, available_tables, available_sources, profile_name: Optional[str] = None
+):
     """Process a single warning and create validation error if needed."""
     import re
 
@@ -480,12 +505,15 @@ def _build_context_suggestions(available_tables, available_sources):
     return suggestions
 
 
-def validate_pipeline(pipeline_path: str) -> List[ValidationError]:
+def validate_pipeline(
+    pipeline_path: str, profile_name: Optional[str] = None
+) -> List[ValidationError]:
     """Validate a pipeline file.
 
     Args:
     ----
         pipeline_path: Path to the pipeline file
+        profile_name: Name of the profile to use for variable resolution
 
     Returns:
     -------
@@ -499,7 +527,9 @@ def validate_pipeline(pipeline_path: str) -> List[ValidationError]:
     try:
         # Read and validate pipeline
         pipeline_text = _read_pipeline_file(pipeline_path)
-        errors = _parse_and_validate_pipeline(pipeline_text, pipeline_path)
+        errors = _parse_and_validate_pipeline(
+            pipeline_text, pipeline_path, profile_name
+        )
         return errors
 
     except typer.Exit:
@@ -640,7 +670,10 @@ def print_validation_summary(
 
 
 def validate_and_exit_on_error(
-    pipeline_path: str, pipeline_name: str, quiet: bool = False
+    pipeline_path: str,
+    pipeline_name: str,
+    profile_name: Optional[str] = None,
+    quiet: bool = False,
 ) -> None:
     """Validate pipeline and exit with error code if validation fails.
 
@@ -651,6 +684,7 @@ def validate_and_exit_on_error(
     ----
         pipeline_path: Path to the pipeline file
         pipeline_name: Name of the pipeline for display
+        profile_name: Name of the profile to use for variable resolution
         quiet: Whether to use quiet output mode
 
     Raises:
@@ -658,7 +692,7 @@ def validate_and_exit_on_error(
         typer.Exit: If validation fails (exit code 1)
 
     """
-    errors = validate_pipeline(pipeline_path)
+    errors = validate_pipeline(pipeline_path, profile_name)
 
     if errors:
         print_validation_summary(errors, pipeline_name, quiet=quiet)

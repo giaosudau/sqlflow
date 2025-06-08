@@ -362,122 +362,171 @@ sqlflow udf list --verbose
   validate_data        Scalar UDF: Data validation and cleansing
 
 📁 UDF Directory: python_udfs/
-💡 Create new UDFs with: sqlflow udf create <name>
+💡 View detailed info with: sqlflow udf info <name>
 ```
 
-### `sqlflow udf create`
+### `sqlflow udf info`
 
-Create a new Python UDF with template code.
+Show detailed information about a specific Python UDF.
 
 ```bash
-# Create scalar UDF
-sqlflow udf create my_function --type scalar
+# Show detailed UDF information
+sqlflow udf info calculate_metrics
 
-# Create table UDF
-sqlflow udf create process_data --type table
-
-# Create with custom template
-sqlflow udf create my_function --template advanced
+# Show info with verbose output
+sqlflow udf info process_orders --verbose
 ```
 
-### `sqlflow udf test`
+**Output Example:**
+```
+🐍 UDF: calculate_metrics (scalar)
 
-Test Python UDF functionality and performance.
+📄 File: python_udfs/metrics.py
+📝 Signature: calculate_metrics(revenue: float, orders: int) -> float
+
+📋 Description:
+Calculate customer lifetime value metrics based on revenue and order count.
+Returns a normalized score between 0.0 and 1.0.
+
+📊 Parameters:
+  • revenue: float - Total customer revenue
+  • orders: int - Number of orders placed
+
+✅ Validation: Passed
+```
+
+### `sqlflow udf validate`
+
+Validate all Python UDFs in the project.
 
 ```bash
-# Test specific UDF
-sqlflow udf test calculate_metrics
+# Validate all UDFs
+sqlflow udf validate
 
-# Test with sample data
-sqlflow udf test process_orders --data sample_orders.csv
+# Validate with verbose output
+sqlflow udf validate --verbose
+```
 
-# Performance test
-sqlflow udf test calculate_metrics --benchmark
+**Output Example:**
+```
+🔍 Validating Python UDFs...
+
+✅ calculate_metrics: Valid
+✅ process_orders: Valid
+⚠️  validate_data: Warning - Missing type hints for some parameters
+
+📊 Validation Summary:
+  Total UDFs: 3
+  Valid: 2
+  Warnings: 1
+  Errors: 0
 ```
 
 ## Environment & Configuration
 
-### `sqlflow profile list`
+### `sqlflow env list`
 
-List all available profiles in the project.
+List environment variables available to SQLFlow.
 
 ```bash
-sqlflow profile list
+# List all environment variables
+sqlflow env list
+
+# List variables with specific prefix
+sqlflow env list --prefix SQLFLOW_
+
+# Show actual values (security warning)
+sqlflow env list --show-values
+
+# Plain text output for scripting
+sqlflow env list --plain
 ```
 
 **Output Example:**
 ```
-📋 Available Profiles:
-  dev             Development environment (default)
-  staging         Staging environment
-  prod           Production environment
+Environment Variables
+┏━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━┓
+┃ Name               ┃ Status             ┃
+┡━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━┩
+│ DATABASE_URL       │ ✓ Set              │
+│ POSTGRES_HOST      │ ✓ Set              │
+│ POSTGRES_PASSWORD  │ ✓ Set              │
+│ API_KEY            │ ✗ Empty            │
+└────────────────────┴────────────────────┘
 
-💡 Use with: --profile <name>
+💡 Use --show-values to see actual values (be careful with sensitive data)
 ```
 
-### `sqlflow profile validate`
+### `sqlflow env get`
 
-Validate profile configuration and connections.
+Get the value of a specific environment variable.
 
 ```bash
-# Validate specific profile
-sqlflow profile validate dev
+# Get specific variable
+sqlflow env get DATABASE_URL
 
-# Validate all profiles
-sqlflow profile validate
-
-# Validate with connection testing
-sqlflow profile validate prod --test-connections
+# Get with default value
+sqlflow env get API_KEY --default "not_set"
 ```
 
-### `sqlflow version`
+### `sqlflow env check`
 
-Show SQLFlow version and environment information.
+Check if a .env file exists in the SQLFlow project and show its status.
 
 ```bash
-sqlflow version
-sqlflow version --verbose
+sqlflow env check
 ```
 
 **Output Example:**
 ```
-SQLFlow 0.8.0
-  🐍 Python: 3.11.5
-  🦆 DuckDB: 0.9.1
-  🏠 Home: /opt/homebrew/lib/python3.11/site-packages/sqlflow
-  📁 Project: /Users/user/my_project
+✅ .env file found: /path/to/project/.env
+📊 Contains 5 variable(s)
+📁 Project root: /path/to/project
+
+📋 Variables in .env file:
+  • DATABASE_URL
+  • POSTGRES_HOST
+  • POSTGRES_PASSWORD
+  • ENVIRONMENT
+  • DEBUG
+```
+
+### `sqlflow env template`
+
+Create a sample .env file template in the current SQLFlow project.
+
+```bash
+sqlflow env template
+```
+
+**Output:**
+```
+✅ Created .env template at: /path/to/project/.env
+📝 Edit the file to set your environment variables
+💡 Variables will be automatically available in SQLFlow pipelines using ${VARIABLE_NAME}
 ```
 
 ## Development & Debugging
 
-### `sqlflow debug pipeline`
+### `sqlflow logging_status`
 
-Debug pipeline execution with detailed diagnostics.
+Show the current logging configuration and status.
 
 ```bash
-# Debug specific pipeline
-sqlflow debug pipeline customer_analytics
-
-# Debug with execution trace
-sqlflow debug pipeline customer_analytics --trace
-
-# Debug compiled plan
-sqlflow debug pipeline customer_analytics --from-compiled
+sqlflow logging_status
 ```
 
-### `sqlflow debug udf`
+**Output Example:**
+```
+SQLFlow Logging Status
+Root level: INFO
 
-Debug Python UDF execution and performance.
-
-```bash
-# Debug UDF execution
-sqlflow debug udf calculate_metrics
-
-# Debug with test data
-sqlflow debug udf process_orders --data test_data.csv
-
-# Profile UDF performance
-sqlflow debug udf calculate_metrics --profile-performance
+Module levels:
+  sqlflow.cli: INFO
+  sqlflow.core: INFO
+  sqlflow.parser: INFO
+  sqlflow.planner: INFO
+  sqlflow.executor: INFO
 ```
 
 ## Exit Codes
@@ -641,4 +690,4 @@ sqlflow pipeline run daily_report --vars "date=${SQLFLOW_DATE}"
 sqlflow pipeline run customer_analytics --vars @config/prod-vars.json
 ```
 
-This reference provides comprehensive coverage of all SQLFlow CLI commands with verified examples, error handling, and usage patterns for different scenarios. 
+This reference provides comprehensive coverage of all SQLFlow CLI commands with verified examples, error handling, and usage patterns for different scenarios.
