@@ -36,6 +36,10 @@ sqlflow init my_project --minimal
 sqlflow init my_project --demo
 ```
 
+**Options:**
+- `--minimal`: Create minimal project structure without sample data
+- `--demo`: Initialize project and run a demo pipeline immediately
+
 **Generated Structure:**
 ```
 my_project/
@@ -68,18 +72,18 @@ sqlflow pipeline list
 sqlflow pipeline list --profile prod
 ```
 
+**Options:**
+- `--profile`, `-p`: Profile to use (default: dev)
+- `--quiet`, `-q`: Reduce output to essential information only
+- `--verbose`, `-v`: Enable verbose output with technical details
+
 **Output Example:**
 ```
-📋 Available Pipelines:
-  customer_analytics    Customer behavior analysis with revenue metrics
-  data_quality         Data validation and quality monitoring  
-  example             Basic SQLFlow pipeline example
-
-💡 Run with: sqlflow pipeline run <pipeline_name>
+Available pipelines:
+  - customer_analytics
+  - data_quality
+  - example
 ```
-
-**Profile Impact:**
-The `--profile` parameter affects pipeline listing only if the profile defines a custom `paths.pipelines` configuration. Most profiles use the default `pipelines/` directory, making this parameter equivalent across profiles.
 
 ### `sqlflow pipeline validate`
 
@@ -102,12 +106,14 @@ sqlflow pipeline validate customer_analytics --verbose
 sqlflow pipeline validate customer_analytics --quiet
 ```
 
+**Options:**
+- `--profile`, `-p`: Profile to use (default: dev)
+- `--quiet`, `-q`: Reduce output to essential information only
+- `--verbose`, `-v`: Enable verbose output with technical details
+
 **Success Output:**
 ```
 ✅ Pipeline 'customer_analytics' validation passed!
-  📊 Found 5 operations (2 SOURCE, 2 LOAD, 1 EXPORT)
-  🔗 Dependency graph validated successfully
-  📝 All references resolved
 ```
 
 **Error Output:**
@@ -119,20 +125,7 @@ sqlflow pipeline validate customer_analytics --quiet
     SOURCE orders TYPE CSV PARAMS {
                                   ^
     💡 Check parameter formatting: {"key": "value"}
-
-📋 Reference Errors:  
-  Line 15: Table 'customer_data' not found
-    LOAD customer_summary FROM customer_data;
-                              ^
-    💡 Available tables: customers, orders, products
-    💡 Did you mean 'customers'?
 ```
-
-**Profile Impact:**
-The `--profile` parameter affects validation by:
-- Loading profile-specific variables for variable resolution
-- Using profile-specific connection configurations for connector validation
-- Applying profile-specific logging and debug settings
 
 ### `sqlflow pipeline compile`
 
@@ -155,6 +148,14 @@ sqlflow pipeline compile customer_analytics --skip-validation
 sqlflow pipeline compile customer_analytics --profile prod
 ```
 
+**Options:**
+- `--output`: Custom output file for the execution plan (only applies when a single pipeline is provided)
+- `--vars`: Pipeline variables as JSON or key=value pairs
+- `--profile`, `-p`: Profile to use (default: dev)
+- `--skip-validation`: Skip validation before compilation (for CI/CD performance)
+- `--quiet`, `-q`: Reduce output to essential information only
+- `--verbose`, `-v`: Enable verbose output with technical details
+
 **With Variables:**
 ```bash
 # JSON format
@@ -169,16 +170,26 @@ sqlflow pipeline compile customer_analytics --vars '{"config": {"batch_size": 10
 
 **Compilation Output:**
 ```
-🔄 Compiling pipeline 'customer_analytics'...
-  📄 Parsing pipeline file...
-  🔍 Resolving dependencies...
-  📊 Building execution plan...
-  💾 Saving to target/compiled/customer_analytics.json
+📝 Compiling customer_analytics
+Pipeline: pipelines/customer_analytics.sf
 
-✅ Compilation completed successfully!
-  📊 Generated 5 operations
-  🔗 Dependency order: [orders_source, customers_source, customer_data, analytics, export]
-  📁 Plan saved to: target/compiled/customer_analytics.json
+✅ Compilation successful!
+📄 Execution plan: target/compiled/customer_analytics.json
+🔢 Total operations: 5
+
+📋 Operations by type:
+  • source_definition: 3
+  • load: 2
+  • export: 2
+
+🔗 Execution order:
+   1. source_customers (source_definition)
+   2. source_orders (source_definition)
+   3. source_products (source_definition)
+   4. load_customer_data (load)
+   5. load_analytics (load)
+
+💾 Plan saved to: target/compiled/customer_analytics.json
 ```
 
 ### `sqlflow pipeline run`
@@ -204,6 +215,13 @@ sqlflow pipeline run customer_analytics --quiet
 # Verbose execution with debug info
 sqlflow pipeline run customer_analytics --verbose
 ```
+
+**Options:**
+- `--vars`: Pipeline variables as JSON or key=value pairs
+- `--profile`, `-p`: Profile to use (default: dev)
+- `--from-compiled`: Use existing compilation in target/compiled/ instead of recompiling
+- `--quiet`, `-q`: Reduce output to essential information only
+- `--verbose`, `-v`: Enable verbose output with technical details
 
 **Automatic .env File Loading:**
 SQLFlow automatically loads environment variables from a `.env` file in your project root, eliminating the need for `--vars` in most cases:
@@ -268,26 +286,23 @@ sqlflow pipeline run customer_analytics --vars '{"BATCH_SIZE": "10000"}'
 
 **Execution Output:**
 ```
-🚀 Running pipeline 'customer_analytics'...
+[SQLFlow] Using profile: dev
+🚨 Running in DuckDB memory mode: results will NOT be saved after process exit.
+Running pipeline: pipelines/customer_analytics.sf
 
-📊 Execution Plan:
-  1. orders_source (SOURCE)
-  2. customers_source (SOURCE)  
-  3. customer_data (LOAD)
-  4. analytics (LOAD)
-  5. export (EXPORT)
+📝 Compiling customer_analytics.sf
+⏱️  Starting execution at 14:23:01
 
-⏳ Executing operations...
-  ✅ orders_source: 5,000 rows loaded
-  ✅ customers_source: 1,000 rows loaded
-  ✅ customer_data: 1,000 rows processed
-  ✅ analytics: 100 rows generated
-  ✅ export: 100 rows exported to output/customer_summary.csv
+📥 Loaded customers (1,000 rows)
+📥 Loaded orders (5,000 rows)
+📥 Loaded products (500 rows)
+🔄 Created customer_data (1,000 rows)
+🔄 Created analytics (100 rows)
+📤 Exported customer_summary.csv (100 rows)
+📤 Exported top_customers.csv (20 rows)
 
-🎉 Pipeline completed successfully!
-  ⏱️  Total time: 2.3 seconds
-  📊 Operations: 5/5 successful
-  📁 Output: output/customer_summary.csv
+✅ Pipeline completed successfully
+⏱️  Execution completed in 2.3 seconds
 ```
 
 ## Connection Management
@@ -301,14 +316,18 @@ sqlflow connect list
 sqlflow connect list --profile prod
 ```
 
+**Options:**
+- `--profile`: Profile to use (default: dev)
+
 **Output Example:**
 ```
-🔌 Configured Connections (dev profile):
-  my_postgres     PostgreSQL database (host: localhost:5432)
-  data_warehouse  PostgreSQL database (host: prod-db:5432)
-  s3_bucket      S3 storage (bucket: my-data-bucket)
-
-💡 Test with: sqlflow connect test <connection_name>
+Connections in profile 'dev':
+----------------------------------------
+NAME                 TYPE            STATUS
+----------------------------------------
+my_postgres          postgres        ✓ Ready
+data_warehouse       postgres        ✓ Ready
+s3_bucket           s3              ? Unknown
 ```
 
 ### `sqlflow connect test`
@@ -326,21 +345,31 @@ sqlflow connect test my_postgres --verbose
 sqlflow connect test my_postgres --profile prod
 ```
 
+**Options:**
+- `--profile`: Profile to use (default: dev)
+- `--verbose`, `-v`: Show detailed connection info
+
 **Success Output:**
 ```
-✅ Connection 'my_postgres' test successful!
-  🔗 Host: localhost:5432
-  📊 Database: analytics_db
-  👤 User: sqlflow_user
-  ⏱️  Connection time: 45ms
+✓ Connection to 'my_postgres' (postgres) succeeded.
+```
+
+**Verbose Output:**
+```
+Testing connection 'my_postgres':
+Type: postgres
+Parameters:
+  host: localhost
+  port: 5432
+  database: analytics_db
+
+Result:
+✓ Connection to 'my_postgres' (postgres) succeeded.
 ```
 
 **Error Output:**
 ```
-❌ Connection 'my_postgres' test failed!
-  🚫 Error: Connection refused (host: localhost:5432)
-  💡 Check if PostgreSQL is running
-  💡 Verify host and port in profiles/dev.yml
+✗ Connection to 'my_postgres' (postgres) failed: Connection refused (host: localhost:5432)
 ```
 
 ## UDF Management
@@ -352,17 +381,24 @@ List all available Python UDFs in the project.
 ```bash
 sqlflow udf list
 sqlflow udf list --verbose
+sqlflow udf list --project-dir /path/to/project
 ```
+
+**Options:**
+- `--project-dir`, `-p`: Project directory
+- `--verbose`, `-v`: Show detailed information
+- `--plain`: Use plain text output (for testing)
 
 **Output Example:**
 ```
-🐍 Available Python UDFs:
-  calculate_metrics    Scalar UDF: Calculate customer metrics
-  process_orders       Table UDF: Process order data with enrichment
-  validate_data        Scalar UDF: Data validation and cleansing
-
-📁 UDF Directory: python_udfs/
-💡 View detailed info with: sqlflow udf info <name>
+Python UDFs
+┏━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━┓
+┃ Name               ┃ Type               ┃ Signature          ┃
+┡━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━┩
+│ calculate_metrics  │ scalar             │ (revenue, orders)  │
+│ process_orders     │ table              │ (df)               │
+│ validate_data      │ scalar             │ (value)            │
+└────────────────────┴────────────────────┴────────────────────┘
 ```
 
 ### `sqlflow udf info`
@@ -375,24 +411,36 @@ sqlflow udf info calculate_metrics
 
 # Show info with verbose output
 sqlflow udf info process_orders --verbose
+
+# Use specific project directory
+sqlflow udf info calculate_metrics --project-dir /path/to/project
 ```
+
+**Options:**
+- `--project-dir`, `-p`: Project directory
+- `--plain`: Use plain text output (for testing)
 
 **Output Example:**
 ```
-🐍 UDF: calculate_metrics (scalar)
-
-📄 File: python_udfs/metrics.py
-📝 Signature: calculate_metrics(revenue: float, orders: int) -> float
-
-📋 Description:
-Calculate customer lifetime value metrics based on revenue and order count.
-Returns a normalized score between 0.0 and 1.0.
-
-📊 Parameters:
-  • revenue: float - Total customer revenue
-  • orders: int - Number of orders placed
-
-✅ Validation: Passed
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ calculate_metrics (scalar)                                           ┃
+┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ Full Name: metrics.calculate_metrics                                  │
+│ File: python_udfs/metrics.py                                          │
+│ Signature: calculate_metrics(revenue: float, orders: int) -> float    │
+│                                                                        │
+│ Description:                                                           │
+│ Calculate customer lifetime value metrics based on revenue and order  │
+│ count. Returns a normalized score between 0.0 and 1.0.                │
+│                                                                        │
+│ Parameters:                                                            │
+│ ┏━━━━━━━━━┳━━━━━━━┳━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓ │
+│ ┃ Name    ┃ Type  ┃ Default ┃ Description                            ┃ │
+│ ┡━━━━━━━━━╇━━━━━━━╇━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩ │
+│ │ revenue │ float │ -       │ Total customer revenue                 │ │
+│ │ orders  │ int   │ -       │ Number of orders placed               │ │
+│ └─────────┴───────┴─────────┴────────────────────────────────────────┘ │
+└────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### `sqlflow udf validate`
@@ -405,21 +453,29 @@ sqlflow udf validate
 
 # Validate with verbose output
 sqlflow udf validate --verbose
+
+# Use specific project directory
+sqlflow udf validate --project-dir /path/to/project
 ```
+
+**Options:**
+- `--project-dir`, `-p`: Project directory
+- `--plain`: Use plain text output (for testing)
 
 **Output Example:**
 ```
-🔍 Validating Python UDFs...
+Validating 3 UDFs...
 
-✅ calculate_metrics: Valid
-✅ process_orders: Valid
-⚠️  validate_data: Warning - Missing type hints for some parameters
+UDF Validation Results
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ UDF Name            ┃ Status      ┃ Warnings                                                                                                ┃
+┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ calculate_metrics   │ Valid       │                                                                                                         │
+│ process_orders      │ Valid       │                                                                                                         │
+│ validate_data       │ Invalid     │ • Missing type hints for some parameters                                                               │
+└─────────────────────┴─────────────┴─────────────────────────────────────────────────────────────────────────────────────────────────────┘
 
-📊 Validation Summary:
-  Total UDFs: 3
-  Valid: 2
-  Warnings: 1
-  Errors: 0
+✅ All UDFs are valid!
 ```
 
 ## Environment & Configuration
@@ -441,6 +497,11 @@ sqlflow env list --show-values
 # Plain text output for scripting
 sqlflow env list --plain
 ```
+
+**Options:**
+- `--prefix`, `-p`: Filter variables by prefix (e.g., 'SQLFLOW_')
+- `--plain`: Use plain text output (for scripting)
+- `--show-values`: Show variable values (security warning: visible in terminal)
 
 **Output Example:**
 ```
@@ -468,6 +529,9 @@ sqlflow env get DATABASE_URL
 # Get with default value
 sqlflow env get API_KEY --default "not_set"
 ```
+
+**Options:**
+- `--default`, `-d`: Default value if variable is not set
 
 ### `sqlflow env check`
 
@@ -686,8 +750,10 @@ fi
 export SQLFLOW_DATE=$(date +%Y-%m-%d)
 sqlflow pipeline run daily_report --vars "date=${SQLFLOW_DATE}"
 
-# Use configuration files
-sqlflow pipeline run customer_analytics --vars @config/prod-vars.json
+# Use .env files for persistent variables
+sqlflow env template
+# Edit .env file with your variables
+sqlflow pipeline run customer_analytics  # Variables loaded automatically
 ```
 
 This reference provides comprehensive coverage of all SQLFlow CLI commands with verified examples, error handling, and usage patterns for different scenarios.
