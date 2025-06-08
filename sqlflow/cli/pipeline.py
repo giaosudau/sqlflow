@@ -677,7 +677,7 @@ def compile_pipeline(
         from sqlflow.cli.validation_helpers import validate_pipeline
 
         try:
-            errors = validate_pipeline(pipeline_path)
+            errors = validate_pipeline(pipeline_path, profile)
 
             if errors:
                 if not quiet:
@@ -1911,7 +1911,7 @@ def run_pipeline(
     from sqlflow.cli.validation_helpers import validate_pipeline
 
     try:
-        errors = validate_pipeline(_pipeline_path)
+        errors = validate_pipeline(_pipeline_path, _profile_name)
 
         if errors:
             if not quiet:
@@ -2078,7 +2078,7 @@ def validate_pipeline_command(
                 raise typer.Exit(code=1)
 
             # Validate pipeline
-            errors = validate_pipeline(pipeline_path)
+            errors = validate_pipeline(pipeline_path, profile)
 
             # Print results
             print_validation_summary(errors, pipeline_name, quiet=quiet)
@@ -2121,7 +2121,7 @@ def validate_pipeline_command(
                 current_pipeline_name = os.path.splitext(pipeline_file)[0]
 
                 try:
-                    errors = validate_pipeline(pipeline_path)
+                    errors = validate_pipeline(pipeline_path, profile)
 
                     if errors:
                         total_errors += len(errors)
