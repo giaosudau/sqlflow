@@ -1,18 +1,8 @@
-# Google Sheets Source Connector
-
-The Google Sheets Source connector allows you to read data from Google Sheets spreadsheets into your SQLFlow pipelines. It supports schema discovery, flexible range selection, and incremental loading.
-
-## ✅ Features
-
-- **Read Support**: Read data from any Google Sheet you have access to.
-- **Schema Discovery**: Automatically detects column names and data types.
-- **Flexible Range**: Read an entire sheet or specify a particular range (e.g., `A1:D10`).
-- **Header Support**: Automatically uses the first row as a header (configurable).
-- **Incremental Loading**: Supports cursor-based incremental loading by filtering after reading.
-- **Sheet Discovery**: Can discover all available sheets within a spreadsheet.
-- **Connection Testing**: Verifies credentials and access to the specified sheet.
+# Google Sheets Source
 
 ## 📋 Configuration
+
+To use this source, you must first follow the setup instructions in the main [Google Sheets Connector README](./README.md).
 
 ### Required Parameters
 
@@ -42,26 +32,6 @@ sources:
     sheet_name: "Q1 Sales"
     range: "A1:G2000"  # Optional
 ```
-
-## ⚙️ Setup & Prerequisites
-
-To use this connector, you need a Google Cloud service account with the Google Sheets API enabled.
-
-1. **Enable Google Sheets API**:
-   - In the [Google Cloud Console](https://console.cloud.google.com/), select your project.
-   - Go to "APIs & Services" > "Library", search for "Google Sheets API", and click "Enable".
-2. **Create a Service Account**:
-   - Go to "APIs & Services" > "Credentials".
-   - Click "Create Credentials" > "Service Account".
-   - Give it a name and create it. You do not need to grant it project-level roles.
-3. **Generate a JSON Key**:
-   - Click on the created service account.
-   - Go to the "Keys" tab, click "Add Key" > "Create new key".
-   - Select "JSON" and download the file. This is your `credentials_file`.
-4. **Share Your Google Sheet**:
-   - Open the Google Sheet you want to read.
-   - Click "Share" in the top right.
-   - Add the service account's email address (found as `client_email` in the JSON key file) as a "Viewer".
 
 ## 🚀 Usage Examples
 

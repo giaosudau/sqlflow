@@ -1,16 +1,25 @@
 # REST API Connector
 
-Comprehensive HTTP/REST API integration with authentication, pagination, and flexible data extraction.
+The REST API connector provides a powerful and flexible way to connect to virtually any HTTP-based API, extract data, and use it as a source in your SQLFlow pipelines.
+
+It is designed to handle a wide variety of APIs, from simple public endpoints to complex, authenticated, and paginated enterprise APIs.
 
 ## Overview
 
-The REST API connector enables SQLFlow to consume data from HTTP/REST endpoints with advanced features including:
-- **Multiple authentication methods** (Basic, Digest, Bearer, API Key)
-- **Pagination support** for large datasets
-- **Flexible data extraction** with JSONPath-like syntax
-- **Schema inference** from JSON responses
-- **Retry logic** with exponential backoff
-- **Incremental loading** support
+This connector allows you to:
+- Connect to any REST/HTTP API endpoint using GET or POST methods.
+- Handle various authentication schemes (Basic, Bearer Token, API Key).
+- Automatically handle paginated responses to retrieve complete datasets.
+- Extract data from nested JSON responses using a simple path syntax.
+- Configure retries, timeouts, and custom headers for robust integration.
+
+This connector provides **source (read) capabilities only**.
+
+## 📖 Documentation
+
+For detailed information on all configuration options, authentication methods, and advanced features, please see the full source documentation.
+
+**[REST API Source Documentation →](./SOURCE.md)**
 
 ## Configuration
 

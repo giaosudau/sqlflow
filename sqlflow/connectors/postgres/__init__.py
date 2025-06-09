@@ -7,3 +7,8 @@ from sqlflow.connectors.registry.source_registry import source_registry
 
 source_registry.register("postgres", PostgresSource)
 destination_registry.register("postgres", PostgresDestination)
+
+__all__ = [
+    "PostgresSource",
+    "PostgresDestination",
+]

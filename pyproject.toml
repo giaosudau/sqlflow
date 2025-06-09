@@ -66,6 +66,7 @@ gcp = [
     "google-auth>=2.0.0",
     "google-auth-oauthlib>=1.0.0",
     "google-cloud-storage>=2.0.0",
+    "gspread"
 ]
 
 # Development dependencies (code quality, formatting, testing, etc.)
@@ -189,3 +190,10 @@ exclude_lines = [
 ]
 skip_covered = true
 show_missing = true
+
+test = [
+    "pytest",
+    "pytest-cov",
+    "requests-mock",
+    "gspread",
+]
