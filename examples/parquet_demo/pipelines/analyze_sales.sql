@@ -1,0 +1,61 @@
+-- Sales Analysis Pipeline using Parquet Connector
+-- Demonstrates reading Parquet files and performing analytics
+
+-- Load sales data from single Parquet file
+SOURCE sales TYPE PARQUET PARAMS {
+    "path": "data/sales.parquet"
+};
+
+-- Load customer data with column selection
+SOURCE customers TYPE PARQUET PARAMS {
+    "path": "data/customers.parquet",
+    "columns": ["customer_id", "customer_name", "segment", "lifetime_value"]
+};
+
+-- Create enriched sales analysis
+CREATE TABLE sales_analysis AS
+SELECT 
+    s.sale_id,
+    s.customer_id,
+    c.customer_name,
+    c.segment as customer_segment,
+    s.product_name,
+    s.sale_date,
+    s.quantity,
+    s.unit_price,
+    s.total_amount,
+    c.lifetime_value,
+    ROW_NUMBER() OVER (PARTITION BY s.customer_id ORDER BY s.sale_date) as customer_purchase_number
+FROM sales s
+LEFT JOIN customers c ON s.customer_id = c.customer_id;
+
+-- Create monthly sales summary
+CREATE TABLE monthly_summary AS
+SELECT 
+    DATE_TRUNC('month', sale_date) as sale_month,
+    COUNT(*) as total_transactions,
+    COUNT(DISTINCT customer_id) as unique_customers,
+    SUM(total_amount) as total_revenue,
+    AVG(total_amount) as avg_transaction_value,
+    SUM(quantity) as total_quantity
+FROM sales_analysis
+GROUP BY DATE_TRUNC('month', sale_date)
+ORDER BY sale_month;
+
+-- Create customer segment analysis
+CREATE TABLE segment_analysis AS
+SELECT 
+    customer_segment,
+    COUNT(DISTINCT customer_id) as customer_count,
+    COUNT(*) as total_purchases,
+    SUM(total_amount) as total_revenue,
+    AVG(total_amount) as avg_purchase_value,
+    AVG(lifetime_value) as avg_lifetime_value
+FROM sales_analysis
+WHERE customer_segment IS NOT NULL
+GROUP BY customer_segment
+ORDER BY total_revenue DESC;
+
+-- Export results
+EXPORT monthly_summary TO CSV "output/monthly_sales_summary.csv";
+EXPORT segment_analysis TO CSV "output/customer_segment_analysis.csv"; 
