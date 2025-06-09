@@ -1,106 +1,52 @@
-# Google Sheets Source
+# Google Sheets Source Connector
+
+The Google Sheets Source connector reads data from a specific sheet within a Google Spreadsheet. It uses a Google Cloud service account for authentication.
+
+## ✅ Features
+
+- **Direct Sheet Reading**: Reads data directly from a Google Spreadsheet.
+- **Service Account Auth**: Uses standard Google Cloud service account credentials for secure, non-user-based access.
+- **Sheet Discovery**: Can discover all the individual sheets (tabs) within a spreadsheet.
+- **Schema Inference**: Infers a schema by using the first row of the sheet as the header.
 
 ## 📋 Configuration
 
-To use this source, you must first follow the setup instructions in the main [Google Sheets Connector README](./README.md).
+| Parameter | Type | Description | Required | Example |
+|---|---|---|:---:|---|
+| `type` | `string` | Must be `"google_sheets"`. | ✅ | `"google_sheets"` |
+| `spreadsheet_id` | `string` | The ID of the Google Spreadsheet. You can find this in the URL: `.../spreadsheets/d/{spreadsheet_id}/edit`. | ✅ | `"1-AbcDeFgHiJkLmNoPqRsTuVwXyZ..."`|
+| `credentials`| `string` | A JSON string containing your Google Cloud service account credentials, or a local path to the credentials JSON file. Recommended to use a variable. | ✅ | `"${GCP_CREDENTIALS_JSON}"` |
 
-### Required Parameters
+### Authentication
+To use this connector, you must:
+1.  Create a [Google Cloud service account](https://cloud.google.com/iam/docs/service-accounts-create).
+2.  Enable the [Google Sheets API](https://console.cloud.google.com/apis/library/sheets.googleapis.com) for your project.
+3.  Create and download a JSON key for the service account.
+4.  **Share the Google Sheet** with the service account's email address (e.g., `my-service-account@my-gcp-project.iam.gserviceaccount.com`) and give it at least "Viewer" permissions.
 
-| Parameter | Type | Description | Example |
-|-----------|------|-------------|---------|
-| `type` | `string` | Must be `"google_sheets"` | `"google_sheets"` |
-| `credentials_file` | `string` | Path to the Google service account credentials JSON file. | `"/path/to/creds.json"` |
-| `spreadsheet_id` | `string` | The ID of the Google Sheet (from the URL). | `"1BxiMVs0XRA5n..."` |
-| `sheet_name` | `string` | The name of the specific sheet to read from. | `"Q1 Sales"` |
+You can then pass the content of the JSON key file as the `credentials` parameter, ideally through an environment variable.
 
-### Optional Parameters
+## 💡 Example
 
-| Parameter | Type | Default | Description | Example |
-|-----------|------|---------|-------------|---------|
-| `range` | `string` | `None` | The A1 notation of the range to retrieve (e.g., `"A1:E100"`). If not set, reads the whole sheet. | `"C5:F50"` |
-| `has_header` | `boolean` | `true` | Whether the first row of the data should be treated as a header. | `false` |
+This example defines a source for a specific Google Spreadsheet and then loads the sheet named `Q1-Data` into a table.
 
-### Example Configuration
-
-```yaml
-# profiles/dev.yml
-sources:
-  quarterly_sales:
-    type: "google_sheets"
-    credentials_file: "/secure/google-sheets-key.json"
-    spreadsheet_id: "1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms"
-    sheet_name: "Q1 Sales"
-    range: "A1:G2000"  # Optional
-```
-
-## 🚀 Usage Examples
-
-### Basic Read
-This reads all data from the configured sheet and range.
 ```sql
--- pipelines/process_sheets.sql
-FROM source('quarterly_sales')
-SELECT *;
-```
+-- 1. Define the connection to your Google Spreadsheet
+SOURCE marketing_spreadsheet TYPE GOOGLE_SHEETS PARAMS {
+    "spreadsheet_id": "1-AbcDeFgHiJkLmNoPqRsTuVwXyZ...",
+    "credentials": "${GCP_CREDENTIALS_JSON}"
+};
 
-### Transforming Data
-You can use SQLFlow's transformation capabilities on the data read from Google Sheets.
-```sql
--- pipelines/process_sheets.sql
-FROM source('quarterly_sales')
-SELECT 
-    "Product ID",
-    "Sale Price" * 0.8 as discounted_price,
-    "Date"
-WHERE "Country" = 'USA';
+-- 2. Load the 'Q1-Data' sheet from that source
+LOAD q1_marketing_data FROM marketing_spreadsheet OPTIONS {
+    "object_name": "Q1-Data"
+};
 ```
+> The `object_name` in the `LOAD` step corresponds to the name of the tab you want to read from within the spreadsheet.
 
 ## 📈 Incremental Loading
 
-The connector can perform incremental loads by filtering the data based on a cursor column.
-
-**Important**: This connector's incremental load works by **reading the entire sheet first, then filtering** the data within the pipeline. This can be inefficient for very large sheets. It does not perform an incremental fetch from the API.
-
-### Configuration
-
-To enable incremental loading, you need to specify the `sync_mode` and `cursor_field` in your source configuration.
-
-- `sync_mode`: Set to `"incremental"`.
-- `cursor_field`: The column in your sheet that will be used to determine new rows (e.g., a timestamp or an auto-incrementing ID).
-
-```yaml
-# profiles/dev.yml
-sources:
-  incremental_sales:
-    type: "google_sheets"
-    credentials_file: "/secure/google-sheets-key.json"
-    spreadsheet_id: "1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms"
-    sheet_name: "Sales Data"
-    sync_mode: "incremental"
-    cursor_field: "transaction_timestamp"
-```
-
-### Behavior
-
-When a pipeline runs in incremental mode:
-1.  SQLFlow retrieves the last saved maximum value (watermark) for the `cursor_field`.
-2.  The connector reads the **entire sheet** into memory.
-3.  It then filters the data, keeping only rows where the `cursor_field` value is greater than the watermark.
-4.  After a successful pipeline run, SQLFlow updates the watermark with the new maximum value from the processed data.
-
-## ❌ Limitations
-
-- **Read-Only**: This connector only supports reading data from Google Sheets, not writing.
-- **Performance**: The connector reads the entire specified sheet or range into memory before processing. Performance may be slow for very large sheets (e.g., over 100,000 rows).
-- **API Quotas**: Usage is subject to Google Sheets API quotas and rate limits. The connector has built-in retries for transient errors.
-- **Complex Data Types**: The connector performs basic schema inference. It may not correctly handle very complex nested data or unusual data formats.
-
-## 🛠️ Troubleshooting
-
-- **Access Denied / Permission Errors**: Ensure the service account's email is shared on the Google Sheet with at least "Viewer" permissions.
-- **Spreadsheet/Sheet Not Found**: Double-check that the `spreadsheet_id` and `sheet_name` are correct. `sheet_name` is case-sensitive. You can use the `discover()` method in code to see available sheets.
-- **Authentication Errors**: Verify the `credentials_file` path is correct and the JSON file is valid.
+This connector **does not** support incremental loading. It reads the entire specified sheet on every run.
 
 ---
-
-**Version**: 2.0 • **Status**: ✅ Production Ready • **Incremental**: ✅ Supported 
+**Version**: 1.0 • **Status**: ✅ Production Ready • **Incremental**: ❌ Not Supported 

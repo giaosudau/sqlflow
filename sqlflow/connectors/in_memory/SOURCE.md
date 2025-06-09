@@ -1,55 +1,48 @@
-# In-Memory Source
+# In-Memory Source Connector
 
-## Overview
-The `InMemorySource` connector reads a pandas DataFrame from a global, in-memory data store. It is designed for internal testing and development, allowing you to easily simulate a data source without any external dependencies.
+The In-Memory Source connector is a utility for testing and debugging. It allows you to introduce a pandas DataFrame or a list of dictionaries directly into a pipeline programmatically, without reading from an external file or database.
 
-## Configuration
-To use the `InMemorySource`, you need to specify the `type` as `in_memory` in the source section of your profile configuration.
+## ✅ Features
 
-### Required Parameters
-- `table_name` (string): The key in the global `IN_MEMORY_DATA_STORE` dictionary that holds the pandas DataFrame you want to read.
+- **Testing Utility**: Ideal for unit and integration tests of pipeline logic.
+- **Direct Data Injection**: Pass data directly into the `read` method's `options`.
+- **DataFrame and Dictionary Support**: Accepts data as a pandas DataFrame or a list of dictionaries.
 
-### Optional Parameters
-This connector has no optional parameters.
+## 📋 Configuration
 
-## Usage Example
-Here is an example of how to configure an `in_memory` source in your `profiles.yml`.
+This connector is not typically configured via a `SOURCE` block in a pipeline file. Instead, it is instantiated and used directly in Python test code. It does not have any configurable parameters in its `__init__` method.
 
-```yaml
-# profiles/my_profile.yml
-my_profile:
-  sources:
-    my_test_data:
-      type: in_memory
-      table_name: 'test_data_123'
-  ...
-```
+## 💡 How to Use
 
-In your pipeline, you can then reference this source:
+You use this connector by passing the data you want to "read" directly into the `options` argument of its `read` method.
 
-```sql
--- pipelines/my_pipeline.sql
-READ 'my_test_data';
-```
+| `read()` Options | Type | Description | Required |
+|---|---|---|:---:|
+| `data` | `pd.DataFrame` or `list[dict]` | The data to be returned by the connector. | ✅ |
+| `schema` | `dict` | An optional schema definition. | |
 
-Before running the pipeline, you would need to ensure the `IN_MEMORY_DATA_STORE` is populated, typically within a Python test script:
-
+### Example (in a Python test)
 ```python
-from sqlflow.connectors.in_memory import IN_MEMORY_DATA_STORE
 import pandas as pd
+from sqlflow.connectors.in_memory import InMemorySource
 
-# Populate the data store
-data = {'col1': [1, 2], 'col2': [3, 4]}
-df = pd.DataFrame(data=data)
-IN_MEMORY_DATA_STORE['test_data_123'] = df
+# 1. Prepare your test data
+test_data = pd.DataFrame([
+    {"id": 1, "name": "Alice"},
+    {"id": 2, "name": "Bob"},
+])
 
-# Now, running your SQLFlow pipeline will read this DataFrame
+# 2. Instantiate the connector
+in_memory_source = InMemorySource(config={})
+
+# 3. "Read" the data by passing it in the options
+read_options = {"data": test_data}
+df = in_memory_source.read(options=read_options)
+
+# df is now a pandas DataFrame identical to test_data
+print(df)
 ```
+This connector is used internally by the SQLFlow test suite to simulate data sources without requiring external files or services.
 
-## Features
-- ✅ In-memory data reading
-- ❌ No support for incremental loading, filtering, or other advanced features.
-
-## Limitations
-- **Not for Production**: This connector is not thread-safe and is not intended for use in production environments.
-- **Global State**: Data is stored in a global variable, which can be affected by other tests or parts of the application if not managed carefully. 
+---
+**Version**: 1.0 • **Status**: ✅ For Testing Only • **Incremental**: ❌ Not Supported 

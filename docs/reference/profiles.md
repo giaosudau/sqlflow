@@ -49,19 +49,22 @@ variables:                 # Optional: Pipeline variables
   key1: value1
   key2: ${ENV_VAR}
 
-connections:              # Optional: Named connections
-  connection_name:
-    type: connector_type
-    param1: value1
-    param2: ${ENV_VAR}
+# The 'connections' and 'connectors' sections are not currently used
+# by the default executor. Define connections directly in pipelines.
+
+# connections:              # Optional: Named connections
+#   connection_name:
+#     type: connector_type
+#     param1: value1
+#     param2: ${ENV_VAR}
 
 # Advanced sections (from actual examples)
-connectors:               # Alternative connection format
-  postgres:
-    type: POSTGRES
-    params:
-      host: localhost
-      port: 5432
+# connectors:               # Alternative connection format
+#   postgres:
+#     type: POSTGRES
+#     params:
+#       host: localhost
+#       port: 5432
 
 performance:              # Performance tuning
   batch_size: 1000
@@ -122,6 +125,12 @@ memory_limit: 2147483648   # Bytes (integer)
 ```
 
 ## Connection Configuration
+
+> **⚠️ Important Limitation**
+>
+> The `connections` and `connectors` sections described below are **not** used by the default `LocalExecutor`. In the current version of SQLFlow, connection details (like credentials, host, bucket names) must be defined directly within the `source` or `destination` block of your pipeline (`.sql` or `.yml`) files.
+>
+> Centralized connection management in profiles is a planned feature for future releases.
 
 ### PostgreSQL Connections
 

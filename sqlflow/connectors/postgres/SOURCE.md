@@ -1,88 +1,65 @@
-# PostgreSQL Source
+# PostgreSQL Source Connector
 
-The PostgreSQL Source connector reads data from a PostgreSQL database. For a general overview, see the [main README](./README.md).
+The PostgreSQL Source connector reads data from tables or views in a PostgreSQL database. It uses the `psycopg2` driver via SQLAlchemy and pandas for efficient data extraction.
 
-## Configuration
+## ✅ Features
 
-The connection to PostgreSQL is configured directly in the source definition within your `profiles.yml` file.
+- **Direct Connection**: Connects directly to your PostgreSQL database.
+- **Table or Query**: Reads data from an entire table or from the result of a custom SQL query.
+- **SQLAlchemy Powered**: Leverages SQLAlchemy for robust connection management.
 
-### Connection Parameters
+## 📋 Configuration
 
-The following parameters are based on the standard `psycopg2` connection string.
+| Parameter | Type | Description | Required | Example |
+|---|---|---|:---:|---|
+| `type` | `string` | Must be `"postgres"`. | ✅ | `"postgres"` |
+| `uri` | `string` | The SQLAlchemy connection URI for your PostgreSQL database. | ✅ | `"postgresql://user:pass@host:5432/dbname"`|
 
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `type` | `string` | ✅ | Must be `"postgres"`. |
-| `host` | `string` | ✅ | The database server host. |
-| `port` | `integer`| ✅ | The database server port. |
-| `user` | `string` | ✅ | The username to connect with. |
-| `password`| `string` | ✅ | The password for the user. |
-| `dbname` | `string` | ✅ | The name of the database to connect to. |
-
-### Example Profile Configuration
-```yaml
-# profiles/dev.yml
-sources:
-  my_postgres_db:
-    type: postgres
-    host: "localhost"
-    port: 5432
-    user: "db_user"
-    password: "db_password"
-    dbname: "analytics"
-```
-
-## Reading Data
-
-You can read data either by specifying a table name or by providing a full SQL query. These are provided as options in your `READ` or `FROM` statement.
-
-### Read Options
-
-| Option | Type | Description |
-|--------|------|-------------|
-| `table_name` | `string` | The name of the table to read from. |
-| `schema` | `string` | The schema of the table (defaults to `"public"`). |
-| `query` | `string` | A full SQL query to execute for retrieving data. |
-
-If `query` is provided, it takes precedence over `table_name`.
-
-### Usage Examples
-
-#### Reading from a Table
-This reads the entire `users` table from the `public` schema.
+### Authentication
+Credentials and connection details are provided directly in the `uri`. It's highly recommended to use environment variables or other secrets management tools to avoid exposing credentials in plain text.
 
 ```sql
--- pipelines/pipeline.sql
-READ 'my_postgres_db' OPTIONS (
-  table_name = 'users'
-);
+-- Using a variable for the connection string
+SOURCE my_db_users TYPE POSTGRES PARAMS {
+    "uri": "${DB_CONNECTION_STRING}"
+};
 ```
 
-#### Reading from a Table in a Different Schema
+## 💡 How to Read Data
+
+The PostgreSQL source is unique because you specify what to read in the `LOAD` step of your pipeline, not in the `SOURCE` definition itself. The `LOAD` step passes options to the connector's `read` method.
+
+### Reading an Entire Table
+To read all data from a table named `public.customers`, you would define a generic source and then specify the table in the `LOAD` step's options.
 
 ```sql
--- pipelines/pipeline.sql
-READ 'my_postgres_db' OPTIONS (
-  table_name = 'raw_events',
-  schema = 'staging'
-);
+-- Define the connection
+SOURCE postgres_db TYPE POSTGRES PARAMS { "uri": "${DB_URI}" };
+
+-- Load the 'customers' table from the 'public' schema
+LOAD customers_table FROM postgres_db OPTIONS {
+  "table": "customers",
+  "schema": "public"
+};
 ```
 
-#### Reading with a Custom Query
+### Reading from a Custom Query
+To read data using a custom SQL query, provide a `query` option in the `LOAD` step. This is useful for pre-filtering, joining, or transforming data within the database before it enters the SQLFlow engine.
 
 ```sql
--- pipelines/pipeline.sql
-READ 'my_postgres_db' OPTIONS (
-  query = 'SELECT id, name, email FROM users WHERE active = TRUE'
-);
+-- Define the connection
+SOURCE postgres_db TYPE POSTGRES PARAMS { "uri": "${DB_URI}" };
+
+-- Load only active customers from the US using a query
+LOAD active_us_customers FROM postgres_db OPTIONS {
+  "query": "SELECT * FROM customers WHERE country = 'US' AND status = 'active'"
+};
 ```
+> **Note**: The `query` provided in the `OPTIONS` block is executed directly on the PostgreSQL database.
 
-## Features
+## 📈 Incremental Loading
 
-- **Direct Table Read**: Easily read an entire table.
-- **Custom SQL Queries**: Use the full power of SQL to select, join, and filter data on the database side.
-- **Schema Support**: Specify tables from any schema.
-- **Connection Re-use**: The underlying `sqlalchemy` engine efficiently manages connections.
+This connector **does not** have built-in incremental loading logic. To perform incremental loads, you must provide a custom SQL query in the `query` option that filters for new data based on a watermark or timestamp column.
 
-## Limitations
-- This connector does not currently have built-in support for incremental loading. You must implement incremental logic within your SQL queries if needed. 
+---
+**Version**: 1.0 • **Status**: ✅ Production Ready • **Incremental**: ❌ Not Supported (Manual via query) 

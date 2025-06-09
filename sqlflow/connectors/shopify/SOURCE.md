@@ -1,115 +1,73 @@
-# Shopify Source
+# Shopify Source Connector
 
-The Shopify Source connector allows you to extract data from your Shopify store using the Admin API. For a general overview, see the [main README](./README.md).
+The Shopify Source connector reads data from the Shopify Admin API. It is a specialized version of the REST connector, pre-configured for Shopify's endpoints and pagination scheme.
 
-## Configuration
+## ✅ Features
 
-The source is configured in your `profiles.yml` file.
+- **Shopify API Integration**: Natively connects to the Shopify Admin API.
+- **Pre-defined Endpoints**: Discovers and reads from a list of common Shopify objects like `products`, `orders`, and `customers`.
+- **Automatic Pagination**: Automatically handles Shopify's cursor-based pagination using the `Link` header.
+- **Secure Authentication**: Uses Shopify's standard API access token.
+- **Schema Discovery**: Infers the schema for each Shopify object.
 
-### Required Parameters
+## 📋 Configuration
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `type` | `string` | Must be `"shopify"`. |
-| `shop_domain` | `string` | Your shop's `.myshopify.com` domain (e.g., `your-store.myshopify.com` or just `your-store`). |
-| `access_token`| `string` | The Admin API access token from your private app. |
+| Parameter | Type | Description | Required | Example |
+|---|---|---|:---:|---|
+| `type` | `string` | Must be `"shopify"`. | ✅ | `"shopify"` |
+| `shop_name` | `string` | Your Shopify store name (the part before `.myshopify.com`). | ✅ | `"my-awesome-store"`|
+| `access_token`| `string` | Your Shopify Admin API access token. Use a variable. | ✅ | `"${SHOPIFY_API_TOKEN}"` |
+| `api_version`| `string` | The Shopify API version to use. | `2024-04` (default) | `"2023-10"` |
 
-### Optional Parameters
+## 💡 Discoverable Objects
+When you use the `discover` command or `LOAD` from this source, the following Shopify objects are available to be read as tables:
 
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `api_version`|`string`|`"2023-10"`| The Shopify API version to use. |
-| `timeout`| `integer`| `30` | Request timeout in seconds. |
-| `max_retries`| `integer`| `3` | Maximum number of retries on failed requests. |
-| `retry_delay`|`float`|`1.0`| Delay in seconds between retries. |
-
-### Example Profile Configuration
-```yaml
-# profiles/dev.yml
-sources:
-  my_shopify_store:
-    type: shopify
-    shop_domain: "your-store.myshopify.com"
-    access_token: "shpat_xxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-    api_version: "2024-01"
-```
-
-## Reading Data
-
-You must specify the data object you want to read from Shopify. This is provided as the `table_name` option in your `READ` or `FROM` statement.
-
-### Read Options
-
-| Option | Type | Required | Description |
-|--------|------|----------|-------------|
-| `table_name` | `string` | ✅ | The name of the Shopify data object to read (e.g., `orders`, `products`). |
-
-### Available Data Objects
-
-The connector supports all major Shopify API objects, including:
-- `orders`
+- `collects`
+- `custom_collections`
 - `customers`
-- `products`
-- `inventory_items`
-- `inventory_levels`
-- `locations`
-- `transactions`
-- `fulfillments`
-- `refunds`
-- `discounts`
-- `collections`
 - `metafields`
+- `orders`
+- `products`
+- `smart_collections`
 
-### Usage Example
-```sql
--- pipelines/extract_orders.sql
-READ 'my_shopify_store' OPTIONS (
-  table_name = 'orders'
-);
-```
+## Example
 
-This will fetch all orders from your Shopify store. You can then apply transformations or write the data to a destination.
+This example defines a source that connects to a Shopify store and then loads all products into a table named `shopify_products`.
 
 ```sql
--- pipelines/process_customers.sql
-FROM READ 'my_shopify_store' OPTIONS (table_name = 'customers')
-SELECT
-  id,
-  email,
-  first_name,
-  last_name,
-  orders_count
-WHERE
-  orders_count > 5
-WRITE 'my_data_warehouse' OPTIONS (table_name = 'loyal_customers');
+-- 1. Define the connection to your Shopify store
+SOURCE my_shopify_store TYPE SHOPIFY PARAMS {
+    "shop_name": "my-awesome-store",
+    "access_token": "${SHOPIFY_API_TOKEN}"
+};
+
+-- 2. Load the 'products' object from that source
+LOAD shopify_products FROM my_shopify_store OPTIONS {
+    "object_name": "products"
+};
 ```
 
 ## 📈 Incremental Loading
 
-This connector has built-in support for efficient, `since_id`-based incremental loading.
+This connector supports incremental loading for objects that can be filtered by `updated_at` or `created_at` timestamps (e.g., `orders`, `products`). Shopify's API is designed for this pattern.
 
 ### Configuration
-To enable incremental loading, you must configure the source for it in your `profiles.yml`.
-
 - `sync_mode`: Set to `"incremental"`.
-- `cursor_field`: For Shopify, this should always be `"id"`.
+- `cursor_field`: Set to `"updated_at"` (most common) or `"created_at"`.
 
 ```yaml
-# profiles/dev.yml
+# In a profile (e.g., profiles/dev.yml)
 sources:
-  my_shopify_incremental:
-    type: shopify
-    shop_domain: "your-demo-store"
-    access_token: "shpat_xxxxxxxxxxxxx"
+  shopify_incremental_orders:
+    type: "shopify"
+    shop_name: "my-awesome-store"
+    access_token: "${SHOPIFY_API_TOKEN}"
     sync_mode: "incremental"
-    cursor_field: "id"
+    cursor_field: "updated_at"
 ```
 
 ### Behavior
-When an incremental pipeline runs, the connector automatically passes a `since_id=<last_id>` parameter to the Shopify API. This ensures that only records created since the last successful run are fetched, which is highly efficient and avoids re-ingesting data.
+When running in incremental mode, the connector adds a `updated_at_min` (or `created_at_min`) parameter to the API request, using the last saved watermark value to fetch only new or updated records.
 
-## Rate Limiting
-The underlying REST connector automatically handles Shopify's API rate limits. It will:
-- Respect the standard API rate limits.
-- Pause and retry when it receives a `429 Too Many Requests` response, using the `Retry-After` header if provided.
-- Use exponential backoff for other transient connection errors. 
+---
+**Version**: 1.0 • **Status**: ✅ Production Ready • **Incremental**: ✅ Supported 

@@ -1,56 +1,138 @@
 # S3 Connector
 
-The S3 connector provides a powerful and flexible way to work with data stored in Amazon S3 or other S3-compatible object storage services. It can read data from and write data to S3, supporting multiple file formats and authentication methods.
+The S3 connector provides comprehensive support for reading from and writing to Amazon S3 and S3-compatible storage services. It supports multiple file formats, advanced filtering, cost optimization features, and both incremental and full data loading patterns.
 
-## 🚀 Quick Start
+## Key Features
 
-### Reading from S3
+- ✅ **Multi-Format Support**: CSV, JSON, JSONL, Parquet, TSV, and more
+- ✅ **Cost Optimization**: Intelligent path scanning and request minimization
+- ✅ **Partition Awareness**: Optimized reading of partitioned datasets
+- ✅ **Incremental Loading**: Time-based and cursor-based incremental patterns
+- ✅ **Advanced Filtering**: File pattern matching and content filtering
+- ✅ **Compression Support**: Automatic handling of gzip, bz2, and other formats
+- ✅ **Schema Inference**: Automatic schema detection and validation
+- ✅ **Flexible Authentication**: AWS credentials, IAM roles, and temporary tokens
+
+## Supported File Formats
+
+| Format | Read | Write | Compression | Notes |
+|--------|------|-------|-------------|-------|
+| **CSV** | ✅ | ✅ | ✅ | Custom delimiters, headers |
+| **JSON** | ✅ | ✅ | ✅ | Single objects and arrays |
+| **JSONL** | ✅ | ✅ | ✅ | Newline-delimited JSON |
+| **Parquet** | ✅ | ✅ | ✅ | Column-based optimization |
+| **TSV** | ✅ | ✅ | ✅ | Tab-separated values |
+| **TXT** | ✅ | ❌ | ✅ | Plain text files |
+
+## Use Cases
+
+- **Data Lake Operations**: Large-scale data ingestion and processing
+- **ETL Pipelines**: Extract-transform-load workflows
+- **Data Archival**: Long-term data storage and retrieval
+- **Analytics Workloads**: Data preparation for analysis
+- **Backup and Recovery**: Data backup and restoration processes
+- **Cross-System Integration**: Moving data between different systems
+
+## Quick Start
+
+### As a Source (Legacy URI format)
 ```yaml
-# profiles/dev.yml
 sources:
-  s3_sales_data:
-    type: "s3"
-    bucket: "my-data-lake"
-    path_prefix: "sales/2024/"
-    file_format: "parquet"
-    # Assumes credentials are set via environment variables or IAM role
+  s3_data:
+    connector: s3
+    uri: "s3://my-bucket/data/file.csv"
+    aws_access_key_id: "${AWS_ACCESS_KEY_ID}"
+    aws_secret_access_key: "${AWS_SECRET_ACCESS_KEY}"
 ```
 
-### Writing to S3
+### As a Source (New parameter format)
 ```yaml
-# profiles/dev.yml
+sources:
+  s3_data:
+    connector: s3
+    bucket: "my-bucket"
+    key: "data/file.csv"
+    format: "csv"
+    aws_access_key_id: "${AWS_ACCESS_KEY_ID}"
+    aws_secret_access_key: "${AWS_SECRET_ACCESS_KEY}"
+```
+
+### As a Destination
+```yaml
 destinations:
   s3_output:
-    type: "s3"
-    uri: "s3://my-data-lake/processed/report.csv"
+    connector: s3
+    bucket: "my-output-bucket"
+    key: "output/results.parquet"
+    format: "parquet"
+    mode: "replace"
+    aws_access_key_id: "${AWS_ACCESS_KEY_ID}"
+    aws_secret_access_key: "${AWS_SECRET_ACCESS_KEY}"
 ```
 
-### Use in Pipeline
-```sql
--- pipelines/process_s3_data.sql
-FROM source('s3_sales_data')
-SELECT
-  product_id,
-  SUM(amount) as total_sales
-GROUP BY product_id
-TO destination('s3_output');
+## Documentation
+
+- **[Source Configuration](SOURCE.md)** - Complete source configuration and features
+- **[Destination Configuration](DESTINATION.md)** - Complete destination configuration and features
+
+## Authentication Methods
+
+### AWS Credentials
+```yaml
+aws_access_key_id: "AKIA..."
+aws_secret_access_key: "secret..."
+aws_session_token: "token..."  # Optional for temporary credentials
 ```
 
-## 📋 Features
+### IAM Role (recommended for EC2/ECS)
+```yaml
+# No credentials needed - uses instance profile
+region: "us-west-2"
+```
 
-| Feature | Source | Destination |
-|---|---|---|
-| **Multi-Format Support** | ✅ | ✅ |
-| **Authentication** | ✅ | ✅ |
-| **Object Discovery** | ✅ | ➖ |
-| **Write Modes** | See Docs | See Docs |
+### Environment Variables
+```bash
+export AWS_ACCESS_KEY_ID="AKIA..."
+export AWS_SECRET_ACCESS_KEY="secret..."
+export AWS_DEFAULT_REGION="us-west-2"
+```
 
-## 📖 Documentation
+## Performance Optimization
 
-For detailed information on configuration, features, and limitations, please see the full documentation for the source and destination.
+### Cost-Efficient Reading
+- **Path Scanning**: Intelligent directory traversal to minimize API calls
+- **Batch Operations**: Group multiple file operations together
+- **Conditional Requests**: Use ETags and last-modified dates
+- **Selective Loading**: Read only required columns for columnar formats
 
-### 📥 Source Documentation
-**[S3 Source Connector →](SOURCE.md)**
+### Large Dataset Handling
+- **Parallel Processing**: Concurrent file processing
+- **Streaming**: Memory-efficient processing of large files
+- **Partitioning**: Leverage S3 partitioning schemes
+- **Compression**: Automatic compression/decompression
 
-### 📤 Destination Documentation
-**[S3 Destination Connector →](DESTINATION.md)** 
+## Error Handling
+
+The S3 connector includes comprehensive error handling for:
+- **Network Issues**: Automatic retries with exponential backoff
+- **Authentication Failures**: Clear error messages and troubleshooting
+- **File Not Found**: Graceful handling of missing files
+- **Format Errors**: Detailed parsing error reporting
+- **Quota Limits**: Rate limiting and throttling management
+
+## Limitations
+
+- **Large Files**: Individual files larger than memory may require streaming
+- **Cross-Region**: Higher latency for cross-region operations
+- **API Limits**: Subject to S3 request rate limits
+- **Consistency**: S3 eventual consistency model may affect immediate reads
+- **Costs**: Data transfer and API request costs apply
+
+## Best Practices
+
+1. **Use Partitioning**: Organize data in S3 using logical partitions
+2. **Leverage Compression**: Use compression to reduce storage and transfer costs
+3. **Optimize File Sizes**: Use 100MB-1GB file sizes for optimal performance
+4. **Monitor Costs**: Track S3 usage and optimize access patterns
+5. **Use IAM Roles**: Prefer IAM roles over static credentials
+6. **Regional Proximity**: Keep compute and storage in the same region 

@@ -15,26 +15,14 @@ The CSV Destination connector enables you to write processed data from SQLFlow p
 
 ## 📋 Configuration
 
-### Required Parameters
+When using the CSV destination in an `EXPORT` step, you configure it via the `TYPE` and `OPTIONS` clauses.
 
-| Parameter | Type | Description | Example |
-|-----------|------|-------------|---------|
-| `path` | `string` | Output file path for the CSV | `"output/results.csv"` |
-
-### Optional Parameters (via write options)
-
-The connector accepts any parameters supported by `pandas.DataFrame.to_csv()`:
-
-| Parameter | Type | Default | Description | Example |
-|-----------|------|---------|-------------|---------|
-| `index` | `boolean` | `true` | Include row index in output | `false` |
-| `header` | `boolean` | `true` | Include column headers | `true` |
-| `sep` | `string` | `","` | Field separator character | `","`, `";"`, `"\t"` |
-| `encoding` | `string` | `"utf-8"` | Character encoding | `"utf-8"`, `"latin-1"` |
-| `quoting` | `integer` | `0` | Quoting behavior (0=minimal, 1=all, 2=non-numeric, 3=none) | `1` |
-| `quotechar` | `string` | `'"'` | Character to use for quoting | `'"'` |
-| `line_terminator` | `string` | `"\n"` | Line ending character | `"\r\n"` |
-| `columns` | `list` | `None` | Specific columns to write | `["id", "name", "amount"]` |
+### EXPORT Options
+| Parameter | Type | Description | Required | Example |
+|---|---|---|:---:|---|
+| `path` | `string` | The local path for the output CSV file. | ✅ | `"/data/processed/report.csv"` |
+| `delimiter` | `string` | The character to use as a field separator. | `,` (default) | `"\t"` |
+| `header` | `boolean`| Whether to write the column names as the first row. | `true` (default) | `false` |
 
 ## 🚀 Usage Examples
 

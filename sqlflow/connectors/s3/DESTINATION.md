@@ -1,68 +1,86 @@
 # S3 Destination Connector
 
-The S3 Destination connector writes data to files in Amazon S3. It determines the output file format based on the extension of the object key provided in the URI.
+The S3 Destination connector writes data to files in Amazon S3 or S3-compatible services. It supports multiple file formats and partitioned writing, making it a flexible choice for data lake and archival use cases.
 
 ## ✅ Features
 
-- **Multi-Format Support**: Writes data in `CSV`, `Parquet`, or `JSON` format.
-- **Simple Configuration**: Uses a single `uri` to specify the output location.
-- **Implicit Authentication**: Uses `boto3`'s default credential discovery (IAM roles, env vars, etc.).
+- **Multi-Format Support**: Writes data in `CSV`, `Parquet`, `JSON`, and `JSONL` formats.
+- **Partitioned Writing**: Can partition output data into subdirectories based on column values.
+- **Flexible Authentication**: Leverages `boto3`'s standard credential discovery (environment variables, IAM roles, etc.).
+- **S3-Compatible Services**: Works with services like MinIO by specifying a custom `endpoint_url`.
+- **Configurable Write Modes**: Supports replacing existing data.
 
 ## 📋 Configuration
 
+When using the S3 destination in an `EXPORT` step, you configure it via the `TYPE` and `OPTIONS` clauses.
+
+### EXPORT Options
 | Parameter | Type | Description | Required | Example |
 |---|---|---|:---:|---|
-| `type` | `string` | Must be `"s3"`. | ✅ | `"s3"` |
-| `uri` | `string` | The full S3 URI specifying the bucket and the full path (key) of the output file. The file extension (`.csv`, `.parquet`, `.json`) determines the output format. | ✅ | `"s3://my-bucket/processed/report.csv"` |
+| `bucket` | `string` | The name of the destination S3 bucket. | ✅ | `"my-output-bucket"` |
+| `key` | `string` | The full key (path and filename) for the output object. | ✅ | `"processed/data.parquet"` |
+| `file_format`| `string` | The format of the output file. Supported: `csv`, `parquet`, `json`, `jsonl`. | ✅ | `"parquet"` |
+| `mode` | `string` | The write mode. Only `"replace"` is currently supported. Defaults to `"replace"`. | | `"replace"` |
+| `partition_cols` | `list[string]` | A list of column names to partition the output data by. | | `["year", "month"]` |
+| `region` | `string` | The AWS region of the bucket (e.g., `us-east-1`). | | `"us-west-2"` |
+| `access_key_id` | `string` | Your AWS access key ID. (Not recommended, prefer IAM roles). | | `"${AWS_KEY}"` |
+| `secret_access_key` | `string` | Your AWS secret access key. | | `"${AWS_SECRET}"` |
+| `endpoint_url` | `string` | The endpoint URL for an S3-compatible service. | | `"http://minio:9000"` |
 
-### Authentication
-The destination connector does not take explicit credentials in its configuration. It relies on the standard AWS credential discovery process used by `boto3`. For this to work, you must have your AWS credentials configured in the environment where SQLFlow is running, for example via:
-- An IAM role (recommended)
-- Environment variables (`AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`)
-
-### Example Configuration
-```yaml
-# profiles/dev.yml
-destinations:
-  s3_csv_report:
-    type: "s3"
-    uri: "s3://my-data-lake/reports/sales_summary.csv"
-
-  s3_parquet_export:
-    type: "s3"
-    uri: "s3://my-data-lake/exports/processed_users.parquet"
-```
-
-## 🚀 Usage
-
-The connector automatically detects the desired output format from the file extension in the `uri`.
-
-- `s3://.../file.csv` → Writes a CSV file.
-- `s3://.../file.parquet` → Writes a Parquet file.
-- `s3://.../file.json` → Writes a JSON file.
-
-### Example Pipeline
-```sql
--- pipelines/export_to_s3.sql
-FROM source('some_data')
-SELECT *
-TO destination('s3_csv_report');
-```
-
-## 📝 Write Modes
-
-The S3 Destination connector supports **overwrite mode only**.
-
-- **REPLACE (overwrite)**: If an object already exists at the specified `uri`, it will be completely replaced with the new data.
-
-`APPEND` and `UPSERT` modes are **not supported**.
-
-## ❌ Limitations
-
-- **No Streaming Writes**: The connector buffers the entire pandas DataFrame in memory before uploading it to S3. It is not suitable for writing datasets that are larger than available RAM.
-- **No Append/Upsert**: You cannot append to an existing S3 object. Each write operation overwrites the file.
-- **No Format-Specific Options**: You cannot configure format-specific options like the delimiter for CSV files or the compression for Parquet files. The connector uses the default settings from pandas.
-- **Simplified Authentication**: Unlike the S3 Source, the Destination does not allow for passing explicit credentials or a region in the configuration. It relies entirely on the execution environment's setup.
+### Format-Specific Options
+These can also be included in the `OPTIONS` block.
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `csv_delimiter` | `string` | `,` | Delimiter to use for CSV files. |
+| `csv_header` | `boolean`| `true` | Whether to write the header row for CSV files. |
 
 ---
-**Version**: 2.0 • **Status**: ✅ Production Ready • **Write Modes**: Replace Only 
+## 💡 Examples
+
+### Basic Export
+This example exports the `processed_orders` table to a single Parquet file in S3.
+
+```sql
+EXPORT
+  SELECT * FROM processed_orders
+TO "s3://my-output-bucket/orders/all_orders.parquet"
+TYPE S3
+OPTIONS {
+  "bucket": "my-output-bucket",
+  "key": "orders/all_orders.parquet",
+  "file_format": "parquet",
+  "region": "us-east-1"
+};
+```
+
+### Partitioned CSV Export
+This example exports the `events` table into a partitioned structure, creating subdirectories for each year and month.
+
+```sql
+EXPORT
+  SELECT event_id, event_type, payload, event_time, YEAR(event_time) as year, MONTH(event_time) as month
+  FROM events
+TO "s3://my-data-lake/events/"
+TYPE S3
+OPTIONS {
+  "bucket": "my-data-lake",
+  "key": "events/",
+  "file_format": "csv",
+  "partition_cols": ["year", "month"],
+  "csv_delimiter": "\t"
+};
+```
+The resulting S3 structure would look like:
+```
+my-data-lake/
+└── events/
+    ├── year=2024/
+    │   ├── month=1/
+    │   │   └── ...some-guid.csv
+    │   └── month=2/
+    │       └── ...some-guid.csv
+    └── ...
+```
+
+---
+**Version**: 1.0 • **Status**: ✅ Production Ready • **Incremental**: ❌ Not Supported 
