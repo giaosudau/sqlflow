@@ -17,11 +17,15 @@ def get_connector_class(connector_type: str):
             raise ValueError(f"Unknown source connector type: {connector_type}")
 
 
-def register_connector(connector_type: str, connector_class):
-    if hasattr(connector_class, "read"):
-        source_registry.register(connector_type, connector_class)
-    if hasattr(connector_class, "write"):
-        destination_registry.register(connector_type, connector_class)
+def register_connector(connector_type: str):
+    def decorator(connector_class):
+        if hasattr(connector_class, "read"):
+            source_registry.register(connector_type, connector_class)
+        if hasattr(connector_class, "write"):
+            destination_registry.register(connector_type, connector_class)
+        return connector_class
+
+    return decorator
 
 
 __all__ = [

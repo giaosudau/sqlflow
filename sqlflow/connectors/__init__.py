@@ -32,17 +32,17 @@ try:
     from sqlflow.connectors.postgres import *
 except ImportError:
     # Use a placeholder connector that satisfies the interface requirements
-    from sqlflow.connectors import postgres_placeholder
+    from . import postgres_placeholder
 
 
 # flake8: noqa
-from sqlflow.connectors.csv import *
-from sqlflow.connectors.google_sheets import *
-from sqlflow.connectors.in_memory import *
-from sqlflow.connectors.parquet import *
-from sqlflow.connectors.rest import *
-from sqlflow.connectors.s3 import *
-from sqlflow.connectors.shopify import *
+from .csv import *
+from .google_sheets import *
+from .in_memory import *
+from .parquet import *
+from .rest import *
+from .s3 import *
+from .shopify import *
 
 __all__ = [
     "source_connector_registry",
