@@ -74,7 +74,7 @@ class TestParser:
 
         source_step = pipeline.steps[0]
         assert source_step.name == "users"
-        assert source_step.connector_type == "POSTGRES"
+        assert source_step.connector_type == "postgres"
         assert (
             source_step.params["connection"]
             == "postgresql://user:pass@localhost:5432/db"
@@ -116,7 +116,7 @@ class TestParser:
 
         users_step = pipeline.steps[0]
         assert users_step.name == "users"
-        assert users_step.connector_type == "POSTGRES"
+        assert users_step.connector_type == "postgres"
         assert (
             users_step.params["connection"]
             == "postgresql://user:pass@localhost:5432/db"
@@ -125,7 +125,7 @@ class TestParser:
 
         sales_step = pipeline.steps[1]
         assert sales_step.name == "sales"
-        assert sales_step.connector_type == "CSV"
+        assert sales_step.connector_type == "csv"
         assert sales_step.params["path"] == "data/sales.csv"
         assert sales_step.params["has_header"] is True
 
@@ -233,7 +233,7 @@ class TestParser:
         """Test that SourceDefinitionStep validation works correctly."""
         valid_step = SourceDefinitionStep(
             name="users",
-            connector_type="POSTGRES",
+            connector_type="postgres",
             params={
                 "connection": "postgresql://user:pass@localhost:5432/db",
                 "table": "users",
@@ -244,7 +244,7 @@ class TestParser:
 
         invalid_step1 = SourceDefinitionStep(
             name="",
-            connector_type="POSTGRES",
+            connector_type="postgres",
             params={
                 "connection": "postgresql://user:pass@localhost:5432/db",
                 "table": "users",
@@ -269,7 +269,7 @@ class TestParser:
         )
 
         invalid_step3 = SourceDefinitionStep(
-            name="users", connector_type="POSTGRES", params={}, line_number=1
+            name="users", connector_type="postgres", params={}, line_number=1
         )
         errors = invalid_step3.validate()
         assert any(
@@ -340,7 +340,7 @@ class TestParser:
         export_step = pipeline.steps[0]
         assert export_step.sql_query == "SELECT * FROM users"
         assert export_step.destination_uri == "s3://bucket/users.csv"
-        assert export_step.connector_type == "CSV"
+        assert export_step.connector_type == "csv"
         assert export_step.options["delimiter"] == ","
         assert export_step.options["header"] is True
 
@@ -417,7 +417,7 @@ class TestParser:
         valid_step = ExportStep(
             sql_query="SELECT * FROM users",
             destination_uri="s3://bucket/users.csv",
-            connector_type="CSV",
+            connector_type="csv",
             options={"delimiter": ",", "header": True},
             line_number=1,
         )
@@ -426,7 +426,7 @@ class TestParser:
         invalid_step1 = ExportStep(
             sql_query="",
             destination_uri="s3://bucket/users.csv",
-            connector_type="CSV",
+            connector_type="csv",
             options={"delimiter": ",", "header": True},
             line_number=1,
         )
@@ -435,7 +435,7 @@ class TestParser:
         invalid_step2 = ExportStep(
             sql_query="SELECT * FROM users",
             destination_uri="",
-            connector_type="CSV",
+            connector_type="csv",
             options={"delimiter": ",", "header": True},
             line_number=1,
         )
@@ -453,7 +453,7 @@ class TestParser:
         invalid_step4 = ExportStep(
             sql_query="SELECT * FROM users",
             destination_uri="s3://bucket/users.csv",
-            connector_type="CSV",
+            connector_type="csv",
             options={},
             line_number=1,
         )

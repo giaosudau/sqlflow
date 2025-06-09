@@ -370,7 +370,7 @@ class TestDebuggingInfrastructure:
                     source_def = {
                         "id": "source_users",
                         "name": "users",
-                        "connector_type": "CSV",
+                        "connector_type": "csv",
                         "params": {"path": temp_csv_file},
                     }
 

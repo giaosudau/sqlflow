@@ -663,11 +663,15 @@ class DuckDBEngine(SQLEngine):
             internal_load_step = load_step
         else:
             # Convert from parser's LoadStep to our internal LoadStep
+            upsert_keys = getattr(load_step, "upsert_keys", [])
+            # Ensure upsert_keys is never None
+            if upsert_keys is None:
+                upsert_keys = []
             internal_load_step = InternalLoadStep(
                 table_name=load_step.table_name,
                 source_name=load_step.source_name,
                 mode=load_step.mode,
-                upsert_keys=getattr(load_step, "upsert_keys", []),
+                upsert_keys=upsert_keys,
             )
 
         handler = LoadModeHandlerFactory.create(internal_load_step.mode, self)
@@ -1012,6 +1016,10 @@ class DuckDBEngine(SQLEngine):
             ValueError: If upsert keys are invalid
 
         """
+        # Ensure upsert_keys is never None
+        if upsert_keys is None:
+            upsert_keys = []
+
         if not upsert_keys:
             raise ValueError("UPSERT operation requires at least one upsert key")
 
@@ -1091,7 +1099,12 @@ class DuckDBEngine(SQLEngine):
         if not self.connection:
             raise DuckDBConnectionError("No database connection available")
 
+        # Ensure upsert_keys is never None
+        if upsert_keys is None:
+            upsert_keys = []
+
         logger.info(f"Executing UPSERT operation: {source_name} → {table_name}")
+        logger.debug(f"UPSERT keys: {upsert_keys} (type: {type(upsert_keys)})")
 
         try:
             # Validate upsert keys first

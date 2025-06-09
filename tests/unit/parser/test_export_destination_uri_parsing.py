@@ -29,7 +29,7 @@ class TestExportDestinationUriParsing:
         export_step = pipeline.steps[0]
         assert isinstance(export_step, ExportStep)
         assert export_step.destination_uri == "output/test.csv"  # No quotes
-        assert export_step.connector_type == "CSV"
+        assert export_step.connector_type == "csv"
 
     def test_export_destination_with_single_quotes_stripped(self):
         """Test that single quotes are properly stripped from export destination URIs.
@@ -50,7 +50,7 @@ class TestExportDestinationUriParsing:
         export_step = pipeline.steps[0]
         assert isinstance(export_step, ExportStep)
         assert export_step.destination_uri == "output/test.csv"  # No quotes
-        assert export_step.connector_type == "CSV"
+        assert export_step.connector_type == "csv"
 
     def test_export_destination_with_mixed_quotes_in_path(self):
         """Test destination paths that contain quote characters within the actual path.
@@ -69,7 +69,7 @@ class TestExportDestinationUriParsing:
         assert (
             export_step.destination_uri == "output/client's_data.csv"
         )  # Inner quotes preserved
-        assert export_step.connector_type == "CSV"
+        assert export_step.connector_type == "csv"
 
     def test_export_destination_s3_uri_with_quotes(self):
         """Test S3 URI destination paths with quotes are properly handled.
@@ -88,7 +88,7 @@ class TestExportDestinationUriParsing:
         assert (
             export_step.destination_uri == "s3://test-bucket/exports/data.csv"
         )  # No outer quotes
-        assert export_step.connector_type == "CSV"
+        assert export_step.connector_type == "csv"
 
     def test_export_destination_with_variable_references(self):
         """Test that variable references in destination paths work with quote stripping.
@@ -128,6 +128,6 @@ class TestExportDestinationUriParsing:
         export_step = pipeline.steps[0]
         assert isinstance(export_step, ExportStep)
         assert export_step.destination_uri == "output/complex_export.csv"  # No quotes
-        assert export_step.connector_type == "CSV"
+        assert export_step.connector_type == "csv"
         assert export_step.options["header"] is True
         assert export_step.options["delimiter"] == ","

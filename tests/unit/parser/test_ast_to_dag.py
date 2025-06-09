@@ -122,7 +122,7 @@ class TestASTToDAGConverter:
 
         step = SourceDefinitionStep(
             name="users",
-            connector_type="CSV",
+            connector_type="csv",
             params={"file_path": "data/users.csv"},
             line_number=1,
         )
@@ -133,7 +133,7 @@ class TestASTToDAGConverter:
         assert result["id"] == "step_0"
         assert result["name"] == "users"
         assert result["type"] == "SOURCE"
-        assert result["connector_type"] == "CSV"
+        assert result["connector_type"] == "csv"
         assert result["params"] == {"file_path": "data/users.csv"}
         assert result["line_number"] == 1
 
@@ -159,7 +159,7 @@ class TestASTToDAGConverter:
         step = ExportStep(
             sql_query="SELECT * FROM users",
             destination_uri="output/users.csv",
-            connector_type="CSV",
+            connector_type="csv",
             options={"header": True},
             line_number=3,
         )
@@ -170,7 +170,7 @@ class TestASTToDAGConverter:
         assert result["id"] == "step_2"
         assert result["sql_query"] == "SELECT * FROM users"
         assert result["destination_uri"] == "output/users.csv"
-        assert result["connector_type"] == "CSV"
+        assert result["connector_type"] == "csv"
         assert result["options"] == {"header": True}
         assert result["type"] == "EXPORT"
         assert result["line_number"] == 3

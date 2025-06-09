@@ -642,8 +642,8 @@ class AdvancedUDFQueryProcessor:
     def _transform_table_udf_patterns(self, query: str) -> str:
         """Transform Table UDF patterns to work with DuckDB limitations.
 
-        DuckDB doesn't support true table functions in Python, so we need to
-        transform SELECT * FROM table_udf() into a workaround.
+        DuckDB doesn't support true table functions in Python, so we implement
+        the external processing workaround: fetch data → process with pandas → register back.
 
         Args:
         ----
@@ -654,11 +654,56 @@ class AdvancedUDFQueryProcessor:
             Transformed query
 
         """
+        import re
 
-        # Look for SELECT * FROM function_name() patterns
-        def replace_table_pattern(match):
+        # Look for SELECT * FROM PYTHON_FUNC("module.function", args) patterns
+        python_func_from_pattern = r'SELECT\s+\*\s+FROM\s+PYTHON_FUNC\s*\(\s*["\']([^"\']+)["\']\s*,\s*([^)]+)\s*\)'
+
+        def replace_python_func_pattern(match):
+            udf_name = match.group(1)  # Full UDF name like python_udfs.module.function
+            source_table = match.group(2).strip()  # Source table name
+
+            # Extract flat name from full UDF name
+            udf_parts = udf_name.split(".")
+            flat_name = udf_parts[-1]
+
+            logger.debug(
+                f"Processing table UDF pattern: {udf_name}, source: {source_table}"
+            )
+
+            # Check if this is a registered table UDF
+            if flat_name in self.engine.registered_udfs:
+                udf_function = self.engine.registered_udfs[flat_name]
+                udf_type = getattr(udf_function, "_udf_type", "scalar")
+
+                if udf_type == "table":
+                    # Execute table UDF externally and register result
+                    result_table_name = self._execute_table_udf_externally(
+                        flat_name, udf_function, source_table
+                    )
+
+                    logger.info(
+                        f"Table UDF {flat_name} executed externally, result registered as {result_table_name}"
+                    )
+
+                    # Replace with simple SELECT from the result table
+                    return f"SELECT * FROM {result_table_name}"
+
+            # If not a table UDF or processing failed, leave unchanged
+            return match.group(0)
+
+        # Apply transformation
+        transformed = re.sub(
+            python_func_from_pattern,
+            replace_python_func_pattern,
+            query,
+            flags=re.IGNORECASE | re.MULTILINE,
+        )
+
+        # Also handle direct function calls like SELECT * FROM function_name(args)
+        def replace_direct_table_pattern(match):
             func_name = match.group(1)
-            match.group(2).strip() if match.group(2) else ""
+            func_args = match.group(2).strip() if match.group(2) else ""
 
             # Check if this is a registered table UDF
             if func_name in self.engine.registered_udfs:
@@ -666,34 +711,121 @@ class AdvancedUDFQueryProcessor:
                 udf_type = getattr(udf_function, "_udf_type", "scalar")
 
                 if udf_type == "table":
-                    logger.warning(
-                        f"Table UDF {func_name} cannot be used in FROM clause with current DuckDB version. "
-                        f"Table functions are not supported in DuckDB Python API."
+                    logger.debug(
+                        f"Processing direct table UDF pattern: {func_name}({func_args})"
                     )
 
-                    # Return an error-generating query that provides clear feedback
-                    return (
-                        f"(SELECT 'ERROR: Table UDF {func_name} cannot be used in FROM clause. "
-                        f"DuckDB Python API does not support table functions. "
-                        f"Consider using scalar UDFs or restructuring your query.' as error_message)"
-                    )
+                    # For direct calls, we need to parse the arguments to extract source table
+                    source_table = func_args.strip() if func_args else None
+
+                    if source_table:
+                        # Execute table UDF externally and register result
+                        result_table_name = self._execute_table_udf_externally(
+                            func_name, udf_function, source_table
+                        )
+
+                        logger.info(
+                            f"Table UDF {func_name} executed externally, result registered as {result_table_name}"
+                        )
+
+                        # Replace with simple SELECT from the result table
+                        return f"SELECT * FROM {result_table_name}"
+                    else:
+                        logger.warning(
+                            f"Table UDF {func_name} called without source table argument"
+                        )
 
             # If not a table UDF, leave unchanged
             return match.group(0)
 
+        # Apply direct pattern transformation
         transformed = re.sub(
             RegexPatterns.TABLE_UDF_FROM_PATTERN,
-            replace_table_pattern,
-            query,
+            replace_direct_table_pattern,
+            transformed,
             flags=re.IGNORECASE | re.MULTILINE,
         )
 
         if transformed != query:
-            logger.debug("Transformed Table UDF FROM patterns")
+            logger.debug(
+                "Transformed Table UDF FROM patterns using external processing"
+            )
             logger.debug(f"Original: {query}")
             logger.debug(f"Transformed: {transformed}")
 
         return transformed
+
+    def _execute_table_udf_externally(
+        self, udf_name: str, udf_function: Callable, source_table: str
+    ) -> str:
+        """Execute a table UDF externally and register the result with DuckDB.
+
+        This implements the external processing workaround:
+        1. Fetch data from DuckDB
+        2. Process with pandas using the table UDF
+        3. Register result back to DuckDB
+
+        Args:
+        ----
+            udf_name: Name of the UDF function
+            udf_function: The actual UDF function
+            source_table: Name of the source table to process
+
+        Returns:
+        -------
+            Name of the registered result table
+
+        """
+        try:
+            # Generate unique result table name
+            import time
+
+            timestamp = int(time.time() * 1000000)  # microsecond precision
+            result_table_name = f"{udf_name}_result_{timestamp}"
+
+            logger.debug(f"Executing table UDF {udf_name} externally on {source_table}")
+
+            # Step 1: Fetch data from DuckDB
+            fetch_query = f"SELECT * FROM {source_table}"
+            result = self.engine.execute_query(fetch_query)
+            source_df = result.fetchdf()
+
+            logger.debug(f"Fetched {len(source_df)} rows from {source_table}")
+
+            # Step 2: Execute table UDF with pandas
+            processed_df = udf_function(source_df)
+
+            logger.debug(f"Table UDF produced {len(processed_df)} rows")
+
+            # Step 3: Register result back with DuckDB
+            self.engine.register_table(
+                result_table_name, processed_df, manage_transaction=False
+            )
+
+            logger.debug(f"Registered result as {result_table_name}")
+
+            return result_table_name
+
+        except Exception as e:
+            logger.error(f"Failed to execute table UDF {udf_name} externally: {e}")
+
+            # Create an error table instead of failing completely
+            import pandas as pd
+
+            error_df = pd.DataFrame(
+                {
+                    "error_message": [f"Table UDF {udf_name} failed: {str(e)}"],
+                    "udf_name": [udf_name],
+                    "source_table": [source_table],
+                }
+            )
+
+            error_table_name = f"{udf_name}_error_{int(time.time() * 1000000)}"
+            self.engine.register_table(
+                error_table_name, error_df, manage_transaction=False
+            )
+
+            return error_table_name
 
     def _log_transformation(self, original_query: str, processed_query: str) -> None:
         """Log the query transformation.

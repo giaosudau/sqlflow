@@ -958,7 +958,7 @@ def executor_with_source(temp_csv_file) -> LocalExecutor:
         "id": "source_users",
         "type": "source_definition",
         "name": "users",
-        "connector_type": "CSV",
+        "connector_type": "csv",
         "params": {"path": temp_csv_file, "has_header": True},
     }
 
@@ -1080,7 +1080,7 @@ def test_source_connector_registration(temp_csv_file):
         "id": "source_test",
         "type": "source_definition",
         "name": "test_source",
-        "connector_type": "CSV",
+        "connector_type": "csv",
         "params": {"path": temp_csv_file, "has_header": True},
     }
 
@@ -1092,7 +1092,9 @@ def test_source_connector_registration(temp_csv_file):
     source_def = executor._get_source_definition("test_source")
     assert source_def is not None
     assert source_def["name"] == "test_source"
-    assert source_def["connector_type"] == "CSV"
+    assert (
+        source_def["connector_type"] == "csv"
+    )  # Connector types are normalized to lowercase
     assert source_def["params"]["path"] == temp_csv_file
 
 
@@ -1105,14 +1107,14 @@ def test_load_with_invalid_connector_type():
         "id": "source_invalid",
         "type": "source_definition",
         "name": "invalid_source",
-        "connector_type": "INVALID_TYPE",
+        "connector_type": "invalid_type",
         "params": {"path": "/nonexistent/path.csv", "has_header": True},
     }
 
     # Execute the source definition - should fail with invalid connector type
     result = executor._execute_source_definition(source_step)
     assert result["status"] == "error"  # Should fail due to invalid connector type
-    assert "Unknown connector type" in result["error"]
+    assert "Unknown source connector type" in result["error"]
 
 
 def test_load_with_empty_source_params():
@@ -1124,14 +1126,14 @@ def test_load_with_empty_source_params():
         "id": "source_empty",
         "type": "source_definition",
         "name": "empty_source",
-        "connector_type": "CSV",
+        "connector_type": "csv",
         "params": {},  # Empty params
     }
 
     # Execute the source definition - should fail due to missing required params
     result = executor._execute_source_definition(source_step)
     assert result["status"] == "error"  # Should fail due to missing path parameter
-    assert "Missing required parameters" in result["error"]
+    assert "path" in result["error"] and "required" in result["error"]
 
 
 def test_load_mode_case_insensitive():
@@ -1143,19 +1145,19 @@ def test_load_mode_case_insensitive():
         "id": "source_case",
         "type": "source_definition",
         "name": "case_source",
-        "connector_type": "CSV",
+        "connector_type": "csv",
         "params": {
             "path": "/tmp/dummy.csv",  # Will fail but that's ok for this test
             "has_header": True,
         },
     }
 
+    # Source definition registration should succeed (it's just metadata)
     result = executor._execute_source_definition(source_step)
-    assert result["status"] == "error"  # Should fail due to missing file
-    assert "File not found" in result["error"]
+    assert result["status"] == "success"
 
-    # Since the source registration failed, we can't test load modes
-    # Let's test with a valid source instead
+    # The error should occur when trying to load data, not during source registration
+    # Let's test with a valid source for actual load mode testing
     import os
     import tempfile
 
@@ -1170,7 +1172,7 @@ def test_load_mode_case_insensitive():
             "id": "source_valid",
             "type": "source_definition",
             "name": "valid_source",
-            "connector_type": "CSV",
+            "connector_type": "csv",
             "params": {
                 "path": temp_file,
                 "has_header": True,
@@ -1224,14 +1226,14 @@ def test_source_definition_retrieval():
                 "id": "source_csv1",
                 "type": "source_definition",
                 "name": "csv_source1",
-                "connector_type": "CSV",
+                "connector_type": "csv",
                 "params": {"path": csv_file1.name, "has_header": True},
             },
             {
                 "id": "source_csv2",
                 "type": "source_definition",
                 "name": "csv_source2",
-                "connector_type": "CSV",
+                "connector_type": "csv",
                 "params": {"path": csv_file2.name, "has_header": True},
             },
         ]
@@ -1244,12 +1246,16 @@ def test_source_definition_retrieval():
         # Verify all sources are stored and retrievable
         csv_def1 = executor._get_source_definition("csv_source1")
         assert csv_def1 is not None
-        assert csv_def1["connector_type"] == "CSV"
+        assert (
+            csv_def1["connector_type"] == "csv"
+        )  # Connector types are normalized to lowercase
         assert csv_def1["params"]["path"] == csv_file1.name
 
         csv_def2 = executor._get_source_definition("csv_source2")
         assert csv_def2 is not None
-        assert csv_def2["connector_type"] == "CSV"
+        assert (
+            csv_def2["connector_type"] == "csv"
+        )  # Connector types are normalized to lowercase
 
         # Test non-existent source
         missing_def = executor._get_source_definition("nonexistent")
@@ -1260,13 +1266,13 @@ def test_source_definition_retrieval():
             "id": "source_invalid",
             "type": "source_definition",
             "name": "invalid_source",
-            "connector_type": "INVALID_TYPE",
+            "connector_type": "invalid_type",
             "params": {"path": csv_file1.name, "has_header": True},
         }
 
         result = executor._execute_source_definition(invalid_source)
         assert result["status"] == "error"  # Should fail due to invalid connector type
-        assert "Unknown connector type" in result["error"]
+        assert "Unknown source connector type" in result["error"]
 
     finally:
         # Clean up temporary files
@@ -1284,7 +1290,7 @@ def test_load_with_profile_based_source():
         "id": "source_profile",
         "type": "source_definition",
         "name": "profile_source",
-        "connector_type": "CSV",
+        "connector_type": "csv",
         "params": {"path": "/tmp/profile.csv", "has_header": True},
         "is_from_profile": True,  # Indicate this is from profile
     }

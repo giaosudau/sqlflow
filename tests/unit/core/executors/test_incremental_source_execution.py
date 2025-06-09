@@ -40,7 +40,7 @@ class TestIncrementalSourceExecution:
         step = {
             "id": "source_orders",
             "name": "orders",
-            "connector_type": "CSV",
+            "connector_type": "csv",
             "sync_mode": "incremental",
             # Missing cursor_field - should raise error
             "params": {"path": "/data/orders.csv"},
@@ -75,7 +75,7 @@ class TestIncrementalSourceExecution:
                 step = {
                     "id": "source_orders",
                     "name": "orders",
-                    "connector_type": "CSV",
+                    "connector_type": "csv",
                     "sync_mode": "incremental",
                     "cursor_field": "updated_at",
                     "params": {"path": "/data/orders.csv"},
@@ -117,7 +117,7 @@ class TestIncrementalSourceExecution:
                 step = {
                     "id": "source_orders",
                     "name": "orders",
-                    "connector_type": "CSV",
+                    "connector_type": "csv",
                     "sync_mode": "incremental",
                     "cursor_field": "updated_at",
                     "params": {"path": "/data/orders.csv"},
@@ -173,7 +173,7 @@ class TestIncrementalSourceExecution:
                 step = {
                     "id": "source_orders",
                     "name": "orders",
-                    "connector_type": "CSV",
+                    "connector_type": "csv",
                     "sync_mode": "incremental",
                     "cursor_field": "updated_at",
                     "params": {"path": "/data/orders.csv"},
@@ -218,7 +218,7 @@ class TestIncrementalSourceExecution:
                 step = {
                     "id": "source_orders",
                     "name": "orders",
-                    "connector_type": "CSV",
+                    "connector_type": "csv",
                     "sync_mode": "incremental",
                     "cursor_field": "updated_at",
                     "params": {"path": "/data/orders.csv"},
@@ -257,7 +257,7 @@ class TestIncrementalSourceExecution:
                 step = {
                     "id": "source_orders",
                     "name": "orders",
-                    "connector_type": "CSV",
+                    "connector_type": "csv",
                     "sync_mode": "incremental",
                     "cursor_field": "updated_at",
                     "params": {"path": "/data/orders.csv"},
@@ -276,7 +276,7 @@ class TestIncrementalSourceExecution:
 
     def test_extract_object_name_from_csv_step(self, executor_with_watermarks):
         """Test extraction of object name for CSV connector."""
-        step = {"connector_type": "CSV", "params": {"path": "/data/orders.csv"}}
+        step = {"connector_type": "csv", "params": {"path": "/data/orders.csv"}}
 
         result = executor_with_watermarks._extract_object_name_from_step(step)
         assert result == "/data/orders.csv"

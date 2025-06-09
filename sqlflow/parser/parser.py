@@ -423,7 +423,7 @@ class Parser:
 
             return SourceDefinitionStep(
                 name=name_token.value,
-                connector_type=type_token.value,
+                connector_type=type_token.value.lower(),
                 params=params,
                 is_from_profile=False,
                 line_number=source_token.line,
@@ -752,7 +752,7 @@ class Parser:
         return ExportStep(
             sql_query=sql_query,
             destination_uri=destination_uri,
-            connector_type=connector_type_token.value,
+            connector_type=connector_type_token.value.lower(),
             options=options,
             line_number=export_token.line,
         )

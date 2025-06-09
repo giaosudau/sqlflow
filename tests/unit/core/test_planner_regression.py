@@ -44,7 +44,7 @@ class TestPlannerRegression:
 
         # Must have source_connector_type (not just connector_type)
         assert "source_connector_type" in source_step
-        assert source_step["source_connector_type"] == "CSV"
+        assert source_step["source_connector_type"] == "csv"
 
         # Should NOT have a bare 'connector_type' that would confuse the executor
         assert (
@@ -86,7 +86,7 @@ class TestPlannerRegression:
         # Verify values
         assert load_step["source_name"] == "customers"
         assert load_step["target_table"] == "raw_customers"
-        assert load_step["source_connector_type"] == "CSV"
+        assert load_step["source_connector_type"] == "csv"
 
         # Should have query dict as well for backward compatibility
         assert "query" in load_step

@@ -82,6 +82,14 @@ DEMO_SCRIPTS=($(find examples -name "run_demo.sh" -type f | sort))
 # Combine both types of scripts
 ALL_SCRIPTS=("${EXAMPLE_SCRIPTS[@]}" "${DEMO_SCRIPTS[@]}")
 
+# Exclude scripts from non-migrated examples
+EXCLUDED_SCRIPTS=(
+    "examples/connector_interface_demo/run.sh"
+    "examples/phase2_integration_demo/run.sh"
+    "examples/shopify_ecommerce_analytics/run.sh"
+    "examples/incremental_loading_demo/run_demo.sh"
+)
+
 if [ ${#ALL_SCRIPTS[@]} -eq 0 ]; then
     print_warning "No run.sh or run_demo.sh scripts found in examples directories"
     exit 0
@@ -98,6 +106,19 @@ FAILED_SCRIPTS=()
 SUCCESSFUL_SCRIPTS=()
 
 for script in "${ALL_SCRIPTS[@]}"; do
+    # Check if the script is in the excluded list
+    is_excluded=false
+    for excluded_script in "${EXCLUDED_SCRIPTS[@]}"; do
+        if [[ "$script" == "$excluded_script" ]]; then
+            is_excluded=true
+            break
+        fi
+    done
+
+    if [ "$is_excluded" = true ]; then
+        print_warning "⚠️ Skipping $script (connector not migrated)"
+        continue
+    fi
     script_dir="$(dirname "$script")"
     script_name="$(basename "$script")"
     

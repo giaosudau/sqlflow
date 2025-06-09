@@ -162,7 +162,10 @@ class SQLGenerator:
             SQL for the source.
 
         """
-        source_type = operation.get("source_connector_type", "").upper()
+        # Get connector type and normalize case for consistent handling
+        source_type = operation.get(
+            "source_connector_type", operation.get("connector_type", "")
+        ).lower()
         query = operation.get("query", {})
         name = operation.get("name", "unnamed_source")
         operation.get("id", "unknown")
@@ -178,7 +181,7 @@ class SQLGenerator:
 
             if profile_connector_name and profile_connector_name in profile_connectors:
                 profile_connector = profile_connectors.get(profile_connector_name, {})
-                source_type = profile_connector.get("type", "").upper()
+                source_type = profile_connector.get("type", "").lower()
                 logger.debug(f"Using connector type from profile: {source_type}")
             else:
                 warning_key = f"profile_connector_not_found:{profile_connector_name}"
@@ -191,7 +194,7 @@ class SQLGenerator:
 
         logger.debug(f"Generating source SQL for {name}, type: {source_type}")
 
-        if source_type == "CSV":
+        if source_type == "csv":
             path = query.get("path", "")
             has_header = query.get("has_header", True)
             logger.debug(f"CSV source: path={path}, has_header={has_header}")
@@ -200,7 +203,7 @@ CREATE OR REPLACE TABLE {name} AS
 SELECT * FROM read_csv_auto('{path}', 
                            header={str(has_header).lower()});"""
 
-        elif source_type == "POSTGRESQL" or source_type == "POSTGRES":
+        elif source_type in ["postgresql", "postgres"]:
             pg_query = query.get("query", "")
             logger.debug(f"PostgreSQL source: query length={len(pg_query)}")
             return f"""-- Source type: PostgreSQL
@@ -212,7 +215,7 @@ SELECT * FROM {pg_query};"""
             warning_key = f"unknown_source_type:{source_type}:{name}"
 
             # Create a more helpful error message for the tests to check
-            supported_types = ["CSV", "POSTGRES", "POSTGRESQL"]
+            supported_types = ["csv", "postgres", "postgresql"]
             supported_types_str = ", ".join(supported_types)
 
             error_msg = (
@@ -351,13 +354,13 @@ SELECT * FROM {source_name};"""
         query = operation.get("query", {})
         source_query = query.get("query", "")
         destination = query.get("destination_uri", "")
-        export_type = query.get("type", "CSV").upper()
+        export_type = query.get("type", "CSV").lower()  # Normalize to lowercase
 
         logger.debug(
             f"Generating export SQL: type={export_type}, destination={destination}"
         )
 
-        if export_type == "CSV":
+        if export_type == "csv":
             return f"""-- Export to CSV
 COPY (
 {source_query}
@@ -367,7 +370,7 @@ COPY (
             logger.warning(
                 f"Export type not explicitly supported: {export_type}, using generic format"
             )
-            return f"""-- Export type: {export_type}
+            return f"""-- Export type: {export_type.upper()}
 -- Destination: {destination}
 {source_query}"""
 

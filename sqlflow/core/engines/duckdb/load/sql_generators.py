@@ -39,6 +39,14 @@ class SQLGenerator:
             Complete UPSERT SQL statement
 
         """
+        # Ensure upsert_keys is never None
+        if upsert_keys is None:
+            upsert_keys = []
+
+        logger.debug(
+            f"SQL Generator - UPSERT keys: {upsert_keys} (type: {type(upsert_keys)})"
+        )
+
         # Validate all identifiers to prevent injection
         validate_identifier(table_name)
         validate_identifier(source_name)
@@ -127,6 +135,10 @@ COMMIT;
             WHERE clause string
 
         """
+        # Ensure upsert_keys is never None
+        if upsert_keys is None:
+            upsert_keys = []
+
         quoted_table = self.formatter.quote_identifier(table_name)
         update_where_clauses = []
         for key in upsert_keys:
@@ -151,6 +163,10 @@ COMMIT;
             SET clause string
 
         """
+        # Ensure upsert_keys is never None
+        if upsert_keys is None:
+            upsert_keys = []
+
         set_clauses = []
         for col in source_schema.keys():
             if col not in upsert_keys:
@@ -184,6 +200,10 @@ COMMIT;
             WHERE clause string optimized for DuckDB
 
         """
+        # Ensure upsert_keys is never None
+        if upsert_keys is None:
+            upsert_keys = []
+
         quoted_table = self.formatter.quote_identifier(table_name)
 
         # Use NOT EXISTS for better performance and NULL handling
