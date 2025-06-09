@@ -23,7 +23,7 @@ from sqlflow.logging import get_logger
 logger = get_logger(__name__)
 
 
-class RestApiSource(Connector):
+class RestSource(Connector):
     """
     Enhanced REST API connector with authentication, pagination, and schema inference.
 
@@ -31,20 +31,24 @@ class RestApiSource(Connector):
     commonly used in REST APIs.
     """
 
-    def __init__(self):
+    def __init__(self, config: Optional[Dict[str, Any]] = None):
         super().__init__()
-        self.url: str = ""
-        self.method: str = "GET"
-        self.headers: Dict[str, str] = {}
-        self.params: Dict[str, Any] = {}
-        self.auth_config: Optional[Dict[str, Any]] = None
-        self.pagination_config: Optional[Dict[str, Any]] = None
-        self.timeout: int = 30
-        self.max_retries: int = 3
-        self.retry_delay: float = 1.0
-        self.data_path: Optional[str] = None  # JSONPath to extract data from response
-        self.flatten_response: bool = True
+        # Initialize default values to prevent AttributeError
+        self.url = None
+        self.method = "GET"
+        self.headers = {}
+        self.params = {}
+        self.auth_config = None
+        self.pagination_config = None
+        self.timeout = 30
+        self.max_retries = 3
+        self.retry_delay = 1.0
+        self.data_path = None
+        self.flatten_response = True
         self.session: Optional[requests.Session] = None
+
+        if config:
+            self.configure(config)
 
     def configure(self, params: Dict[str, Any]) -> None:
         """Configure the REST API connector with connection parameters."""
@@ -168,12 +172,27 @@ class RestApiSource(Connector):
         self,
         object_name: Optional[str] = None,
         columns: Optional[List[str]] = None,
-        batch_size: int = 1000,
-        cursor_value: Optional[Any] = None,
+        filters: Optional[Dict[str, Any]] = None,
+        batch_size: int = 10000,
+        options: Optional[Dict[str, Any]] = None,  # Legacy support
     ) -> Iterator[DataChunk]:
-        """Read data from the REST API endpoint."""
+        """Read data from the REST API endpoint.
+
+        Supports both new interface (object_name, columns, filters, batch_size)
+        and legacy interface (options dict).
+        """
         try:
             session = self._create_session()
+
+            # Handle backward compatibility
+            if options is not None:
+                # Legacy interface: options dict contains all parameters
+                columns = options.get("columns", columns)
+                batch_size = options.get("batch_size", batch_size)
+                cursor_value = options.get("cursor_value")
+            else:
+                # New interface: cursor_value from filters
+                cursor_value = filters.get("cursor_value") if filters else None
 
             if self.pagination_config:
                 yield from self._read_paginated(
@@ -322,16 +341,18 @@ class RestApiSource(Connector):
         session: requests.Session,
         columns: Optional[List[str]],
         batch_size: int,
-        cursor_value: Optional[Any],
+        cursor_value: Optional[Any] = None,
     ) -> Iterator[DataChunk]:
-        """Read data with pagination support."""
+        """Read paginated data from the REST API."""
+        current_params = self.params.copy()
+        current_params[self.pagination_config["size_param"]] = batch_size
+
         page_param = self.pagination_config.get("page_param", "page")
-        size_param = self.pagination_config.get("size_param", "limit")
+        self.pagination_config.get("size_param", "limit")
         page_size = self.pagination_config.get("page_size", batch_size)
 
         page = 1
-        params = self.params.copy()
-        params[size_param] = page_size
+        params = current_params.copy()
 
         # Add cursor parameter for incremental loading
         if cursor_value is not None:

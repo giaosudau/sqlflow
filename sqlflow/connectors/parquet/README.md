@@ -1,16 +1,24 @@
 # Parquet Connector
 
-High-performance columnar data loading with schema inference and file pattern support.
+The Parquet connector provides high-performance, efficient reading and writing of [Apache Parquet](https://parquet.apache.org/) files.
+
+Apache Parquet is a columnar storage file format that is designed for efficient data storage and retrieval. It is highly optimized for use with big data processing frameworks and provides significant performance improvements over row-based file formats like CSV.
 
 ## Overview
 
-The Parquet connector provides efficient reading of Apache Parquet files with advanced features including:
-- **Schema inference** from Parquet metadata
-- **Column selection** for optimized data loading
-- **File pattern matching** for bulk operations
-- **Multiple file handling** with combination options
-- **Incremental loading** support
-- **Comprehensive error handling**
+This connector allows you to:
+- **Read Parquet files** as a data source, with advanced features like schema inference, column selection, and file pattern matching.
+- **Write Parquet files** as a data destination.
+
+## Documentation
+
+For detailed information on configuration, features, and limitations, please see the full documentation for the source and destination.
+
+### 📥 Source Documentation
+**[Parquet Source Connector →](./SOURCE.md)**
+
+### 📤 Destination Documentation
+**[Parquet Destination Connector →](./DESTINATION.md)**
 
 ## Configuration
 

@@ -113,3 +113,13 @@ class DataChunk:
             return len(self._arrow_table)
         assert self._pandas_df is not None
         return len(self._pandas_df)
+
+    def to_pandas(self) -> pd.DataFrame:
+        """Get data as pandas DataFrame (alias for pandas_df property).
+
+        Returns
+        -------
+            pandas DataFrame representation of the data.
+
+        """
+        return self.pandas_df

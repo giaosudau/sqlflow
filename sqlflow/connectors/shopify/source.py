@@ -4,6 +4,9 @@ This module provides a comprehensive Shopify connector for extracting data from
 Shopify stores using the Admin API with authentication, pagination, and error handling.
 """
 
+from __future__ import annotations
+
+import logging
 import time
 from typing import Any, Dict, Iterator, List, Optional
 from urllib.parse import urljoin
@@ -13,23 +16,20 @@ import pyarrow as pa
 import requests
 
 from sqlflow.connectors.base.connection_test_result import ConnectionTestResult
-from sqlflow.connectors.base.connector import Connector, ConnectorState
+from sqlflow.connectors.base.connector import ConnectorState
 from sqlflow.connectors.base.schema import Schema
 from sqlflow.connectors.data_chunk import DataChunk
-from sqlflow.logging import get_logger
+from sqlflow.connectors.rest.source import RestSource
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
-class ShopifySource(Connector):
+class ShopifySource(RestSource):
     """
-    Enhanced Shopify connector for extracting data from Shopify Admin API.
-
-    Supports multiple authentication methods, pagination, rate limiting,
-    and comprehensive error handling for production use.
+    Connector for reading data from Shopify.
     """
 
-    # Shopify API endpoints and their data keys
+    # Shopify API endpoints mapping
     ENDPOINTS = {
         "orders": "orders",
         "customers": "customers",
@@ -45,43 +45,128 @@ class ShopifySource(Connector):
         "metafields": "metafields",
     }
 
-    def __init__(self):
+    def __init__(self, config: Optional[Dict[str, Any]] = None):
+        # Call parent without config to avoid double configuration
         super().__init__()
-        self.shop_domain: str = ""
-        self.access_token: str = ""
-        self.api_version: str = "2023-10"
-        self.base_url: str = ""
-        self.timeout: int = 30
-        self.max_retries: int = 3
-        self.retry_delay: float = 1.0
-        self.rate_limit_delay: float = 0.5  # Shopify rate limiting
-        self.session: Optional[requests.Session] = None
+
+        if config:
+            # Configure directly with the Shopify config
+            self.configure(config)
 
     def configure(self, params: Dict[str, Any]) -> None:
         """Configure the Shopify connector with connection parameters."""
-        self.shop_domain = params.get("shop_domain", "")
-        if not self.shop_domain:
+        # Validate required parameters
+        shop_domain = params.get("shop_domain")
+        if not shop_domain:
             raise ValueError("Shopify connector requires 'shop_domain' parameter")
 
-        # Normalize shop domain
-        if not self.shop_domain.endswith(".myshopify.com"):
-            if "." not in self.shop_domain:
-                self.shop_domain = f"{self.shop_domain}.myshopify.com"
-
-        self.access_token = params.get("access_token", "")
-        if not self.access_token:
+        access_token = params.get("access_token")
+        if not access_token:
             raise ValueError("Shopify connector requires 'access_token' parameter")
 
+        # Normalize shop domain
+        if not shop_domain.endswith(".myshopify.com"):
+            shop_domain = f"{shop_domain}.myshopify.com"
+
+        # Store Shopify-specific attributes
+        self.shop_domain = shop_domain
+        self.access_token = access_token
         self.api_version = params.get("api_version", "2023-10")
         self.timeout = params.get("timeout", 30)
         self.max_retries = params.get("max_retries", 3)
         self.retry_delay = params.get("retry_delay", 1.0)
         self.rate_limit_delay = params.get("rate_limit_delay", 0.5)
 
-        # Construct base URL
-        self.base_url = f"https://{self.shop_domain}/admin/api/{self.api_version}/"
+        # Build base URL
+        self.base_url = f"https://{shop_domain}/admin/api/{self.api_version}/"
 
-        self.state = ConnectorState.CONFIGURED
+        # Create REST config and configure parent
+        url = f"https://{shop_domain}/admin/api/{self.api_version}"
+        auth = {
+            "type": "api_key",
+            "key_name": "X-Shopify-Access-Token",
+            "key_value": access_token,
+            "add_to": "header",
+        }
+        pagination = {
+            "cursor_param": "since_id",
+            "cursor_path": "id",
+            "size_param": "limit",
+            "page_size": 250,
+        }
+        rest_config = {
+            "url": url,
+            "auth": auth,
+            "pagination": pagination,
+            "timeout": self.timeout,
+            "max_retries": self.max_retries,
+            "retry_delay": self.retry_delay,
+            "type": "rest",  # Add the type field that the test expects
+        }
+
+        # Store config for backward compatibility and test expectations
+        self.config = rest_config
+
+        super().configure(rest_config)
+
+    def read(
+        self,
+        object_name: Optional[str] = None,
+        columns: Optional[List[str]] = None,
+        filters: Optional[Dict[str, Any]] = None,
+        batch_size: int = 10000,
+        options: Optional[Dict[str, Any]] = None,  # Legacy support
+        cursor_value: Optional[Any] = None,  # Legacy support
+    ) -> Iterator[DataChunk]:
+        """Read data from Shopify API endpoint.
+
+        Supports both new interface and legacy interface for backward compatibility.
+        """
+        # Handle backward compatibility
+        if options is not None:
+            # Legacy interface: options dict contains table_name
+            object_name = options.get("table_name", object_name)
+            columns = options.get("columns", columns)
+            batch_size = options.get("batch_size", batch_size)
+            cursor_value = options.get("cursor_value", cursor_value)
+
+        if not object_name:
+            raise ValueError(
+                "ShopifySource: 'object_name' or 'table_name' must be specified"
+            )
+
+        if object_name not in self.ENDPOINTS:
+            raise ValueError(f"Invalid object_name: {object_name}")
+
+        # Extract cursor_value from filters if not provided directly
+        if cursor_value is None and filters:
+            cursor_value = filters.get("cursor_value")
+
+        try:
+            session = self._create_session()
+
+            # Use Shopify-specific pagination method
+            if self.pagination_config:
+                yield from self._read_paginated(
+                    session, object_name, columns, batch_size, cursor_value
+                )
+            else:
+                # Single request without pagination
+                url = urljoin(self.base_url, f"{object_name}.json")
+                data_key = self.ENDPOINTS[object_name]
+
+                params = self._build_initial_params(batch_size, cursor_value)
+                response = self._make_request(session, url, params)
+                data = response.json()
+
+                items = data.get(data_key, [])
+                if items:
+                    chunk = self._process_data_chunk(items, columns)
+                    yield chunk
+
+        except Exception as e:
+            logger.error(f"Failed to read data from Shopify API: {e}")
+            raise
 
     def test_connection(self) -> ConnectionTestResult:
         """Test the connection to the Shopify store."""
@@ -166,29 +251,6 @@ class ShopifySource(Connector):
             logger.error(f"Failed to infer schema for {object_name}: {e}")
             return Schema(pa.schema([]))
 
-    def read(
-        self,
-        object_name: Optional[str] = None,
-        columns: Optional[List[str]] = None,
-        batch_size: int = 250,  # Shopify default limit
-        cursor_value: Optional[Any] = None,
-    ) -> Iterator[DataChunk]:
-        """Read data from Shopify API endpoint."""
-        if not object_name or object_name not in self.ENDPOINTS:
-            raise ValueError(
-                f"Invalid object_name: {object_name}. Must be one of {list(self.ENDPOINTS.keys())}"
-            )
-
-        try:
-            session = self._create_session()
-            yield from self._read_paginated(
-                session, object_name, columns, batch_size, cursor_value
-            )
-
-        except Exception as e:
-            logger.error(f"Failed to read data from Shopify {object_name}: {e}")
-            raise
-
     def get_cursor_value(self, object_name: str, cursor_column: str) -> Optional[Any]:
         """Get the maximum cursor value for incremental loading."""
         try:
@@ -223,7 +285,7 @@ class ShopifySource(Connector):
             # Set default headers
             self.session.headers.update(
                 {
-                    "X-Shopify-Access-Token": self.access_token,
+                    "X-Shopify-Access-Token": self.config.get("access_token"),
                     "Content-Type": "application/json",
                     "User-Agent": "SQLFlow-Shopify-Connector/1.0",
                 }

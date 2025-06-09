@@ -5,10 +5,10 @@ import requests
 import requests_mock
 
 from sqlflow.connectors.data_chunk import DataChunk
-from sqlflow.connectors.rest.source import RestApiSource
+from sqlflow.connectors.rest.source import RestSource
 
 
-class TestRestApiSource(unittest.TestCase):
+class TestRestSource(unittest.TestCase):
     def setUp(self):
         """Set up test fixtures."""
         self.base_url = "https://api.example.com"
@@ -35,7 +35,7 @@ class TestRestApiSource(unittest.TestCase):
 
     def test_configure_basic(self):
         """Test basic configuration."""
-        connector = RestApiSource()
+        connector = RestSource()
         config = {"url": f"{self.base_url}/data"}
 
         connector.configure(config)
@@ -46,7 +46,7 @@ class TestRestApiSource(unittest.TestCase):
 
     def test_configure_advanced(self):
         """Test configuration with advanced options."""
-        connector = RestApiSource()
+        connector = RestSource()
         config = {
             "url": f"{self.base_url}/data",
             "method": "POST",
@@ -68,7 +68,7 @@ class TestRestApiSource(unittest.TestCase):
 
     def test_configure_missing_url(self):
         """Test that error is raised when URL is missing."""
-        connector = RestApiSource()
+        connector = RestSource()
 
         with self.assertRaises(ValueError) as context:
             connector.configure({})
@@ -77,7 +77,7 @@ class TestRestApiSource(unittest.TestCase):
 
     def test_configure_invalid_url(self):
         """Test that error is raised for invalid URL."""
-        connector = RestApiSource()
+        connector = RestSource()
 
         with self.assertRaises(ValueError) as context:
             connector.configure({"url": "not-a-valid-url"})
@@ -86,7 +86,7 @@ class TestRestApiSource(unittest.TestCase):
 
     def test_configure_invalid_method(self):
         """Test that error is raised for unsupported HTTP method."""
-        connector = RestApiSource()
+        connector = RestSource()
 
         with self.assertRaises(ValueError) as context:
             connector.configure({"url": f"{self.base_url}/data", "method": "PATCH"})
@@ -98,7 +98,7 @@ class TestRestApiSource(unittest.TestCase):
         with requests_mock.Mocker() as m:
             m.get(f"{self.base_url}/data", json=self.test_data)
 
-            connector = RestApiSource()
+            connector = RestSource()
             connector.configure({"url": f"{self.base_url}/data"})
 
             result = connector.test_connection()
@@ -109,7 +109,7 @@ class TestRestApiSource(unittest.TestCase):
 
     def test_test_connection_not_configured(self):
         """Test connection test when connector is not configured."""
-        connector = RestApiSource()
+        connector = RestSource()
 
         result = connector.test_connection()
 
@@ -121,7 +121,7 @@ class TestRestApiSource(unittest.TestCase):
         with requests_mock.Mocker() as m:
             m.get(f"{self.base_url}/data", status_code=404)
 
-            connector = RestApiSource()
+            connector = RestSource()
             connector.configure({"url": f"{self.base_url}/data"})
 
             result = connector.test_connection()
@@ -134,7 +134,7 @@ class TestRestApiSource(unittest.TestCase):
         with requests_mock.Mocker() as m:
             m.get(f"{self.base_url}/data", text="not json")
 
-            connector = RestApiSource()
+            connector = RestSource()
             connector.configure({"url": f"{self.base_url}/data"})
 
             result = connector.test_connection()
@@ -144,7 +144,7 @@ class TestRestApiSource(unittest.TestCase):
 
     def test_discover(self):
         """Test endpoint discovery."""
-        connector = RestApiSource()
+        connector = RestSource()
         connector.configure({"url": f"{self.base_url}/api/users"})
 
         objects = connector.discover()
@@ -156,7 +156,7 @@ class TestRestApiSource(unittest.TestCase):
         with requests_mock.Mocker() as m:
             m.get(f"{self.base_url}/data", json=self.test_data)
 
-            connector = RestApiSource()
+            connector = RestSource()
             connector.configure({"url": f"{self.base_url}/data"})
 
             schema = connector.get_schema()
@@ -175,7 +175,7 @@ class TestRestApiSource(unittest.TestCase):
         with requests_mock.Mocker() as m:
             m.get(f"{self.base_url}/data", json=nested_response)
 
-            connector = RestApiSource()
+            connector = RestSource()
             connector.configure(
                 {"url": f"{self.base_url}/data", "data_path": "results.users"}
             )
@@ -189,7 +189,7 @@ class TestRestApiSource(unittest.TestCase):
         with requests_mock.Mocker() as m:
             m.get(f"{self.base_url}/data", json=self.test_data)
 
-            connector = RestApiSource()
+            connector = RestSource()
             connector.configure({"url": f"{self.base_url}/data"})
 
             chunks = list(connector.read())
@@ -203,7 +203,7 @@ class TestRestApiSource(unittest.TestCase):
         with requests_mock.Mocker() as m:
             m.get(f"{self.base_url}/data", json=self.test_data)
 
-            connector = RestApiSource()
+            connector = RestSource()
             connector.configure({"url": f"{self.base_url}/data"})
 
             chunks = list(connector.read(columns=["id", "name"]))
@@ -219,7 +219,7 @@ class TestRestApiSource(unittest.TestCase):
         with requests_mock.Mocker() as m:
             m.get(f"{self.base_url}/data", json=nested_response)
 
-            connector = RestApiSource()
+            connector = RestSource()
             connector.configure({"url": f"{self.base_url}/data", "data_path": "data"})
 
             chunks = list(connector.read())
@@ -241,7 +241,7 @@ class TestRestApiSource(unittest.TestCase):
                 ],
             )
 
-            connector = RestApiSource()
+            connector = RestSource()
             connector.configure(
                 {
                     "url": f"{self.base_url}/data",
@@ -264,7 +264,7 @@ class TestRestApiSource(unittest.TestCase):
         with requests_mock.Mocker() as m:
             m.get(f"{self.base_url}/data", json=self.test_data)
 
-            connector = RestApiSource()
+            connector = RestSource()
             connector.configure(
                 {
                     "url": f"{self.base_url}/data",
@@ -284,7 +284,7 @@ class TestRestApiSource(unittest.TestCase):
         with requests_mock.Mocker() as m:
             m.get(f"{self.base_url}/data", json=self.test_data)
 
-            connector = RestApiSource()
+            connector = RestSource()
             connector.configure(
                 {
                     "url": f"{self.base_url}/data",
@@ -301,7 +301,7 @@ class TestRestApiSource(unittest.TestCase):
         with requests_mock.Mocker() as m:
             m.get(f"{self.base_url}/data", json=self.test_data)
 
-            connector = RestApiSource()
+            connector = RestSource()
             connector.configure(
                 {
                     "url": f"{self.base_url}/data",
@@ -322,7 +322,7 @@ class TestRestApiSource(unittest.TestCase):
         with requests_mock.Mocker() as m:
             m.get(f"{self.base_url}/data", json=self.test_data)
 
-            connector = RestApiSource()
+            connector = RestSource()
             connector.configure({"url": f"{self.base_url}/data"})
 
             cursor_value = connector.get_cursor_value("data", "created_at")
@@ -335,7 +335,7 @@ class TestRestApiSource(unittest.TestCase):
         with requests_mock.Mocker() as m:
             m.get(f"{self.base_url}/data", exc=requests.exceptions.ConnectionError)
 
-            connector = RestApiSource()
+            connector = RestSource()
             connector.configure({"url": f"{self.base_url}/data"})
 
             result = connector.test_connection()
@@ -348,7 +348,7 @@ class TestRestApiSource(unittest.TestCase):
         with requests_mock.Mocker() as m:
             m.post(f"{self.base_url}/search", json=self.test_data)
 
-            connector = RestApiSource()
+            connector = RestSource()
             connector.configure(
                 {
                     "url": f"{self.base_url}/search",
