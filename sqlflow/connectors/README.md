@@ -1,119 +1,151 @@
 # SQLFlow Connectors
 
-This package provides connectors for various data sources and destinations. Connectors are the primary way for SQLFlow to interact with external systems.
+SQLFlow provides a comprehensive set of connectors for reading from and writing to various data sources. This directory contains all available connectors with their documentation and implementation.
 
-## Connector Types
+## 🗂️ Connector Catalog
 
-SQLFlow supports three types of connectors:
+| Connector | Source | Destination | Status | Documentation |
+|-----------|--------|-------------|--------|---------------|
+| **CSV** | ✅ | ✅ | ✅ Production | [📖 Overview](csv/README.md) • [📥 Source](csv/SOURCE.md) • [📤 Destination](csv/DESTINATION.md) |
+| **In-Memory** | ✅ | ✅ | ✅ Production | [📖 Overview](in_memory/README.md) • [📥 Source](in_memory/SOURCE.md) • [📤 Destination](in_memory/DESTINATION.md) |
+| **S3** | ✅ | ✅ | ✅ Production | [📖 Overview](s3/README.md) • [📥 Source](s3/SOURCE.md) • [📤 Destination](s3/DESTINATION.md) |
+| **Google Sheets** | ✅ | ❌ | ✅ Production | [📖 Overview](google_sheets/README.md) • [📥 Source](google_sheets/SOURCE.md) |
+| **Parquet** | ✅ | ✅ | ✅ Production | [📖 Overview](parquet/README.md) • [📥 Source](parquet/SOURCE.md) • [📤 Destination](parquet/DESTINATION.md) |
+| **REST API** | ✅ | ❌ | ✅ Production | [📖 Overview](rest/README.md) • [📥 Source](rest/SOURCE.md) |
+| **PostgreSQL** | ✅ | ✅ | 🔄 Migrating | [📖 Overview](postgres/README.md) • [📥 Source](postgres/SOURCE.md) • [📤 Destination](postgres/DESTINATION.md) |
+| **Shopify** | ✅ | ❌ | 🔄 Migrating | [📖 Overview](shopify/README.md) • [📥 Source](shopify/SOURCE.md) |
 
-1. **Source Connectors**: Used for reading data from external systems
-2. **Export Connectors**: Used for writing data to external systems
-3. **Bidirectional Connectors**: Support both reading and writing operations
+### Legend
+- ✅ **Production**: Fully implemented and tested
+- 🔄 **Migrating**: Currently being migrated to new architecture
+- ❌ **Not Available**: Feature not implemented
 
-## Available Connectors
+## 🚀 Quick Start
 
-| Connector Type | Source | Export | Implementation |
-|---------------|--------|--------|----------------|
-| CSV           | ✅     | ✅     | Separate classes |
-| PostgreSQL    | ✅     | ✅     | Bidirectional |
-| REST          | ✅     | ✅     | Bidirectional |
-| S3            | ✅     | ✅     | Bidirectional |
-| Parquet       | ✅     | ✅     | Separate classes |
-| Google Sheets | ✅     | ✅     | Bidirectional |
+### 1. Choose Your Connector
+Browse the catalog above and click on the connector documentation you need.
 
-## Implementation
+### 2. Configure Your Profile
+Add the connector configuration to your `profiles/dev.yml`:
+
+```yaml
+sources:
+  my_source:
+    type: "csv"
+    path: "data/input.csv"
+
+destinations:
+  my_dest:
+    type: "csv"
+    path: "data/output.csv"
+```
+
+### 3. Use in Pipeline
+Reference the connector in your pipeline:
+
+```sql
+-- pipelines/my_pipeline.sql
+FROM source('my_source')
+TO destination('my_dest');
+```
+
+## 📋 Connector Types
 
 ### Source Connectors
+Extract data from external systems into SQLFlow pipelines.
 
-Source connectors inherit from the `Connector` base class and are registered using the `@register_connector` decorator. They must implement:
+**Features:**
+- Schema discovery and validation
+- Incremental loading support
+- Connection testing
+- Batch processing
+- Error handling and retries
 
-- `configure(params: Dict[str, Any]) -> None`
-- `test_connection() -> ConnectionTestResult`
-- `discover() -> List[str]`
-- `get_schema(object_name: str) -> Schema`
-- `read(object_name: str, columns: Optional[List[str]] = None, filters: Optional[Dict[str, Any]] = None, batch_size: int = 10000) -> Iterator[DataChunk]`
+### Destination Connectors  
+Write processed data to external systems.
 
-### Export Connectors
+**Features:**
+- Multiple write modes (append, replace, merge)
+- Schema validation
+- Transactional writes
+- Error handling
 
-Export connectors inherit from the `ExportConnector` base class and are registered using the `@register_export_connector` decorator. They must implement:
+## 🏗️ Architecture
 
-- `configure(params: Dict[str, Any]) -> None`
-- `test_connection() -> ConnectionTestResult`
-- `write(object_name: str, data_chunk: DataChunk, mode: str = "append") -> None`
-
-### Bidirectional Connectors
-
-Bidirectional connectors inherit from the `BidirectionalConnector` base class, which combines the interfaces of both `Connector` and `ExportConnector`. They are registered using the `@register_bidirectional_connector` decorator, which automatically registers them as both source and export connectors.
-
-Example:
+### New Connector Interface (v2)
+SQLFlow uses a modern, unified connector architecture:
 
 ```python
-from sqlflow.connectors.google_sheets.source import GoogleSheetsSource
+from sqlflow.connectors.base.connector import Connector
+from sqlflow.connectors.base.destination_connector import DestinationConnector
+
+# Source connectors inherit from Connector
+class MySource(Connector):
+    def configure(self, params: Dict[str, Any]) -> None: ...
+    def test_connection(self) -> ConnectionTestResult: ...
+    def discover(self) -> List[str]: ...
+    def get_schema(self, object_name: str) -> Schema: ...
+    def read(self, object_name: str, **kwargs) -> Iterator[DataChunk]: ...
+
+# Destination connectors inherit from DestinationConnector  
+class MyDestination(DestinationConnector):
+    def __init__(self, config: Dict[str, Any]): ...
+    def write(self, df: pd.DataFrame, options: Dict[str, Any] = None) -> None: ...
+```
+
+### Registry System
+Connectors are automatically registered for use:
+
+```python
 from sqlflow.connectors.registry.source_registry import source_registry
+from sqlflow.connectors.registry.destination_registry import destination_registry
 
-# Register the Google Sheets source connector
-source_registry.register("google_sheets", GoogleSheetsSource)
+# Connectors register themselves
+source_registry.register("csv", CSVSource)
+destination_registry.register("csv", CSVDestination)
 ```
 
-## Adding a New Connector
+## 🔧 Development
 
-To add a new connector:
+### Creating a New Connector
 
-1. Determine if it needs to support reading, writing, or both
-2. Inherit from the appropriate base class(es)
-3. Implement the required methods
-4. Register it using the appropriate decorator(s)
+1. **Create connector directory**: `sqlflow/connectors/my_connector/`
+2. **Implement source/destination classes**
+3. **Register in `__init__.py`**
+4. **Add comprehensive tests**
+5. **Create documentation files**:
+   - `README.md` - Overview and quick start
+   - `SOURCE.md` - Complete source documentation
+   - `DESTINATION.md` - Complete destination documentation (if applicable)
 
-### Example: Bidirectional Connector
+### Testing
+All connectors must pass:
+- Unit tests for all functionality
+- Integration tests with real data sources  
+- Example pipelines in `examples/`
+- Connection and schema discovery tests
 
-```python
-from sqlflow.connectors.base import BidirectionalConnector, ConnectionTestResult, ConnectorState, Schema
-from sqlflow.connectors.data_chunk import DataChunk
-from sqlflow.connectors.registry import register_bidirectional_connector
+## 📚 Additional Resources
 
-@register_bidirectional_connector("MY_SERVICE")
-class MyServiceConnector(BidirectionalConnector):
-    def __init__(self):
-        super().__init__()
-        # Initialize properties
-        
-    def configure(self, params):
-        # Configure from params
-        
-    def test_connection(self):
-        # Test the connection
-        
-    def discover(self):
-        # Return list of available objects
-        
-    def get_schema(self, object_name):
-        # Return schema for the object
-        
-    def read(self, object_name, columns=None, filters=None, batch_size=10000):
-        # Read data from the source
-        
-    def write(self, object_name, data_chunk, mode="append"):
-        # Write data to the destination
-```
+- **[Connector Development Guide](../docs/developer-guides/connector-development.md)** - How to build custom connectors
+- **[Configuration Reference](../docs/reference/configuration.md)** - Complete configuration options
+- **[Examples](../examples/)** - Real-world usage examples
+- **[API Documentation](../docs/api/)** - Programmatic connector usage
 
-## Testing Connectors
+## 🤝 Contributing
 
-Each connector should have a comprehensive test suite covering:
+We welcome connector contributions! See our [Contribution Guidelines](../CONTRIBUTING.md) for:
+- Code standards and testing requirements
+- Documentation templates
+- Review process
+- Community guidelines
 
-1. Configuration validation
-2. Connection testing
-3. Schema retrieval
-4. Reading data
-5. Writing data (for export and bidirectional connectors)
-6. Error handling
+## 📞 Support
 
-See the test files in `tests/unit/connectors/` for examples.
+- **Documentation Issues**: [GitHub Issues](https://github.com/giaosudau/sqlflow/issues)
+- **Community**: [Discord/Slack Community]
+- **Enterprise Support**: [Contact Information]
 
-## Documentation
+---
 
-When creating a new connector, remember to:
-
-1. Add docstrings to all classes and methods
-2. Update the connector's parameter documentation
-3. Add examples to the connector usage guide
-4. Update the connectors list in the documentation 
+*Last Updated: [Current Date] • SQLFlow Connector Architecture v2.0* 

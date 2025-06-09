@@ -82,60 +82,67 @@ The connector supports the following Shopify data objects:
 
 ### Basic Data Loading
 
+To load data, you define the source in your profile and then reference it in your pipeline.
+
 ```yaml
-# profile.yml
+# profiles/dev.yml
 sources:
   my_shopify:
     type: shopify
-    shop_domain: "demo-store"
+    shop_domain: "your-demo-store"
     access_token: "shpat_xxxxxxxxxxxxx"
+```
 
-# Load orders
-load:
-  - source: my_shopify
-    table: orders
-    target_table: shopify_orders
+```sql
+-- pipelines/extract_orders.sql
+-- This query loads all orders into the 'shopify_orders' table in the data warehouse.
+FROM source(my_shopify, table => 'orders')
+SELECT * 
+TO TABLE shopify_orders;
 ```
 
 ### Column Selection
 
-```yaml
-# Load specific columns only
-load:
-  - source: my_shopify
-    table: orders
-    target_table: shopify_orders
-    columns:
-      - id
-      - name
-      - email
-      - total_price
-      - created_at
-      - updated_at
+You can select specific columns within your SQL query to optimize performance.
+
+```sql
+-- pipelines/extract_orders.sql
+FROM source(my_shopify, table => 'orders')
+SELECT 
+    id,
+    name,
+    email,
+    total_price,
+    created_at,
+    updated_at
+TO TABLE shopify_orders;
 ```
 
-### Incremental Loading
+## 📈 Incremental Loading
+
+This connector supports `since_id` based incremental loading for all major objects, which is highly efficient.
+
+### Configuration
+
+To enable incremental loading, you need to specify the `sync_mode` and `cursor_field` in your source configuration. For Shopify, the `cursor_field` should typically be `id`.
+
+- `sync_mode`: Set to `"incremental"`.
+- `cursor_field`: Set to `"id"`.
 
 ```yaml
-# Load only new orders since last run
-load:
-  - source: my_shopify
-    table: orders
-    target_table: shopify_orders
-    mode: incremental
-    cursor_field: updated_at
+# profiles/dev.yml
+sources:
+  my_shopify_incremental:
+    type: shopify
+    shop_domain: "your-demo-store"
+    access_token: "shpat_xxxxxxxxxxxxx"
+    sync_mode: "incremental"
+    cursor_field: "id"
 ```
 
-### Pagination Control
+### Behavior
 
-```yaml
-# Control batch size for large datasets
-load:
-  - source: my_shopify
-    table: orders
-    target_table: shopify_orders
-    batch_size: 100  # Smaller batches for memory efficiency
-```
+When an incremental pipeline runs, SQLFlow passes a `since_id` parameter to the Shopify API, ensuring that only records created after the last run are fetched. This avoids re-ingesting the same data and is very efficient.
 
 ## Rate Limiting
 
@@ -251,7 +258,7 @@ Adjust batch sizes based on your data and memory:
 load:
   - source: my_shopify
     table: orders
-    batch_size: 50
+    batch_size: 100
     target_table: shopify_orders
 
 # For simple objects
@@ -332,4 +339,8 @@ For issues specific to the Shopify connector:
 3. Test connection using the `test_connection()` method
 4. Check Shopify's API documentation for object-specific requirements
 
-For general SQLFlow support, refer to the main documentation. 
+For general SQLFlow support, refer to the main documentation.
+
+---
+
+**Version**: 1.0 • **Status**: ✅ Production Ready • **Incremental**: ✅ Supported 

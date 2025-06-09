@@ -889,8 +889,8 @@ sqlflow test udfs
 
 **When you need more help:**
 
-1. **Search existing issues**: [GitHub Issues](https://github.com/sqlflow/sqlflow/issues)
-2. **Ask the community**: [GitHub Discussions](https://github.com/sqlflow/sqlflow/discussions)
+1. **Search existing issues**: [GitHub Issues](https://github.com/giaosudau/sqlflow/issues)
+2. **Ask the community**: [GitHub Discussions](https://github.com/giaosudau/sqlflow/discussions)
 3. **Report bugs**: Create new issue with:
    - Operating system and version
    - Python version (`python --version`)

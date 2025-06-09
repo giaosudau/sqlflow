@@ -229,8 +229,8 @@ sqlflow pipeline run customer_analytics --profile prod
 
 ### **Get Help**
 - 📖 [**Documentation**](docs/) - Comprehensive guides and references
-- 🐞 [**GitHub Issues**](https://github.com/sqlflow/sqlflow/issues) - Bug reports and feature requests
-- 💬 [**GitHub Discussions**](https://github.com/sqlflow/sqlflow/discussions) - Community support
+- 🐞 [**GitHub Issues**](https://github.com/giaosudau/sqlflow/issues) - Bug reports and feature requests
+- 💬 [**GitHub Discussions**](https://github.com/giaosudau/sqlflow/discussions) - Community support
 
 ### **Contribute**
 - ⭐ **Star us on GitHub** - Show your support

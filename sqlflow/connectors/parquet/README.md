@@ -297,4 +297,60 @@ amount: decimal(18,2)
 currency: string
 transaction_date: date32
 description: string
-``` 
+```
+
+### Destination
+
+The Parquet destination connector allows you to write data from your pipeline into a Parquet file.
+
+```sql
+EXPORT my_transformed_data TO PARQUET "output/final_data.parquet";
+```
+
+The destination takes a single path parameter for the output file.
+
+## 📈 Incremental Loading
+
+This connector supports incremental loading, allowing you to process only new rows since the last pipeline run.
+
+### Configuration
+
+To enable incremental loading, you need to specify the `sync_mode` and `cursor_field` in your source configuration.
+
+- `sync_mode`: Set to `"incremental"`.
+- `cursor_field`: The column in your Parquet files that will be used to determine new rows (e.g., a timestamp or an auto-incrementing ID).
+
+```yaml
+# profiles/dev.yml
+sources:
+  incremental_events:
+    type: parquet
+    path: "data/events/daily_*.parquet"
+    combine_files: true
+    sync_mode: "incremental"
+    cursor_field: "event_timestamp"
+```
+
+### Behavior
+
+When a pipeline runs in incremental mode:
+1.  SQLFlow retrieves the last saved maximum value (watermark) for the `cursor_field`.
+2.  The connector reads the metadata of **all matching Parquet files** to determine the maximum value of the `cursor_field` in each file.
+3.  It then reads only the files that could contain new data based on the watermark.
+4.  Within those files, it filters for rows where the `cursor_field` value is greater than the watermark.
+5.  After a successful pipeline run, SQLFlow updates the watermark with the new maximum value from the processed data.
+
+**Important Note on Performance**: While more efficient than the CSV connector's incremental mode, this approach can still involve significant I/O if you have a large number of files matching your path pattern, as the connector needs to inspect each file's metadata. For optimal performance, use partitioned data structures where possible.
+
+## Error Handling
+
+The connector provides detailed error messages for common issues:
+
+- **File not found**: Clear indication of missing files
+- **Invalid format**: Helpful messages for corrupted Parquet files
+- **Column mismatch**: Warnings when requested columns don't exist
+- **Pattern matching**: Informative errors when no files match patterns
+
+---
+
+**Version**: 1.0 • **Status**: ✅ Production Ready • **Incremental**: ✅ Supported 

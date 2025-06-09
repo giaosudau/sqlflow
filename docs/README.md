@@ -87,14 +87,14 @@ Welcome to SQLFlow documentation. This guide helps you solve data pipeline probl
 ## 🤝 Community & Support
 
 ### **Get Help**
-- 💬 [**GitHub Discussions**](https://github.com/sqlflow/sqlflow/discussions) - Ask questions and share use cases
-- 🐞 [**GitHub Issues**](https://github.com/sqlflow/sqlflow/issues) - Report bugs and request features
+- 💬 [**GitHub Discussions**](https://github.com/giaosudau/sqlflow/discussions) - Ask questions and share use cases
+- 🐞 [**GitHub Issues**](https://github.com/giaosudau/sqlflow/issues) - Report bugs and request features
 - 📖 [**Troubleshooting Guide**](user-guides/troubleshooting.md) - Solve common issues
 
 ### **Contribute**
 - 🧑‍💻 [**Contributing Guide**](developer-guides/contributing.md) - How to contribute code
 - 📝 **Improve Documentation** - Found something unclear? Submit a PR
-- ⭐ **Star on GitHub** - [github.com/sqlflow/sqlflow](https://github.com/sqlflow/sqlflow)
+- ⭐ **Star on GitHub** - [github.com/sqlflow/sqlflow](https://github.com/giaosudau/sqlflow)
 
 ## 📋 Legacy Documentation
 

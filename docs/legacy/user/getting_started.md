@@ -585,7 +585,7 @@ sqlflow pipeline run my_analysis
 For comprehensive examples:
 ```bash
 # Clone the repository to access more examples
-git clone https://github.com/sqlflow/sqlflow.git
+git clone https://github.com/giaosudau/sqlflow.git
 cd sqlflow
 
 # Explore the ecommerce demo
