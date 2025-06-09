@@ -46,7 +46,12 @@ class PostgresSource(SourceConnector):
             conn_uri = (
                 f"postgresql+psycopg2://{user}:{password}" f"@{host}:{port}/{dbname}"
             )
-            self._engine = create_engine(conn_uri)
+
+            connect_args = {}
+            if "connect_timeout" in self.conn_params:
+                connect_args["connect_timeout"] = self.conn_params["connect_timeout"]
+
+            self._engine = create_engine(conn_uri, connect_args=connect_args)
         return self._engine
 
     def read(

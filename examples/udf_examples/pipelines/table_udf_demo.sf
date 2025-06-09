@@ -16,9 +16,9 @@ SELECT * FROM PYTHON_FUNC("data_transforms.add_sales_metrics", sales_data);
 -- Step 2: Use table UDF to detect outliers
 -- This demonstrates another table UDF that adds outlier detection columns
 CREATE TABLE sales_with_outliers AS
-SELECT * FROM PYTHON_FUNC("data_transforms.detect_outliers", sales_with_metrics);
+SELECT * FROM PYTHON_FUNC("python_udfs.data_transforms.detect_outliers", sales_with_metrics);
 
 -- Step 3: Export the final results to show table UDF transformations
 EXPORT SELECT * FROM sales_with_outliers
-TO "output/table_udf_demo_result.csv"
+TO "${output_dir}/table_udf_demo_result_${run_id}.csv"
 TYPE CSV OPTIONS { "header": true }; 
