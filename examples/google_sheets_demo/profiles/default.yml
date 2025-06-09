@@ -1,0 +1,25 @@
+sources:
+  google_sheets_contacts:
+    connector: google_sheets
+    credentials_file: "{{ env_var('GOOGLE_SHEETS_CREDENTIALS_FILE', 'path/to/service-account-key.json') }}"
+    spreadsheet_id: "{{ env_var('GOOGLE_SHEETS_SPREADSHEET_ID', '1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms') }}"
+    sheet_name: "{{ env_var('GOOGLE_SHEETS_SHEET_NAME', 'Contacts') }}"
+    has_header: true
+    range: "A1:E100"  # Optional: read specific range
+
+  google_sheets_orders:
+    connector: google_sheets
+    credentials_file: "{{ env_var('GOOGLE_SHEETS_CREDENTIALS_FILE', 'path/to/service-account-key.json') }}"
+    spreadsheet_id: "{{ env_var('GOOGLE_SHEETS_SPREADSHEET_ID', '1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms') }}"
+    sheet_name: "Orders"
+    has_header: true
+
+destinations:
+  csv_output:
+    connector: csv
+    file_path: "output/processed_data.csv"
+
+targets:
+  local:
+    type: duckdb
+    path: "output/google_sheets_demo.duckdb" 

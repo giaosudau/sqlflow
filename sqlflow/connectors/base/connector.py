@@ -2,6 +2,10 @@ from abc import ABC, abstractmethod
 from enum import Enum, auto
 from typing import Any, Dict, Iterator, List, Optional
 
+from sqlflow.connectors.base.connection_test_result import ConnectionTestResult
+from sqlflow.connectors.base.schema import Schema
+from sqlflow.connectors.data_chunk import DataChunk
+
 
 class ConnectorState(Enum):
     """State of a connector."""
