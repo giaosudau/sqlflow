@@ -72,38 +72,47 @@ class S3Source(Connector):
         """
         self.connection_params = params
 
+        # Extract S3 connection parameters
+        self._configure_s3_parameters(params)
+
+        # Extract file and cost management parameters
+        self._configure_file_parameters(params)
+
+        # Create S3 client
+        self._create_s3_client(params)
+
+    def _configure_s3_parameters(self, params: Dict[str, Any]) -> None:
+        """Configure S3-specific connection parameters."""
         # Handle both old 'uri' interface and new separate parameters
         uri = params.get("uri")
         if uri:
-            # Parse URI in format s3://bucket/key
-            if not uri.startswith("s3://"):
-                raise ValueError("S3Source: 'uri' must start with 's3://'")
-
-            from urllib.parse import urlparse
-
-            parsed_uri = urlparse(uri)
-            self.bucket = parsed_uri.netloc
-            self.key = parsed_uri.path.lstrip("/")
-
-            if not self.bucket:
-                raise ValueError("S3Source: 'uri' must contain a valid bucket name")
+            self._parse_s3_uri(uri)
         else:
             # Extract S3 connection parameters (new interface)
             self.bucket = params.get("bucket")
             if not self.bucket:
                 raise ValueError("S3Source: 'bucket' parameter is required")
-
             self.key = params.get("key")
 
         self.path_prefix = params.get("path_prefix", "")
         self.region = params.get("region", "us-east-1")
 
-        # Authentication parameters
-        access_key_id = params.get("access_key_id") or params.get("access_key")
-        secret_access_key = params.get("secret_access_key") or params.get("secret_key")
-        session_token = params.get("session_token")
-        endpoint_url = params.get("endpoint_url")
+    def _parse_s3_uri(self, uri: str) -> None:
+        """Parse S3 URI in format s3://bucket/key."""
+        if not uri.startswith("s3://"):
+            raise ValueError("S3Source: 'uri' must start with 's3://'")
 
+        from urllib.parse import urlparse
+
+        parsed_uri = urlparse(uri)
+        self.bucket = parsed_uri.netloc
+        self.key = parsed_uri.path.lstrip("/")
+
+        if not self.bucket:
+            raise ValueError("S3Source: 'uri' must contain a valid bucket name")
+
+    def _configure_file_parameters(self, params: Dict[str, Any]) -> None:
+        """Configure file format and cost management parameters."""
         # File format parameters
         self.file_format = params.get("file_format", params.get("format", "csv"))
 
@@ -115,13 +124,7 @@ class S3Source(Connector):
         self.dev_max_files = params.get("dev_max_files")
 
         # Partition parameters
-        partition_keys = params.get("partition_keys")
-        if isinstance(partition_keys, str):
-            self.partition_keys = [k.strip() for k in partition_keys.split(",")]
-        elif isinstance(partition_keys, list):
-            self.partition_keys = partition_keys
-
-        self.partition_filter = params.get("partition_filter")
+        self._configure_partition_parameters(params)
 
         # Format-specific parameters
         self.csv_delimiter = params.get("csv_delimiter", ",")
@@ -130,7 +133,24 @@ class S3Source(Connector):
         self.json_flatten = params.get("json_flatten", True)
         self.json_max_depth = params.get("json_max_depth", 10)
 
-        # Create S3 client
+    def _configure_partition_parameters(self, params: Dict[str, Any]) -> None:
+        """Configure partition-related parameters."""
+        partition_keys = params.get("partition_keys")
+        if isinstance(partition_keys, str):
+            self.partition_keys = [k.strip() for k in partition_keys.split(",")]
+        elif isinstance(partition_keys, list):
+            self.partition_keys = partition_keys
+
+        self.partition_filter = params.get("partition_filter")
+
+    def _create_s3_client(self, params: Dict[str, Any]) -> None:
+        """Create and configure the S3 client."""
+        # Authentication parameters
+        access_key_id = params.get("access_key_id") or params.get("access_key")
+        secret_access_key = params.get("secret_access_key") or params.get("secret_key")
+        session_token = params.get("session_token")
+        endpoint_url = params.get("endpoint_url")
+
         s3_kwargs = {
             "region_name": self.region,
         }
@@ -201,14 +221,20 @@ class S3Source(Connector):
             return []
 
         if self.key:
-            # If specific key is provided, return it if it exists
-            try:
-                self.s3_client.head_object(Bucket=self.bucket, Key=self.key)
-                return [self.key]
-            except ClientError:
-                return []
+            return self._discover_single_key()
 
-        # Discover objects with path prefix
+        return self._discover_with_prefix()
+
+    def _discover_single_key(self) -> List[str]:
+        """Discover a single specific key if it exists."""
+        try:
+            self.s3_client.head_object(Bucket=self.bucket, Key=self.key)
+            return [self.key]
+        except ClientError:
+            return []
+
+    def _discover_with_prefix(self) -> List[str]:
+        """Discover objects with path prefix and apply filters."""
         try:
             paginator = self.s3_client.get_paginator("list_objects_v2")
             page_iterator = paginator.paginate(
@@ -221,47 +247,67 @@ class S3Source(Connector):
 
             for page in page_iterator:
                 if "Contents" in page:
-                    for obj in page["Contents"]:
-                        key = obj["Key"]
-                        size = obj["Size"]
+                    page_objects, file_count, total_size = self._process_page_objects(
+                        page["Contents"], objects, file_count, total_size
+                    )
+                    if self._should_stop_discovery(file_count, total_size):
+                        break
 
-                        # Apply file format filtering
-                        if self._matches_file_format(key):
-                            objects.append(key)
-                            file_count += 1
-                            total_size += size
-
-                            # Apply cost management limits
-                            if file_count >= self.max_files_per_run:
-                                logger.warning(
-                                    f"Reached max files limit: {self.max_files_per_run}"
-                                )
-                                break
-
-                            if total_size >= self.max_data_size_gb * 1024**3:
-                                logger.warning(
-                                    f"Reached max data size limit: {self.max_data_size_gb}GB"
-                                )
-                                break
-
-                if file_count >= self.max_files_per_run:
-                    break
-
-            # Apply development sampling
-            if self.dev_sampling and 0 < self.dev_sampling < 1:
-                import random
-
-                sample_size = max(1, int(len(objects) * self.dev_sampling))
-                objects = random.sample(objects, sample_size)
-
-            if self.dev_max_files and len(objects) > self.dev_max_files:
-                objects = objects[: self.dev_max_files]
-
-            return objects
+            return self._apply_sampling_filters(objects)
 
         except Exception as e:
             logger.error(f"Error discovering S3 objects: {str(e)}")
             return []
+
+    def _process_page_objects(
+        self,
+        page_contents: List[Dict],
+        objects: List[str],
+        file_count: int,
+        total_size: int,
+    ) -> tuple:
+        """Process objects from a single page response."""
+        for obj in page_contents:
+            key = obj["Key"]
+            size = obj["Size"]
+
+            # Apply file format filtering
+            if self._matches_file_format(key):
+                objects.append(key)
+                file_count += 1
+                total_size += size
+
+                # Apply cost management limits
+                if self._should_stop_discovery(file_count, total_size):
+                    break
+
+        return objects, file_count, total_size
+
+    def _should_stop_discovery(self, file_count: int, total_size: int) -> bool:
+        """Check if discovery should stop based on limits."""
+        if file_count >= self.max_files_per_run:
+            logger.warning(f"Reached max files limit: {self.max_files_per_run}")
+            return True
+
+        if total_size >= self.max_data_size_gb * 1024**3:
+            logger.warning(f"Reached max data size limit: {self.max_data_size_gb}GB")
+            return True
+
+        return False
+
+    def _apply_sampling_filters(self, objects: List[str]) -> List[str]:
+        """Apply development sampling and file limit filters."""
+        # Apply development sampling
+        if self.dev_sampling and 0 < self.dev_sampling < 1:
+            import random
+
+            sample_size = max(1, int(len(objects) * self.dev_sampling))
+            objects = random.sample(objects, sample_size)
+
+        if self.dev_max_files and len(objects) > self.dev_max_files:
+            objects = objects[: self.dev_max_files]
+
+        return objects
 
     def get_schema(self, object_name: str) -> Schema:
         """Get schema for an S3 object.
@@ -459,53 +505,77 @@ class S3Source(Connector):
     ) -> Optional[pd.DataFrame]:
         """Parse file content based on format."""
         try:
-            if file_format == "csv" or file_format == "tsv":
-                delimiter = "\t" if file_format == "tsv" else self.csv_delimiter
-                return pd.read_csv(
-                    io.BytesIO(content),
-                    delimiter=delimiter,
-                    header=0 if self.csv_header else None,
-                    encoding=self.csv_encoding,
-                    **options,
-                )
+            if file_format in ["csv", "tsv"]:
+                return self._parse_csv_content(content, file_format, options)
             elif file_format == "parquet":
-                return pd.read_parquet(io.BytesIO(content), **options)
+                return self._parse_parquet_content(content, options)
             elif file_format == "json":
-                return pd.read_json(io.BytesIO(content), **options)
+                return self._parse_json_content(content, options)
             elif file_format == "jsonl":
-                # Read JSONL (newline-delimited JSON)
-                content_str = content.decode("utf-8")
-                lines = [
-                    line.strip() for line in content_str.split("\n") if line.strip()
-                ]
-
-                if "nrows" in options and options["nrows"]:
-                    lines = lines[: options["nrows"]]
-
-                if not lines:
-                    return pd.DataFrame()
-
-                import json
-
-                records = []
-                for line in lines:
-                    try:
-                        records.append(json.loads(line))
-                    except json.JSONDecodeError:
-                        continue
-
-                if records:
-                    max_level = self.json_max_depth if self.json_flatten else None
-                    df = pd.json_normalize(records, max_level=max_level)
-                    return df
-                else:
-                    return pd.DataFrame()
+                return self._parse_jsonl_content(content, options)
             else:
                 raise ValueError(f"Unsupported file format: {file_format}")
 
         except Exception as e:
             logger.error(f"Error parsing {file_format} content: {str(e)}")
             return None
+
+    def _parse_csv_content(
+        self, content: bytes, file_format: str, options: Dict[str, Any]
+    ) -> pd.DataFrame:
+        """Parse CSV/TSV content."""
+        delimiter = "\t" if file_format == "tsv" else self.csv_delimiter
+        return pd.read_csv(
+            io.BytesIO(content),
+            delimiter=delimiter,
+            header=0 if self.csv_header else None,
+            encoding=self.csv_encoding,
+            **options,
+        )
+
+    def _parse_parquet_content(
+        self, content: bytes, options: Dict[str, Any]
+    ) -> pd.DataFrame:
+        """Parse Parquet content."""
+        return pd.read_parquet(io.BytesIO(content), **options)
+
+    def _parse_json_content(
+        self, content: bytes, options: Dict[str, Any]
+    ) -> pd.DataFrame:
+        """Parse JSON content."""
+        return pd.read_json(io.BytesIO(content), **options)
+
+    def _parse_jsonl_content(
+        self, content: bytes, options: Dict[str, Any]
+    ) -> Optional[pd.DataFrame]:
+        """Parse JSONL (newline-delimited JSON) content."""
+        content_str = content.decode("utf-8")
+        lines = [line.strip() for line in content_str.split("\n") if line.strip()]
+
+        if "nrows" in options and options["nrows"]:
+            lines = lines[: options["nrows"]]
+
+        if not lines:
+            return pd.DataFrame()
+
+        records = self._parse_jsonl_lines(lines)
+        if records:
+            max_level = self.json_max_depth if self.json_flatten else None
+            return pd.json_normalize(records, max_level=max_level)
+        else:
+            return pd.DataFrame()
+
+    def _parse_jsonl_lines(self, lines: List[str]) -> List[Dict]:
+        """Parse individual JSONL lines into records."""
+        import json
+
+        records = []
+        for line in lines:
+            try:
+                records.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+        return records
 
     # Legacy interface support for backward compatibility
     @property
