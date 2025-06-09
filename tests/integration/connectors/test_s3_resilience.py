@@ -195,12 +195,15 @@ class TestS3ConnectorResilience:
         objects = s3_connector.discover()
         assert len(objects) > 0
 
-        # Read first file
-        test_file = objects[0]
+        # Read specific test file
+        test_file = "resilience-test/test_data.csv"
+        assert (
+            test_file in objects
+        ), f"Test file {test_file} not found in discovered objects"
         df = s3_connector.read(object_name=test_file)
 
         # Verify we got data
-        assert len(df) > 0, "Should read data from test file"
+        assert not df.empty, "Should read data from test file"
         assert "id" in df.columns, "Should have expected columns"
 
     def test_connection_retry_with_invalid_config(
@@ -441,19 +444,23 @@ class TestS3ConnectorResilience:
         objects = s3_connector.discover()
         assert len(objects) > 0
 
-        # Test incremental read
-        test_file = objects[0]
+        # Test incremental read on specific file
+        test_file = "resilience-test/test_data.csv"
+        assert (
+            test_file in objects
+        ), f"Test file {test_file} not found in discovered objects"
+
         chunks = list(
             s3_connector.read_incremental(
                 object_name=test_file, cursor_field="timestamp"
             )
         )
 
-        assert len(chunks) >= 0, "Incremental read should work"
+        assert len(chunks) > 0, "Incremental read should produce chunks"
 
-        if chunks:
-            df = chunks[0].pandas_df
-            assert "timestamp" in df.columns, "Should have cursor field"
+        df = chunks[0].pandas_df
+        assert "timestamp" in df.columns, "Should have cursor field"
+        assert len(df) == 5
 
     def test_large_file_handling_with_resilience(
         self, docker_minio_config, setup_resilience_test_data
