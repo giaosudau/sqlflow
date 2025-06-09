@@ -1,3 +1,16 @@
+engines:
+  duckdb:
+    mode: persistent
+    path: output/google_sheets_demo.duckdb
+
+variables:
+  batch_size: 1000
+  output_path: "output/"
+
+# Google Sheets connection configuration
+# Set these environment variables:
+# export GOOGLE_SHEETS_CREDENTIALS_FILE="path/to/service-account-key.json"
+# export GOOGLE_SHEETS_SPREADSHEET_ID="your_spreadsheet_id"
 sources:
   google_sheets_contacts:
     connector: google_sheets
@@ -17,9 +30,4 @@ sources:
 destinations:
   csv_output:
     connector: csv
-    file_path: "output/processed_data.csv"
-
-targets:
-  local:
-    type: duckdb
-    path: "output/google_sheets_demo.duckdb" 
+    file_path: "output/processed_data.csv" 

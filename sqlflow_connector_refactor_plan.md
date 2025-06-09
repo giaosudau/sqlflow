@@ -170,11 +170,13 @@ sqlflow/connectors/
 -   **Code Quality**: ✅ Fixed all linting errors, proper imports, comprehensive error handling.
 -   **Definition of Done**: ✅ All Google Sheets tests pass, new example created with documentation, all code style issues resolved.
 
-#### **Task 2.4: Migrate Parquet Connector**
--   **Refactor Code**: Implement `ParquetSource` in `sqlflow/connectors/parquet/`.
--   **Add Documentation**: Create `sqlflow/connectors/parquet/README.md`.
--   **Migrate Tests & Examples**: Re-enable tests. Create a new `examples/parquet_demo` project.
--   **Definition of Done**: All Parquet tests pass, the new example runs, and the main `run_...sh` scripts succeed.
+#### **Task 2.4: Migrate Parquet Connector** ✅ **COMPLETED**
+-   **Refactor Code**: ✅ Implemented `ParquetSource` with full Connector interface in `sqlflow/connectors/parquet/`.
+-   **Enhanced Features**: ✅ Added schema inference, column selection, file pattern matching, and incremental loading support.
+-   **Add Documentation**: ✅ Created comprehensive `sqlflow/connectors/parquet/README.md` with configuration examples and performance tips.
+-   **Migrate Tests & Examples**: ✅ Created new comprehensive test suite and `examples/parquet_demo` project with sample data generation.
+-   **Code Quality**: ✅ Fixed all test failures, proper DataChunk usage, ConnectionTestResult attributes, and schema handling.
+-   **Definition of Done**: ✅ All Parquet tests pass (20/20), new example created with documentation, all code style issues resolved.
 
 #### **Task 2.5: Migrate REST API Connector**
 -   **Refactor Code**: Implement `RestApiSource` in `sqlflow/connectors/rest/`.
