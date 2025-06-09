@@ -1,0 +1,8 @@
+engines:
+  duckdb:
+    mode: persistent
+    path: output/rest_demo.duckdb
+
+variables:
+  batch_size: 1000
+  output_path: "output/" 

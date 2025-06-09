@@ -4,5 +4,14 @@ engines:
     path: "data/shopify_analytics.duckdb"
     memory_limit: 2GB
 
+sources:
+  shopify_store:
+    type: shopify
+    shop_domain: "${SHOPIFY_STORE}"
+    access_token: "${SHOPIFY_TOKEN}"
+    api_version: "2023-10"
+    timeout: 30
+    max_retries: 3
+
 variables:
   environment: development 

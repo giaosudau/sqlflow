@@ -730,10 +730,114 @@ SHOPIFY_SCHEMA = ConnectorSchema(
     ],
 )
 
+# REST API connector schema
+REST_SCHEMA = ConnectorSchema(
+    name="REST",
+    description="REST API connector for consuming JSON data from HTTP endpoints",
+    fields=[
+        # Required parameters
+        FieldSchema(
+            name="url",
+            required=True,
+            field_type="string",
+            description="REST API endpoint URL",
+            pattern=r"^https?://.*",
+        ),
+        # HTTP method
+        FieldSchema(
+            name="method",
+            required=False,
+            field_type="string",
+            description="HTTP method",
+            allowed_values=["GET", "POST"],
+        ),
+        # Request parameters
+        FieldSchema(
+            name="params",
+            required=False,
+            field_type="string",  # JSON object as string
+            description="Query parameters for the request",
+        ),
+        FieldSchema(
+            name="headers",
+            required=False,
+            field_type="string",  # JSON object as string
+            description="HTTP headers for the request",
+        ),
+        # Authentication
+        FieldSchema(
+            name="auth",
+            required=False,
+            field_type="string",  # JSON object as string
+            description="Authentication configuration",
+        ),
+        # Pagination
+        FieldSchema(
+            name="pagination",
+            required=False,
+            field_type="string",  # JSON object as string
+            description="Pagination configuration",
+        ),
+        # Data extraction
+        FieldSchema(
+            name="data_path",
+            required=False,
+            field_type="string",
+            description="JSONPath to extract data from response",
+        ),
+        FieldSchema(
+            name="flatten_response",
+            required=False,
+            field_type="boolean",
+            description="Flatten nested JSON structures",
+        ),
+        # Performance parameters
+        FieldSchema(
+            name="timeout",
+            required=False,
+            field_type="integer",
+            description="Request timeout in seconds",
+        ),
+        FieldSchema(
+            name="max_retries",
+            required=False,
+            field_type="integer",
+            description="Maximum number of retry attempts",
+        ),
+        FieldSchema(
+            name="retry_delay",
+            required=False,
+            field_type="number",
+            description="Delay between retry attempts in seconds",
+        ),
+        # Standard sync parameters
+        FieldSchema(
+            name="sync_mode",
+            required=False,
+            field_type="string",
+            description="Synchronization mode",
+            allowed_values=["full_refresh", "incremental"],
+        ),
+        FieldSchema(
+            name="cursor_field",
+            required=False,
+            field_type="string",
+            description="Field to use for incremental loading",
+        ),
+        FieldSchema(
+            name="batch_size",
+            required=False,
+            field_type="integer",
+            description="Number of records to process per batch",
+        ),
+    ],
+)
+
 # Registry of all connector schemas
 CONNECTOR_SCHEMAS: Dict[str, ConnectorSchema] = {
     "CSV": CSV_SCHEMA,
     "POSTGRES": POSTGRES_SCHEMA,
     "S3": S3_SCHEMA,
     "SHOPIFY": SHOPIFY_SCHEMA,
+    "REST": REST_SCHEMA,
 }

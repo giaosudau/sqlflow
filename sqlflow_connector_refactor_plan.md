@@ -178,11 +178,13 @@ sqlflow/connectors/
 -   **Code Quality**: ✅ Fixed all test failures, proper DataChunk usage, ConnectionTestResult attributes, and schema handling.
 -   **Definition of Done**: ✅ All Parquet tests pass (20/20), new example created with documentation, all code style issues resolved.
 
-#### **Task 2.5: Migrate REST API Connector**
--   **Refactor Code**: Implement `RestApiSource` in `sqlflow/connectors/rest/`.
--   **Add Documentation**: Create `sqlflow/connectors/rest/README.md`.
--   **Migrate Tests & Examples**: Re-enable tests. Create a new `examples/rest_demo` project.
--   **Definition of Done**: All REST tests pass, the new example runs, and the main `run_...sh` scripts succeed.
+#### **Task 2.5: Migrate REST API Connector** ✅ **COMPLETED**
+-   **Refactor Code**: ✅ Implemented `RestApiSource` with full Connector interface in `sqlflow/connectors/rest/`.
+-   **Enhanced Features**: ✅ Added multiple authentication methods (Basic, Digest, Bearer, API Key), pagination support, JSONPath data extraction, retry logic with exponential backoff.
+-   **Add Documentation**: ✅ Created comprehensive `sqlflow/connectors/rest/README.md` with authentication patterns, pagination examples, and real-world API integrations.
+-   **Migrate Tests & Examples**: ✅ Created comprehensive test suite with 22 test cases and `examples/rest_demo` project using JSONPlaceholder API.
+-   **Code Quality**: ✅ All 22 REST API tests passing, proper Schema/DataChunk usage, comprehensive error handling.
+-   **Definition of Done**: ✅ All REST tests pass, new example created with public API integration, comprehensive documentation and troubleshooting guide.
 
 #### **Task 2.6: Migrate Shopify Connector**
 -   **Refactor Code**: Implement `ShopifySource` in `sqlflow/connectors/shopify/`.

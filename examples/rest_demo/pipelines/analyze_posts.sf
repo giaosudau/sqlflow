@@ -1,0 +1,68 @@
+-- Analyze Posts from JSONPlaceholder API
+-- Demonstrates pagination and advanced data analysis
+
+-- Load posts with pagination (simulated by limiting results)
+SOURCE posts TYPE REST PARAMS {
+    "url": "https://jsonplaceholder.typicode.com/posts",
+    "params": {
+        "_limit": 50
+    }
+};
+
+-- Load users for enrichment
+SOURCE users TYPE REST PARAMS {
+    "url": "https://jsonplaceholder.typicode.com/users"
+};
+
+-- Create enriched posts analysis
+CREATE TABLE post_analysis AS
+SELECT 
+    p.id as post_id,
+    p.userId as user_id,
+    u.name as author_name,
+    u.username as author_username,
+    JSON_EXTRACT_STRING(u.company, '$.name') as author_company,
+    p.title,
+    p.body,
+    LENGTH(p.title) as title_length,
+    LENGTH(p.body) as body_length,
+    LENGTH(p.body) - LENGTH(REPLACE(p.body, ' ', '')) + 1 as word_count,
+    CASE 
+        WHEN LENGTH(p.body) < 100 THEN 'Short'
+        WHEN LENGTH(p.body) < 200 THEN 'Medium'
+        ELSE 'Long'
+    END as post_length_category
+FROM posts p
+LEFT JOIN users u ON p.userId = u.id;
+
+-- Create author statistics
+CREATE TABLE author_stats AS
+SELECT 
+    user_id,
+    author_name,
+    author_company,
+    COUNT(*) as total_posts,
+    AVG(title_length) as avg_title_length,
+    AVG(body_length) as avg_body_length,
+    AVG(word_count) as avg_word_count,
+    MIN(word_count) as min_word_count,
+    MAX(word_count) as max_word_count
+FROM post_analysis
+GROUP BY user_id, author_name, author_company
+ORDER BY total_posts DESC;
+
+-- Create content insights
+CREATE TABLE content_insights AS
+SELECT 
+    post_length_category,
+    COUNT(*) as post_count,
+    AVG(word_count) as avg_words,
+    COUNT(DISTINCT user_id) as unique_authors
+FROM post_analysis
+GROUP BY post_length_category
+ORDER BY 
+    CASE post_length_category 
+        WHEN 'Short' THEN 1 
+        WHEN 'Medium' THEN 2 
+        WHEN 'Long' THEN 3 
+    END; 

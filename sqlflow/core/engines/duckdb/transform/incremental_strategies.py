@@ -344,7 +344,10 @@ class AppendStrategy(IncrementalStrategy):
                 result.watermark_updated = new_watermark
 
             execution_time = datetime.now() - start_time
-            result.execution_time_ms = int(execution_time.total_seconds() * 1000)
+            # Ensure execution time is at least 1ms for successful operations
+            result.execution_time_ms = max(
+                1, int(execution_time.total_seconds() * 1000)
+            )
 
             self.logger.info(
                 f"Append strategy loaded {result.rows_inserted} rows to {target}"
@@ -427,8 +430,9 @@ class UpsertStrategy(IncrementalStrategy):
             # Clean up temporary table
             self.engine.execute_query(f"DROP TABLE {temp_source_table}")
 
-            result.execution_time_ms = int(
-                (datetime.now() - start_time).total_seconds() * 1000
+            # Ensure execution time is at least 1ms for successful operations
+            result.execution_time_ms = max(
+                1, int((datetime.now() - start_time).total_seconds() * 1000)
             )
 
             self.logger.info(
@@ -576,7 +580,10 @@ class SnapshotStrategy(IncrementalStrategy):
             result.rows_deleted = old_count
 
             execution_time = datetime.now() - start_time
-            result.execution_time_ms = int(execution_time.total_seconds() * 1000)
+            # Ensure execution time is at least 1ms for successful operations
+            result.execution_time_ms = max(
+                1, int(execution_time.total_seconds() * 1000)
+            )
 
             self.logger.info(
                 f"Snapshot strategy replaced {old_count} rows with {new_count} rows in {target}"
@@ -642,7 +649,10 @@ class CDCStrategy(IncrementalStrategy):
             result.rows_inserted = insert_count
 
             execution_time = datetime.now() - start_time
-            result.execution_time_ms = int(execution_time.total_seconds() * 1000)
+            # Ensure execution time is at least 1ms for successful operations
+            result.execution_time_ms = max(
+                1, int(execution_time.total_seconds() * 1000)
+            )
 
             self.logger.info(
                 f"CDC strategy processed {result.total_rows_affected} changes for {target}"
