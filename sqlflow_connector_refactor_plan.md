@@ -202,11 +202,262 @@ sqlflow/connectors/
 #### **Task 3.1: Update Core Documentation**
 -   Rewrite user-facing documentation in `docs/` to reflect the new connector architecture, especially for configuration in profiles.
 
+**Based on industry research of Airflow, Airbyte, Fivetran, and Metabase documentation patterns, we will implement a modular documentation structure that separates SOURCE and DESTINATION documentation:**
+
+**Documentation Strategy & Structure:**
+
+1. **Master Documentation**: Create `sqlflow/connectors/README.md` as the main connector catalog
+2. **Per-Connector Documentation**: Each connector gets three separate files:
+   - `README.md` - Overview and quick start
+   - `SOURCE.md` - Complete source configuration and features  
+   - `DESTINATION.md` - Complete destination configuration and features (if applicable)
+3. **User-Focused Content**: Configuration examples, use cases, troubleshooting
+4. **Developer-Focused Content**: Current limitations, feature support, implementation notes
+
+**Documentation Requirements per Connector:**
+
+**✅ Completed Connectors:**
+- **CSV** - Need: `README.md`, `SOURCE.md`, `DESTINATION.md`  
+- **In-Memory** - Need: `README.md`, `SOURCE.md`, `DESTINATION.md`
+- **S3** - Need: `README.md`, `SOURCE.md`, `DESTINATION.md`
+- **Google Sheets** - ✅ Has: `README.md` - Need: `SOURCE.md`, `DESTINATION.md` 
+- **Parquet** - ✅ Has: `README.md` - Need: `SOURCE.md`, `DESTINATION.md`
+- **REST API** - ✅ Has: `README.md` - Need: `SOURCE.md`, `DESTINATION.md`
+
+**🔄 Pending Migration:**
+- **PostgreSQL** - Need all documentation after migration
+- **Shopify** - Need all documentation after migration
+
+**Documentation Content Guidelines:**
+
+**SOURCE.md Template:**
+```markdown
+# [Connector Name] Source
+
+## Overview
+Brief description of what this source connector does.
+
+## Configuration
+### Required Parameters
+- parameter: description and example
+
+### Optional Parameters  
+- parameter: description, default value, example
+
+### Authentication
+Step-by-step authentication setup.
+
+## Features
+- ✅ Supported feature
+- ❌ Not supported feature
+- 🔄 Planned feature
+
+## Usage Examples
+### Basic Configuration
+### Advanced Configuration
+### Incremental Loading (if supported)
+
+## Troubleshooting
+Common issues and solutions.
+
+## Limitations
+Current known limitations.
+```
+
+**DESTINATION.md Template:**
+```markdown
+# [Connector Name] Destination
+
+## Overview
+Brief description of what this destination connector does.
+
+## Configuration
+### Required Parameters
+### Optional Parameters
+### Authentication
+
+## Features
+- ✅ Write modes (append, replace, merge)
+- ✅ Data type support
+- ❌ Not supported features
+
+## Usage Examples
+### Basic Write Operations
+### Advanced Configuration
+
+## Troubleshooting
+## Limitations
+```
+
+**Files to Create/Update:**
+
+1. **Master Connector Catalog**:
+   - `sqlflow/connectors/README.md` - Complete connector directory with links
+
+2. **CSV Connector**:
+   - `sqlflow/connectors/csv/README.md`
+   - `sqlflow/connectors/csv/SOURCE.md`
+   - `sqlflow/connectors/csv/DESTINATION.md`
+
+3. **In-Memory Connector**:
+   - `sqlflow/connectors/in_memory/README.md`
+   - `sqlflow/connectors/in_memory/SOURCE.md`
+   - `sqlflow/connectors/in_memory/DESTINATION.md`
+
+4. **S3 Connector**:
+   - `sqlflow/connectors/s3/README.md`
+   - `sqlflow/connectors/s3/SOURCE.md`
+   - `sqlflow/connectors/s3/DESTINATION.md`
+
+5. **Update Existing Connectors** (Google Sheets, Parquet, REST):
+   - Split existing documentation into separate SOURCE.md and DESTINATION.md files
+   - Update README.md to link to the separate files
+
+6. **Core Documentation Updates**:
+   - Update `docs/user-guides/` to reference new connector architecture
+   - Update profile configuration examples in documentation
+
+**Documentation Quality Standards:**
+- ✅ All examples must be tested and work with current code
+- ✅ Configuration parameters must match actual source code
+- ✅ Feature lists must accurately reflect current implementation
+- ✅ Include troubleshooting for common setup issues
+- ✅ Provide both basic and advanced usage examples
+- ✅ Link between related documents (README ↔ SOURCE ↔ DESTINATION)
+
 #### **Task 3.2: Final Project Cleanup & Verification**
 -   Perform a full audit of the codebase to ensure no old connector files, test skips, or disabled examples remain.
 -   Run all checks one last time to confirm the project is in a clean, fully-functional state.
 
+**Comprehensive Project Audit Checklist:**
+
+**✅ COMPLETED: Core Documentation Structure**
+- ✅ **Master Connector Catalog**: Updated `sqlflow/connectors/README.md` with modern, comprehensive catalog
+- ✅ **CSV Connector Documentation**: Created complete documentation set:
+  - `sqlflow/connectors/csv/README.md` - Overview and quick start
+  - `sqlflow/connectors/csv/SOURCE.md` - Complete source documentation
+  - `sqlflow/connectors/csv/DESTINATION.md` - Complete destination documentation
+
+**🔄 IN PROGRESS: Remaining Documentation Tasks**
+
+1. **Complete Documentation for All Production Connectors**:
+   - **In-Memory Connector**: Need `README.md`, `SOURCE.md`, `DESTINATION.md`
+   - **S3 Connector**: Need `README.md`, `SOURCE.md`, `DESTINATION.md`
+   - **Google Sheets**: Split existing `README.md` → create `SOURCE.md` (no destination)
+   - **Parquet**: Split existing `README.md` → create `SOURCE.md`, `DESTINATION.md`
+   - **REST API**: Split existing `README.md` → create `SOURCE.md` (no destination)
+
+2. **Connector Migration Completion**:
+   - **PostgreSQL Connector**: Complete migration and create full documentation
+   - **Shopify Connector**: Complete migration and create documentation
+
+3. **Core Documentation Updates**:
+   - Update `docs/user-guides/` for new connector architecture
+   - Update profile configuration examples
+   - Create connector development guide templates
+
+**Quality Assurance Requirements:**
+
+**Code Quality Checks:**
+- [ ] All `pre-commit` hooks pass without warnings
+- [ ] `pytest` test suite passes completely (100% pass rate)
+- [ ] All examples in `run_all_examples.sh` execute successfully
+- [ ] Integration tests in `run_integration_tests.sh` pass
+- [ ] No linting errors or code style violations
+
+**Documentation Quality Checks:**
+- [x] **CSV Documentation**: Complete and accurate per implementation
+- [ ] All configuration parameters match actual source code
+- [ ] All feature lists reflect current implementation capabilities
+- [ ] All examples tested and verified to work
+- [ ] Links between documents work correctly
+- [ ] No broken references or missing files
+
+**Architecture Consistency Checks:**
+- [ ] All migrated connectors use new interface (`Connector`, `DestinationConnector`)
+- [ ] All connectors properly registered in registry
+- [ ] No old connector files remain in codebase
+- [ ] No disabled tests or examples remain
+- [ ] All imports reference correct new connector paths
+
+**Example & Integration Verification:**
+- [ ] All example projects run with new connector architecture
+- [ ] All integration tests pass with migrated connectors
+- [ ] Performance benchmarks meet or exceed previous implementation
+- [ ] Error handling maintains same quality level
+
+**Final Verification Steps:**
+
+1. **Clean Repository State**:
+   ```bash
+   # Verify no old files remain
+   find . -name "*connector.py" -not -path "./sqlflow/connectors/*/*" 
+   
+   # Check for disabled tests
+   grep -r "@pytest.mark.skip" tests/
+   grep -r "# DISABLED" tests/
+   
+   # Verify all imports work
+   python -c "import sqlflow.connectors; print('✅ All imports successful')"
+   ```
+
+2. **Documentation Link Verification**:
+   ```bash
+   # Check all documentation links
+   find sqlflow/connectors -name "*.md" -exec markdown-link-check {} \;
+   ```
+
+3. **End-to-End Testing**:
+   ```bash
+   # Full test suite
+   pytest tests/
+   
+   # All examples
+   ./scripts/run_all_examples.sh
+   
+   # Integration tests  
+   ./scripts/run_integration_tests.sh
+   ```
+
 #### **DOD for Phase 3:**
--   [x] All documentation is updated.
--   [x] There is no remaining disabled or skipped code, tests, or examples.
--   [x] The project is declared fully migrated. 
+-   [x] **Task 3.1**: Core documentation structure implemented with separated SOURCE/DESTINATION docs
+-   [x] **CSV Connector**: Complete documentation set created and verified
+-   [ ] **All Connectors**: Complete documentation following the new modular structure
+-   [ ] **Core Docs**: Updated `docs/` to reference new connector architecture
+-   [ ] **Clean Codebase**: No old connector files, test skips, or disabled examples remain
+-   [ ] **Quality Gates**: All tests pass, examples work, documentation accurate
+-   [ ] **Final Verification**: The project is declared fully migrated and production-ready
+
+**🎯 Next Steps:**
+1. Complete documentation for remaining connectors (In-Memory, S3, Google Sheets, Parquet, REST)
+2. Finish PostgreSQL and Shopify connector migrations
+3. Update core user documentation 
+4. Final project cleanup and verification
+5. Mark project as fully migrated ✅
+
+---
+
+## 📊 **Project Status Summary**
+
+### **Connector Migration Status**
+| Connector | Code Migration | Tests | Documentation | Status |
+|-----------|---------------|-------|---------------|--------|
+| **CSV** | ✅ Complete | ✅ Passing | ✅ Complete | ✅ **PRODUCTION** |
+| **In-Memory** | ✅ Complete | ✅ Passing | 🔄 In Progress | ✅ **PRODUCTION** |
+| **S3** | ✅ Complete | ✅ Passing | 🔄 In Progress | ✅ **PRODUCTION** |
+| **Google Sheets** | ✅ Complete | ✅ Passing | 🔄 Splitting Docs | ✅ **PRODUCTION** |
+| **Parquet** | ✅ Complete | ✅ Passing | 🔄 Splitting Docs | ✅ **PRODUCTION** |
+| **REST API** | ✅ Complete | ✅ Passing | 🔄 Splitting Docs | ✅ **PRODUCTION** |
+| **PostgreSQL** | 🔄 Migrating | ⏸️ Disabled | ⏸️ Pending | 🔄 **MIGRATING** |
+| **Shopify** | 🔄 Migrating | ⏸️ Disabled | ⏸️ Pending | 🔄 **MIGRATING** |
+
+### **Documentation Architecture**
+- ✅ **Master Catalog**: Modern connector directory implemented
+- ✅ **Modular Structure**: Separate SOURCE/DESTINATION docs strategy
+- ✅ **Quality Standards**: Comprehensive templates and guidelines
+- ✅ **CSV Example**: Complete documentation set as template
+- 🔄 **Remaining Work**: Apply structure to all connectors
+
+---
+
+*This refactor represents a **major architectural evolution** for SQLFlow, modernizing the connector system while maintaining backward compatibility and improving developer experience.*

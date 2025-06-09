@@ -46,7 +46,7 @@ Remember: every line of code you write could be the one that makes data analysis
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/sqlflow/sqlflow.git
+git clone https://github.com/giaosudau/sqlflow.git
 cd sqlflow
 
 # 2. Create and activate a virtual environment

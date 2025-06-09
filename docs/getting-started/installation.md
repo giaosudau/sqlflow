@@ -101,19 +101,19 @@ Install directly from the latest source code:
 ### Latest Release from GitHub
 ```bash
 # Install latest release
-pip install git+https://github.com/sqlflow/sqlflow.git
+pip install git+https://github.com/giaosudau/sqlflow.git
 
 # Install specific version/tag
-pip install git+https://github.com/sqlflow/sqlflow.git@v0.1.7
+pip install git+https://github.com/giaosudau/sqlflow.git@v0.1.7
 ```
 
 ### Development Branch
 ```bash
 # Install from development branch
-pip install git+https://github.com/sqlflow/sqlflow.git@main
+pip install git+https://github.com/giaosudau/sqlflow.git@main
 
 # Install in editable mode for development
-git clone https://github.com/sqlflow/sqlflow.git
+git clone https://github.com/giaosudau/sqlflow.git
 cd sqlflow
 pip install -e .
 ```
@@ -141,7 +141,7 @@ sqlflow pipeline run customer_analytics
 | **Cloud** | `pip install "sqlflow-core[cloud]"` | Core + all cloud connectors |
 | **All** | `pip install "sqlflow-core[all]"` | Everything included |
 | **Dev** | `pip install "sqlflow-core[dev]"` | All + testing tools, linting |
-| **GitHub** | `pip install git+https://github.com/sqlflow/sqlflow.git` | Latest source code |
+| **GitHub** | `pip install git+https://github.com/giaosudau/sqlflow.git` | Latest source code |
 
 ### Required Parameters
 | Parameter | Type | Description | Example |
@@ -292,7 +292,7 @@ No breaking changes in current stable releases. All installation methods remain 
 
 ## Resources
 
-- **GitHub Repository**: [https://github.com/sqlflow/sqlflow](https://github.com/sqlflow/sqlflow)
+- **GitHub Repository**: [https://github.com/giaosudau/sqlflow](https://github.com/giaosudau/sqlflow)
 - **Installation Scripts**: [`/scripts/install/`](../../scripts/install/)
 - **Docker Examples**: [`/examples/docker/`](../../examples/docker/)
 - **CI/CD Examples**: [`/.github/workflows/`](../../.github/workflows/)

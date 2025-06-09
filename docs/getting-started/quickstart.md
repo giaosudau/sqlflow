@@ -326,7 +326,7 @@ sqlflow init my-project-$(date +%s)  # Creates unique name
 If you encounter issues not covered here:
 1. Check the [Installation Guide](installation.md) for environment-specific issues
 2. Review the [complete troubleshooting guide](../user-guide/troubleshooting/)
-3. Visit our [Community Forum](https://github.com/sqlflow/sqlflow/discussions)
+3. Visit our [Community Forum](https://github.com/giaosudau/sqlflow/discussions)
 
 ---
 

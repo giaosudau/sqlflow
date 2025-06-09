@@ -228,34 +228,48 @@ SOURCE slack_messages TYPE REST PARAMS {
 };
 ```
 
-## Incremental Loading
+## 📈 Incremental Loading
 
-Enable incremental loading by specifying a cursor column that represents timestamps or IDs:
+This connector supports incremental loading, allowing you to process only new data since the last pipeline run. It's designed to be efficient by attempting to fetch only new records from the API.
 
-```sql
--- In your pipeline
-SOURCE api_data TYPE REST PARAMS {
-  "url": "https://api.example.com/events",
-  "pagination": {
-    "cursor_param": "since",
-    "size_param": "limit",
-    "page_size": 1000
-  }
-};
+### Configuration
 
--- SQLFlow will automatically add the cursor parameter
--- for subsequent runs based on the last loaded data
+To enable incremental loading, you need to specify the `sync_mode` and `cursor_field` in your source configuration.
+
+- `sync_mode`: Set to `"incremental"`.
+- `cursor_field`: The field in your API response that will be used to determine new records (e.g., `updated_at`, `id`).
+
+```yaml
+# profiles/dev.yml
+sources:
+  api_events:
+    type: rest
+    url: "https://api.example.com/events"
+    sync_mode: "incremental"
+    cursor_field: "timestamp"
+    # Optional: If your API supports sorting, you can provide the parameter name
+    params:
+      sort_by: "timestamp" 
+      order: "asc"
 ```
+
+### Behavior
+
+When a pipeline runs in incremental mode:
+1.  SQLFlow retrieves the last saved maximum value (watermark) for the `cursor_field`.
+2.  The connector adds a parameter to the API request to filter for records where the `cursor_field` is greater than the watermark. It typically uses the `cursor_field` name as the parameter name (e.g., `&timestamp=...`).
+3.  For APIs that support sorting, the connector will attempt to order results to more efficiently find the latest records.
+4.  After a successful pipeline run, SQLFlow updates the watermark with the new maximum value from the processed data.
+
+**Note**: The effectiveness of incremental loading depends on the API's capabilities (i.e., whether it supports filtering by the cursor field).
 
 ## Error Handling
 
-The connector handles common API scenarios:
+The connector implements a retry mechanism with exponential backoff for transient network errors and common HTTP status codes (5xx).
 
-- **Rate limiting**: Automatic retry with exponential backoff
-- **Network errors**: Configurable retry logic
-- **Authentication failures**: Clear error messages
-- **Invalid JSON**: Graceful error handling
-- **HTTP errors**: Status code-specific messages
+---
+
+**Version**: 1.0 • **Status**: ✅ Production Ready • **Incremental**: ✅ Supported
 
 ## Response Format Support
 

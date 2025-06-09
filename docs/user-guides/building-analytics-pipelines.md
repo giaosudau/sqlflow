@@ -692,9 +692,9 @@ WHERE customer_id BETWEEN {{ vars.start_id }} AND {{ vars.end_id }};
 
 ### **Community Resources**
 
-- 💬 **Ask Questions**: [GitHub Discussions](https://github.com/sqlflow/sqlflow/discussions)
+- 💬 **Ask Questions**: [GitHub Discussions](https://github.com/giaosudau/sqlflow/discussions)
 - 📖 **Full Documentation**: [Reference Guides](../reference/)
-- ⭐ **Star on GitHub**: [github.com/sqlflow/sqlflow](https://github.com/sqlflow/sqlflow)
+- ⭐ **Star on GitHub**: [github.com/sqlflow/sqlflow](https://github.com/giaosudau/sqlflow)
 
 ---
 
