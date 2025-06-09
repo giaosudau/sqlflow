@@ -288,7 +288,7 @@ class TestBuiltInSchemas:
 
     def test_connector_schemas_registry(self):
         """Test that all expected connectors are in the registry."""
-        expected_connectors = {"CSV", "POSTGRES", "S3", "SHOPIFY"}
+        expected_connectors = {"CSV", "POSTGRES", "S3", "SHOPIFY", "REST"}
         actual_connectors = set(CONNECTOR_SCHEMAS.keys())
 
         assert actual_connectors == expected_connectors

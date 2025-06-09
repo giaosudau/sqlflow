@@ -1,0 +1,40 @@
+-- Fetch Users from JSONPlaceholder API
+-- Demonstrates basic REST API data loading and transformation
+
+-- Load users from public JSONPlaceholder API
+SOURCE users TYPE REST PARAMS {
+    "url": "https://jsonplaceholder.typicode.com/users"
+};
+
+-- Load the data into a table
+LOAD users_data FROM users;
+
+-- Clean and structure user data
+CREATE TABLE clean_users AS
+SELECT 
+    id as user_id,
+    name as full_name,
+    username,
+    email,
+    phone,
+    website,
+    JSON_EXTRACT_STRING(address, '$.street') as street,
+    JSON_EXTRACT_STRING(address, '$.suite') as suite,
+    JSON_EXTRACT_STRING(address, '$.city') as city,
+    JSON_EXTRACT_STRING(address, '$.zipcode') as zipcode,
+    JSON_EXTRACT_STRING(address, '$.geo.lat') as latitude,
+    JSON_EXTRACT_STRING(address, '$.geo.lng') as longitude,
+    JSON_EXTRACT_STRING(company, '$.name') as company_name,
+    JSON_EXTRACT_STRING(company, '$.catchPhrase') as company_catchphrase,
+    JSON_EXTRACT_STRING(company, '$.bs') as company_bs
+FROM users_data;
+
+-- Create a user summary report
+CREATE TABLE user_summary AS
+SELECT 
+    COUNT(*) as total_users,
+    COUNT(DISTINCT city) as unique_cities,
+    COUNT(DISTINCT company_name) as unique_companies,
+    COUNT(CASE WHEN website IS NOT NULL AND website != '' THEN 1 END) as users_with_websites,
+    COUNT(CASE WHEN phone IS NOT NULL AND phone != '' THEN 1 END) as users_with_phones
+FROM clean_users; 
