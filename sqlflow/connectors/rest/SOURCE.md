@@ -1,156 +1,95 @@
-# REST API Source
+# REST API Source Connector
 
-The REST API Source connects to HTTP endpoints to retrieve data. For a general overview, see the [main README](./README.md).
+Pulls data from a REST API endpoint. This connector is flexible and can be used to integrate with a wide variety of web services that return JSON.
 
-## Configuration
+## ✅ Features
+- **HTTP Methods**: Supports `GET` and `POST` requests.
+- **Authentication**: Includes built-in support for Basic, Bearer Token, Digest, and API Key authentication.
+- **Pagination**: Handles a basic page-number-based pagination strategy.
+- **JSON Processing**: Automatically parses JSON responses and can flatten nested structures.
+- **Resilience**: Built-in support for connection timeouts and retries with exponential backoff.
 
-The source is configured in your `profiles.yml` file.
+## 📋 Configuration
 
-### Required Parameters
+| Parameter | Type | Description | Required | Example |
+|---|---|---|:---:|---|
+| `type` | `string` | Must be `"rest"`. | ✅ | `"rest"` |
+| `url` | `string` | The full URL of the API endpoint to call. | ✅ | `"https://api.example.com/v1/data"` |
+| `method` | `string` | The HTTP method to use (`GET` or `POST`). Defaults to `GET`. | | `"POST"` |
+| `headers` | `dict` | A dictionary of HTTP headers to send with the request. | | `{"Accept": "application/json"}`|
+| `params` | `dict` | For `GET`, a dictionary of query parameters. For `POST`, this is the JSON body. | | |
+| `auth` | `dict` | An object defining the authentication method. See below. | | |
+| `pagination`| `dict` | An object defining the pagination strategy. See below. | | |
+| `data_path` | `string`| A dot-separated path to extract records from a nested JSON response. | | `"results.data"`|
+| `flatten_response`|`boolean`| Whether to flatten the nested JSON structure of records. | `true` (default)| `false`|
+| `timeout` | `integer` | Connection timeout in seconds. | `30` (default) | `60` |
+| `max_retries`| `integer` | Number of times to retry a failed request. | `3` (default) | `5` |
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `type` | `string` | Must be `"rest"`. |
-| `url` | `string` | The full URL of the API endpoint to request. |
-
-### Optional Parameters
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `method` | `string` | `"GET"` | The HTTP method to use (e.g., `"GET"`, `"POST"`). |
-| `params` | `dict` | `None` | A dictionary of query parameters to send with the request. |
-| `headers`| `dict` | `None` | A dictionary of custom HTTP headers to send. |
-| `auth` | `dict` | `None` | Authentication configuration object. See [Authentication](#authentication). |
-| `pagination`| `dict`| `None` | Pagination configuration object. See [Pagination](#pagination). |
-| `data_path`| `string`| `None` | Path to the list of records in a nested JSON response. See [Data Extraction](#data-extraction). |
-| `flatten_response`|`boolean`|`true`| Whether to flatten the structure of nested JSON objects. |
-| `timeout`| `integer`| `30` | Request timeout in seconds. |
-| `max_retries`| `integer`| `3` | Maximum number of retries on failed requests. |
-| `retry_delay`|`float`|`1.0`| Delay in seconds between retries (uses exponential backoff). |
-
-### Example Profile Configuration
+### Authentication
+**Basic Auth:**
 ```yaml
-# profiles/dev.yml
-sources:
-  my_api:
-    type: "rest"
-    url: "https://api.example.com/data"
-    params:
-      status: "active"
-      limit: 1000
-    headers:
-      User-Agent: "SQLFlow/1.0"
-    auth:
-      type: "bearer"
-      token: "your-jwt-token-here"
+auth:
+  type: "basic"
+  username: "myuser"
+  password: "${API_PASSWORD}"
+```
+**Bearer Token:**
+```yaml
+auth:
+  type: "bearer"
+  token: "${API_TOKEN}"
+```
+**API Key (in header):**
+```yaml
+auth:
+  type: "api_key"
+  key_name: "X-Api-Key"
+  key_value: "${API_KEY}"
+```
+**Digest Auth:**
+```yaml
+auth:
+  type: "digest"
+  username: "myuser"
+  password: "${API_PASSWORD}"
 ```
 
-## Authentication
-The connector supports multiple authentication methods via the `auth` object.
+### Pagination
+The generic REST connector supports a simple page number strategy. More complex strategies (like following `Link` headers) are implemented in specialized connectors like the `Shopify` source.
 
-#### Basic Authentication
-- `type`: `"basic"`
-- `username`: The username.
-- `password`: The password.
-
-#### Bearer Token
-- `type`: `"bearer"`
-- `token`: The bearer token.
-
-#### API Key
-- `type`: `"api_key"`
-- `key_name`: The name of the header or query parameter for the key.
-- `key_value`: The API key value.
-- `add_to` (optional, default `"header"`): Where to add the key (`"header"` or `"query"`).
-
-#### Digest Authentication
-- `type`: `"digest"`
-- `username`: The username.
-- `password`: The password.
-
-## Pagination
-The connector can automatically handle paginated APIs.
-
-#### Page-based Pagination
-Used for APIs that paginate using a page number and page size.
-- `page_param`: The name of the page number parameter (e.g., `"page"`).
-- `size_param`: The name of the page size parameter (e.g., `"per_page"`).
-- `page_size`: The number of records to request per page.
-
-#### Cursor-based Pagination
-Used for APIs that return a cursor or token for the next page of results.
-- `cursor_param`: The name of the cursor parameter (e.g., `"after"` or `"next_token"`).
-- `cursor_path`: The JSON path to find the *next* cursor value in the response body.
-- `size_param`: The name of the page size parameter.
-- `page_size`: The number of records per page.
-
-## Data Extraction
-Use `data_path` to specify the location of the list of records if it's nested within the JSON response.
-
+**Page Number Strategy:**
+Sends an incrementing page number and a page size in the query parameters.
 ```yaml
-# For response: {"results": {"users": [...]}}
-data_path: "results.users"
+pagination:
+  page_param: "page"      # The name of the query parameter for the page number.
+  size_param: "per_page"  # The name of the query parameter for the page size.
+  page_size: 100          # The number of records to request per page.
 ```
 
-Use `flatten_response` to control whether nested JSON objects within your records are flattened into columns with `_` separators.
+### Data Extraction (`data_path`)
+The `data_path` parameter extracts a list of records from a nested JSON response. It uses a simple dot-notation syntax, not full JSONPath.
 
-## 📈 Incremental Loading
-This connector supports incremental loading to process only new data since the last run.
+For a response like `{"data": {"items": [...]}}`, the `data_path` would be `"data.items"`.
 
-### Configuration
-- `sync_mode`: Set to `"incremental"`.
-- `cursor_field`: The field in your API response records used to determine new data (e.g., `updated_at`, `id`).
-- `incremental_param` (optional): The name of the URL query parameter to which the last cursor value should be sent (e.g., `since` or `updated_after`).
-
-```yaml
-# profiles/dev.yml
-sources:
-  api_events:
-    type: rest
-    url: "https://api.example.com/events"
-    sync_mode: "incremental"
-    cursor_field: "timestamp"
-    incremental_param: "since"
+## 💡 Example
+This example fetches paginated user data from an API that requires an API key.
+```sql
+SOURCE generic_api_users TYPE REST PARAMS {
+    "url": "https://api.test.com/users",
+    "method": "GET",
+    "auth": {
+        "type": "api_key",
+        "key_name": "X-Custom-Auth-Token",
+        "key_value": "${API_TOKEN}"
+    },
+    "pagination": {
+        "page_param": "p",
+        "size_param": "limit",
+        "page_size": 50
+    },
+    "data_path": "users"
+};
 ```
 
-### Behavior
-1. SQLFlow retrieves the last saved watermark for the `cursor_field`.
-2. The connector adds a query parameter (e.g., `?since=<watermark>`) to the API request.
-3. The API is expected to return only records newer than the watermark.
-4. After a successful run, SQLFlow updates the watermark with the new maximum value.
-
-**Note**: This is most efficient when the API supports a timestamp-based filter. If `incremental_param` is not provided, the connector fetches all data and filters it locally, which is less efficient.
-
-## 🛠️ Common API Examples
-
-### GitHub API
-```yaml
-github_repos:
-  type: rest
-  url: "https://api.github.com/user/repos"
-  auth:
-    type: "bearer"
-    token: "ghp_your_token"
-  params:
-    type: "owner"
-    sort: "updated"
-  pagination:
-    page_param: "page"
-    size_param: "per_page"
-    page_size: 100
-```
-
-### Shopify API Orders
-```yaml
-shopify_orders:
-  type: rest
-  url: "https://your-shop.myshopify.com/admin/api/2023-01/orders.json"
-  auth:
-    type: "api_key"
-    key_name: "X-Shopify-Access-Token"
-    key_value": "your_access_token"
-  data_path: "orders"
-  sync_mode: "incremental"
-  cursor_field: "id"
-  incremental_param: "since_id"
-``` 
+---
+**Version**: 1.0 • **Status**: ✅ Production Ready • **Incremental**: ❌ Not Supported 

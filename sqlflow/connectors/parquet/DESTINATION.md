@@ -1,63 +1,65 @@
-# Parquet Destination
+# Parquet Destination Connector
 
-The Parquet Destination connector writes the results of a pipeline to a `.parquet` file. For a general overview of the Parquet connector, see the [main README](./README.md).
+The Parquet Destination connector writes data to local Parquet files, a highly efficient, column-oriented data format.
 
-## Configuration
+## ✅ Features
 
-The destination is configured in your `profiles.yml` file.
+- **Local File System**: Writes Parquet files to the local disk.
+- **Partitioning**: Supports partitioning the output data into a directory structure based on column values.
+- **Compression**: Allows specifying the compression algorithm for the output file.
 
-### Required Parameters
+## 📋 Configuration
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `type` | `string` | Must be `"parquet"`. |
-| `path` | `string` | The full file path for the output `.parquet` file. |
+When using the Parquet destination in an `EXPORT` step, you configure it via the `TYPE` and `OPTIONS` clauses.
 
-### Optional Parameters
-The `ParquetDestination` connector passes any additional, non-standard options directly to the underlying `pandas.to_parquet` function. This allows for advanced control over the output file. For a full list of available options, please refer to the [official pandas documentation](https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.DataFrame.to_parquet.html).
+### EXPORT Options
+| Parameter | Type | Description | Required | Example |
+|---|---|---|:---:|---|
+| `path` | `string` | The local path for the output. If `partition_cols` is not used, this is the full file path. If `partition_cols` is used, this is the base directory. | ✅ | `"/data/processed/report.parquet"` |
+| `partition_cols` | `list[string]` | A list of column names to partition the data by. | | `["country", "city"]` |
+| `compression` | `string` | The compression codec to use. Common options include `snappy`, `gzip`, `brotli`, or `None`. | | `"snappy"` |
 
-Common options include:
-- `compression` (string, default 'snappy'): The compression method to use (e.g., `'snappy'`, `'gzip'`, `'brotli'`).
-- `engine` (string, default 'auto'): The Parquet library to use (`'pyarrow'` or `'fastparquet'`).
+## 💡 Examples
 
-### Example Configuration
-
-```yaml
-# profiles/dev.yml
-destinations:
-  # Simple configuration
-  output_data:
-    type: "parquet"
-    path: "output/final_report.parquet"
-
-  # Advanced configuration with options
-  compressed_output:
-    type: "parquet"
-    path: "output/compressed_data.parquet"
-    compression: "gzip" # Pass a pandas `to_parquet` option
-```
-
-## 🚀 Usage
-
-You can write to a configured Parquet destination using the `WRITE` or `TO` keywords in your pipeline.
+### Basic Export to a Single File
+This example exports the `analytics_summary` table to a single, compressed Parquet file.
 
 ```sql
--- pipelines/export.sql
-FROM source('my_data')
-SELECT *
-WHERE status = 'processed'
-WRITE 'output_data';
+EXPORT
+  SELECT * FROM analytics_summary
+TO "/data/final/summary.parquet"
+TYPE PARQUET
+OPTIONS {
+  "path": "/data/final/summary.parquet",
+  "compression": "gzip"
+};
 ```
 
-## 📝 Write Modes
+### Partitioned Export
+This example exports the `user_events` table into a partitioned directory structure.
 
-This connector only supports **overwrite mode**.
+```sql
+EXPORT
+  SELECT user_id, event_type, event_ts, country, city FROM user_events
+TO "/data/events/"
+TYPE PARQUET
+OPTIONS {
+  "path": "/data/events/",
+  "partition_cols": ["country", "city"]
+};
+```
+This would create a local directory structure like:
+```
+/data/events/
+├── country=US/
+│   ├── city=New York/
+│   │   └── ...some-guid.parquet
+│   └── city=Chicago/
+│       └── ...some-guid.parquet
+└── country=CA/
+    └── city=Toronto/
+        └── ...some-guid.parquet
+```
 
-- **REPLACE (overwrite)**: If a file already exists at the specified `path`, it will be completely replaced with the new data.
-
-`APPEND` and `UPSERT` modes are **not supported**. If you need to append data, you should read the existing file, combine it with your new data in your pipeline, and then use the destination to overwrite the original file with the combined result.
-
-## ❌ Limitations
-
-- **No Streaming Writes**: The connector buffers the entire result DataFrame in memory before writing it to a file. It is not suitable for writing datasets that are larger than available RAM.
-- **No Automatic Directory Creation**: The directory for the output `path` must exist before the pipeline is run. The connector will not create it for you and will raise an error if it is missing. 
+---
+**Version**: 1.0 • **Status**: ✅ Production Ready • **Incremental**: ❌ Not Supported 

@@ -8,10 +8,9 @@ The S3 Source connector reads data from files in Amazon S3, supporting multiple 
 - **Flexible Configuration**: Specify S3 paths using a full `uri` or separate `bucket` and `key`/`path_prefix` parameters.
 - **Authentication**: Supports AWS access keys and automatically discovers credentials from environment variables or IAM roles.
 - **Custom Endpoints**: Works with S3-compatible services like MinIO by specifying an `endpoint_url`.
-- **Partition Awareness**: Discovers and filters data based on Hive-style partitioning in your S3 key structure (e.g., `year=2024/month=01/`).
 - **Object Discovery**: Can discover all objects under a given `path_prefix`.
 - **Cost Management**: Limit discovery by number of files or total data size to control costs during pipeline runs.
-- **Incremental Loading**: Efficiently loads new or modified files based on their `last_modified` timestamp, avoiding re-scanning unchanged data.
+- **Incremental Loading**: Supports basic incremental loading based on file `last_modified` timestamps.
 - **Connection Testing**: Verifies credentials and bucket access.
 
 ## 📋 Configuration
@@ -43,12 +42,6 @@ Authentication is handled by `boto3`'s standard credential discovery chain. The 
 | `secret_access_key` | `string` | Your AWS secret access key. |
 | `endpoint_url` | `string` | The endpoint URL for an S3-compatible service (e.g., MinIO). |
 
-### Partitioning & Filtering
-| Parameter | Type | Description | Example |
-|---|---|---|---|
-| `partition_keys` | `list` or `string` | The names of the partition keys present in the S3 path (e.g., `year`, `month`). | `["year", "month"]` |
-| `partition_filter` | `dict` | A dictionary to filter partitions. Only files matching these partition values will be read. | `{"year": "2024", "month": "01"}` |
-
 ### Format-Specific Options
 | Parameter | Type | Default | Description |
 |---|---|---|---|
@@ -66,7 +59,7 @@ Authentication is handled by `boto3`'s standard credential discovery chain. The 
 
 ---
 ## 📈 Incremental Loading
-This connector supports an efficient incremental loading strategy based on file `last_modified` timestamps.
+This connector supports an incremental loading strategy based on file `last_modified` timestamps.
 
 ### Configuration
 - `sync_mode`: Set to `"incremental"`.
@@ -85,7 +78,9 @@ sources:
 ```
 
 ### Behavior
-When a pipeline runs in incremental mode, the connector lists objects in the specified `bucket` and `path_prefix` and filters them based on their `last_modified` time, comparing it to the last stored watermark. Only new or updated files are downloaded and processed. This avoids costly re-reading of unchanged data.
+When a pipeline runs in incremental mode, the connector lists objects in the specified `bucket` and `path_prefix` and filters them based on their `last_modified` time, comparing it to the last stored watermark. Only new or updated files are downloaded and processed.
+
+> **Note**: The current implementation lists all objects under the given prefix before filtering. This may not be performant for buckets with a very large number of objects.
 
 ---
 **Version**: 2.0 • **Status**: ✅ Production Ready • **Incremental**: ✅ Supported 
