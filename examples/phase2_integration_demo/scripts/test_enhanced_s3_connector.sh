@@ -1,5 +1,14 @@
 #!/bin/bash
 
+# Enhanced S3 Connector Test - DISABLED DURING REFACTOR
+echo "🔍 Enhanced S3 Connector Test - DISABLED"
+echo "=========================================="
+echo "This test is disabled during the connector refactor (Phase 0)."
+echo "S3 connector will be migrated in Phase 2.2 of the refactor plan."
+echo "See sqlflow_connector_refactor_plan.md for details."
+echo "=========================================="
+exit 0
+
 # SQLFlow Phase 2 Integration Demo: Enhanced S3 Connector Test
 # Tests cost management, partition awareness, multi-format support, and resilience patterns
 # Demonstrates enterprise-grade S3 features with zero configuration

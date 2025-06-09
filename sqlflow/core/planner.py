@@ -1581,7 +1581,7 @@ class ExecutionPlanBuilder:
         source_name = step.source_name
 
         # Try to find the SOURCE definition to get the real connector type
-        source_connector_type = "CSV"  # Default fallback
+        source_connector_type = "csv"  # Default fallback
 
         # Look for the source definition in the source_definitions mapping
         # This mapping is built during the build_plan process
@@ -1590,7 +1590,7 @@ class ExecutionPlanBuilder:
             and source_name in self._source_definitions
         ):
             source_def = self._source_definitions[source_name]
-            source_connector_type = source_def.get("connector_type", "CSV")
+            source_connector_type = source_def.get("connector_type", "csv")
 
         return {
             "id": step_id,

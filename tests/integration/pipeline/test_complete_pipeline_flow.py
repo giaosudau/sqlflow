@@ -181,7 +181,7 @@ dev:
             "type": "source_definition",
             "id": "test_source_def",
             "name": "test_source",
-            "connector_type": "CSV",
+            "connector_type": "csv",
             "params": {"path": "/tmp/test.csv", "delimiter": ","},
         }
 

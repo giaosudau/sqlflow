@@ -20,3 +20,17 @@ except ImportError:
 
 # Import core modules for easier access
 from sqlflow.core.variables import VariableContext, VariableSubstitutor
+
+from .exceptions import (
+    ConnectorError,
+    HealthCheckError,
+    IncrementalError,
+    ParameterError,
+)
+
+__all__ = [
+    "ConnectorError",
+    "ParameterError",
+    "IncrementalError",
+    "HealthCheckError",
+]

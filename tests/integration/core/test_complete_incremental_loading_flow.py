@@ -11,7 +11,6 @@ from unittest.mock import patch
 import pandas as pd
 import pytest
 
-from sqlflow.connectors.connector_engine import ConnectorEngine
 from sqlflow.core.executors.local_executor import LocalExecutor
 from sqlflow.core.state.backends import DuckDBStateBackend
 from sqlflow.core.state.watermark_manager import WatermarkManager
@@ -68,7 +67,6 @@ class TestCompleteIncrementalLoadingFlow:
         # Initialize real state management with in-memory DuckDB
         state_backend = DuckDBStateBackend(executor.duckdb_engine.connection)
         executor.watermark_manager = WatermarkManager(state_backend)
-        executor.connector_engine = ConnectorEngine()
 
         return executor
 
@@ -81,7 +79,7 @@ class TestCompleteIncrementalLoadingFlow:
             "id": "source_orders",
             "name": "orders",
             "type": "source_definition",
-            "connector_type": "CSV",
+            "connector_type": "csv",
             "sync_mode": "incremental",
             "cursor_field": "updated_at",
             "primary_key": ["order_id"],
@@ -122,7 +120,7 @@ class TestCompleteIncrementalLoadingFlow:
             "id": "source_orders",
             "name": "orders",
             "type": "source_definition",
-            "connector_type": "CSV",
+            "connector_type": "csv",
             "sync_mode": "incremental",
             "cursor_field": "updated_at",
             "params": {"path": temp_csv_file, "has_header": True},
@@ -159,7 +157,7 @@ class TestCompleteIncrementalLoadingFlow:
             "id": "source_orders",
             "name": "orders",
             "type": "source_definition",
-            "connector_type": "CSV",
+            "connector_type": "csv",
             "sync_mode": "incremental",
             "cursor_field": "updated_at",
             "params": {"path": temp_csv_file, "has_header": True},
@@ -195,7 +193,7 @@ class TestCompleteIncrementalLoadingFlow:
             "id": "source_orders",
             "name": "orders",
             "type": "source_definition",
-            "connector_type": "CSV",
+            "connector_type": "csv",
             "sync_mode": "full_refresh",  # Should ignore watermarks
             "cursor_field": "updated_at",
             "params": {"path": temp_csv_file, "has_header": True},
@@ -217,7 +215,7 @@ class TestCompleteIncrementalLoadingFlow:
             "id": "source_orders",
             "name": "orders",
             "type": "source_definition",
-            "connector_type": "CSV",
+            "connector_type": "csv",
             "sync_mode": "incremental",
             "cursor_field": "updated_at",
             "params": {"path": temp_csv_file, "has_header": True},
@@ -258,7 +256,7 @@ class TestCompleteIncrementalLoadingFlow:
 
         # Mock connector to raise error during read_incremental
         with patch(
-            "sqlflow.connectors.csv_connector.CSVConnector.read_incremental"
+            "sqlflow.connectors.csv.source.CSVSource.read_incremental"
         ) as mock_read:
             mock_read.side_effect = Exception("Simulated read error")
 
@@ -266,7 +264,7 @@ class TestCompleteIncrementalLoadingFlow:
                 "id": "source_orders",
                 "name": "orders",
                 "type": "source_definition",
-                "connector_type": "CSV",
+                "connector_type": "csv",
                 "sync_mode": "incremental",
                 "cursor_field": "updated_at",
                 "params": {"path": temp_csv_file, "has_header": True},
@@ -296,7 +294,7 @@ class TestCompleteIncrementalLoadingFlow:
             "id": "source_orders",
             "name": "orders",
             "type": "source_definition",
-            "connector_type": "CSV",
+            "connector_type": "csv",
             "sync_mode": "full_refresh",
             "params": {"path": temp_csv_file, "has_header": True},
         }
@@ -317,7 +315,7 @@ class TestCompleteIncrementalLoadingFlow:
             "id": "source_orders",
             "name": "orders",
             "type": "source_definition",
-            "connector_type": "CSV",
+            "connector_type": "csv",
             "sync_mode": "incremental",
             "cursor_field": "updated_at",
             "params": {"path": temp_csv_file, "has_header": True},
@@ -340,7 +338,7 @@ class TestCompleteIncrementalLoadingFlow:
             "id": "source_orders",
             "name": "orders",
             "type": "source_definition",
-            "connector_type": "CSV",
+            "connector_type": "csv",
             "sync_mode": "incremental",
             "cursor_field": "updated_at",
             "params": {"path": temp_csv_file, "has_header": True},
@@ -350,7 +348,7 @@ class TestCompleteIncrementalLoadingFlow:
             "id": "source_products",
             "name": "products",
             "type": "source_definition",
-            "connector_type": "CSV",
+            "connector_type": "csv",
             "sync_mode": "incremental",
             "cursor_field": "updated_at",
             "params": {"path": temp_csv_file, "has_header": True},

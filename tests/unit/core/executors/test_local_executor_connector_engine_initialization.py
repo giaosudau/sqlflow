@@ -38,7 +38,7 @@ class TestLocalExecutorConnectorEngineInitialization:
                 "type": "export",
                 "query": {"sql_query": "SELECT * FROM test_table"},
                 "destination": "test_output.csv",
-                "connector_type": "CSV",
+                "connector_type": "csv",
                 "options": {"header": True},
             }
 
@@ -76,7 +76,7 @@ class TestLocalExecutorConnectorEngineInitialization:
             "type": "export",
             "query": {"sql_query": "SELECT * FROM test_table"},
             "destination": "test_output.csv",
-            "connector_type": "CSV",
+            "connector_type": "csv",
             "options": {"header": True},
         }
 
@@ -117,7 +117,7 @@ class TestLocalExecutorConnectorEngineInitialization:
             "type": "export",
             "query": "SELECT * FROM test_table",
             "destination": "test_output.csv",
-            "connector_type": "CSV",
+            "connector_type": "csv",
             "options": {"header": True},
         }
 
@@ -152,7 +152,7 @@ class TestLocalExecutorConnectorEngineInitialization:
             "type": "export",
             "query": {"sql_query": "SELECT * FROM nonexistent_table"},
             "destination": "test_output.csv",
-            "connector_type": "CSV",
+            "connector_type": "csv",
             "options": {"header": True},
         }
 
@@ -186,7 +186,7 @@ class TestLocalExecutorConnectorEngineInitialization:
             "type": "export",
             "query": {"sql_query": "SELECT * FROM empty_table"},
             "destination": "empty_output.csv",
-            "connector_type": "CSV",
+            "connector_type": "csv",
             "options": {"header": True},
         }
 
@@ -228,4 +228,4 @@ class TestLocalExecutorConnectorEngineInitialization:
                     # Check the call arguments match expected pattern
                     call_args = mock_connector_engine.export_data.call_args
                     assert call_args.kwargs["destination"] == "empty_output.csv"
-                    assert call_args.kwargs["connector_type"] == "CSV"
+                    assert call_args.kwargs["connector_type"] == "csv"

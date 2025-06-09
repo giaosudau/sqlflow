@@ -56,8 +56,8 @@ def _get_connectors(profile_dict: Dict) -> Dict:
     return profile_dict.get("connectors", profile_dict)
 
 
-def _get_connector_status(name: str, params: Dict) -> Tuple[str, str, str]:
-    """Get connector type, parameters, and status.
+def _get_connector_status(name: str, params: Dict) -> Tuple[str, str]:
+    """Get connector type and status.
 
     Args:
     ----
@@ -66,20 +66,24 @@ def _get_connector_status(name: str, params: Dict) -> Tuple[str, str, str]:
 
     Returns:
     -------
-        Tuple of (connector_type, readable_status)
+        Tuple of (connector_type, status)
 
     """
     # Handle both old and new format
     if "type" in params:
-        conn_type = params.get("type")
+        conn_type_raw = params.get("type", "")
         conn_params = params.get("params", params)
     else:
-        conn_type = name
+        conn_type_raw = name
         conn_params = params
 
+    # Display type in uppercase for consistency, but use lowercase for registry lookup
+    conn_type_display = conn_type_raw.upper()
+    conn_type_lookup = conn_type_raw.lower()
+
     try:
-        # Try to instantiate connector to check status
-        connector_class = get_connector_class(conn_type)
+        # Use lowercase for registry lookup
+        connector_class = get_connector_class(conn_type_lookup)
         connector: Connector = connector_class()
         connector.configure(conn_params)
         result = connector.test_connection()
@@ -87,7 +91,7 @@ def _get_connector_status(name: str, params: Dict) -> Tuple[str, str, str]:
     except Exception:
         status = "? Unknown"
 
-    return conn_type, status
+    return conn_type_display, status
 
 
 def _print_connectors_table(connectors_info: List[Tuple[str, str, str]]) -> None:
@@ -226,7 +230,8 @@ def _get_connector_class(connector_type: str) -> type[Connector]:
 
     """
     try:
-        return get_connector_class(connector_type)
+        # Normalize connector type to lowercase for registry lookup
+        return get_connector_class(connector_type.lower())
     except ValueError as e:
         logger.error(f"Error testing connection: {e}")
         typer.echo(f"Error: {e}")

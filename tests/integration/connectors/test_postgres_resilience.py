@@ -7,7 +7,7 @@ import time
 import psycopg2
 import pytest
 
-from sqlflow.connectors.postgres_connector import PostgresConnector
+from sqlflow.connectors.postgres.source import PostgresSource
 
 # Mark all tests in this module as requiring external services
 pytestmark = pytest.mark.external_services
@@ -128,7 +128,7 @@ class TestPostgresConnectorResilience:
         self, docker_postgres_config, setup_postgres_test_environment
     ):
         """Test real connection to PostgreSQL with resilience patterns."""
-        connector = PostgresConnector()
+        connector = PostgresSource()
         connector.configure(docker_postgres_config)
 
         # Verify resilience manager is set up
@@ -144,7 +144,7 @@ class TestPostgresConnectorResilience:
         self, docker_postgres_config, setup_postgres_test_environment
     ):
         """Test discovery operations with real PostgreSQL service."""
-        connector = PostgresConnector()
+        connector = PostgresSource()
         connector.configure(docker_postgres_config)
 
         # Test discovery
@@ -161,7 +161,7 @@ class TestPostgresConnectorResilience:
         self, docker_postgres_config, setup_postgres_test_environment
     ):
         """Test data reading with resilience patterns on real data."""
-        connector = PostgresConnector()
+        connector = PostgresSource()
         connector.configure(docker_postgres_config)
 
         # Read real data from test table
@@ -190,7 +190,7 @@ class TestPostgresConnectorResilience:
         self, setup_postgres_test_environment
     ):
         """Test connection retry behavior with invalid configuration."""
-        connector = PostgresConnector()
+        connector = PostgresSource()
 
         # Test with invalid port
         invalid_config = {
@@ -215,7 +215,7 @@ class TestPostgresConnectorResilience:
 
     def test_authentication_failure_resilience(self, setup_postgres_test_environment):
         """Test resilience with authentication failures."""
-        connector = PostgresConnector()
+        connector = PostgresSource()
 
         # Test with invalid credentials
         invalid_config = {
@@ -238,7 +238,7 @@ class TestPostgresConnectorResilience:
 
     def test_database_not_found_resilience(self, setup_postgres_test_environment):
         """Test resilience with non-existent database."""
-        connector = PostgresConnector()
+        connector = PostgresSource()
 
         # Test with non-existent database
         invalid_config = {
@@ -267,7 +267,7 @@ class TestPostgresConnectorResilience:
 
         def test_concurrent_connection(thread_id):
             try:
-                connector = PostgresConnector()
+                connector = PostgresSource()
                 connector.configure(docker_postgres_config)
 
                 # Test connection
@@ -310,7 +310,7 @@ class TestPostgresConnectorResilience:
         self, docker_postgres_config, setup_postgres_test_environment
     ):
         """Test schema operations with resilience patterns."""
-        connector = PostgresConnector()
+        connector = PostgresSource()
         connector.configure(docker_postgres_config)
 
         # Test get_schema for existing table
@@ -328,7 +328,7 @@ class TestPostgresConnectorResilience:
         self, docker_postgres_config, setup_postgres_test_environment
     ):
         """Test query execution with resilience patterns."""
-        connector = PostgresConnector()
+        connector = PostgresSource()
         connector.configure(docker_postgres_config)
 
         # Test reading with filters
@@ -350,7 +350,7 @@ class TestPostgresConnectorResilience:
         # Create multiple connectors with same config
         connectors = []
         for i in range(3):
-            connector = PostgresConnector()
+            connector = PostgresSource()
             connector.configure(docker_postgres_config)
             connectors.append(connector)
 
@@ -369,7 +369,7 @@ class TestPostgresConnectorResilience:
         self, docker_postgres_config, setup_postgres_test_environment
     ):
         """Test resilience with larger result sets."""
-        connector = PostgresConnector()
+        connector = PostgresSource()
         connector.configure(docker_postgres_config)
 
         # Create a temporary table with more data
@@ -431,7 +431,7 @@ class TestPostgresConnectorResilience:
         self, docker_postgres_config, setup_postgres_test_environment
     ):
         """Test transaction handling with resilience patterns."""
-        connector = PostgresConnector()
+        connector = PostgresSource()
         connector.configure(docker_postgres_config)
 
         # Verify initial data count
@@ -447,7 +447,7 @@ class TestPostgresConnectorResilience:
 
     def test_connection_timeout_resilience(self, setup_postgres_test_environment):
         """Test connection timeout behavior with resilience."""
-        connector = PostgresConnector()
+        connector = PostgresSource()
 
         # Test with unreachable host (should timeout)
         timeout_config = {
@@ -479,7 +479,7 @@ class TestPostgresConnectorResilience:
         self, docker_postgres_config, setup_postgres_test_environment
     ):
         """Test resilience against SQL injection attempts."""
-        connector = PostgresConnector()
+        connector = PostgresSource()
         connector.configure(docker_postgres_config)
 
         # Test with malicious table name
@@ -503,7 +503,7 @@ class TestPostgresConnectorResilience:
         self, docker_postgres_config, setup_postgres_test_environment
     ):
         """Test memory management with resilience patterns."""
-        connector = PostgresConnector()
+        connector = PostgresSource()
         connector.configure(docker_postgres_config)
 
         # Read data multiple times to test memory management
@@ -520,7 +520,7 @@ class TestPostgresConnectorResilience:
         self, docker_postgres_config, setup_postgres_test_environment
     ):
         """Test connection recovery behavior (simulated restart scenario)."""
-        connector = PostgresConnector()
+        connector = PostgresSource()
         connector.configure(docker_postgres_config)
 
         # Initial connection should work
@@ -533,7 +533,7 @@ class TestPostgresConnectorResilience:
 
         # Simulate connection recovery by creating new connector instance
         # (In real scenarios, this would be after service restart)
-        new_connector = PostgresConnector()
+        new_connector = PostgresSource()
         new_connector.configure(docker_postgres_config)
 
         # Should be able to connect and read data again

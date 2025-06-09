@@ -113,7 +113,7 @@ class TestEnhancedSourceExecution:
         source_def = {
             "id": "source_users",
             "name": "users",
-            "connector_type": "CSV",
+            "connector_type": "csv",
             "params": {"path": temp_csv_file, "sync_mode": "full_refresh"},
         }
 
@@ -143,7 +143,7 @@ class TestEnhancedSourceExecution:
         source_def = {
             "id": "source_users",
             "name": "users",
-            "connector_type": "CSV",
+            "connector_type": "csv",
             "params": {
                 "path": temp_csv_file,
                 "sync_mode": "incremental",
@@ -183,7 +183,7 @@ class TestEnhancedSourceExecution:
         source_def = {
             "id": "source_users",
             "name": "users",
-            "connector_type": "CSV",
+            "connector_type": "csv",
             "params": {
                 "path": temp_csv_file,
                 "sync_mode": "incremental",
@@ -237,7 +237,7 @@ class TestEnhancedSourceExecution:
         source_def = {
             "id": "source_users",
             "name": "users",
-            "connector_type": "CSV",
+            "connector_type": "csv",
             "params": {
                 "path": temp_csv_file,
                 "sync_mode": "incremental",
@@ -245,17 +245,11 @@ class TestEnhancedSourceExecution:
             },
         }
 
-        executor._execute_source_definition(source_def)
+        # Should raise ValueError due to missing cursor_field
+        with pytest.raises(ValueError) as exc_info:
+            executor._execute_source_definition(source_def)
 
-        load_step = LoadStep(
-            table_name="users_table", source_name="users", mode="REPLACE"
-        )
-        setattr(load_step, "pipeline_name", "test_pipeline")
-
-        # Should fail due to missing cursor_field
-        load_result = executor.execute_load_step(load_step)
-        assert load_result["status"] == "error"
-        assert "cursor_field is required" in load_result["message"]
+        assert "cursor_field parameter" in str(exc_info.value)
 
     def test_watermark_state_persistence(self, executor_with_watermarks):
         """Test that watermark state persists across operations."""
@@ -337,7 +331,7 @@ class TestEnhancedSourceExecution:
         source_def = {
             "id": "source_users",
             "name": "users",
-            "connector_type": "CSV",
+            "connector_type": "csv",
             "params": {
                 "path": temp_csv_file,
                 "sync_mode": "incremental",
@@ -369,7 +363,7 @@ class TestEnhancedSourceExecution:
         full_refresh_source = {
             "id": "source_users_full",
             "name": "users_full",
-            "connector_type": "CSV",
+            "connector_type": "csv",
             "params": {"path": temp_csv_file, "sync_mode": "full_refresh"},
         }
 
@@ -377,7 +371,7 @@ class TestEnhancedSourceExecution:
         incremental_source = {
             "id": "source_users_inc",
             "name": "users_inc",
-            "connector_type": "CSV",
+            "connector_type": "csv",
             "params": {
                 "path": temp_csv_file,
                 "sync_mode": "incremental",

@@ -18,12 +18,9 @@ using the PostgreSQL connector:
 
 from typing import Any, Dict, Iterator, List, Optional
 
-from sqlflow.connectors.base import (
-    ConnectionTestResult,
-    Connector,
-    ConnectorState,
-    Schema,
-)
+from sqlflow.connectors.base.connection_test_result import ConnectionTestResult
+from sqlflow.connectors.base.connector import Connector, ConnectorState
+from sqlflow.connectors.base.schema import Schema
 from sqlflow.connectors.data_chunk import DataChunk
 from sqlflow.connectors.registry import register_connector
 from sqlflow.core.errors import ConnectorError

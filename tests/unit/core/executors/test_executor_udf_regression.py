@@ -140,13 +140,14 @@ class TestExecutorUDFRegression:
             # The file doesn't exist, so this will fail, but the source definition should still be stored
             result = executor._execute_source_definition(step)
 
-            # Since the file doesn't exist, expect error but check that definition was stored
-            assert result["status"] == "error"
+            # Source definition validation succeeds even if file doesn't exist yet
+            # Source definitions are metadata storage - actual file access happens during LOAD
+            assert result["status"] == "success"
 
             # Should have stored source definition correctly even though reading failed
             assert hasattr(executor, "source_definitions")
             assert "test_source" in executor.source_definitions
-            assert executor.source_definitions["test_source"]["connector_type"] == "CSV"
+            assert executor.source_definitions["test_source"]["connector_type"] == "csv"
 
     def test_load_step_routing_to_proper_method(self):
         """Test that load steps with SOURCE definitions route to execute_load_step.
@@ -222,8 +223,8 @@ class TestExecutorSourceDefinitionRegression:
             }
 
             result = executor._execute_source_definition(step_with_query)
-            # File doesn't exist, so expect error but check that definition was stored
-            assert result["status"] == "error"
+            # Source definition validation succeeds even if file doesn't exist yet
+            assert result["status"] == "success"
             assert "test_source1" in executor.source_definitions
             assert executor.source_definitions["test_source1"]["params"] == {
                 "path": "data/test1.csv",
@@ -240,8 +241,8 @@ class TestExecutorSourceDefinitionRegression:
             }
 
             result = executor._execute_source_definition(step_with_params)
-            # File doesn't exist, so expect error but check that definition was stored
-            assert result["status"] == "error"
+            # Source definition validation succeeds even if file doesn't exist yet
+            assert result["status"] == "success"
             assert "test_source2" in executor.source_definitions
             assert executor.source_definitions["test_source2"]["params"] == {
                 "path": "data/test2.csv",
@@ -266,11 +267,11 @@ class TestExecutorSourceDefinitionRegression:
             }
 
             result = executor._execute_source_definition(step_new)
-            # File doesn't exist, so expect error but check that definition was stored
-            assert result["status"] == "error"
+            # Source definition validation succeeds even if file doesn't exist yet
+            assert result["status"] == "success"
             assert (
                 executor.source_definitions["test_source_new"]["connector_type"]
-                == "CSV"
+                == "csv"
             )
 
             # Test with just connector_type (legacy format)
@@ -278,14 +279,14 @@ class TestExecutorSourceDefinitionRegression:
                 "id": "source_legacy",
                 "type": "source_definition",
                 "name": "test_source_legacy",
-                "connector_type": "CSV",  # No source_ prefix
+                "connector_type": "csv",  # No source_ prefix
                 "query": {"path": "data/test.csv"},
             }
 
             result = executor._execute_source_definition(step_legacy)
-            # File doesn't exist, so expect error but check that definition was stored
-            assert result["status"] == "error"
+            # Source definition validation succeeds even if file doesn't exist yet
+            assert result["status"] == "success"
             assert (
                 executor.source_definitions["test_source_legacy"]["connector_type"]
-                == "CSV"
+                == "csv"
             )

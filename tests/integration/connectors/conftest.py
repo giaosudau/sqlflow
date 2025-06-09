@@ -1,5 +1,6 @@
 """Connector-specific fixtures for integration tests."""
 
+import json
 import os
 import tempfile
 from pathlib import Path
@@ -11,6 +12,11 @@ import pyarrow.parquet as pq
 import pytest
 
 from sqlflow.core.executors.local_executor import LocalExecutor
+
+# Load test fixtures
+TEST_FIXTURES_PATH = (
+    Path(__file__).parent.parent.parent / "fixtures" / "shopify_test_data.json"
+)
 
 
 @pytest.fixture(scope="function")
@@ -138,3 +144,37 @@ def temp_dir() -> Generator[str, None, None]:
     """
     with tempfile.TemporaryDirectory() as tmp_dir:
         yield tmp_dir
+
+
+@pytest.fixture
+def shopify_test_data():
+    """Load Shopify test data fixtures."""
+    if not TEST_FIXTURES_PATH.exists():
+        pytest.skip(f"Test fixtures not found at {TEST_FIXTURES_PATH}")
+
+    with open(TEST_FIXTURES_PATH, "r") as f:
+        return json.load(f)
+
+
+@pytest.fixture
+def small_sme_store_data(shopify_test_data):
+    """Get small SME store test data."""
+    return shopify_test_data["shopify_test_stores"]["small_sme"]
+
+
+@pytest.fixture
+def medium_sme_store_data(shopify_test_data):
+    """Get medium SME store test data."""
+    return shopify_test_data["shopify_test_stores"]["medium_sme"]
+
+
+@pytest.fixture
+def edge_case_data(shopify_test_data):
+    """Get edge case test scenarios."""
+    return shopify_test_data["shopify_test_stores"]["edge_cases"]
+
+
+@pytest.fixture
+def api_error_scenarios(shopify_test_data):
+    """Get API error test scenarios."""
+    return shopify_test_data["api_error_scenarios"]

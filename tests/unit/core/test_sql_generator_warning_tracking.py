@@ -90,10 +90,12 @@ def test_unknown_source_type_warning():
         mock_logger.debug.assert_called()
         warning_msg = mock_logger.debug.call_args[0][0]
         assert "Unknown or unsupported source connector type" in warning_msg
-        assert "UNKNOWN_TYPE" in warning_msg
+        assert (
+            "unknown_type" in warning_msg
+        )  # Connector types are normalized to lowercase
 
         # SQL should have appropriate comment
-        assert "-- Unknown source type: UNKNOWN_TYPE" in sql
+        assert "-- Unknown source type: unknown_type" in sql
         assert "-- Check your connector configuration" in sql
 
 
