@@ -3,16 +3,19 @@
 
 -- Load posts with pagination (simulated by limiting results)
 SOURCE posts TYPE REST PARAMS {
-    "url": "https://jsonplaceholder.typicode.com/posts",
-    "params": {
-        "_limit": 50
-    }
+    "url": "https://jsonplaceholder.typicode.com/posts?_limit=50"
 };
+
+-- Load the posts data
+LOAD posts_data FROM posts;
 
 -- Load users for enrichment
 SOURCE users TYPE REST PARAMS {
     "url": "https://jsonplaceholder.typicode.com/users"
 };
+
+-- Load the users data
+LOAD users_data FROM users;
 
 -- Create enriched posts analysis
 CREATE TABLE post_analysis AS
@@ -21,7 +24,7 @@ SELECT
     p.userId as user_id,
     u.name as author_name,
     u.username as author_username,
-    JSON_EXTRACT_STRING(u.company, '$.name') as author_company,
+    u."company.name" as author_company,
     p.title,
     p.body,
     LENGTH(p.title) as title_length,
@@ -32,8 +35,8 @@ SELECT
         WHEN LENGTH(p.body) < 200 THEN 'Medium'
         ELSE 'Long'
     END as post_length_category
-FROM posts p
-LEFT JOIN users u ON p.userId = u.id;
+FROM posts_data p
+LEFT JOIN users_data u ON p.userId = u.id;
 
 -- Create author statistics
 CREATE TABLE author_stats AS

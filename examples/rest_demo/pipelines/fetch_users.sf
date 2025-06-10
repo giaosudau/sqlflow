@@ -18,15 +18,15 @@ SELECT
     email,
     phone,
     website,
-    JSON_EXTRACT_STRING(address, '$.street') as street,
-    JSON_EXTRACT_STRING(address, '$.suite') as suite,
-    JSON_EXTRACT_STRING(address, '$.city') as city,
-    JSON_EXTRACT_STRING(address, '$.zipcode') as zipcode,
-    JSON_EXTRACT_STRING(address, '$.geo.lat') as latitude,
-    JSON_EXTRACT_STRING(address, '$.geo.lng') as longitude,
-    JSON_EXTRACT_STRING(company, '$.name') as company_name,
-    JSON_EXTRACT_STRING(company, '$.catchPhrase') as company_catchphrase,
-    JSON_EXTRACT_STRING(company, '$.bs') as company_bs
+    users_data."address.street" as street,
+    users_data."address.suite" as suite,
+    users_data."address.city" as city,
+    users_data."address.zipcode" as zipcode,
+    users_data."address.geo.lat" as latitude,
+    users_data."address.geo.lng" as longitude,
+    users_data."company.name" as company_name,
+    users_data."company.catchPhrase" as company_catchphrase,
+    users_data."company.bs" as company_bs
 FROM users_data;
 
 -- Create a user summary report
