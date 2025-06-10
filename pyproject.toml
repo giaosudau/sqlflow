@@ -158,6 +158,9 @@ testpaths = [
 ]
 markers = [
     "external_services: marks tests as requiring external services (deselect with '-k \"not external_services\"')",
+    "postgres: marks tests as requiring PostgreSQL database",
+    "s3: marks tests as requiring S3/MinIO storage",
+    "redis: marks tests as requiring Redis cache",
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "integration: marks tests as integration tests",
 ]

@@ -525,25 +525,47 @@ class S3Source(Connector):
     ) -> pd.DataFrame:
         """Parse CSV/TSV content."""
         delimiter = "\t" if file_format == "tsv" else self.csv_delimiter
+
+        # Filter out connector-specific options that pandas doesn't understand
+        pandas_options = {
+            k: v
+            for k, v in options.items()
+            if k not in ["table_name", "schema", "object_name"]
+        }
+
         return pd.read_csv(
             io.BytesIO(content),
             delimiter=delimiter,
             header=0 if self.csv_header else None,
             encoding=self.csv_encoding,
-            **options,
+            **pandas_options,
         )
 
     def _parse_parquet_content(
         self, content: bytes, options: Dict[str, Any]
     ) -> pd.DataFrame:
         """Parse Parquet content."""
-        return pd.read_parquet(io.BytesIO(content), **options)
+        # Filter out connector-specific options that pandas doesn't understand
+        pandas_options = {
+            k: v
+            for k, v in options.items()
+            if k not in ["table_name", "schema", "object_name"]
+        }
+
+        return pd.read_parquet(io.BytesIO(content), **pandas_options)
 
     def _parse_json_content(
         self, content: bytes, options: Dict[str, Any]
     ) -> pd.DataFrame:
         """Parse JSON content."""
-        return pd.read_json(io.BytesIO(content), **options)
+        # Filter out connector-specific options that pandas doesn't understand
+        pandas_options = {
+            k: v
+            for k, v in options.items()
+            if k not in ["table_name", "schema", "object_name"]
+        }
+
+        return pd.read_json(io.BytesIO(content), **pandas_options)
 
     def _parse_jsonl_content(
         self, content: bytes, options: Dict[str, Any]

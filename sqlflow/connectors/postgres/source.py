@@ -19,19 +19,59 @@ class PostgresSource(SourceConnector):
 
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
-        self.conn_params = self.config
+        # Apply parameter translation for industry-standard to psycopg2 compatibility
+        self.conn_params = self._translate_parameters(self.config)
         self._engine = None
 
         # Validate that we have either operational parameters or connection parameters
         has_connection_params = all(
-            key in config for key in ["user", "host", "port", "dbname"]
+            key in self.conn_params for key in ["user", "host", "port", "dbname"]
         )
-        has_operational_params = any(key in config for key in ["query", "table_name"])
+        has_operational_params = any(
+            key in self.conn_params for key in ["query", "table_name", "table"]
+        )
 
         if not has_connection_params and not has_operational_params:
             raise ValueError(
-                "PostgresSource: must provide either connection parameters or operational parameters"
+                "PostgresSource: must provide either connection parameters (host, port, database/dbname, username/user, password) "
+                "or operational parameters (query, table_name, table)"
             )
+
+    def _translate_parameters(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        """Translate industry-standard parameters to psycopg2-compatible names.
+
+        Provides backward compatibility by supporting both naming conventions:
+        - Industry standard: database, username (Airbyte/Fivetran compatible)
+        - psycopg2 legacy: dbname, user
+
+        Args:
+            config: Original configuration parameters
+
+        Returns:
+            Translated configuration with psycopg2-compatible parameter names
+        """
+        translated = config.copy()
+
+        # Parameter mapping: industry_standard -> psycopg2_name
+        param_mapping = {
+            "database": "dbname",
+            "username": "user",
+        }
+
+        for industry_std, psycopg2_name in param_mapping.items():
+            if industry_std in config and psycopg2_name not in config:
+                translated[psycopg2_name] = config[industry_std]
+                logger.debug(
+                    f"PostgresSource: Translated parameter '{industry_std}' -> '{psycopg2_name}' "
+                    f"for psycopg2 compatibility"
+                )
+
+        # Also handle table parameter mapping for consistency
+        if "table" in config and "table_name" not in config:
+            translated["table_name"] = config["table"]
+            logger.debug("PostgresSource: Mapped 'table' parameter to 'table_name'")
+
+        return translated
 
     @property
     def engine(self) -> Engine:
@@ -52,6 +92,9 @@ class PostgresSource(SourceConnector):
                 connect_args["connect_timeout"] = self.conn_params["connect_timeout"]
 
             self._engine = create_engine(conn_uri, connect_args=connect_args)
+            logger.debug(
+                f"PostgresSource: Created engine with URI postgresql://{user}:***@{host}:{port}/{dbname}"
+            )
         return self._engine
 
     def read(
@@ -64,12 +107,16 @@ class PostgresSource(SourceConnector):
         read_options = options or {}
         # Try to get query/table_name from options first, then from constructor config
         query = read_options.get("query") or self.config.get("query")
-        table_name = read_options.get("table_name") or self.config.get("table_name")
+        table_name = (
+            read_options.get("table_name")
+            or self.config.get("table_name")
+            or self.config.get("table")
+        )
         schema = read_options.get("schema", "public")
 
         if not query and not table_name:
             raise ValueError(
-                "PostgresSource: either 'query' or 'table_name' must be specified in options or config"
+                "PostgresSource: either 'query' or 'table_name' (or 'table') must be specified in options or config"
             )
 
         if query:
@@ -78,8 +125,12 @@ class PostgresSource(SourceConnector):
             sql = f'SELECT * FROM {schema}."{table_name}"'
 
         logger.info(f"Executing query: {sql}")
-        with self.engine.connect() as connection:
-            return pd.read_sql_query(sql, connection)
+        try:
+            with self.engine.connect() as connection:
+                return pd.read_sql_query(sql, connection)
+        except Exception as e:
+            logger.error(f"PostgresSource: Failed to execute query '{sql}': {str(e)}")
+            raise
 
     def get_tables(self, schema: str = "public") -> List[str]:
         with self.engine.connect() as connection:
