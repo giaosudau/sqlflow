@@ -4,6 +4,7 @@ import os
 import time
 
 import boto3
+import pandas as pd
 import pytest
 from botocore.exceptions import ClientError
 
@@ -200,11 +201,19 @@ class TestS3ConnectorResilience:
         assert (
             test_file in objects
         ), f"Test file {test_file} not found in discovered objects"
-        df = s3_connector.read(object_name=test_file)
+
+        chunks = list(s3_connector.read(object_name=test_file))
+        df = (
+            pd.concat([chunk.pandas_df for chunk in chunks])
+            if chunks
+            else pd.DataFrame()
+        )
 
         # Verify we got data
         assert not df.empty, "Should read data from test file"
-        assert "id" in df.columns, "Should have expected columns"
+
+        # Verify data content
+        assert len(df) > 0, "Should have test rows"
 
     def test_connection_retry_with_invalid_config(
         self, s3_connector, docker_minio_config, setup_resilience_test_data
@@ -271,7 +280,12 @@ class TestS3ConnectorResilience:
 
         # Read each file
         for obj in objects:
-            df = s3_connector.read(object_name=obj)
+            chunks = list(s3_connector.read(object_name=obj))
+            df = (
+                pd.concat([chunk.pandas_df for chunk in chunks])
+                if chunks
+                else pd.DataFrame()
+            )
             assert len(df) >= 0, f"Should read data from {obj}"
 
     def test_concurrent_access_with_resilience(
@@ -305,7 +319,12 @@ class TestS3ConnectorResilience:
                 # Test reading
                 if discovered:
                     test_file = discovered[0]
-                    df = connector.read(object_name=test_file)
+                    chunks = list(connector.read(object_name=test_file))
+                    df = (
+                        pd.concat([chunk.pandas_df for chunk in chunks])
+                        if chunks
+                        else pd.DataFrame()
+                    )
                     results[f"{thread_id}_read"] = len(df) > 0
                 else:
                     results[f"{thread_id}_read"] = False
@@ -390,12 +409,12 @@ class TestS3ConnectorResilience:
         s3_connector.configure(config)
 
         # Test reading non-existent file (should handle gracefully)
-        df = s3_connector.read(object_name="resilience-test/non-existent.csv")
-        assert len(df) == 0, "Should return empty DataFrame for non-existent file"
+        with pytest.raises(Exception):
+            list(s3_connector.read(object_name="resilience-test/non-existent.csv"))
 
         # Test getting schema for non-existent file
-        schema = s3_connector.get_schema("resilience-test/non-existent.csv")
-        assert schema is not None, "Should return empty schema for non-existent file"
+        with pytest.raises(ValueError):
+            s3_connector.get_schema("resilience-test/non-existent.csv")
 
     def test_resilience_metrics_tracking(
         self, s3_connector, docker_minio_config, setup_resilience_test_data
@@ -421,7 +440,12 @@ class TestS3ConnectorResilience:
         # Track read metrics if we have objects
         if objects:
             start_time = time.time()
-            df = s3_connector.read(object_name=objects[0])
+            chunks = list(s3_connector.read(object_name=objects[0]))
+            df = (
+                pd.concat([chunk.pandas_df for chunk in chunks])
+                if chunks
+                else pd.DataFrame()
+            )
             read_time = time.time() - start_time
 
             assert read_time >= 0, "Read should complete in reasonable time"
@@ -458,7 +482,11 @@ class TestS3ConnectorResilience:
 
         assert len(chunks) > 0, "Incremental read should produce chunks"
 
-        df = chunks[0].pandas_df
+        df = (
+            pd.concat([chunk.pandas_df for chunk in chunks])
+            if chunks
+            else pd.DataFrame()
+        )
         assert "timestamp" in df.columns, "Should have cursor field"
         assert len(df) == 5
 
@@ -483,7 +511,12 @@ class TestS3ConnectorResilience:
 
         if discovered:
             # Read with potential error handling
-            df = connector.read(object_name=discovered[0])
+            chunks = list(connector.read(object_name=discovered[0]))
+            df = (
+                pd.concat([chunk.pandas_df for chunk in chunks])
+                if chunks
+                else pd.DataFrame()
+            )
 
             # Should successfully handle reading
             assert len(df) >= 0

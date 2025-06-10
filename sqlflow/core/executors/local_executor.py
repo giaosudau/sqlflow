@@ -1,7 +1,11 @@
 """Local execution environment for SQLFlow pipelines."""
 
+from __future__ import annotations
+
 import os
 from typing import Any, Dict, List, Optional, Protocol, Tuple
+
+import pandas as pd
 
 from sqlflow.connectors.data_chunk import DataChunk
 from sqlflow.core.engines.duckdb import DuckDBEngine
@@ -355,11 +359,41 @@ class ConnectorEngineStub:
         if table_name:
             options["table_name"] = table_name
 
-        df = connector_instance.read(options=options)
-        logger.debug(
-            f"ConnectorEngineStub: Loaded {len(df)} rows from '{source_name}' table '{table_name}'"
-        )
-        return df
+        result = connector_instance.read(options=options)
+
+        # Handle both DataFrame and Iterator[DataChunk] return types
+        if isinstance(result, pd.DataFrame):
+            # Legacy connector returning DataFrame
+            logger.debug(
+                f"ConnectorEngineStub: Loaded {len(result)} rows from '{source_name}' table '{table_name}'"
+            )
+            return result
+        else:
+            # Modern connector returning Iterator[DataChunk]
+            # Convert chunks to a single DataFrame
+            chunks = []
+            try:
+                for chunk in result:
+                    if isinstance(chunk, DataChunk):
+                        # DataChunk object
+                        chunks.append(chunk.to_pandas())
+                    elif hasattr(chunk, "to_pandas"):
+                        # PyArrow table
+                        chunks.append(chunk.to_pandas())
+                    else:
+                        # Other format - try direct conversion
+                        chunks.append(pd.DataFrame(chunk))
+
+                df = pd.concat(chunks, ignore_index=True) if chunks else pd.DataFrame()
+                logger.debug(
+                    f"ConnectorEngineStub: Loaded {len(df)} rows from '{source_name}' table '{table_name}'"
+                )
+                return df
+            except Exception as e:
+                logger.error(
+                    f"ConnectorEngineStub: Failed to load data from '{source_name}': {str(e)}"
+                )
+                raise
 
 
 class LocalExecutor(BaseExecutor):
