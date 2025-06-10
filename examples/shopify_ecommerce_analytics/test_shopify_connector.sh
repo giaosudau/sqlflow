@@ -226,7 +226,7 @@ print_success "SQLFlow CLI is available at: $SQLFLOW_PATH"
 
 print_step "Checking Shopify connector system..."
 if test_feature "Connector Registration" \
-    "python -c \"from sqlflow.connectors import CONNECTOR_REGISTRY; import sys; sys.exit(0 if 'SHOPIFY' in CONNECTOR_REGISTRY else 1)\"" \
+    "python -c \"from sqlflow.connectors.registry.source_registry import source_registry; import sys; sys.exit(0 if 'shopify' in source_registry._connectors else 1)\"" \
     "SHOPIFY connector is registered"; then
     print_info "Shopify connector is ready for use"
 fi
@@ -340,7 +340,7 @@ print_header "🎯 Part 4: Production Readiness Validation"
 print_section "Infrastructure Validation"
 
 test_feature "Connector Infrastructure" \
-    "python -c \"from sqlflow.connectors import CONNECTOR_REGISTRY; import sys; sys.exit(0 if 'SHOPIFY' in CONNECTOR_REGISTRY else 1)\"" \
+    "python -c \"from sqlflow.connectors.registry.source_registry import source_registry; import sys; sys.exit(0 if 'shopify' in source_registry._connectors else 1)\"" \
     "SHOPIFY connector properly registered"
 
 test_feature "Validation Schema" \
