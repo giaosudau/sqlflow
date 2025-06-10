@@ -4,9 +4,11 @@ import os
 import threading
 import time
 
+import pandas as pd
 import psycopg2
 import pytest
 from sqlalchemy import text
+from sqlalchemy.exc import ProgrammingError
 
 from sqlflow.connectors.postgres.source import PostgresSource
 
@@ -158,7 +160,12 @@ class TestPostgresConnectorResilience:
         connector = PostgresSource(config=docker_postgres_config)
 
         # Read real data from test table
-        df = connector.read(options={"table_name": "resilience_test_table"})
+        chunks = list(connector.read(options={"table_name": "resilience_test_table"}))
+        df = (
+            pd.concat([chunk.pandas_df for chunk in chunks])
+            if chunks
+            else pd.DataFrame()
+        )
         assert not df.empty, "Should read data"
 
         # Verify data content
@@ -263,7 +270,14 @@ class TestPostgresConnectorResilience:
                 results[f"{thread_id}_discovery"] = len(discovered) > 0
 
                 # Test reading
-                df = connector.read(options={"table_name": "resilience_test_table"})
+                chunks = list(
+                    connector.read(options={"table_name": "resilience_test_table"})
+                )
+                df = (
+                    pd.concat([chunk.pandas_df for chunk in chunks])
+                    if chunks
+                    else pd.DataFrame()
+                )
                 results[f"{thread_id}_read"] = not df.empty and len(df) == 5
 
             except Exception as e:
@@ -329,14 +343,23 @@ class TestPostgresConnectorResilience:
         connector = PostgresSource(config=docker_postgres_config)
 
         # Test valid query
-        df = connector.read(
-            options={"query": "SELECT * FROM resilience_test_table WHERE value > 250"}
+        chunks = list(
+            connector.read(
+                options={
+                    "query": "SELECT * FROM resilience_test_table WHERE value > 250"
+                }
+            )
+        )
+        df = (
+            pd.concat([chunk.pandas_df for chunk in chunks])
+            if chunks
+            else pd.DataFrame()
         )
         assert len(df) == 3
 
         # Test invalid query
         with pytest.raises(Exception) as exc_info:
-            connector.read(options={"query": "SELECT * FROM non_existent_table"})
+            list(connector.read(options={"query": "SELECT * FROM non_existent_table"}))
         assert "non_existent_table" in str(exc_info.value).lower()
 
     def test_connection_pooling_resilience(
@@ -351,7 +374,12 @@ class TestPostgresConnectorResilience:
 
         # Perform operations
         for conn in connectors:
-            df = conn.read(options={"table_name": "resilience_test_table"})
+            chunks = list(conn.read(options={"table_name": "resilience_test_table"}))
+            df = (
+                pd.concat([chunk.pandas_df for chunk in chunks])
+                if chunks
+                else pd.DataFrame()
+            )
             assert not df.empty
 
         # Check pool stats (conceptual) - cannot directly check pool size easily
@@ -377,7 +405,12 @@ class TestPostgresConnectorResilience:
 
             try:
                 # Now read the committed data
-                df = connector.read(options={"table_name": "large_table"})
+                chunks = list(connector.read(options={"table_name": "large_table"}))
+                df = (
+                    pd.concat([chunk.pandas_df for chunk in chunks])
+                    if chunks
+                    else pd.DataFrame()
+                )
                 assert len(df) == 1000
             finally:
                 # Cleanup
@@ -408,10 +441,17 @@ class TestPostgresConnectorResilience:
                     transaction.rollback()
 
             # Verify transaction was rolled back
-            df = connector.read(
-                options={
-                    "query": "SELECT * FROM resilience_test_table WHERE name = 'transaction_test'"
-                }
+            chunks = list(
+                connector.read(
+                    options={
+                        "query": "SELECT * FROM resilience_test_table WHERE name = 'transaction_test'"
+                    }
+                )
+            )
+            df = (
+                pd.concat([chunk.pandas_df for chunk in chunks])
+                if chunks
+                else pd.DataFrame()
             )
             assert df.empty, "Transaction should have been rolled back"
 
@@ -450,13 +490,16 @@ class TestPostgresConnectorResilience:
         # Attempt injection in table name
         malicious_table_name = "resilience_test_table; DROP TABLE users;"
 
-        # The underlying driver should prevent this, but we check that it doesn't succeed
-        with pytest.raises(Exception):
-            connector.read(options={"table_name": malicious_table_name})
+        # The underlying driver should prevent this by raising a ProgrammingError.
+        with pytest.raises(ProgrammingError) as exc_info:
+            list(connector.read(options={"table_name": malicious_table_name}))
 
-        # Verify that the users table still exists
-        tables = connector.get_tables()
-        assert "users" in [t.lower() for t in tables]
+        # Verify the exception message to ensure it's the expected error
+        assert "does not exist" in str(exc_info.value)
+
+        # And the 'users' table should still exist, proving no damage was done
+        all_tables = connector.get_tables()
+        assert "users" in [t.lower() for t in all_tables]
 
     def test_memory_management_resilience(
         self, docker_postgres_config, setup_postgres_test_environment
@@ -465,9 +508,14 @@ class TestPostgresConnectorResilience:
         # This is more of a conceptual test in this context.
         # We read a reasonably sized dataset and trust the garbage collector.
         connector = PostgresSource(config=docker_postgres_config)
-        df = connector.read(options={"table_name": "resilience_test_table"})
+        chunks = list(connector.read(options={"table_name": "resilience_test_table"}))
+        df = (
+            pd.concat([chunk.pandas_df for chunk in chunks])
+            if chunks
+            else pd.DataFrame()
+        )
         assert len(df) > 0
-        del df
+        del df, chunks
         # If this doesn't crash, we assume basic memory management is ok.
 
     def test_connection_recovery_after_restart(

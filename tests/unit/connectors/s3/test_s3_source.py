@@ -18,14 +18,16 @@ class TestS3Source(unittest.TestCase):
         self.bucket_name = "test-bucket"
         self.s3_client.create_bucket(Bucket=self.bucket_name)
 
-        # Create dummy files
+        # Create dummy files with multiple rows
         self.csv_key = "test.csv"
         self.s3_client.put_object(
-            Bucket=self.bucket_name, Key=self.csv_key, Body="a,b\n1,2"
+            Bucket=self.bucket_name,
+            Key=self.csv_key,
+            Body="id,value\n1,a\n2,b\n3,c",
         )
 
         self.parquet_key = "test.parquet"
-        df = pd.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]})
+        df = pd.DataFrame({"id": [1, 2, 3], "value": ["a", "b", "c"]})
         table = pa.Table.from_pandas(df)
         buffer = io.BytesIO()
         pq.write_table(table, buffer)
@@ -33,52 +35,71 @@ class TestS3Source(unittest.TestCase):
             Bucket=self.bucket_name, Key=self.parquet_key, Body=buffer.getvalue()
         )
 
-        self.json_key = "test.json"
+        self.json_key = "test.jsonl"  # Use .jsonl for line-delimited JSON
         self.s3_client.put_object(
             Bucket=self.bucket_name,
             Key=self.json_key,
-            Body='[{"a": 1, "b": 2}, {"a": 3, "b": 4}]',
+            Body='{"id": 1, "value": "a"}\n{"id": 2, "value": "b"}',
         )
 
     def test_read_csv(self):
         """Test reading a CSV file from S3."""
-        uri = f"s3://{self.bucket_name}/{self.csv_key}"
-        connector = S3Source(config={"uri": uri})
-        df = connector.read()
-        self.assertIsInstance(df, pd.DataFrame)
-        self.assertEqual(df.shape, (1, 2))
+        connector = S3Source(config={"bucket": self.bucket_name})
+        chunks = list(connector.read(object_name=self.csv_key))
+        df = (
+            pd.concat([chunk.to_pandas() for chunk in chunks])
+            if chunks
+            else pd.DataFrame()
+        )
+        self.assertFalse(df.empty)
+        self.assertEqual(len(df), 3)
 
     def test_read_parquet(self):
         """Test reading a Parquet file from S3."""
-        uri = f"s3://{self.bucket_name}/{self.parquet_key}"
-        connector = S3Source(config={"uri": uri})
-        df = connector.read()
-        self.assertIsInstance(df, pd.DataFrame)
-        self.assertEqual(df.shape, (3, 2))
+        connector = S3Source(config={"bucket": self.bucket_name})
+        chunks = list(connector.read(object_name=self.parquet_key))
+        df = (
+            pd.concat([chunk.to_pandas() for chunk in chunks])
+            if chunks
+            else pd.DataFrame()
+        )
+        self.assertFalse(df.empty)
+        self.assertEqual(len(df), 3)
 
     def test_read_json(self):
         """Test reading a JSON file from S3."""
-        uri = f"s3://{self.bucket_name}/{self.json_key}"
-        connector = S3Source(config={"uri": uri})
-        df = connector.read()
-        self.assertIsInstance(df, pd.DataFrame)
-        self.assertEqual(df.shape, (2, 2))
+        connector = S3Source(config={"bucket": self.bucket_name})
+        chunks = list(connector.read(object_name=self.json_key))
+        df = (
+            pd.concat([chunk.to_pandas() for chunk in chunks])
+            if chunks
+            else pd.DataFrame()
+        )
+        self.assertFalse(df.empty)
+        self.assertEqual(len(df), 2)
 
     def test_unsupported_format(self):
         """Test that an error is raised for unsupported formats."""
-        uri = f"s3://{self.bucket_name}/test.txt"
+        txt_key = "test.txt"
         self.s3_client.put_object(
-            Bucket=self.bucket_name, Key="test.txt", Body="some text"
+            Bucket=self.bucket_name, Key=txt_key, Body="some text"
         )
-        connector = S3Source(config={"uri": uri})
-        with self.assertRaises(ValueError):
-            connector.read()
+        connector = S3Source(config={"bucket": self.bucket_name})
+        with self.assertRaises(ValueError) as context:
+            list(connector.read(object_name=txt_key))
+        self.assertIn("Unsupported file format", str(context.exception))
 
     def test_missing_uri_config(self):
         """Test that an error is raised if neither 'uri' nor 'bucket' is provided."""
         with self.assertRaises(ValueError) as context:
             S3Source(config={})
         self.assertIn("'bucket' parameter is required", str(context.exception))
+
+    def test_invalid_uri(self):
+        """Test that an error is raised if the URI is invalid."""
+        with self.assertRaises(ValueError) as context:
+            S3Source(config={"uri": "s3:/invalid"})
+        self.assertIn("'uri' must start with 's3://'", str(context.exception))
 
 
 if __name__ == "__main__":

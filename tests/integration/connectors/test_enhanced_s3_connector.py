@@ -7,6 +7,7 @@ Verifies cost management, partition awareness, multi-format support, and resilie
 import os
 
 import boto3
+import pandas as pd
 import pytest
 from botocore.exceptions import ClientError
 
@@ -330,19 +331,19 @@ class TestEnhancedS3Connector:
         csv_connector.configure(csv_params)
         csv_discovered = csv_connector.discover()
 
-        # More lenient assertion - allow for CI environment differences
         if len(csv_discovered) == 0:
             # If no CSV files discovered, skip the rest of CSV testing
             print("Warning: No CSV files discovered, skipping CSV format test")
         else:
             # Test reading CSV data
             for file_key in csv_discovered[:1]:  # Test first file
-                df = csv_connector.read(object_name=file_key)
-                assert len(df) >= 0, "Should read CSV data"
-                if len(df) > 0:
-                    assert (
-                        "product_id" in df.columns or "id" in df.columns
-                    ), "Should have expected columns"
+                chunks = list(csv_connector.read(object_name=file_key))
+                df = (
+                    pd.concat([c.to_pandas() for c in chunks])
+                    if chunks
+                    else pd.DataFrame()
+                )
+                assert not df.empty, "Should read CSV data"
 
         # Test JSON format
         json_connector = S3Source()
@@ -359,19 +360,20 @@ class TestEnhancedS3Connector:
         json_connector.configure(json_params)
         json_discovered = json_connector.discover()
 
-        # More lenient assertion - allow for CI environment differences
         if len(json_discovered) == 0:
             # If no JSON files discovered, skip the rest of JSON testing
             print("Warning: No JSON files discovered, skipping JSON format test")
         else:
             # Test reading JSON data
             for file_key in json_discovered[:1]:  # Test first file
-                df = json_connector.read(object_name=file_key)
-                assert len(df) >= 0, "Should read JSON data"
-                if len(df) > 0:
-                    assert (
-                        "product_id" in df.columns
-                    ), "Should have expected JSON columns"
+                chunks = list(json_connector.read(object_name=file_key))
+                df = (
+                    pd.concat([c.to_pandas() for c in chunks])
+                    if chunks
+                    else pd.DataFrame()
+                )
+                assert not df.empty, "Should read JSON data"
+                assert "product_id" in df.columns, "Should have expected columns"
 
         # At least one format should work or the test setup is problematic
         total_discovered = len(csv_discovered) + len(json_discovered)
@@ -493,8 +495,9 @@ class TestEnhancedS3Connector:
         assert schema is not None, "Should get schema"
 
         # Step 4: Read data
-        df = connector.read(object_name=discovered[0])
-        assert len(df) > 0, "Should read data"
+        chunks = list(connector.read(object_name=discovered[0]))
+        df = pd.concat([c.to_pandas() for c in chunks]) if chunks else pd.DataFrame()
+        assert not df.empty, "Should read data"
 
         # Step 5: Verify data content
         expected_columns = ["id", "name", "category", "price", "created_at"]
@@ -534,12 +537,15 @@ class TestEnhancedS3Connector:
             discovered = connector.discover()
             assert len(discovered) > 0, "Should discover large files"
 
-            df = connector.read(object_name=discovered[0])
+            chunks = list(connector.read(object_name=discovered[0]))
+            df = (
+                pd.concat([c.to_pandas() for c in chunks]) if chunks else pd.DataFrame()
+            )
             total_rows = len(df)
-            assert total_rows >= 1000, f"Expected at least 1000 rows, got {total_rows}"
+            assert total_rows == 1000, f"Expected 1000 rows, got {total_rows}"
 
         finally:
-            # Cleanup large file
+            # Cleanup: remove the large dataset
             try:
                 docker_s3_client.delete_object(
                     Bucket=setup_test_bucket, Key="large-data/large_dataset.csv"
@@ -579,8 +585,13 @@ class TestEnhancedS3Connector:
 
                 # Test reading
                 if discovered:
-                    df = connector.read(object_name=discovered[0])
-                    results[f"{thread_id}_read"] = len(df) > 0
+                    chunks = list(connector.read(object_name=discovered[0]))
+                    df = (
+                        pd.concat([c.to_pandas() for c in chunks])
+                        if chunks
+                        else pd.DataFrame()
+                    )
+                    results[f"{thread_id}_read"] = not df.empty and len(df) > 0
                 else:
                     results[f"{thread_id}_read"] = False
 

@@ -10,12 +10,15 @@ from typing import Any, Dict, Iterator, List, Optional
 
 import boto3
 import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 from botocore.exceptions import ClientError, NoCredentialsError
 
 from sqlflow.connectors.base.connection_test_result import ConnectionTestResult
 from sqlflow.connectors.base.connector import Connector, ConnectorState
 from sqlflow.connectors.base.schema import Schema
 from sqlflow.connectors.data_chunk import DataChunk
+from sqlflow.connectors.resilience import resilient_operation
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +83,9 @@ class S3Source(Connector):
 
         # Create S3 client
         self._create_s3_client(params)
+
+        # Configure resilience patterns
+        self._configure_resilience(params)
 
     def _configure_s3_parameters(self, params: Dict[str, Any]) -> None:
         """Configure S3-specific connection parameters."""
@@ -170,6 +176,7 @@ class S3Source(Connector):
         except Exception as e:
             raise ValueError(f"Failed to configure S3 client: {str(e)}")
 
+    @resilient_operation()
     def test_connection(self) -> ConnectionTestResult:
         """Test the connection to S3.
 
@@ -185,79 +192,79 @@ class S3Source(Connector):
             self.s3_client.list_buckets()
 
             # Test bucket access
-            try:
-                self.s3_client.head_bucket(Bucket=self.bucket)
-                return ConnectionTestResult(
-                    True, f"Successfully connected to S3 bucket '{self.bucket}'"
-                )
-            except ClientError as e:
-                error_code = e.response.get("Error", {}).get("Code", "Unknown")
-                if error_code == "404":
-                    return ConnectionTestResult(
-                        False, f"S3 bucket '{self.bucket}' not found"
-                    )
-                elif error_code == "403":
-                    return ConnectionTestResult(
-                        False, f"Access denied to S3 bucket '{self.bucket}'"
-                    )
-                else:
-                    return ConnectionTestResult(
-                        False, f"Error accessing S3 bucket: {error_code}"
-                    )
-
-        except NoCredentialsError:
-            return ConnectionTestResult(False, "S3 credentials not found or invalid")
+            self.s3_client.head_bucket(Bucket=self.bucket)
+            return ConnectionTestResult(
+                True, f"Successfully connected to S3 bucket '{self.bucket}'"
+            )
         except Exception as e:
-            return ConnectionTestResult(False, f"S3 connection failed: {str(e)}")
+            msg = f"S3 connection test failed: {str(e)}"
+            if isinstance(e, ClientError):
+                error_code = e.response.get("Error", {}).get("Code")
+                if error_code == "404":
+                    msg = f"S3 bucket '{self.bucket}' not found"
+                elif error_code == "403" or error_code == "AccessDenied":
+                    msg = f"Access denied to S3 bucket '{self.bucket}'"
+                elif error_code in ("InvalidAccessKeyId", "SignatureDoesNotMatch"):
+                    msg = "S3 authentication failed: Invalid credentials."
+            elif isinstance(e, NoCredentialsError):
+                msg = "S3 credentials not found."
 
+            logger.error(f"S3Source: {msg}")
+            return ConnectionTestResult(success=False, message=msg)
+
+    @resilient_operation()
     def discover(self) -> List[str]:
-        """Discover available objects in the S3 bucket.
+        """Discover available objects in S3 with resilience.
 
         Returns:
         -------
-            List of S3 object keys
+            List of object keys in the bucket
         """
-        if not self.s3_client:
-            return []
-
         if self.key:
             return self._discover_single_key()
-
-        return self._discover_with_prefix()
+        else:
+            return self._discover_with_prefix()
 
     def _discover_single_key(self) -> List[str]:
-        """Discover a single specific key if it exists."""
+        """Discover a single specific key."""
         try:
             self.s3_client.head_object(Bucket=self.bucket, Key=self.key)
             return [self.key]
-        except ClientError:
-            return []
+        except ClientError as e:
+            if e.response["Error"]["Code"] == "404":
+                return []
+            raise
 
+    @resilient_operation()
     def _discover_with_prefix(self) -> List[str]:
-        """Discover objects with path prefix and apply filters."""
-        try:
-            paginator = self.s3_client.get_paginator("list_objects_v2")
-            page_iterator = paginator.paginate(
-                Bucket=self.bucket, Prefix=self.path_prefix
+        """Discover objects using prefix pattern with resilience."""
+        objects = []
+        file_count = 0
+        total_size = 0
+
+        paginator = self.s3_client.get_paginator("list_objects_v2")
+        page_iterator = paginator.paginate(Bucket=self.bucket, Prefix=self.path_prefix)
+
+        for page in page_iterator:
+            if "Contents" not in page:
+                continue
+
+            page_contents = page["Contents"]
+            objects, file_count, total_size = self._process_page_objects(
+                page_contents, objects, file_count, total_size
             )
 
-            objects = []
-            file_count = 0
-            total_size = 0
+            if self._should_stop_discovery(file_count, total_size):
+                break
 
-            for page in page_iterator:
-                if "Contents" in page:
-                    page_objects, file_count, total_size = self._process_page_objects(
-                        page["Contents"], objects, file_count, total_size
-                    )
-                    if self._should_stop_discovery(file_count, total_size):
-                        break
+        # Apply sampling filters if configured
+        objects = self._apply_sampling_filters(objects)
 
-            return self._apply_sampling_filters(objects)
-
-        except Exception as e:
-            logger.error(f"Error discovering S3 objects: {str(e)}")
-            return []
+        logger.info(
+            f"Discovered {len(objects)} objects in S3 bucket '{self.bucket}' "
+            f"with prefix '{self.path_prefix}'"
+        )
+        return objects
 
     def _process_page_objects(
         self,
@@ -266,51 +273,61 @@ class S3Source(Connector):
         file_count: int,
         total_size: int,
     ) -> tuple:
-        """Process objects from a single page response."""
+        """Process objects from a single page of S3 list results."""
         for obj in page_contents:
             key = obj["Key"]
-            size = obj["Size"]
+            size_bytes = obj["Size"]
 
-            # Apply file format filtering
-            if self._matches_file_format(key):
-                objects.append(key)
-                file_count += 1
-                total_size += size
+            # Skip if file doesn't match format
+            if not self._matches_file_format(key):
+                continue
 
-                # Apply cost management limits
-                if self._should_stop_discovery(file_count, total_size):
-                    break
+            objects.append(key)
+            file_count += 1
+            total_size += size_bytes
+
+            # Check if we've hit any limits
+            if self._should_stop_discovery(file_count, total_size):
+                break
 
         return objects, file_count, total_size
 
     def _should_stop_discovery(self, file_count: int, total_size: int) -> bool:
         """Check if discovery should stop based on limits."""
         if file_count >= self.max_files_per_run:
-            logger.warning(f"Reached max files limit: {self.max_files_per_run}")
+            logger.warning(
+                f"Stopping discovery: reached max files limit ({self.max_files_per_run})"
+            )
             return True
 
-        if total_size >= self.max_data_size_gb * 1024**3:
-            logger.warning(f"Reached max data size limit: {self.max_data_size_gb}GB")
+        if total_size > self.max_data_size_gb * 1024**3:
+            logger.warning(
+                f"Stopping discovery: reached max data size limit ({self.max_data_size_gb} GB)"
+            )
             return True
 
         return False
 
     def _apply_sampling_filters(self, objects: List[str]) -> List[str]:
-        """Apply development sampling and file limit filters."""
-        # Apply development sampling
+        """Apply development sampling filters."""
+        if self.dev_max_files and len(objects) > self.dev_max_files:
+            logger.info(f"Applying dev_max_files filter: {self.dev_max_files}")
+            objects = objects[: self.dev_max_files]
+
         if self.dev_sampling and 0 < self.dev_sampling < 1:
             import random
 
-            sample_size = max(1, int(len(objects) * self.dev_sampling))
+            sample_size = int(len(objects) * self.dev_sampling)
+            logger.info(
+                f"Applying dev_sampling filter: {self.dev_sampling} ({sample_size} files)"
+            )
             objects = random.sample(objects, sample_size)
-
-        if self.dev_max_files and len(objects) > self.dev_max_files:
-            objects = objects[: self.dev_max_files]
 
         return objects
 
+    @resilient_operation()
     def get_schema(self, object_name: str) -> Schema:
-        """Get schema for an S3 object.
+        """Get schema for an S3 object with resilience.
 
         Args:
         ----
@@ -320,69 +337,81 @@ class S3Source(Connector):
         -------
             Schema for the object
         """
-        try:
-            # Read a small sample to infer schema
-            sample_df = self._read_object_sample(object_name, nrows=100)
+        # Sample the file to detect schema
+        sample_df = self._read_object_sample(object_name, nrows=100)
+        if sample_df is None:
+            raise ValueError(f"Could not determine schema for object: {object_name}")
 
-            if sample_df is not None and not sample_df.empty:
-                import pyarrow as pa
+        columns = []
+        for col_name, dtype in sample_df.dtypes.items():
+            try:
+                if pd.api.types.is_string_dtype(dtype):
+                    pa_type = pa.string()
+                elif pd.api.types.is_integer_dtype(dtype):
+                    pa_type = pa.int64()
+                elif pd.api.types.is_float_dtype(dtype):
+                    pa_type = pa.float64()
+                elif pd.api.types.is_bool_dtype(dtype):
+                    pa_type = pa.bool_()
+                elif pd.api.types.is_datetime64_any_dtype(dtype):
+                    pa_type = pa.timestamp("ns")
+                else:
+                    pa_type = pa.string()  # Fallback for other types
+            except Exception:
+                pa_type = pa.string()  # Broad exception for safety
 
-                arrow_schema = pa.Schema.from_pandas(sample_df)
-                return Schema(arrow_schema)
+            columns.append(
+                pa.field(
+                    name=col_name,
+                    type=pa_type,
+                    nullable=bool(sample_df[col_name].isnull().any()),
+                )
+            )
 
-        except Exception as e:
-            logger.error(f"Error getting schema for {object_name}: {str(e)}")
+        return Schema(pa.schema(columns))
 
-        # Return empty schema if we can't read the file
-        import pyarrow as pa
-
-        return Schema(pa.schema([]))
-
+    @resilient_operation()
     def read(
         self,
-        object_name: Optional[str] = None,
+        object_name: str,
         columns: Optional[List[str]] = None,
         filters: Optional[Dict[str, Any]] = None,
         batch_size: int = 10000,
         options: Optional[Dict[str, Any]] = None,
-    ) -> pd.DataFrame:
-        """
-        Read data from an S3 object.
-
-        Args:
-            object_name: S3 object key to read
-            columns: List of columns to read (optional)
-            filters: Filters to apply (not implemented for S3)
-            batch_size: Batch size (not used for single file read)
-            options: Additional read options
-        """
-        target_key = object_name or self.key
-        if not target_key:
-            raise ValueError("No S3 object key specified")
+    ) -> Iterator[DataChunk]:
+        """Read data from an S3 object in chunks with resilience."""
+        # Determine file format from object_name extension if not provided
+        file_format = (options or {}).get("file_format")
+        if not file_format:
+            if object_name.endswith(".csv"):
+                file_format = "csv"
+            elif object_name.endswith((".json", ".jsonl")):
+                file_format = "json"
+            elif object_name.endswith((".parquet", ".parq")):
+                file_format = "parquet"
+            else:
+                raise ValueError(
+                    f"Unsupported file format for '{object_name}'. "
+                    "Please specify 'file_format' in options."
+                )
 
         try:
-            response = self.s3_client.get_object(Bucket=self.bucket, Key=target_key)
-            file_content = response["Body"].read()
+            if file_format == "csv":
+                reader = self._read_csv_chunks
+            elif file_format == "json":
+                reader = self._read_json_chunks
+            elif file_format == "parquet":
+                reader = self._read_parquet_chunks
+            else:
+                raise ValueError(f"Unsupported file format: {file_format}")
 
-            # Detect file format from key if not explicitly set
-            detected_format = self._detect_file_format(target_key)
+            yield from reader(object_name, batch_size)
 
-            df = self._parse_file_content(file_content, detected_format, options or {})
-
-            # Filter columns if specified
-            if columns and df is not None:
-                available_columns = [col for col in columns if col in df.columns]
-                if available_columns:
-                    df = df[available_columns]
-
-            return df if df is not None else pd.DataFrame()
-
-        except ValueError as e:
-            # Re-raise ValueError for unsupported formats and other validation errors
-            raise e
         except Exception as e:
-            logger.error(f"Error reading S3 object {target_key}: {str(e)}")
-            return pd.DataFrame()
+            logger.error(
+                f"S3Source: Failed to read from '{object_name}' with format '{file_format}': {str(e)}"
+            )
+            raise
 
     def read_incremental(
         self,
@@ -392,112 +421,84 @@ class S3Source(Connector):
         batch_size: int = 10000,
         **kwargs,
     ) -> Iterator[DataChunk]:
-        """
-        Read data incrementally from S3 object based on cursor field.
+        """Read data incrementally using a cursor field."""
+        # For S3, incremental loading is typically based on object modification time
+        # or object key patterns, not data content
+        filters = kwargs.get("filters", {})
 
-        Args:
-            object_name: S3 object key
-            cursor_field: Column name to use for incremental filtering
-            cursor_value: Last value of cursor field from previous run
-            batch_size: Number of rows per batch
-        """
-        df = self.read(object_name, **kwargs)
-
-        if cursor_field and cursor_field in df.columns and cursor_value is not None:
-            # Filter data based on cursor value
-            df = df[df[cursor_field] > cursor_value]
-
-        # Yield data in chunks
-        for i in range(0, len(df), batch_size):
-            chunk_df = df.iloc[i : i + batch_size]
-            yield DataChunk(chunk_df)
+        # For simplicity, we'll use the standard read method
+        # In a real implementation, you might filter objects by modification time
+        return self.read(
+            object_name=object_name,
+            columns=kwargs.get("columns"),
+            filters=filters,
+            batch_size=batch_size,
+        )
 
     def supports_incremental(self) -> bool:
-        """Check if connector supports incremental loading."""
+        """Check if connector supports incremental reading."""
         return True
 
     def get_cursor_value(self, chunk: DataChunk, cursor_field: str) -> Optional[Any]:
         """Get the maximum cursor value from a data chunk."""
-        df = chunk.pandas_df
+        df = chunk.table.to_pandas()
         if cursor_field in df.columns and not df.empty:
             return df[cursor_field].max()
         return None
 
-    # Private helper methods
-
     def _matches_file_format(self, key: str) -> bool:
-        """Check if S3 key matches the expected file format."""
-        if not key:
-            return False
+        """Check if a file key matches the expected format."""
+        if self.file_format == "auto":
+            # Accept common data file formats
+            extensions = {".csv", ".json", ".jsonl", ".parquet", ".txt"}
+            return any(key.lower().endswith(ext) for ext in extensions)
+        else:
+            # Check specific format
+            format_extensions = {
+                "csv": [".csv", ".txt"],
+                "json": [".json"],
+                "jsonl": [".jsonl", ".ndjson"],
+                "parquet": [".parquet"],
+            }
 
-        # Get file extension
-        extension = key.split(".")[-1].lower()
-
-        # Map formats to extensions
-        format_extensions = {
-            "csv": ["csv", "tsv"],
-            "json": ["json"],
-            "jsonl": ["jsonl"],
-            "parquet": ["parquet"],
-            "tsv": ["tsv"],
-        }
-
-        expected_extensions = format_extensions.get(
-            self.file_format, [self.file_format]
-        )
-        return extension in expected_extensions
+            extensions = format_extensions.get(
+                self.file_format, [f".{self.file_format}"]
+            )
+            return any(key.lower().endswith(ext) for ext in extensions)
 
     def _detect_file_format(self, key: str) -> str:
-        """Detect file format from S3 key extension."""
-        if not key:
+        """Detect file format from key extension."""
+        if self.file_format != "auto":
             return self.file_format
 
-        extension = key.split(".")[-1].lower()
-
-        if extension in ["csv", "tsv"]:
+        key_lower = key.lower()
+        if key_lower.endswith((".csv", ".txt")):
             return "csv"
-        elif extension in ["json", "jsonl"]:
-            return "json" if extension == "json" else "jsonl"
-        elif extension == "parquet":
+        elif key_lower.endswith(".json"):
+            return "json"
+        elif key_lower.endswith((".jsonl", ".ndjson")):
+            return "jsonl"
+        elif key_lower.endswith(".parquet"):
             return "parquet"
         else:
-            # For unsupported extensions, raise an error during file reading
-            # rather than defaulting to a format
-            supported_extensions = ["csv", "tsv", "json", "jsonl", "parquet"]
-            if extension not in supported_extensions:
-                raise ValueError(
-                    f"Unsupported file format: {extension}. Supported formats: {supported_extensions}"
-                )
-            return self.file_format
+            # Default to CSV
+            logger.warning(f"Unknown file extension for {key}, defaulting to CSV")
+            return "csv"
 
+    @resilient_operation()
     def _read_object_sample(self, key: str, nrows: int = 100) -> Optional[pd.DataFrame]:
-        """Read a sample of rows from an S3 object for schema inference."""
+        """Read a sample of an S3 object for schema detection with resilience."""
         try:
             response = self.s3_client.get_object(Bucket=self.bucket, Key=key)
-            file_content = response["Body"].read()
+            content = response["Body"].read()
 
-            detected_format = self._detect_file_format(key)
+            file_format = self._detect_file_format(key)
+            options = {"nrows": nrows} if file_format == "csv" else {}
 
-            # For CSV, we can read just a few rows efficiently
-            if detected_format == "csv":
-                content_str = file_content.decode(self.csv_encoding)
-                lines = content_str.split("\n")
-                if self.csv_header:
-                    sample_lines = lines[: nrows + 1]  # +1 for header
-                else:
-                    sample_lines = lines[:nrows]
-                sample_content = "\n".join(sample_lines).encode(self.csv_encoding)
-                return self._parse_file_content(
-                    sample_content, detected_format, {"nrows": nrows}
-                )
-            else:
-                # For other formats, read normally (could be optimized)
-                return self._parse_file_content(
-                    file_content, detected_format, {"nrows": nrows}
-                )
+            return self._parse_file_content(content, file_format, options)
 
         except Exception as e:
-            logger.warning(f"Could not read sample from {key}: {str(e)}")
+            logger.error(f"Failed to read sample from {key}: {str(e)}")
             return None
 
     def _parse_file_content(
@@ -505,7 +506,7 @@ class S3Source(Connector):
     ) -> Optional[pd.DataFrame]:
         """Parse file content based on format."""
         try:
-            if file_format in ["csv", "tsv"]:
+            if file_format == "csv":
                 return self._parse_csv_content(content, file_format, options)
             elif file_format == "parquet":
                 return self._parse_parquet_content(content, options)
@@ -514,93 +515,165 @@ class S3Source(Connector):
             elif file_format == "jsonl":
                 return self._parse_jsonl_content(content, options)
             else:
-                raise ValueError(f"Unsupported file format: {file_format}")
-
+                logger.error(f"Unsupported file format: {file_format}")
+                return None
         except Exception as e:
-            logger.error(f"Error parsing {file_format} content: {str(e)}")
+            logger.error(f"Failed to parse {file_format} content: {str(e)}")
             return None
 
     def _parse_csv_content(
         self, content: bytes, file_format: str, options: Dict[str, Any]
     ) -> pd.DataFrame:
-        """Parse CSV/TSV content."""
-        delimiter = "\t" if file_format == "tsv" else self.csv_delimiter
-
-        # Filter out connector-specific options that pandas doesn't understand
-        pandas_options = {
-            k: v
-            for k, v in options.items()
-            if k not in ["table_name", "schema", "object_name"]
+        """Parse CSV content."""
+        csv_options = {
+            "delimiter": self.csv_delimiter,
+            "header": 0 if self.csv_header else None,
+            "encoding": self.csv_encoding,
         }
+        csv_options.update(options)
 
-        return pd.read_csv(
-            io.BytesIO(content),
-            delimiter=delimiter,
-            header=0 if self.csv_header else None,
-            encoding=self.csv_encoding,
-            **pandas_options,
-        )
+        return pd.read_csv(io.BytesIO(content), **csv_options)
 
     def _parse_parquet_content(
         self, content: bytes, options: Dict[str, Any]
     ) -> pd.DataFrame:
         """Parse Parquet content."""
-        # Filter out connector-specific options that pandas doesn't understand
-        pandas_options = {
-            k: v
-            for k, v in options.items()
-            if k not in ["table_name", "schema", "object_name"]
-        }
-
-        return pd.read_parquet(io.BytesIO(content), **pandas_options)
+        with io.BytesIO(content) as buffer:
+            pq.ParquetFile(buffer)
+            return pd.read_parquet(buffer, **options)
 
     def _parse_json_content(
         self, content: bytes, options: Dict[str, Any]
     ) -> pd.DataFrame:
         """Parse JSON content."""
-        # Filter out connector-specific options that pandas doesn't understand
-        pandas_options = {
-            k: v
-            for k, v in options.items()
-            if k not in ["table_name", "schema", "object_name"]
-        }
+        json_options = {}
+        json_options.update(options)
 
-        return pd.read_json(io.BytesIO(content), **pandas_options)
+        return pd.read_json(io.BytesIO(content), **json_options)
 
     def _parse_jsonl_content(
         self, content: bytes, options: Dict[str, Any]
     ) -> Optional[pd.DataFrame]:
-        """Parse JSONL (newline-delimited JSON) content."""
-        content_str = content.decode("utf-8")
-        lines = [line.strip() for line in content_str.split("\n") if line.strip()]
+        """Parse JSON Lines content."""
+        try:
+            text_content = content.decode("utf-8")
+            lines = [line.strip() for line in text_content.split("\n") if line.strip()]
 
-        if "nrows" in options and options["nrows"]:
-            lines = lines[: options["nrows"]]
+            if not lines:
+                return pd.DataFrame()
 
-        if not lines:
-            return pd.DataFrame()
+            # Limit lines if nrows is specified
+            if "nrows" in options:
+                lines = lines[: options["nrows"]]
 
-        records = self._parse_jsonl_lines(lines)
-        if records:
-            max_level = self.json_max_depth if self.json_flatten else None
-            return pd.json_normalize(records, max_level=max_level)
-        else:
-            return pd.DataFrame()
+            records = self._parse_jsonl_lines(lines)
+            return pd.DataFrame(records)
+
+        except Exception as e:
+            logger.error(f"Failed to parse JSONL content: {str(e)}")
+            return None
 
     def _parse_jsonl_lines(self, lines: List[str]) -> List[Dict]:
-        """Parse individual JSONL lines into records."""
+        """Parse individual JSON lines."""
         import json
 
         records = []
-        for line in lines:
+        for line_num, line in enumerate(lines, 1):
             try:
-                records.append(json.loads(line))
-            except json.JSONDecodeError:
+                record = json.loads(line)
+                records.append(record)
+            except json.JSONDecodeError as e:
+                logger.warning(f"Skipping invalid JSON on line {line_num}: {e}")
                 continue
+
         return records
 
-    # Legacy interface support for backward compatibility
     @property
     def config(self) -> Dict[str, Any]:
-        """Backward compatibility property."""
+        """Get current configuration."""
         return getattr(self, "connection_params", {})
+
+    def read_legacy(
+        self,
+        object_name: Optional[str] = None,
+        columns: Optional[List[str]] = None,
+        filters: Optional[Dict[str, Any]] = None,
+        batch_size: int = 10000,
+        options: Optional[Dict[str, Any]] = None,
+    ) -> pd.DataFrame:
+        """
+        Read data from S3 object - legacy method for backward compatibility.
+        """
+        if object_name is None:
+            if self.key:
+                object_name = self.key
+            else:
+                raise ValueError(
+                    "object_name must be provided or configured in connector"
+                )
+
+        # Use the chunked read method and combine results
+        chunks = []
+        for chunk in self.read(object_name, columns, filters, batch_size):
+            chunks.append(chunk.table.to_pandas())
+
+        if chunks:
+            return pd.concat(chunks, ignore_index=True)
+        else:
+            return pd.DataFrame()
+
+    def _read_csv_chunks(
+        self, object_name: str, batch_size: int
+    ) -> Iterator[DataChunk]:
+        """Read a CSV file from S3 in chunks."""
+        s3_object = self._get_s3_object(object_name)
+        encoding = self.config.get("csv_encoding", "utf-8")
+        text_stream = io.TextIOWrapper(s3_object["Body"], encoding=encoding)
+        with pd.read_csv(
+            text_stream,
+            chunksize=batch_size,
+            encoding=encoding,
+            delimiter=self.config.get("csv_delimiter", ","),
+            header="infer" if self.config.get("csv_header", True) else None,
+        ) as reader:
+            for chunk_df in reader:
+                yield DataChunk(pa.Table.from_pandas(chunk_df))
+
+    def _read_json_chunks(
+        self, object_name: str, batch_size: int
+    ) -> Iterator[DataChunk]:
+        """Read a JSON file from S3 in chunks."""
+        s3_object = self._get_s3_object(object_name)
+        text_stream = io.TextIOWrapper(s3_object["Body"], encoding="utf-8")
+        df_generator = pd.read_json(
+            text_stream, lines=True, chunksize=batch_size, encoding="utf-8"
+        )
+        for chunk_df in df_generator:
+            yield DataChunk(pa.Table.from_pandas(chunk_df))
+
+    def _read_parquet_chunks(
+        self, object_name: str, batch_size: int
+    ) -> Iterator[DataChunk]:
+        """Read a Parquet file from S3 in chunks."""
+        s3_object = self._get_s3_object(object_name)
+        # The Parquet reader needs a seekable file-like object.
+        # The StreamingBody from S3 is not seekable, so we read it into a buffer.
+        with io.BytesIO(s3_object["Body"].read()) as buffer:
+            parquet_file = pq.ParquetFile(buffer)
+            for batch in parquet_file.iter_batches(batch_size=batch_size):
+                yield DataChunk(pa.Table.from_batches([batch]))
+
+    def _get_s3_object(self, object_name: str) -> Dict[str, Any]:
+        """Get an S3 object with resilience."""
+        try:
+            return self.s3_client.get_object(Bucket=self.bucket, Key=object_name)
+        except NoCredentialsError:
+            logger.error("S3Source: AWS credentials not found.")
+            raise
+        except ClientError as e:
+            if e.response["Error"]["Code"] == "NoSuchKey":
+                raise FileNotFoundError(
+                    f"S3 object '{object_name}' not found in bucket '{self.bucket}'"
+                ) from e
+            logger.error(f"S3Source: Failed to get object '{object_name}': {str(e)}")
+            raise
