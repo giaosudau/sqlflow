@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # SQLFlow Integration Test Runner
-# Refactored to reuse shared CI utilities and avoid code duplication
+# Uses the refactored Python-based demo system for service management
 # Usage: ./run_integration_tests.sh [options]
 
 set -e
@@ -10,24 +10,42 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$SCRIPT_DIR"
 
-# Source shared CI utilities from phase2 demo
-CI_UTILS_PATH="$PROJECT_ROOT/examples/phase2_integration_demo/scripts/ci_utils.sh"
+# Path to the new Python demo system
+DEMO_RUNNER_PATH="$PROJECT_ROOT/examples/phase2_integration_demo/run_demo.py"
 
-if [[ ! -f "$CI_UTILS_PATH" ]]; then
-    echo "❌ Error: ci_utils.sh not found at $CI_UTILS_PATH"
+if [[ ! -f "$DEMO_RUNNER_PATH" ]]; then
+    echo "❌ Error: run_demo.py not found at $DEMO_RUNNER_PATH"
     echo "   Make sure you're running this from the SQLFlow project root"
     exit 1
 fi
 
-# Source the shared utilities early to make functions available
-source "$CI_UTILS_PATH"
-
-# Colors for output (reuse from ci_utils.sh)
+# Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
+
+# Simple logging functions
+print_info() {
+    echo -e "${BLUE}[INFO]${NC} $1"
+}
+
+print_success() {
+    echo -e "${GREEN}[SUCCESS]${NC} $1"
+}
+
+print_error() {
+    echo -e "${RED}[ERROR]${NC} $1"
+}
+
+print_warning() {
+    echo -e "${YELLOW}[WARNING]${NC} $1"
+}
+
+print_step() {
+    echo -e "${BLUE}🔄${NC} $1"
+}
 
 # Help function
 show_help() {
@@ -37,8 +55,9 @@ SQLFlow Integration Test Runner
 This script provides a convenient interface for running integration tests
 that depend on external services (PostgreSQL, MinIO, Redis).
 
-It leverages the shared CI utilities from examples/phase2_integration_demo/scripts/ci_utils.sh
-to avoid code duplication and ensure consistency across testing environments.
+It runs both the Phase 2 integration demo AND the pytest integration test suite,
+providing comprehensive validation of SQLFlow functionality. Uses the refactored 
+Python-based demo system (run_demo.py) for service management.
 
 Usage: $0 [OPTIONS]
 
@@ -55,7 +74,7 @@ OPTIONS:
     --quick             Run quick smoke tests only
 
 EXAMPLES:
-    $0                                          # Run all integration tests
+    $0                                          # Run Phase 2 demo + all integration tests
     $0 -v                                       # Run with verbose output
     $0 -k postgres                             # Run only PostgreSQL tests
     $0 -f test_postgres_resilience.py         # Run specific test file
@@ -98,7 +117,7 @@ CUSTOM_TIMEOUT=""
 if [[ "${1:-}" == "--cleanup-only" ]]; then
     print_info "Cleanup-only mode: Stopping Docker services"
     cd "$PROJECT_ROOT/examples/phase2_integration_demo"
-    stop_docker_services
+    python3 run_demo.py --stop
     exit 0
 fi
 
@@ -236,74 +255,33 @@ run_integration_tests() {
 cleanup_services() {
     if [[ "$KEEP_SERVICES" == "true" ]]; then
         print_info "Keeping Docker services running (--keep-services flag)"
-        print_info "Services running:"
-        $DOCKER_COMPOSE_CMD ps 2>/dev/null || echo "Unable to list services"
         print_info "To stop services later, run: ./run_integration_tests.sh --cleanup-only"
         return
     fi
     
     print_step "Cleaning up Docker services..."
     
-    # Change to the demo directory where docker-compose.yml is located
+    # Change to the demo directory and use Python demo system
     cd "$PROJECT_ROOT/examples/phase2_integration_demo"
-    
-    # Use the cleanup function from ci_utils.sh
-    stop_docker_services
+    python3 run_demo.py --stop
 }
 
 # Signal handlers for graceful cleanup
 trap 'print_warning "Script interrupted"; cleanup_services; exit 130' INT TERM
 
-# Simplified integration test workflow (without demo)
-run_integration_test_workflow() {
-    local max_attempts="${1:-60}"
+# Start services using Python demo system
+start_services() {
+    print_info "Starting services using Python demo system..."
     
-    print_info "Starting integration test workflow..."
+    # Change to the demo directory
+    cd "$PROJECT_ROOT/examples/phase2_integration_demo"
     
-    # Check prerequisites
-    check_docker || return 1
-    check_docker_compose || return 1
-    
-    # Start services
-    start_docker_services || return 1
-    
-    # Wait for core services (skip SQLFlow service for integration tests)
-    print_step "Waiting for core services to be ready..."
-    
-    # Wait for each service in parallel (background processes)
-    wait_for_postgres $max_attempts &
-    local postgres_pid=$!
-    
-    wait_for_minio $max_attempts &
-    local minio_pid=$!
-    
-    wait_for_redis $max_attempts &
-    local redis_pid=$!
-    
-    # Wait for all background processes
-    local all_succeeded=true
-    
-    if ! wait $postgres_pid; then
-        print_error "PostgreSQL failed to start"
-        all_succeeded=false
-    fi
-    
-    if ! wait $minio_pid; then
-        print_error "MinIO failed to start"
-        all_succeeded=false
-    fi
-    
-    if ! wait $redis_pid; then
-        print_error "Redis failed to start"
-        all_succeeded=false
-    fi
-    
-    if [ "$all_succeeded" = "true" ]; then
-        print_success "All core services are ready!"
+    # Use Python demo system to start services
+    if python3 run_demo.py --start-only; then
+        print_success "All services started successfully!"
         return 0
     else
-        print_error "Some services failed to start"
-        print_info "Check service logs with: $DOCKER_COMPOSE_CMD logs"
+        print_error "Failed to start services"
         return 1
     fi
 }
@@ -312,39 +290,47 @@ run_integration_test_workflow() {
 main() {
     print_info "SQLFlow Integration Test Runner"
     print_info "Project root: $PROJECT_ROOT"
-    print_info "Reusing shared utilities from: $CI_UTILS_PATH"
+    print_info "Using Python demo system: $DEMO_RUNNER_PATH"
     
-    # Change to demo directory for docker operations
-    cd "$PROJECT_ROOT/examples/phase2_integration_demo"
-    
-    # Set custom timeout if provided
-    local timeout_arg=""
-    if [[ -n "$CUSTOM_TIMEOUT" ]]; then
-        timeout_arg="$CUSTOM_TIMEOUT"
-    else
-        timeout_arg="120"  # Default timeout
-    fi
-    
-    # Use the simplified integration test workflow
+    # Start services using Python demo system
     local workflow_result=0
-    if ! run_integration_test_workflow "$timeout_arg"; then
+    if ! start_services; then
         workflow_result=1
     fi
     
     # Change back to project root for pytest
     cd "$PROJECT_ROOT"
     
-    # Run integration tests if services started successfully
+    # Run Phase 2 demo and integration tests if services started successfully
     local test_result=0
+    local demo_result=0
     if [[ $workflow_result -eq 0 ]]; then
+        # First run the Phase 2 integration demo
+        print_step "Running Phase 2 Integration Demo..."
+        cd "$PROJECT_ROOT/examples/phase2_integration_demo"
+        if python3 run_demo.py --test-only; then
+            print_success "Phase 2 integration demo passed!"
+            demo_result=0
+        else
+            print_error "Phase 2 integration demo failed!"
+            demo_result=1
+        fi
+        
+        # Then run integration tests
+        cd "$PROJECT_ROOT"
         run_integration_tests || test_result=$?
+        
+        # Combine results - fail if either demo or tests failed
+        if [[ $demo_result -ne 0 && $test_result -eq 0 ]]; then
+            test_result=$demo_result
+        fi
     else
         print_error "Service startup failed, skipping tests"
         test_result=2
     fi
     
     # Cleanup (unless --no-cleanup is specified and tests failed)
-    if [[ "$NO_CLEANUP" == "true" && $test_result -ne 0 ]]; then
+    if [[ "$NO_CLEANUP" == "true" && ($test_result -ne 0 || $demo_result -ne 0) ]]; then
         print_warning "Skipping cleanup due to test failure and --no-cleanup flag"
         print_info "Services are still running for debugging"
         print_info "To cleanup manually, run: ./run_integration_tests.sh --cleanup-only"
@@ -354,21 +340,34 @@ main() {
     fi
     
     # Final status
-    if [[ $test_result -eq 0 ]]; then
+    if [[ $test_result -eq 0 && $demo_result -eq 0 ]]; then
         print_success "Integration test run completed successfully!"
+        print_success "✅ Phase 2 demo validated all 6 pipeline implementations"
+        print_success "✅ Integration test suite passed with external services"
         if [[ "$COVERAGE" == "true" ]]; then
             print_info "Coverage report available at: htmlcov/index.html"
         fi
     else
         print_error "Integration test run failed!"
-        case $test_result in
-            2) print_error "Service startup failure" ;;
-            3) print_error "Test execution failure" ;;
-            *) print_error "Unknown error (exit code: $test_result)" ;;
-        esac
+        if [[ $demo_result -ne 0 ]]; then
+            print_error "❌ Phase 2 demo failed - some pipelines did not complete successfully"
+        fi
+        if [[ $test_result -ne 0 ]]; then
+            case $test_result in
+                2) print_error "Service startup failure" ;;
+                3) print_error "Test execution failure" ;;
+                *) print_error "Unknown error (exit code: $test_result)" ;;
+            esac
+        fi
     fi
     
-    exit $test_result
+    # Return non-zero if either demo or tests failed
+    local final_result=0
+    if [[ $demo_result -ne 0 || $test_result -ne 0 ]]; then
+        final_result=1
+    fi
+    
+    exit $final_result
 }
 
 # Run main function

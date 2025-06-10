@@ -31,15 +31,14 @@ pytest tests/unit/ --cov=sqlflow
 
 ### Integration CI (`integration-test` job)
 ```bash
-# Starts real services with Docker Compose
-cd examples/phase2_integration_demo
-docker-compose up -d
+# Runs both Phase 2 demo AND pytest integration tests
+./run_integration_tests.sh
 
-# Runs comprehensive Phase 2 demo
-./scripts/run_integration_demo.sh
-
-# Runs focused integration tests with external services
-INTEGRATION_TESTS=true pytest tests/integration/
+# This automatically:
+# 1. Starts real services with Docker Compose
+# 2. Runs comprehensive Phase 2 demo (6 pipeline tests)
+# 3. Runs focused integration tests with external services
+# 4. Cleans up services when done
 ```
 
 ## 📋 Test Categories
@@ -77,7 +76,7 @@ INTEGRATION_TESTS=true pytest tests/integration/
 
 # Run comprehensive Phase 2 demo (requires Docker)
 cd examples/phase2_integration_demo
-./quick_start.sh
+python3 run_demo.py
 ```
 
 ### CI/GitHub Actions
@@ -86,8 +85,7 @@ cd examples/phase2_integration_demo
 pytest tests/unit/
 
 # Integration tests run with external services on PR/push
-cd examples/phase2_integration_demo && ./scripts/run_integration_demo.sh
-INTEGRATION_TESTS=true pytest tests/integration/
+./run_integration_tests.sh
 ```
 
 ## 🎯 When to Add Tests Where

@@ -181,63 +181,106 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e .[all]
 
-      - name: Run Phase 2 Integration Demo with shared utilities
+      - name: Run comprehensive integration tests (Phase 2 demo + pytest)
+        id: integration-tests
         env:
           CI: true
-        run: |
-          if [ ! -d "examples/phase2_integration_demo" ]; then
-            echo "❌ ERROR: examples/phase2_integration_demo directory not found"
-            echo "Available directories in examples:"
-            ls -la examples/ 2>/dev/null || echo "examples directory not found"
-            exit 1
-          fi
-          
-          cd examples/phase2_integration_demo
-          
-          # Source the shared CI utilities
-          source scripts/ci_utils.sh
-          
-          # Set up trap for cleanup
-          trap cleanup_on_exit INT TERM
-          
-          # Run complete integration test workflow
-          if run_complete_integration_test 120; then
-            echo "Integration demo completed successfully"
-          else
-            echo "Integration demo failed"
-            exit 1
-          fi
-      
-      - name: Run integration tests with real services and coverage
-        env:
           INTEGRATION_TESTS: true
-          CI: true
         run: |
-          # Run integration tests that require external services with coverage
-          python -m pytest tests/integration/ -k "external_services" \
-            --cov=sqlflow --cov-append --cov-report=xml --cov-report=term \
-            -v --tb=short
+          # Use the unified integration test runner
+          echo "::group::Running comprehensive integration tests"
+          ./run_integration_tests.sh --coverage --verbose
+          echo "::endgroup::"
 
-      - name: Upload external services coverage to Codecov
+      - name: Upload coverage to Codecov
+        if: always()
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
           verbose: true
-          flags: external-services
+          flags: integration-complete
 
-      - name: Stop Phase 2 Integration Demo Services
+      - name: Comment on PR - Success
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            
+            const successComment = `## 🎉 Integration Tests Passed!
+
+            ✅ **Phase 2 Demo**: All 6 pipeline implementations validated successfully
+            ✅ **Integration Tests**: pytest suite passed with external services  
+            ✅ **Services**: PostgreSQL, MinIO, Redis all healthy
+            ✅ **Coverage**: Test coverage uploaded to Codecov
+
+            **What was tested:**
+            - PostgreSQL connector with resilience patterns
+            - S3 connector with cost management and partition awareness  
+            - Incremental loading with automatic watermarks
+            - Multi-connector workflows (PostgreSQL → Transform → S3)
+            - Enhanced connector features and backward compatibility
+            - Integration test suite with external service dependencies
+
+            Ready to merge! 🚀`;
+
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number,
+              body: successComment
+            });
+
+      - name: Comment on PR - Failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            
+            const failureComment = `## ❌ Integration Tests Failed
+
+            Some integration tests did not pass. Please check the [workflow logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details.
+
+            **Common causes:**
+            - Service startup failures (PostgreSQL, MinIO, Redis)
+            - Missing pipeline outputs (check SQLFlow pipeline execution)
+            - Integration test failures (external service connectivity)
+            - Docker Compose issues or resource constraints
+
+            **To debug locally:**
+            \`\`\`bash
+            # Run the same comprehensive test suite
+            ./run_integration_tests.sh --verbose --keep-services
+
+            # Check service health
+            cd examples/phase2_integration_demo
+            python3 run_demo.py --start-only
+            python3 scripts/service_manager.py status
+            \`\`\`
+
+            Please fix the issues and trigger tests again with a new comment containing \`/test\` 🔧`;
+
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number,
+              body: failureComment
+            });
+
+      - name: Cleanup services on failure
         if: always()
-        env:
-          CI: true
         run: |
+          # Always cleanup Docker services
           if [ -d "examples/phase2_integration_demo" ]; then
             cd examples/phase2_integration_demo
-            source scripts/ci_utils.sh
-            stop_docker_services
-          else
-            echo "Skipping cleanup - directory not found"
+            python3 run_demo.py --stop || echo "Cleanup failed, but continuing"
           fi
+          # Also cleanup any dangling containers
+          docker compose down --volumes --remove-orphans 2>/dev/null || echo "No containers to cleanup"
 
   # Performance testing job - triggered by comment
   performance-test:

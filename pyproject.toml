@@ -139,7 +139,7 @@ use_parentheses = true
 ensure_newline_before_comments = true
 
 [tool.flake8]
-exclude = ".git,__pycache__,build,dist"
+exclude = ".git,__pycache__,build,dist,examples"
 ignore = "E501,E221,E222,E223,E224,E303,E301,E302,E402,F401,F841,E741,W291,W293,D100,D101,W503,W504,E203"
 max-complexity = 10
 

@@ -78,11 +78,11 @@ Configuration: DB_RESILIENCE_CONFIG
 
 ### Integrated with Full Demo
 ```bash
-# Run complete Phase 2 demo (includes resilience as Test 5)
-./scripts/run_integration_demo.sh
+# Run complete Phase 2 demo (includes resilience patterns)
+python3 run_demo.py
 
-# Resilience test runs automatically after other scenarios
-# Look for: "Test 5: Resilient Connector Patterns & Recovery"
+# Resilience test runs automatically as part of the 6 pipeline tests
+# Look for: "Resilient Connectors" test in the output
 ```
 
 ### Manual Pipeline Execution

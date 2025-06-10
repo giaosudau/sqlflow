@@ -62,7 +62,7 @@ docker-compose ps
 ### 2. Initialize Demo Data
 ```bash
 # Initialize sample data and run comprehensive tests
-./run_integration_demo.sh
+python3 run_demo.py
 
 # Expected output:
 # ✅ Services health check passed
@@ -70,7 +70,8 @@ docker-compose ps
 # ✅ S3 connector test passed  
 # ✅ Incremental loading test passed
 # ✅ Multi-connector pipeline test passed
-# 📊 Demo completed: 4/4 scenarios successful
+# 📊 Results: 6/6 tests passed
+# 🎉 ALL TESTS PASSED - Phase 2 implementation is working correctly!
 ```
 
 ### 3. Access Services
@@ -323,55 +324,50 @@ Reliability improvement:             99.5%+ ⚡ Production ready
 
 ### Running Individual Tests
 ```bash
-# Test specific connector
-./test_postgres_connector.sh
+# Test specific pipelines
+python3 run_demo.py --test-only
 
-# Test incremental loading
-./test_incremental_loading.sh
+# Start services only (for manual testing)
+python3 run_demo.py --start-only
 
-# Test S3 cost management
-./test_s3_cost_controls.sh
+# Stop services
+python3 run_demo.py --stop
 
-# Test multi-connector pipeline
-./test_full_pipeline.sh
-
-# 🔥 NEW: Test resilience patterns
-./scripts/test_resilient_connectors.sh
-
-# 🔥 NEW: Test enhanced S3 connector
-sqlflow run pipelines/06_enhanced_s3_connector_demo.sf
-
-# 🔥 NEW: Test enhanced S3 connector (with script)
-./scripts/test_enhanced_s3_connector.sh
+# Test individual pipeline (inside SQLFlow container)
+docker compose exec sqlflow sqlflow run pipelines/01_postgres_basic_test.sf --profile docker
+docker compose exec sqlflow sqlflow run pipelines/05_resilient_postgres_test.sf --profile docker
+docker compose exec sqlflow sqlflow run pipelines/06_enhanced_s3_connector_demo.sf --profile docker
 ```
 
 ### Custom Pipeline Development
 ```bash
 # Enter SQLFlow container for development
-docker-compose exec sqlflow bash
+docker compose exec sqlflow bash
 
-# Create new pipeline
-sqlflow init my_test_pipeline
+# Create new pipeline file
+echo "SELECT 'Hello World' as message;" > pipelines/08_my_test.sf
 
-# Run with real services
-sqlflow pipeline run my_test_pipeline --profile docker
+# Run the unified demo (automatically discovers new pipeline)
+python3 run_demo.py --test-only
 ```
 
 ### Debugging and Monitoring
 ```bash
 # View real-time logs
-docker-compose logs -f sqlflow
+docker compose logs -f sqlflow
 
 # Monitor PostgreSQL activity
-docker-compose exec postgres psql -U sqlflow -d demo -c "\
+docker compose exec postgres psql -U sqlflow -d demo -c "\
 SELECT pid, query, state FROM pg_stat_activity WHERE state != 'idle';"
 
 # Check MinIO usage
 curl -s http://localhost:9000/minio/admin/v3/info
 
-# 🔥 NEW: Monitor resilience patterns
-# Check retry attempts, circuit breaker status, rate limiting
-docker-compose logs sqlflow | grep -i "resilience\|retry\|circuit"
+# Monitor resilience patterns
+docker compose logs sqlflow | grep -i "resilience\|retry\|circuit"
+
+# Check service health
+python3 scripts/service_manager.py status
 ```
 
 ## 🔍 Industry Comparison
@@ -486,11 +482,34 @@ After completing this demo:
 3. **Production Deployment**: Use Docker Compose as template for production
 4. **Performance Tuning**: Optimize for your specific data volumes and patterns
 
+## 🧪 Integration with Test Suite
+
+This demo is fully integrated with SQLFlow's integration test runner:
+
+```bash
+# Run both Phase 2 demo AND pytest integration tests
+cd ../.. && ./run_integration_tests.sh
+
+# This comprehensive test run:
+# 1. ✅ Starts all Docker services automatically
+# 2. ✅ Runs all 6 Phase 2 demo pipelines 
+# 3. ✅ Runs pytest integration test suite
+# 4. ✅ Provides unified success/failure reporting
+# 5. ✅ Cleans up services when complete
+```
+
+**Benefits of Unified Testing**:
+- **Complete Coverage**: Both demo pipelines and unit tests validated
+- **Consistent Environment**: Same Docker services for both test types
+- **CI-Ready**: Single command for comprehensive validation
+- **Zero Configuration**: Auto-discovery and service management
+
 ## 📖 References
 
 - [SQLFlow Connector Strategy Technical Design](../../docs/developer/technical/implementation/SQLFlow_Connector_Strategy_Technical_Design.md)
 - [Phase 2 Implementation Tasks](../../sqlflow_connector_implementation_tasks.md)
 - [🔥 **NEW** - Resilient Connector Patterns Demo](./RESILIENCE_DEMO.md)
+- [Integration Test Runner](../../run_integration_tests.sh) - Runs demo + pytest tests
 - [Docker Compose Best Practices](https://docs.docker.com/compose/production/)
 - [PostgreSQL Performance Tuning](https://wiki.postgresql.org/wiki/Performance_Optimization)
 - [MinIO Configuration Guide](https://docs.min.io/docs/minio-docker-quickstart-guide.html)
