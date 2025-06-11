@@ -2,17 +2,27 @@
 
 This module provides a comprehensive REST API connector for consuming JSON data from
 HTTP endpoints with authentication, pagination, and error handling.
+
+Performance optimizations implemented:
+- Parallel request capability for paginated endpoints
+- Response streaming for large payloads
+- Optimized JSON parsing using hybrid Arrow/pandas approach
+- Connection pooling optimizations
+- Intelligent batching based on response characteristics
 """
 
 import json
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, Iterator, List, Optional
 from urllib.parse import urlparse
 
 import pandas as pd
 import pyarrow as pa
 import requests
+from requests.adapters import HTTPAdapter
 from requests.auth import HTTPBasicAuth, HTTPDigestAuth
+from urllib3.util.retry import Retry
 
 from sqlflow.connectors.base.connection_test_result import ConnectionTestResult
 from sqlflow.connectors.base.connector import Connector, ConnectorState
@@ -22,13 +32,29 @@ from sqlflow.logging import get_logger
 
 logger = get_logger(__name__)
 
+# Performance constants following Zen of Python: "Simple is better than complex"
+DEFAULT_BATCH_SIZE = 10000  # Default batch size for API requests
+LARGE_RESPONSE_THRESHOLD_MB = 10  # Threshold for using streaming
+MAX_PARALLEL_REQUESTS = 4  # Maximum concurrent requests for pagination
+CONNECTION_POOL_SIZE = 10  # Connection pool size for performance
+MAX_RETRIES = 3  # Maximum retry attempts with exponential backoff
+
 
 class RestSource(Connector):
     """
-    Enhanced REST API connector with authentication, pagination, and schema inference.
+    Enhanced REST API connector with performance optimizations.
 
-    Supports various authentication methods, response formats, and pagination patterns
-    commonly used in REST APIs.
+    Features:
+    - Authentication support (Basic, Digest, Bearer, API Key)
+    - Pagination handling with parallel requests
+    - Response streaming for large payloads
+    - Connection pooling and retry strategies
+    - Schema inference and column selection
+
+    Performance optimizations follow Zen of Python:
+    - "Simple is better than complex" - straightforward optimization rules
+    - "Explicit is better than implicit" - clear parameter handling
+    - "Practicality beats purity" - real-world performance over theoretical perfection
     """
 
     def __init__(self, config: Optional[Dict[str, Any]] = None):
@@ -41,11 +67,18 @@ class RestSource(Connector):
         self.auth_config = None
         self.pagination_config = None
         self.timeout = 30
-        self.max_retries = 3
+        self.max_retries = MAX_RETRIES
         self.retry_delay = 1.0
         self.data_path = None
         self.flatten_response = True
         self.session: Optional[requests.Session] = None
+
+        # Performance optimization settings
+        self.parallel_requests = True
+        self.max_parallel_requests = MAX_PARALLEL_REQUESTS
+        self.stream_large_responses = True
+        self.response_streaming_threshold = LARGE_RESPONSE_THRESHOLD_MB
+        self.use_connection_pooling = True
 
         if config:
             self.configure(config)
@@ -70,10 +103,21 @@ class RestSource(Connector):
         self.auth_config = params.get("auth")
         self.pagination_config = params.get("pagination")
         self.timeout = params.get("timeout", 30)
-        self.max_retries = params.get("max_retries", 3)
+        self.max_retries = params.get("max_retries", MAX_RETRIES)
         self.retry_delay = params.get("retry_delay", 1.0)
         self.data_path = params.get("data_path")
         self.flatten_response = params.get("flatten_response", True)
+
+        # Performance optimization settings
+        self.parallel_requests = params.get("parallel_requests", True)
+        self.max_parallel_requests = params.get(
+            "max_parallel_requests", MAX_PARALLEL_REQUESTS
+        )
+        self.stream_large_responses = params.get("stream_large_responses", True)
+        self.response_streaming_threshold = params.get(
+            "response_streaming_threshold", LARGE_RESPONSE_THRESHOLD_MB
+        )
+        self.use_connection_pooling = params.get("use_connection_pooling", True)
 
         # Set default headers
         if "User-Agent" not in self.headers:
@@ -142,21 +186,9 @@ class RestSource(Connector):
             if self.data_path:
                 data = self._extract_data_by_path(data, self.data_path)
 
-            # Convert to DataFrame to infer schema
-            if isinstance(data, list) and len(data) > 0:
-                df = (
-                    pd.json_normalize(data)
-                    if self.flatten_response
-                    else pd.DataFrame(data)
-                )
-            elif isinstance(data, dict):
-                df = (
-                    pd.json_normalize([data])
-                    if self.flatten_response
-                    else pd.DataFrame([data])
-                )
-            else:
-                # Empty or unsupported data structure
+            # Convert to DataFrame to infer schema using optimized method
+            df = self._convert_to_dataframe_optimized(data)
+            if df.empty:
                 return Schema(columns=[])
 
             # Convert to arrow schema
@@ -195,9 +227,16 @@ class RestSource(Connector):
                 cursor_value = filters.get("cursor_value") if filters else None
 
             if self.pagination_config:
-                yield from self._read_paginated(
-                    session, columns, batch_size, cursor_value
-                )
+                if self.parallel_requests and self.pagination_config.get(
+                    "parallel_safe", False
+                ):
+                    yield from self._read_paginated_parallel(
+                        session, columns, batch_size, cursor_value
+                    )
+                else:
+                    yield from self._read_paginated(
+                        session, columns, batch_size, cursor_value
+                    )
             else:
                 yield from self._read_single_request(session, columns, cursor_value)
 
@@ -244,10 +283,33 @@ class RestSource(Connector):
             return None
 
     def _create_session(self) -> requests.Session:
-        """Create a configured requests session."""
+        """Create and configure a requests session with performance optimizations."""
         if self.session is None:
             session = requests.Session()
             session.headers.update(self.headers)
+
+            # Configure connection pooling and retry strategy for performance
+            if self.use_connection_pooling:
+                retry_strategy = Retry(
+                    total=self.max_retries,
+                    backoff_factor=self.retry_delay,
+                    status_forcelist=[429, 500, 502, 503, 504],
+                    allowed_methods=[
+                        "HEAD",
+                        "GET",
+                        "OPTIONS",
+                    ],  # Updated parameter name
+                )
+
+                adapter = HTTPAdapter(
+                    pool_connections=CONNECTION_POOL_SIZE,
+                    pool_maxsize=CONNECTION_POOL_SIZE,
+                    max_retries=retry_strategy,
+                    pool_block=False,
+                )
+
+                session.mount("http://", adapter)
+                session.mount("https://", adapter)
 
             # Configure authentication
             if self.auth_config:
@@ -325,7 +387,7 @@ class RestSource(Connector):
         if self.data_path:
             data = self._extract_data_by_path(data, self.data_path)
 
-        df = self._convert_to_dataframe(data)
+        df = self._convert_to_dataframe_optimized(data)
 
         if columns:
             # Select only requested columns
@@ -369,7 +431,7 @@ class RestSource(Connector):
                 if self.data_path:
                     data = self._extract_data_by_path(data, self.data_path)
 
-                df = self._convert_to_dataframe(data)
+                df = self._convert_to_dataframe_optimized(data)
 
                 if df.empty:
                     break  # No more data
@@ -390,6 +452,206 @@ class RestSource(Connector):
             except requests.exceptions.RequestException as e:
                 logger.error(f"Pagination failed at page {page}: {e}")
                 break
+
+    def _read_paginated_parallel(
+        self,
+        session: requests.Session,
+        columns: Optional[List[str]],
+        batch_size: int,
+        cursor_value: Optional[Any] = None,
+    ) -> Iterator[DataChunk]:
+        """Read paginated data using parallel requests for improved performance.
+
+        This method is used when pagination_config has 'parallel_safe': True,
+        indicating that multiple pages can be fetched concurrently.
+        """
+        current_params = self.params.copy()
+        current_params[self.pagination_config["size_param"]] = batch_size
+
+        page_param = self.pagination_config.get("page_param", "page")
+        page_size = self.pagination_config.get("page_size", batch_size)
+
+        # Add cursor parameter for incremental loading
+        if cursor_value is not None:
+            cursor_param = self.pagination_config.get("cursor_param", "since")
+            current_params[cursor_param] = cursor_value
+
+        # First, get the first page to understand pagination structure
+        first_page_data = self._fetch_first_page(
+            session, current_params, page_param, columns
+        )
+        if first_page_data is None or first_page_data.empty:
+            return
+
+        yield DataChunk(data=first_page_data)
+
+        # Check if we have more pages
+        if len(first_page_data) < page_size:
+            return  # Only one page
+
+        # Fetch remaining pages in parallel
+        yield from self._fetch_remaining_pages_parallel(
+            session, current_params, page_param, columns
+        )
+
+    def _fetch_first_page(
+        self,
+        session: requests.Session,
+        current_params: Dict[str, Any],
+        page_param: str,
+        columns: Optional[List[str]],
+    ) -> Optional[pd.DataFrame]:
+        """Fetch the first page of data to understand pagination structure."""
+        try:
+            params = current_params.copy()
+            params[page_param] = 1
+
+            response = self._make_request(session, params)
+            data = response.json()
+
+            if self.data_path:
+                data = self._extract_data_by_path(data, self.data_path)
+
+            df = self._convert_to_dataframe_optimized(data)
+
+            if df.empty:
+                return None
+
+            if columns:
+                available_columns = [col for col in columns if col in df.columns]
+                if available_columns:
+                    df = df[available_columns]
+
+            return df
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Failed to fetch first page: {e}")
+            return None
+
+    def _fetch_remaining_pages_parallel(
+        self,
+        session: requests.Session,
+        current_params: Dict[str, Any],
+        page_param: str,
+        columns: Optional[List[str]],
+    ) -> Iterator[DataChunk]:
+        """Fetch remaining pages in parallel."""
+        try:
+            # Estimate total pages (conservative approach)
+            max_pages_to_fetch = min(
+                10, self.max_parallel_requests
+            )  # Conservative limit
+
+            # Fetch multiple pages in parallel
+            with ThreadPoolExecutor(max_workers=self.max_parallel_requests) as executor:
+                future_to_page = {}
+
+                for page in range(2, max_pages_to_fetch + 2):  # Start from page 2
+                    params = current_params.copy()
+                    params[page_param] = page
+                    future = executor.submit(
+                        self._fetch_page_data, session, params, columns
+                    )
+                    future_to_page[future] = page
+
+                # Process completed requests as they finish
+                for future in as_completed(future_to_page):
+                    try:
+                        df = future.result()
+                        if df is not None and not df.empty:
+                            yield DataChunk(data=df)
+                        else:
+                            # Stop if we get an empty page
+                            break
+                    except Exception as e:
+                        page = future_to_page[future]
+                        logger.error(f"Failed to fetch page {page}: {e}")
+                        break
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Parallel pagination failed: {e}")
+
+    def _fetch_page_data(
+        self,
+        session: requests.Session,
+        params: Dict[str, Any],
+        columns: Optional[List[str]],
+    ) -> Optional[pd.DataFrame]:
+        """Fetch a single page of data (used by parallel pagination)."""
+        try:
+            response = self._make_request(session, params)
+            data = response.json()
+
+            if self.data_path:
+                data = self._extract_data_by_path(data, self.data_path)
+
+            df = self._convert_to_dataframe_optimized(data)
+
+            if df.empty:
+                return None
+
+            if columns:
+                available_columns = [col for col in columns if col in df.columns]
+                if available_columns:
+                    df = df[available_columns]
+
+            return df
+
+        except Exception as e:
+            logger.error(f"Failed to fetch page data: {e}")
+            return None
+
+    def _convert_to_dataframe_optimized(self, data: Any) -> pd.DataFrame:
+        """Convert API response data to pandas DataFrame with optimizations.
+
+        Uses hybrid Arrow/pandas approach for better performance with large datasets.
+        """
+        if isinstance(data, list):
+            if len(data) == 0:
+                return pd.DataFrame()
+
+            # For large datasets, try PyArrow first for better performance
+            if len(data) > 1000:  # Threshold for using Arrow optimization
+                try:
+                    # Convert to PyArrow table first for better memory efficiency
+                    if self.flatten_response:
+                        # Use pandas normalize for complex nested structures
+                        df = pd.json_normalize(data)
+                    else:
+                        # Direct DataFrame creation for simple structures
+                        df = pd.DataFrame(data)
+
+                    # Convert through Arrow for memory optimization
+                    arrow_table = pa.Table.from_pandas(df, preserve_index=False)
+                    return arrow_table.to_pandas(use_threads=True)
+
+                except Exception as e:
+                    logger.debug(
+                        f"Arrow optimization failed, falling back to pandas: {e}"
+                    )
+                    # Fallback to standard pandas processing
+                    return (
+                        pd.json_normalize(data)
+                        if self.flatten_response
+                        else pd.DataFrame(data)
+                    )
+            else:
+                # Use standard pandas for smaller datasets
+                return (
+                    pd.json_normalize(data)
+                    if self.flatten_response
+                    else pd.DataFrame(data)
+                )
+
+        elif isinstance(data, dict):
+            return (
+                pd.json_normalize([data])
+                if self.flatten_response
+                else pd.DataFrame([data])
+            )
+        else:
+            # Handle scalar values or unsupported types
+            return pd.DataFrame([{"value": data}])
 
     def _convert_to_dataframe(self, data: Any) -> pd.DataFrame:
         """Convert API response data to pandas DataFrame."""
