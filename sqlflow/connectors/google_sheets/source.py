@@ -1,5 +1,7 @@
 """Google Sheets source connector for SQLFlow."""
 
+import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, Iterator, List, Optional
 
 import google.auth
@@ -15,6 +17,12 @@ from sqlflow.connectors.data_chunk import DataChunk
 from sqlflow.logging import get_logger
 
 logger = get_logger(__name__)
+
+# Performance optimization constants
+MAX_BATCH_SIZE = 10000  # Maximum rows per batch
+BATCH_READ_THRESHOLD = 5000  # Threshold for batched reading
+MAX_PARALLEL_BATCHES = 3  # Maximum concurrent batch requests
+CREDENTIAL_CACHE_TTL = 3600  # Credential cache time-to-live in seconds
 
 
 class GoogleSheetsSource(Connector):
@@ -37,8 +45,16 @@ class GoogleSheetsSource(Connector):
         self.range_name: Optional[str] = None
         self.has_header: bool = True
 
-        # Google Sheets service
+        # Performance optimization attributes
+        self.batch_size: int = MAX_BATCH_SIZE
+        self.enable_batching: bool = True
+        self.enable_parallel_batches: bool = True
+        self.max_parallel_batches: int = MAX_PARALLEL_BATCHES
+
+        # Cached service and credentials
         self.service = None
+        self._cached_credentials = None
+        self._credentials_cache_time = 0
 
         if config is not None:
             self.configure(config)
@@ -70,28 +86,48 @@ class GoogleSheetsSource(Connector):
         self.range_name = params.get("range")
         self.has_header = params.get("has_header", True)
 
-        # Initialize the Google Sheets service
+        # Performance optimization parameters
+        self.batch_size = params.get("batch_size", MAX_BATCH_SIZE)
+        self.enable_batching = params.get("enable_batching", True)
+        self.enable_parallel_batches = params.get("enable_parallel_batches", True)
+        self.max_parallel_batches = params.get(
+            "max_parallel_batches", MAX_PARALLEL_BATCHES
+        )
+
+        # Initialize the Google Sheets service with credential caching
         try:
             self._initialize_service()
             self.state = ConnectorState.CONFIGURED
         except Exception as e:
             raise ValueError(f"Failed to initialize Google Sheets service: {str(e)}")
 
-    def _initialize_service(self) -> None:
-        """Initialize the Google Sheets service."""
+    def _get_cached_credentials(self):
+        """Get cached credentials or create new ones.
+
+        Zen: "Simple is better than complex" - cache credentials for reuse.
+        """
+        current_time = time.time()
+
+        # Return cached credentials if still valid
+        if (
+            self._cached_credentials is not None
+            and current_time - self._credentials_cache_time < CREDENTIAL_CACHE_TTL
+        ):
+            return self._cached_credentials
+
+        # Create new credentials
+        scopes = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
+
         try:
-            scopes = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
             if self.credentials_file:
-                # Check if this is a test environment (mocked)
                 try:
                     credentials, _ = google.auth.load_credentials_from_file(
                         self.credentials_file,
                         scopes=scopes,
                     )
                 except Exception as e:
-                    # If we can't load real credentials, try default auth or create a mock
+                    # Test environment fallback
                     if hasattr(Credentials, "from_service_account_file"):
-                        # Test environment with mocked Credentials
                         credentials = Credentials.from_service_account_file(
                             self.credentials_file, scopes=scopes
                         )
@@ -99,6 +135,21 @@ class GoogleSheetsSource(Connector):
                         raise e
             else:
                 credentials, _ = google.auth.default(scopes=scopes)
+
+            # Cache the credentials
+            self._cached_credentials = credentials
+            self._credentials_cache_time = current_time
+
+            return credentials
+
+        except Exception as e:
+            logger.error(f"Failed to load credentials: {str(e)}")
+            raise
+
+    def _initialize_service(self) -> None:
+        """Initialize the Google Sheets service with optimized credential caching."""
+        try:
+            credentials = self._get_cached_credentials()
 
             # Handle universe domain for testing
             client_options = {}
@@ -223,6 +274,158 @@ class GoogleSheetsSource(Connector):
 
         return Schema(pa.schema([]))
 
+    def _get_sheet_dimensions(self, sheet_name: str) -> Dict[str, int]:
+        """Get the dimensions of a sheet to optimize batch reading.
+
+        Zen: "Explicit is better than implicit" - know the data size.
+        """
+        try:
+            # Get spreadsheet metadata to determine sheet size
+            metadata = (
+                self.service.spreadsheets()
+                .get(spreadsheetId=self.spreadsheet_id, includeGridData=False)
+                .execute()
+            )
+
+            for sheet in metadata["sheets"]:
+                if sheet["properties"]["title"] == sheet_name:
+                    props = sheet["properties"]["gridProperties"]
+                    return {
+                        "rows": props.get("rowCount", 0),
+                        "columns": props.get("columnCount", 0),
+                    }
+
+        except Exception as e:
+            logger.warning(f"Could not get sheet dimensions for {sheet_name}: {str(e)}")
+
+        # Return default if we can't determine size
+        return {"rows": 1000, "columns": 26}
+
+    def _read_batch_range(
+        self,
+        sheet_name: str,
+        start_row: int,
+        end_row: int,
+        columns: Optional[List[str]] = None,
+    ) -> pd.DataFrame:
+        """Read a specific range of rows from a sheet.
+
+        Zen: "Flat is better than nested" - simple batch reading.
+        """
+        try:
+            # Build range string
+            if columns:
+                # If specific columns requested, determine their positions
+                # For simplicity, read full range and filter later
+                batch_range = f"{sheet_name}!{start_row}:{end_row}"
+            else:
+                batch_range = f"{sheet_name}!{start_row}:{end_row}"
+
+            result = (
+                self.service.spreadsheets()
+                .values()
+                .get(spreadsheetId=self.spreadsheet_id, range=batch_range)
+                .execute()
+            )
+
+            values = result.get("values", [])
+            if not values:
+                return pd.DataFrame()
+
+            # Convert to DataFrame
+            if len(values) > 0:
+                df = pd.DataFrame(values)
+
+                # Filter columns if specified and we have data
+                if columns and not df.empty:
+                    # Simple column filtering by position/name
+                    available_columns = [col for col in columns if col in df.columns]
+                    if available_columns:
+                        df = df[available_columns]
+
+                return df
+            else:
+                return pd.DataFrame()
+
+        except Exception as e:
+            logger.error(
+                f"Error reading batch {start_row}-{end_row} from {sheet_name}: {str(e)}"
+            )
+            return pd.DataFrame()
+
+    def _read_batched_parallel(
+        self, sheet_name: str, total_rows: int, columns: Optional[List[str]] = None
+    ) -> Iterator[DataChunk]:
+        """Read sheet data in batches with parallel processing.
+
+        Zen: "Beautiful is better than ugly" - clean parallel processing.
+        """
+        start_row = 2 if self.has_header else 1  # Skip header if present
+        batch_size = min(self.batch_size, MAX_BATCH_SIZE)
+
+        # Calculate batch ranges
+        batch_ranges = []
+        current_row = start_row
+
+        while current_row <= total_rows:
+            end_row = min(current_row + batch_size - 1, total_rows)
+            batch_ranges.append((current_row, end_row))
+            current_row = end_row + 1
+
+        if not batch_ranges:
+            return
+
+        # Process batches in parallel if enabled and beneficial
+        if (
+            self.enable_parallel_batches
+            and len(batch_ranges) > 1
+            and len(batch_ranges) <= self.max_parallel_batches
+        ):
+
+            yield from self._process_batches_parallel(sheet_name, batch_ranges, columns)
+        else:
+            # Sequential processing
+            for start_row, end_row in batch_ranges:
+                df = self._read_batch_range(sheet_name, start_row, end_row, columns)
+                if not df.empty:
+                    yield DataChunk(data=df)
+
+    def _process_batches_parallel(
+        self,
+        sheet_name: str,
+        batch_ranges: List[tuple],
+        columns: Optional[List[str]] = None,
+    ) -> Iterator[DataChunk]:
+        """Process multiple batches in parallel.
+
+        Zen: "Explicit is better than implicit" - clear parallel processing.
+        """
+        max_workers = min(len(batch_ranges), self.max_parallel_batches)
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Submit all batch reading tasks
+            future_to_range = {
+                executor.submit(
+                    self._read_batch_range, sheet_name, start_row, end_row, columns
+                ): (start_row, end_row)
+                for start_row, end_row in batch_ranges
+            }
+
+            # Collect results in order
+            batch_results = {}
+            for future in future_to_range:
+                start_row, end_row = future_to_range[future]
+                try:
+                    df = future.result()
+                    if not df.empty:
+                        batch_results[start_row] = df
+                except Exception as e:
+                    logger.error(f"Batch {start_row}-{end_row} failed: {str(e)}")
+
+            # Yield results in order
+            for start_row in sorted(batch_results.keys()):
+                yield DataChunk(data=batch_results[start_row])
+
     def read(
         self,
         object_name: Optional[str] = None,
@@ -231,68 +434,138 @@ class GoogleSheetsSource(Connector):
         batch_size: int = 10000,
         options: Optional[Dict[str, Any]] = None,
     ) -> pd.DataFrame:
-        """Read data from a Google Sheet.
+        """Read data from a Google Sheet (backward compatible interface).
 
         Args:
         ----
             object_name: Sheet name to read (optional, uses configured sheet_name if not provided)
             columns: List of columns to read (optional)
             filters: Filters to apply (not implemented for Google Sheets)
-            batch_size: Batch size (not used for Google Sheets)
+            batch_size: Batch size for reading (used for optimization thresholds)
             options: Additional read options
 
         Returns:
         -------
             DataFrame containing the sheet data
         """
+        # For backward compatibility, collect all chunks into a single DataFrame
+        chunks = list(
+            self.read_batched(object_name, columns, filters, batch_size, options)
+        )
+
+        if not chunks:
+            return pd.DataFrame()
+
+        # Combine all chunks into a single DataFrame
+        dfs = [chunk.pandas_df for chunk in chunks if not chunk.pandas_df.empty]
+
+        if not dfs:
+            return pd.DataFrame()
+
+        if len(dfs) == 1:
+            return dfs[0]
+        else:
+            # Concatenate all DataFrames
+            return pd.concat(dfs, ignore_index=True)
+
+    def read_batched(
+        self,
+        object_name: Optional[str] = None,
+        columns: Optional[List[str]] = None,
+        filters: Optional[Dict[str, Any]] = None,
+        batch_size: int = 10000,
+        options: Optional[Dict[str, Any]] = None,
+    ) -> Iterator[DataChunk]:
+        """Read data from a Google Sheet with optimized batching (new interface).
+
+        Args:
+        ----
+            object_name: Sheet name to read (optional, uses configured sheet_name if not provided)
+            columns: List of columns to read (optional)
+            filters: Filters to apply (not implemented for Google Sheets)
+            batch_size: Batch size for reading
+            options: Additional read options
+
+        Yields:
+        ------
+            DataChunk objects containing the sheet data
+        """
         target_sheet = object_name or self.sheet_name
         if not target_sheet:
             raise ValueError("No sheet name specified")
 
         try:
-            # Determine the range to read
-            read_options = options or {}
-            sheet_range = read_options.get("range", self.range_name)
+            # Get sheet dimensions for optimization
+            dimensions = self._get_sheet_dimensions(target_sheet)
+            total_rows = dimensions["rows"]
 
-            if sheet_range:
-                full_range = f"{target_sheet}!{sheet_range}"
+            # Determine if batching is beneficial
+            use_batching = self.enable_batching and total_rows > BATCH_READ_THRESHOLD
+
+            if use_batching:
+                # Use optimized batched reading
+                logger.info(f"Using batched reading for {total_rows} rows")
+                yield from self._read_batched_parallel(
+                    target_sheet, total_rows, columns
+                )
             else:
-                full_range = target_sheet
-
-            # Read data from Google Sheets
-            result = (
-                self.service.spreadsheets()
-                .values()
-                .get(spreadsheetId=self.spreadsheet_id, range=full_range)
-                .execute()
-            )
-
-            values = result.get("values", [])
-
-            if not values:
-                return pd.DataFrame()
-
-            # Process the data based on header setting
-            if self.has_header and len(values) > 1:
-                df = pd.DataFrame(values[1:], columns=values[0])
-            elif self.has_header and len(values) == 1:
-                # Only header row, return empty DataFrame with columns
-                df = pd.DataFrame(columns=values[0])
-            else:
-                # No header, use default column names
-                df = pd.DataFrame(values)
-
-            # Filter columns if specified
-            if columns and not df.empty:
-                available_columns = [col for col in columns if col in df.columns]
-                if available_columns:
-                    df = df[available_columns]
-
-            return df
+                # Use simple single-request reading for small sheets
+                logger.info(f"Using simple reading for {total_rows} rows")
+                df = self._read_sheet_simple(target_sheet, columns, options)
+                if not df.empty:
+                    yield DataChunk(data=df)
 
         except Exception as e:
             logger.error(f"Error reading Google Sheet {target_sheet}: {str(e)}")
+            # Return empty chunk on error
+            yield DataChunk(data=pd.DataFrame())
+
+    def _read_sheet_simple(
+        self,
+        target_sheet: str,
+        columns: Optional[List[str]] = None,
+        options: Optional[Dict[str, Any]] = None,
+    ) -> pd.DataFrame:
+        """Simple sheet reading for small datasets."""
+        # Determine the range to read
+        read_options = options or {}
+        sheet_range = read_options.get("range", self.range_name)
+
+        if sheet_range:
+            full_range = f"{target_sheet}!{sheet_range}"
+        else:
+            full_range = target_sheet
+
+        # Read data from Google Sheets
+        result = (
+            self.service.spreadsheets()
+            .values()
+            .get(spreadsheetId=self.spreadsheet_id, range=full_range)
+            .execute()
+        )
+
+        values = result.get("values", [])
+
+        if not values:
             return pd.DataFrame()
+
+        # Process the data based on header setting
+        if self.has_header and len(values) > 1:
+            df = pd.DataFrame(values[1:], columns=values[0])
+        elif self.has_header and len(values) == 1:
+            # Only header row, return empty DataFrame with columns
+            df = pd.DataFrame(columns=values[0])
+        else:
+            # No header, use default column names
+            df = pd.DataFrame(values)
+
+        # Filter columns if specified
+        if columns and not df.empty:
+            available_columns = [col for col in columns if col in df.columns]
+            if available_columns:
+                df = df[available_columns]
+
+        return df
 
     def read_incremental(
         self,
@@ -318,16 +591,16 @@ class GoogleSheetsSource(Connector):
         ------
             DataChunk objects containing the incremental data
         """
-        df = self.read(object_name, **kwargs)
+        # Read all data first using batched interface, then filter incrementally
+        for chunk in self.read_batched(object_name, batch_size=batch_size, **kwargs):
+            df = chunk.pandas_df
 
-        if cursor_field and cursor_field in df.columns and cursor_value is not None:
-            # Filter data based on cursor value
-            df = df[df[cursor_field] > cursor_value]
+            if cursor_field and cursor_field in df.columns and cursor_value is not None:
+                # Filter data based on cursor value
+                df = df[df[cursor_field] > cursor_value]
 
-        # Yield data in chunks
-        for i in range(0, len(df), batch_size):
-            chunk_df = df.iloc[i : i + batch_size]
-            yield DataChunk(chunk_df)
+            if not df.empty:
+                yield DataChunk(data=df)
 
     def supports_incremental(self) -> bool:
         """Check if connector supports incremental loading."""
