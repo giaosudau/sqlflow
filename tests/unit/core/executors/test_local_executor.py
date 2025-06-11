@@ -59,10 +59,29 @@ def executor(mock_project, mock_connector_engine):
     executor.connector_engine = mock_connector_engine
     executor.source_connectors = {}
     executor.step_table_map = {}
+    executor.variables = {}
+    executor.source_definitions = {}
 
-    # Set up return values for the refactored methods
-    executor._handle_traditional_source.return_value = {"status": "success"}
-    executor._handle_profile_based_source.return_value = {"status": "success"}
+    # Mock the unified connector creation method
+    executor._create_connector_with_profile_support.return_value = MagicMock()
+
+    # Mock the helper methods that are called by _execute_source_definition
+    def mock_full_refresh_source(step, connector_type, source_name):
+        return {
+            "status": "success",
+            "source_name": source_name,
+            "connector_type": connector_type,
+        }
+
+    def mock_profile_based_source(step, step_id, source_name):
+        return {
+            "status": "success",
+            "source_name": source_name,
+            "connector_type": "csv",
+        }
+
+    executor._handle_full_refresh_source.side_effect = mock_full_refresh_source
+    executor._handle_profile_based_source.side_effect = mock_profile_based_source
 
     # Import the real implementation method to test
     # Get the actual method from the class and bind it to our mock
@@ -89,10 +108,14 @@ def test_source_definition_step_traditional(executor):
 
     result = executor._execute_source_definition(step)
     assert result["status"] == "success"
+    assert result["source_name"] == "test_source"
+    assert result["connector_type"] == "csv"
 
-    # Verify the correct helper method was called with the right parameters
-    executor._handle_traditional_source.assert_called_once_with(
-        step, step["id"], step["name"]
+    # Verify that source definition was stored
+    assert "test_source" in executor.source_definitions
+    assert executor.source_definitions["test_source"]["connector_type"] == "csv"
+    assert (
+        executor.source_definitions["test_source"]["params"]["path"] == "data/test.csv"
     )
 
 
@@ -112,8 +135,10 @@ def test_source_definition_step_profile_based(executor):
 
     result = executor._execute_source_definition(step)
     assert result["status"] == "success"
+    assert result["source_name"] == "test_pg_source"
+    assert result["connector_type"] == "csv"  # Default when no connector_type specified
 
-    # Verify the correct helper method was called with the right parameters
-    executor._handle_profile_based_source.assert_called_once_with(
-        step, step["id"], step["name"]
-    )
+    # Verify that source definition was stored
+    assert "test_pg_source" in executor.source_definitions
+    assert executor.source_definitions["test_pg_source"]["is_from_profile"] is True
+    assert executor.source_definitions["test_pg_source"]["params"]["table"] == "users"
