@@ -637,12 +637,53 @@ S3_SCHEMA = ConnectorSchema(
     ],
 )
 
-# Registry of all connector schemas
-CONNECTOR_SCHEMAS: Dict[str, ConnectorSchema] = {
-    "CSV": CSV_SCHEMA,
-    "POSTGRES": POSTGRES_SCHEMA,
-    "S3": S3_SCHEMA,
-}
+# PARQUET connector schema
+PARQUET_SCHEMA = ConnectorSchema(
+    name="PARQUET",
+    description="Parquet file connector for efficient columnar data storage",
+    fields=[
+        # Required parameters
+        FieldSchema(
+            name="path",
+            required=True,
+            field_type="string",
+            description="File path or glob pattern (e.g., 'data.parquet', 'data/*.parquet')",
+        ),
+        # Optional parameters
+        FieldSchema(
+            name="columns",
+            required=False,
+            field_type="array",
+            description="List of specific columns to read",
+        ),
+        FieldSchema(
+            name="combine_files",
+            required=False,
+            field_type="boolean",
+            description="Whether to combine multiple files into single dataset",
+        ),
+        FieldSchema(
+            name="batch_size",
+            required=False,
+            field_type="integer",
+            description="Number of rows per batch for large files",
+        ),
+        # Standard sync parameters (Airbyte/Fivetran compatible)
+        FieldSchema(
+            name="sync_mode",
+            required=False,
+            field_type="string",
+            description="Synchronization mode",
+            allowed_values=["full_refresh", "incremental"],
+        ),
+        FieldSchema(
+            name="cursor_field",
+            required=False,
+            field_type="string",
+            description="Field to use for incremental loading",
+        ),
+    ],
+)
 
 # Shopify connector schema (based on implementation plan)
 SHOPIFY_SCHEMA = ConnectorSchema(
@@ -840,4 +881,5 @@ CONNECTOR_SCHEMAS: Dict[str, ConnectorSchema] = {
     "S3": S3_SCHEMA,
     "SHOPIFY": SHOPIFY_SCHEMA,
     "REST": REST_SCHEMA,
+    "PARQUET": PARQUET_SCHEMA,
 }

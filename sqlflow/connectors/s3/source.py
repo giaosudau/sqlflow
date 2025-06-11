@@ -318,9 +318,16 @@ class S3Source(Connector):
             import random
 
             sample_size = int(len(objects) * self.dev_sampling)
-            logger.info(
-                f"Applying dev_sampling filter: {self.dev_sampling} ({sample_size} files)"
-            )
+            # Ensure at least 1 file is selected when files exist but sampling rounds down to 0
+            if sample_size == 0 and len(objects) > 0:
+                sample_size = 1
+                logger.info(
+                    f"Applying dev_sampling filter: {self.dev_sampling} (adjusted to 1 file minimum)"
+                )
+            else:
+                logger.info(
+                    f"Applying dev_sampling filter: {self.dev_sampling} ({sample_size} files)"
+                )
             objects = random.sample(objects, sample_size)
 
         return objects
@@ -441,7 +448,7 @@ class S3Source(Connector):
 
     def get_cursor_value(self, chunk: DataChunk, cursor_field: str) -> Optional[Any]:
         """Get the maximum cursor value from a data chunk."""
-        df = chunk.table.to_pandas()
+        df = chunk.pandas_df
         if cursor_field in df.columns and not df.empty:
             return df[cursor_field].max()
         return None
@@ -615,7 +622,7 @@ class S3Source(Connector):
         # Use the chunked read method and combine results
         chunks = []
         for chunk in self.read(object_name, columns, filters, batch_size):
-            chunks.append(chunk.table.to_pandas())
+            chunks.append(chunk.pandas_df)
 
         if chunks:
             return pd.concat(chunks, ignore_index=True)
@@ -642,14 +649,51 @@ class S3Source(Connector):
     def _read_json_chunks(
         self, object_name: str, batch_size: int
     ) -> Iterator[DataChunk]:
-        """Read a JSON file from S3 in chunks."""
+        """Read a JSON file from S3 in chunks with auto-format detection."""
         s3_object = self._get_s3_object(object_name)
-        text_stream = io.TextIOWrapper(s3_object["Body"], encoding="utf-8")
-        df_generator = pd.read_json(
-            text_stream, lines=True, chunksize=batch_size, encoding="utf-8"
-        )
-        for chunk_df in df_generator:
-            yield DataChunk(pa.Table.from_pandas(chunk_df))
+        content = s3_object["Body"].read()
+
+        # Auto-detect JSON format by examining the content
+        try:
+            # Try to determine if it's JSONL or JSON array format
+            content_str = content.decode("utf-8").strip()
+
+            # Check if it starts with '[' - likely JSON array
+            if content_str.startswith("["):
+                # JSON array format - read as single object and chunk manually
+                import json
+
+                data = json.loads(content_str)
+                if not isinstance(data, list):
+                    data = [data]  # Ensure it's a list
+
+                # Create chunks from the array
+                for i in range(0, len(data), batch_size):
+                    chunk_data = data[i : i + batch_size]
+                    df = pd.DataFrame(chunk_data)
+                    if self.json_flatten:
+                        df = pd.json_normalize(
+                            df.to_dict("records"), max_level=self.json_max_depth
+                        )
+                    yield DataChunk(pa.Table.from_pandas(df))
+            else:
+                # JSONL format - use lines=True
+                text_stream = io.TextIOWrapper(io.BytesIO(content), encoding="utf-8")
+                df_generator = pd.read_json(
+                    text_stream, lines=True, chunksize=batch_size, encoding="utf-8"
+                )
+                for chunk_df in df_generator:
+                    if self.json_flatten:
+                        chunk_df = pd.json_normalize(
+                            chunk_df.to_dict("records"), max_level=self.json_max_depth
+                        )
+                    yield DataChunk(pa.Table.from_pandas(chunk_df))
+
+        except Exception as e:
+            logger.error(
+                f"S3Source: Failed to read JSON from '{object_name}': {str(e)}"
+            )
+            raise
 
     def _read_parquet_chunks(
         self, object_name: str, batch_size: int

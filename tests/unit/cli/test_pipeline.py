@@ -37,6 +37,12 @@ LOAD raw_data FROM sample;
             """
             )
 
+        # Create the data directory and sample CSV file
+        data_dir = os.path.join(tmpdir, "data")
+        os.makedirs(data_dir, exist_ok=True)
+        with open(os.path.join(data_dir, "sample.csv"), "w") as f:
+            f.write("id,name,date\n1,test,2023-10-25\n2,sample,2023-10-26\n")
+
         # Create minimal profiles/dev.yml for profile-driven config
         profiles_dir = os.path.join(tmpdir, "profiles")
         os.makedirs(profiles_dir, exist_ok=True)
@@ -66,13 +72,18 @@ def test_compile_command(runner, sample_project):
 
 def test_run_command(runner, sample_project):
     """Test the run command."""
-    with patch("os.getcwd", return_value=sample_project):
+    # Save original directory and change to sample project directory
+    original_cwd = os.getcwd()
+    try:
+        os.chdir(sample_project)
         result = runner.invoke(
             app, ["pipeline", "run", "test", "--vars", '{"date": "2023-10-25"}']
         )
         assert result.exit_code == 0
-        assert "test" in result.stdout
-        assert "2023-10-25" in result.stdout
+        assert "test" in result.stdout or "test" in result.stderr
+        assert "2023-10-25" in result.stdout or "2023-10-25" in result.stderr
+    finally:
+        os.chdir(original_cwd)
 
 
 def make_profile(tmp_path, name, mode, path=None):
@@ -94,7 +105,11 @@ def test_cli_run_profile_memory_mode(tmp_path, monkeypatch):
             "E",
             (),
             {
-                "execute": lambda self, plan, variables=None: {"summary": {}},
+                "execute": lambda self, plan, variables=None: {
+                    "status": "success",
+                    "executed_steps": [],
+                    "total_steps": len(plan) if plan else 0,
+                },
                 "duckdb_engine": type(
                     "D", (), {"path": ":memory:", "database_path": ":memory:"}
                 )(),
@@ -129,7 +144,11 @@ def test_cli_run_profile_persistent_mode(tmp_path, monkeypatch):
             "E",
             (),
             {
-                "execute": lambda self, plan, variables=None: {"summary": {}},
+                "execute": lambda self, plan, variables=None: {
+                    "status": "success",
+                    "executed_steps": [],
+                    "total_steps": len(plan) if plan else 0,
+                },
                 "duckdb_engine": type(
                     "D", (), {"path": str(db_path), "database_path": str(db_path)}
                 )(),

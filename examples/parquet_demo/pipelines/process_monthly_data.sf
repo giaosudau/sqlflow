@@ -7,13 +7,17 @@ SOURCE monthly_sales TYPE PARQUET PARAMS {
     "combine_files": true
 };
 
+LOAD monthly_sales FROM monthly_sales;
+
 -- Load customer data for enrichment
 SOURCE customers TYPE PARQUET PARAMS {
     "path": "data/customers.parquet"
 };
 
+LOAD customers FROM customers;
+
 -- Create comprehensive monthly analysis
-CREATE TABLE monthly_trends AS
+CREATE TABLE monthly_trends MODE REPLACE AS
 SELECT 
     EXTRACT(month FROM sale_date) as month_number,
     DATE_TRUNC('month', sale_date) as sale_month,
@@ -32,7 +36,7 @@ GROUP BY
 ORDER BY month_number, product_name;
 
 -- Create customer behavior analysis across months
-CREATE TABLE customer_monthly_behavior AS
+CREATE TABLE customer_monthly_behavior MODE REPLACE AS
 SELECT 
     ms.customer_id,
     c.customer_name,
@@ -52,7 +56,7 @@ GROUP BY
 ORDER BY ms.customer_id, month_number;
 
 -- Create product performance summary
-CREATE TABLE product_performance AS
+CREATE TABLE product_performance  MODE REPLACE AS
 SELECT 
     product_name,
     COUNT(DISTINCT customer_id) as unique_customers,
@@ -68,6 +72,6 @@ GROUP BY product_name
 ORDER BY total_revenue DESC;
 
 -- Export comprehensive analysis
-EXPORT monthly_trends TO CSV "output/monthly_product_trends.csv";
-EXPORT customer_monthly_behavior TO CSV "output/customer_monthly_behavior.csv";
-EXPORT product_performance TO CSV "output/product_performance_summary.csv"; 
+EXPORT monthly_trends TO "output/monthly_product_trends.csv" TYPE CSV;
+EXPORT customer_monthly_behavior TO "output/customer_monthly_behavior.csv" TYPE CSV;
+EXPORT product_performance TO "output/product_performance_summary.csv" TYPE CSV; 

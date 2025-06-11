@@ -313,7 +313,7 @@ class PostgresSource(Connector):
 
     def get_cursor_value(self, chunk: DataChunk, cursor_field: str) -> Optional[Any]:
         """Get the maximum cursor value from a data chunk."""
-        df = chunk.table.to_pandas()
+        df = chunk.pandas_df
         if cursor_field in df.columns and not df.empty:
             return df[cursor_field].max()
         return None

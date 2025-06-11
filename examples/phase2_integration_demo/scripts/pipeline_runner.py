@@ -142,8 +142,13 @@ class PipelineRunner:
         start_time = time.time()
 
         try:
-            # Run SQLFlow pipeline
+            # Run SQLFlow pipeline inside Docker container where services are accessible
             cmd = [
+                "docker",
+                "compose",
+                "exec",
+                "-T",
+                "sqlflow",
                 "sqlflow",
                 "pipeline",
                 "run",
@@ -205,12 +210,12 @@ class PipelineRunner:
     def verify_s3_exports(self) -> bool:
         """Verify S3 exports in MinIO - Separated concern"""
         try:
-            # Quick S3 verification
+            # Quick S3 verification using localhost since this runs on host
             import boto3
 
             s3 = boto3.client(
                 "s3",
-                endpoint_url="http://minio:9000",
+                endpoint_url="http://localhost:9000",  # Use localhost from host machine
                 aws_access_key_id="minioadmin",
                 aws_secret_access_key="minioadmin",
             )
@@ -246,9 +251,9 @@ class ServiceHealthChecker:
                 capture_output=True,
                 timeout=10,
             )
-            services["PostgreSQL"] = result.returncode == 0
+            services["postgres"] = result.returncode == 0
         except:
-            services["PostgreSQL"] = False
+            services["postgres"] = False
 
         # MinIO
         try:
@@ -257,9 +262,9 @@ class ServiceHealthChecker:
                 capture_output=True,
                 timeout=10,
             )
-            services["MinIO"] = result.returncode == 0
+            services["minio"] = result.returncode == 0
         except:
-            services["MinIO"] = False
+            services["minio"] = False
 
         # SQLFlow
         try:
@@ -268,9 +273,20 @@ class ServiceHealthChecker:
                 capture_output=True,
                 timeout=10,
             )
-            services["SQLFlow"] = result.returncode == 0
+            services["sqlflow"] = result.returncode == 0
         except:
-            services["SQLFlow"] = False
+            services["sqlflow"] = False
+
+        # Redis
+        try:
+            result = subprocess.run(
+                ["docker", "compose", "exec", "-T", "redis", "redis-cli", "ping"],
+                capture_output=True,
+                timeout=10,
+            )
+            services["redis"] = result.returncode == 0
+        except:
+            services["redis"] = False
 
         return services
 

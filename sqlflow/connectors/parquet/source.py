@@ -143,6 +143,7 @@ class ParquetSource(Connector):
         columns: Optional[List[str]] = None,
         filters: Optional[Dict[str, Any]] = None,
         batch_size: int = None,
+        options: Optional[Dict[str, Any]] = None,
     ) -> Iterator[DataChunk]:
         """Read data from Parquet file(s).
 
@@ -151,6 +152,7 @@ class ParquetSource(Connector):
             columns: Optional column list (overrides configured columns)
             filters: Optional filters (not implemented yet)
             batch_size: Optional batch size (overrides configured batch_size)
+            options: Optional options for backward compatibility
 
         Yields:
             DataChunk objects containing the data

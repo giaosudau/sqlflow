@@ -76,6 +76,11 @@ echo "🧹 Cleaning previous outputs..."
 rm -rf "$OUTPUT_DIR"
 mkdir -p "$OUTPUT_DIR"
 
+# Clean persistent database to ensure incremental loading works correctly for demo
+echo "🗑️  Cleaning persistent database for fresh demo..."
+rm -f "$DEMO_DIR/target/connector_interface_demo.duckdb"
+mkdir -p "$DEMO_DIR/target"
+
 # Function to run pipeline and report status
 run_pipeline() {
     local pipeline_name="$1"

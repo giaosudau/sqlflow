@@ -6,14 +6,18 @@ SOURCE sales TYPE PARQUET PARAMS {
     "path": "data/sales.parquet"
 };
 
+LOAD sales FROM sales;
+
 -- Load customer data with column selection
 SOURCE customers TYPE PARQUET PARAMS {
     "path": "data/customers.parquet",
     "columns": ["customer_id", "customer_name", "segment", "lifetime_value"]
 };
 
+LOAD customers FROM customers;
+
 -- Create enriched sales analysis
-CREATE TABLE sales_analysis AS
+CREATE TABLE sales_analysis MODE REPLACE AS
 SELECT 
     s.sale_id,
     s.customer_id,
@@ -30,7 +34,7 @@ FROM sales s
 LEFT JOIN customers c ON s.customer_id = c.customer_id;
 
 -- Create monthly sales summary
-CREATE TABLE monthly_summary AS
+CREATE TABLE monthly_summary MODE REPLACE AS
 SELECT 
     DATE_TRUNC('month', sale_date) as sale_month,
     COUNT(*) as total_transactions,
@@ -43,7 +47,7 @@ GROUP BY DATE_TRUNC('month', sale_date)
 ORDER BY sale_month;
 
 -- Create customer segment analysis
-CREATE TABLE segment_analysis AS
+CREATE TABLE segment_analysis MODE REPLACE AS
 SELECT 
     customer_segment,
     COUNT(DISTINCT customer_id) as customer_count,
@@ -57,5 +61,5 @@ GROUP BY customer_segment
 ORDER BY total_revenue DESC;
 
 -- Export results
-EXPORT monthly_summary TO CSV "output/monthly_sales_summary.csv";
-EXPORT segment_analysis TO CSV "output/customer_segment_analysis.csv"; 
+EXPORT monthly_summary TO "output/monthly_sales_summary.csv" TYPE CSV;
+EXPORT segment_analysis TO "output/customer_segment_analysis.csv" TYPE CSV; 

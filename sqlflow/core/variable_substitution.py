@@ -151,14 +151,13 @@ class VariableSubstitutionEngine:
         Returns:
             String with variables substituted
         """
-        logger.debug(f"Substituting variables in text: {text[:100]}...")
 
         def replace_variable(match: re.Match) -> str:
             var_expr = match.group(1)
 
-            # Get local context around the variable (50 chars before and after)
-            start_pos = max(0, match.start() - 50)
-            end_pos = min(len(text), match.end() + 50)
+            # Get local context around the variable (100 chars before and after for better detection)
+            start_pos = max(0, match.start() - 100)
+            end_pos = min(len(text), match.end() + 100)
             local_context = text[start_pos:end_pos]
 
             # Handle expressions with defaults: ${var|default}
@@ -203,7 +202,6 @@ class VariableSubstitutionEngine:
                         )  # Keep original text in non-condition contexts
 
         result = self.VARIABLE_PATTERN.sub(replace_variable, text)
-        logger.debug(f"Substitution result: {result}")
         return result
 
     def _format_value_for_context(self, value: Any, context: str) -> str:
@@ -222,14 +220,21 @@ class VariableSubstitutionEngine:
         if self._is_json_context(context):
             return str_value
 
+        # Don't add quotes in EXPORT TO contexts (paths should not be quoted)
+        if self._is_export_context(context):
+            return str_value
+
+        # Don't add quotes in SOURCE PARAMS path contexts
+        if self._is_source_path_context(context):
+            return str_value
+
         # If this looks like a condition context (contains ==, !=, etc.)
         # and the value is a string that could cause parsing issues, quote it
         is_condition = self._is_condition_context(context)
         needs_quotes = self._needs_quoting(str_value)
 
         if is_condition and needs_quotes:
-            result = f"'{str_value}'"
-            return result
+            return f"'{str_value}'"
 
         return str_value
 
@@ -237,6 +242,22 @@ class VariableSubstitutionEngine:
         """Check if the text appears to be a JSON context."""
         # Look for JSON-like patterns: quotes and colons
         return '"' in text and ":" in text
+
+    def _is_export_context(self, text: str) -> bool:
+        """Check if the text appears to be an EXPORT TO clause."""
+        # Look for EXPORT...TO pattern
+        text_upper = text.upper()
+        return "EXPORT" in text_upper and "TO" in text_upper and '"' in text
+
+    def _is_source_path_context(self, text: str) -> bool:
+        """Check if the text appears to be a SOURCE path parameter."""
+        # Look for SOURCE...PARAMS with path-like patterns
+        text_upper = text.upper()
+        return (
+            "SOURCE" in text_upper
+            and "PARAMS" in text_upper
+            and ('"PATH"' in text_upper or "'PATH'" in text_upper)
+        )
 
     def _is_condition_context(self, text: str) -> bool:
         """Check if the text appears to be a condition expression."""

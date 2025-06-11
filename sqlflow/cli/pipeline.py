@@ -1945,7 +1945,7 @@ def run_pipeline(
         pipeline_name, _variables or {}, _profile_name
     )
 
-    _execute_pipeline_operations_and_report(
+    success = _execute_pipeline_operations_and_report(
         operations,
         pipeline_name,  # Pass original pipeline_name
         _profile_name,
@@ -1953,6 +1953,10 @@ def run_pipeline(
         _artifact_manager,
         execution_id,
     )
+
+    # Exit with appropriate code based on execution result
+    if not success:
+        raise typer.Exit(code=1)
 
 
 @pipeline_app.command("list")

@@ -438,7 +438,12 @@ class TestEnhancedS3Connector:
 
         if discovered:
             # Test reading with legacy parameters
-            df = connector.read(object_name=discovered[0])
+            chunks = list(connector.read(object_name=discovered[0]))
+            df = (
+                pd.concat([chunk.pandas_df for chunk in chunks])
+                if chunks
+                else pd.DataFrame()
+            )
             assert len(df) >= 0, "Should read data with legacy parameters"
 
     def test_development_features_real_data(
@@ -464,7 +469,12 @@ class TestEnhancedS3Connector:
 
         if discovered:
             # Read with sampling
-            df = connector.read(object_name=discovered[0])
+            chunks = list(connector.read(object_name=discovered[0]))
+            df = (
+                pd.concat([chunk.pandas_df for chunk in chunks])
+                if chunks
+                else pd.DataFrame()
+            )
             assert len(df) >= 0, "Should handle sampled reads"
 
     def test_real_data_end_to_end_workflow(

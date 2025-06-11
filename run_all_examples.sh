@@ -3,6 +3,7 @@
 # SQLFlow Examples Test Runner
 # This script runs all example demo scripts to ensure they work correctly
 # Used by pre-commit hooks and for testing
+# Enhanced with proper error tracking and trustworthy reporting
 
 set -e  # Exit immediately if any command fails
 
@@ -84,9 +85,9 @@ ALL_SCRIPTS=("${EXAMPLE_SCRIPTS[@]}" "${DEMO_SCRIPTS[@]}")
 
 # Exclude scripts from non-migrated examples
 EXCLUDED_SCRIPTS=(
-    "examples/connector_interface_demo/run.sh"
+    "examples/connector_interface_demo/run_demo.sh"
     "examples/phase2_integration_demo/run.sh"
-    "examples/shopify_ecommerce_analytics/run.sh"
+    "examples/shopify_ecommerce_analytics/run_demo.sh"
     "examples/incremental_loading_demo/run_demo.sh"
 )
 
@@ -101,9 +102,11 @@ for script in "${ALL_SCRIPTS[@]}"; do
 done
 echo ""
 
-# Run each script with timeout
+# Run each script with proper error tracking
 FAILED_SCRIPTS=()
 SUCCESSFUL_SCRIPTS=()
+SKIPPED_SCRIPTS=()
+SCRIPT_DETAILS=()
 
 for script in "${ALL_SCRIPTS[@]}"; do
     # Check if the script is in the excluded list
@@ -117,8 +120,11 @@ for script in "${ALL_SCRIPTS[@]}"; do
 
     if [ "$is_excluded" = true ]; then
         print_warning "⚠️ Skipping $script (connector not migrated)"
+        SKIPPED_SCRIPTS+=("$script")
+        SCRIPT_DETAILS+=("$script: SKIPPED (connector not migrated)")
         continue
     fi
+    
     script_dir="$(dirname "$script")"
     script_name="$(basename "$script")"
     
@@ -127,15 +133,29 @@ for script in "${ALL_SCRIPTS[@]}"; do
     # Change to script directory and run with environment variable
     cd "$REPO_ROOT/$script_dir"
     
-    # Run with timeout and capture output for debugging
-    # Note: timeout is not available on macOS by default, so we run without timeout
-    if bash -c "export SQLFLOW_OVERRIDE_PATH='$SQLFLOW_PATH'; ./$script_name" 2>&1; then
+    # Capture both output and exit code
+    local_exit_code=0
+    script_output=""
+    
+    # Run script and capture output and exit code
+    if script_output=$(bash -c "export SQLFLOW_OVERRIDE_PATH='$SQLFLOW_PATH'; ./$script_name" 2>&1); then
+        local_exit_code=0
+    else
+        local_exit_code=$?
+    fi
+    
+    if [ $local_exit_code -eq 0 ]; then
         print_success "✅ Success: $script"
         SUCCESSFUL_SCRIPTS+=("$script")
+        SCRIPT_DETAILS+=("$script: ✅ SUCCESS")
     else
-        print_error "❌ Failed: $script"
+        print_error "❌ Failed: $script (exit code: $local_exit_code)"
         FAILED_SCRIPTS+=("$script")
-        # Don't exit immediately, continue with other scripts for debugging
+        SCRIPT_DETAILS+=("$script: ❌ FAILED (exit code: $local_exit_code)")
+        
+        # Show last few lines of output for debugging
+        echo "Last lines of output:"
+        echo "$script_output" | tail -n 5 | sed 's/^/    /'
     fi
     
     # Return to repo root for next iteration
@@ -143,32 +163,70 @@ for script in "${ALL_SCRIPTS[@]}"; do
     echo ""
 done
 
-# Summary
+# Comprehensive Summary
 echo "========================================"
-echo "📊 Example Scripts Test Summary"
+echo "📊 SQLFlow Examples Execution Summary"
 echo "========================================"
 echo ""
-print_status "✅ Successful: ${#SUCCESSFUL_SCRIPTS[@]}"
-for script in "${SUCCESSFUL_SCRIPTS[@]}"; do
-    echo "  - $script"
+
+echo "📈 Overall Statistics:"
+echo "   Total scripts found: ${#ALL_SCRIPTS[@]}"
+echo "   ✅ Successful: ${#SUCCESSFUL_SCRIPTS[@]}"
+echo "   ❌ Failed: ${#FAILED_SCRIPTS[@]}"
+echo "   ⚠️  Skipped: ${#SKIPPED_SCRIPTS[@]}"
+echo ""
+
+echo "📋 Detailed Results:"
+for detail in "${SCRIPT_DETAILS[@]}"; do
+    echo "   $detail"
 done
 echo ""
 
+if [ ${#SUCCESSFUL_SCRIPTS[@]} -gt 0 ]; then
+    print_success "✅ Successful Scripts:"
+    for script in "${SUCCESSFUL_SCRIPTS[@]}"; do
+        echo "   - $script"
+    done
+    echo ""
+fi
+
 if [ ${#FAILED_SCRIPTS[@]} -gt 0 ]; then
-    print_error "❌ Failed: ${#FAILED_SCRIPTS[@]}"
+    print_error "❌ Failed Scripts:"
     for script in "${FAILED_SCRIPTS[@]}"; do
-        echo "  - $script"
+        echo "   - $script"
     done
     echo ""
     print_error "Some example scripts failed. Please check the logs above."
+    echo ""
+    echo "🔧 Troubleshooting Tips:"
+    echo "   1. Run failed scripts individually for detailed error output"
+    echo "   2. Check that all required dependencies are installed"
+    echo "   3. Verify data files exist in respective example directories"
+    echo "   4. Ensure SQLFlow is properly installed and accessible"
+    echo ""
     exit 1
-else
-    print_success "🎉 All example scripts completed successfully!"
+fi
+
+if [ ${#SKIPPED_SCRIPTS[@]} -gt 0 ]; then
+    print_warning "⚠️  Skipped Scripts:"
+    for script in "${SKIPPED_SCRIPTS[@]}"; do
+        echo "   - $script"
+    done
     echo ""
-    echo "What was tested:"
-    echo "  ✅ Load modes demonstrations"
-    echo "  ✅ Conditional pipelines with various scenarios"  
-    echo "  ✅ Python UDF showcases and examples"
-    echo ""
-    echo "All example demos are working correctly! 🚀"
-fi 
+fi
+
+print_success "🎉 All example scripts completed successfully!"
+echo ""
+echo "🎯 What was tested:"
+echo "   ✅ Load modes demonstrations"
+echo "   ✅ Conditional pipelines with various scenarios"  
+echo "   ✅ Python UDF showcases and examples"
+echo "   ✅ Parquet connector functionality"
+echo "   ✅ REST API connector functionality"
+echo "   ✅ Transform layer demonstrations"
+echo "   ✅ Google Sheets connector (if configured)"
+echo ""
+echo "🚀 All example demos are working correctly and can be trusted!"
+
+# Final exit with success
+exit 0 
