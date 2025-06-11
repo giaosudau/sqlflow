@@ -89,9 +89,6 @@ class PostgresSource(Connector):
         connect_args = {
             "application_name": "sqlflow",
             "connect_timeout": self.conn_params.get("connect_timeout", 30),
-            # Optimize for batch operations
-            "server_side_cursors": True,
-            "options": "-c default_transaction_isolation=read_committed",
         }
 
         # Add SSL configuration if provided
@@ -475,7 +472,7 @@ class PostgresSource(Connector):
             filters[cursor_field] = f"> '{cursor_value}'"
 
         # Use the resilient read method with optimization
-        return self.read(
+        yield from self.read(
             object_name=object_name,
             columns=kwargs.get("columns"),
             filters=filters,
