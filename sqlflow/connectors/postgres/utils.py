@@ -36,8 +36,6 @@ def translate_postgres_parameters(config: Dict[str, Any]) -> Dict[str, Any]:
     # Also handle table parameter mapping for consistency
     if "table" in config and "table_name" not in config:
         translated["table_name"] = config["table"]
-        logger.debug(
-            "PostgresConnector: Mapped 'table' parameter to 'table_name'"
-        )
+        logger.debug("PostgresConnector: Mapped 'table' parameter to 'table_name'")
 
-    return translated 
+    return translated
