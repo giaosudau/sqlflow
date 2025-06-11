@@ -1,5 +1,6 @@
 import os
 import tempfile
+import time
 import unittest
 
 import pandas as pd
@@ -106,6 +107,113 @@ class TestCSVDestination(unittest.TestCase):
         connector = CSVDestination(config=config)
         self.assertEqual(connector.config, config)
         self.assertEqual(connector.path, "test.csv")
+
+    def test_write_strategy_selection(self):
+        """Test that appropriate write strategy is selected based on data size."""
+        connector = CSVDestination(config={"path": "test.csv"})
+
+        # Small data should use direct strategy
+        small_df = pd.DataFrame({"a": [1, 2, 3]})
+        self.assertEqual(connector._get_write_strategy(small_df), "direct")
+
+        # Medium data - create data that exceeds 5MB (buffered strategy)
+        rows = 1500
+        cols = 100  # 1500 * 100 = 150,000 values * 50 = 7.5MB
+        medium_data = {f"col_{i}": list(range(rows)) for i in range(cols)}
+        medium_df = pd.DataFrame(medium_data)
+        self.assertEqual(connector._get_write_strategy(medium_df), "buffered")
+
+        # Large data - create data that exceeds 50MB (chunked strategy)
+        rows = 5000
+        cols = 250  # 5000 * 250 = 1,250,000 values * 50 = 62.5MB
+        large_data = {f"col_{i}": list(range(rows)) for i in range(cols)}
+        large_df = pd.DataFrame(large_data)
+        self.assertEqual(connector._get_write_strategy(large_df), "chunked")
+
+    def test_buffer_pool_reuse(self):
+        """Test that buffer pool correctly reuses buffers."""
+        # Clear buffer pool
+        CSVDestination._buffer_pool.clear()
+
+        connector = CSVDestination(config={"path": "test.csv"})
+
+        # Get a buffer - should create new one
+        buffer1 = connector._get_buffer()
+        self.assertEqual(len(CSVDestination._buffer_pool), 0)
+
+        # Return buffer - should add to pool
+        connector._return_buffer(buffer1)
+        self.assertEqual(len(CSVDestination._buffer_pool), 1)
+
+        # Get buffer again - should reuse from pool
+        buffer2 = connector._get_buffer()
+        self.assertEqual(len(CSVDestination._buffer_pool), 0)
+        self.assertIs(buffer1, buffer2)  # Same object
+
+    def test_chunked_write_performance(self):
+        """Test chunked write performance with larger dataset."""
+        # Create a larger dataset to test chunked writing
+        large_data = {
+            "id": list(range(50000)),
+            "name": [f"user_{i}" for i in range(50000)],
+            "value": [i * 1.5 for i in range(50000)],
+        }
+        large_df = pd.DataFrame(large_data)
+
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".csv") as f:
+            file_path = f.name
+
+        try:
+            connector = CSVDestination(config={"path": file_path})
+
+            start_time = time.time()
+            connector.write(large_df, options={"index": False})
+            duration = time.time() - start_time
+
+            # Verify file was created successfully
+            self.assertTrue(os.path.exists(file_path))
+
+            # Read back and verify data integrity (sample check)
+            written_df = pd.read_csv(file_path)
+            self.assertEqual(len(written_df), len(large_df))
+            self.assertEqual(list(written_df.columns), list(large_df.columns))
+
+            # Performance should be reasonable (less than 10 seconds for 50k rows)
+            self.assertLess(
+                duration, 10.0, f"Chunked write took too long: {duration:.2f}s"
+            )
+
+        finally:
+            if os.path.exists(file_path):
+                os.remove(file_path)
+
+    def test_append_mode_chunked(self):
+        """Test append mode with chunked writing."""
+        # Create medium-sized data that will trigger chunked append
+        data = {"id": list(range(15000)), "value": [i * 2 for i in range(15000)]}
+        df = pd.DataFrame(data)
+
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".csv") as f:
+            file_path = f.name
+
+        try:
+            connector = CSVDestination(config={"path": file_path})
+
+            # First write
+            half_df = df.head(7500)
+            connector.write(half_df, options={"index": False}, mode="replace")
+
+            # Append the rest
+            second_half = df.tail(7500)
+            connector.write(second_half, options={"index": False}, mode="append")
+
+            # Verify combined data
+            written_df = pd.read_csv(file_path)
+            self.assertEqual(len(written_df), len(df))
+
+        finally:
+            if os.path.exists(file_path):
+                os.remove(file_path)
 
 
 if __name__ == "__main__":
