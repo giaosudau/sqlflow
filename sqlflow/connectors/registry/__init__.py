@@ -1,6 +1,7 @@
 # This file is intentionally left blank.
 
 from .destination_registry import destination_registry
+from .enhanced_registry import EnhancedConnectorRegistry, enhanced_registry
 from .source_registry import source_registry
 
 
@@ -31,6 +32,8 @@ def register_connector(connector_type: str):
 __all__ = [
     "source_registry",
     "destination_registry",
+    "enhanced_registry",
+    "EnhancedConnectorRegistry",
     "get_connector_class",
     "register_connector",
 ]
