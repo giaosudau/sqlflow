@@ -11,8 +11,8 @@ import inspect
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Type, Union
 
+from sqlflow.connectors.base.connector import Connector
 from sqlflow.connectors.base.destination_connector import DestinationConnector
-from sqlflow.connectors.base.source_connector import SourceConnector
 from sqlflow.logging import get_logger
 
 logger = get_logger(__name__)
@@ -22,7 +22,7 @@ logger = get_logger(__name__)
 class ConnectorTypeInfo:
     """Information about a registered connector type."""
 
-    connector_class: Type[Union[SourceConnector, DestinationConnector]]
+    connector_class: Type[Union[Connector, DestinationConnector]]
     connector_type: str
     default_config: Dict[str, Any] = field(default_factory=dict)
     required_params: List[str] = field(default_factory=list)
@@ -51,7 +51,7 @@ class EnhancedConnectorRegistry:
     def register_source(
         self,
         connector_type: str,
-        connector_class: Type[SourceConnector],
+        connector_class: Type[Connector],
         default_config: Optional[Dict[str, Any]] = None,
         required_params: Optional[List[str]] = None,
         optional_params: Optional[Dict[str, Any]] = None,
@@ -122,7 +122,7 @@ class EnhancedConnectorRegistry:
         self._destination_connectors[connector_type] = connector_info
         logger.debug(f"Successfully registered destination connector: {connector_type}")
 
-    def get_source_connector_class(self, connector_type: str) -> Type[SourceConnector]:
+    def get_source_connector_class(self, connector_type: str) -> Type[Connector]:
         """Get a source connector class by type.
 
         Args:
@@ -269,7 +269,7 @@ class EnhancedConnectorRegistry:
 
     def create_source_connector(
         self, connector_type: str, resolved_config: Dict[str, Any]
-    ) -> SourceConnector:
+    ) -> Connector:
         """Create a source connector instance with resolved configuration.
 
         Args:

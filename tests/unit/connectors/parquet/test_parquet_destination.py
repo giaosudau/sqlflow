@@ -1,38 +1,27 @@
 import os
-import unittest
 
 import pandas as pd
 import pyarrow.parquet as pq
+import pytest
 
 from sqlflow.connectors.parquet.destination import ParquetDestination
 
 
-class TestParquetDestination(unittest.TestCase):
-    def setUp(self):
-        """Set up a dummy DataFrame for testing."""
-        self.file_path = "test_output.parquet"
-        self.df = pd.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]})
+def test_write_success(tmp_path):
+    """Test successful write to a Parquet file."""
+    file_path = tmp_path / "test_output.parquet"
+    df = pd.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]})
 
-    def tearDown(self):
-        """Remove the dummy Parquet file."""
-        if os.path.exists(self.file_path):
-            os.remove(self.file_path)
+    connector = ParquetDestination(config={"path": str(file_path)})
+    connector.write(df)
 
-    def test_write_success(self):
-        """Test successful write to a Parquet file."""
-        connector = ParquetDestination(config={"path": self.file_path})
-        connector.write(self.df)
-
-        # Verify the file was created and has the correct data
-        self.assertTrue(os.path.exists(self.file_path))
-        written_df = pq.read_table(self.file_path).to_pandas()
-        pd.testing.assert_frame_equal(self.df, written_df)
-
-    def test_missing_path_config(self):
-        """Test that an error is raised if 'path' is not in config."""
-        with self.assertRaises(ValueError):
-            ParquetDestination(config={})
+    # Verify the file was created and has the correct data
+    assert os.path.exists(file_path)
+    written_df = pq.read_table(file_path).to_pandas()
+    pd.testing.assert_frame_equal(df, written_df)
 
 
-if __name__ == "__main__":
-    unittest.main()
+def test_missing_path_config():
+    """Test that an error is raised if 'path' is not in config."""
+    with pytest.raises(ValueError, match="path"):
+        ParquetDestination(config={})

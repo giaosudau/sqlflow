@@ -1,8 +1,8 @@
 # This file is intentionally left blank.
 
-from .base_connector import BaseConnector
 from .connection_test_result import ConnectionTestResult
-from .connector import BidirectionalConnector, Connector, ConnectorState
+from .connector import Connector, ConnectorState
+from .destination_connector import DestinationConnector
 from .exceptions import (
     ConnectorError,
     HealthCheckError,
@@ -13,13 +13,12 @@ from .schema import Schema
 
 __all__ = [
     "Connector",
+    "DestinationConnector",
     "ConnectorState",
     "ConnectionTestResult",
     "Schema",
-    "BaseConnector",
     "ConnectorError",
     "ParameterError",
     "IncrementalError",
     "HealthCheckError",
-    "BidirectionalConnector",
 ]

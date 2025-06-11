@@ -12,6 +12,7 @@ from sqlflow.connectors.base.connection_test_result import ConnectionTestResult
 from sqlflow.connectors.base.connector import Connector, ConnectorState
 from sqlflow.connectors.base.schema import Schema
 from sqlflow.connectors.data_chunk import DataChunk
+from sqlflow.connectors.postgres.utils import translate_postgres_parameters
 from sqlflow.connectors.resilience import resilient_operation
 
 logger = logging.getLogger(__name__)
@@ -32,10 +33,7 @@ class PostgresSource(Connector):
 
     def configure(self, params: Dict[str, Any]) -> None:
         """Configure the connector with parameters."""
-        self.conn_params = params
-
-        # Apply parameter translation for industry-standard to psycopg2 compatibility
-        self.conn_params = self._translate_parameters(params)
+        self.conn_params = translate_postgres_parameters(params)
 
         # Validate that we have either operational parameters or connection parameters
         has_connection_params = all(
@@ -55,42 +53,6 @@ class PostgresSource(Connector):
         self._configure_resilience(params)
 
         self.state = ConnectorState.CONFIGURED
-
-    def _translate_parameters(self, config: Dict[str, Any]) -> Dict[str, Any]:
-        """Translate industry-standard parameters to psycopg2-compatible names.
-
-        Provides backward compatibility by supporting both naming conventions:
-        - Industry standard: database, username (Airbyte/Fivetran compatible)
-        - psycopg2 legacy: dbname, user
-
-        Args:
-            config: Original configuration parameters
-
-        Returns:
-            Translated configuration with psycopg2-compatible parameter names
-        """
-        translated = config.copy()
-
-        # Parameter mapping: industry_standard -> psycopg2_name
-        param_mapping = {
-            "database": "dbname",
-            "username": "user",
-        }
-
-        for industry_std, psycopg2_name in param_mapping.items():
-            if industry_std in config and psycopg2_name not in config:
-                translated[psycopg2_name] = config[industry_std]
-                logger.debug(
-                    f"PostgresSource: Translated parameter '{industry_std}' -> '{psycopg2_name}' "
-                    f"for psycopg2 compatibility"
-                )
-
-        # Also handle table parameter mapping for consistency
-        if "table" in config and "table_name" not in config:
-            translated["table_name"] = config["table"]
-            logger.debug("PostgresSource: Mapped 'table' parameter to 'table_name'")
-
-        return translated
 
     @property
     def engine(self) -> Engine:
