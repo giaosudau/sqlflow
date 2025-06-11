@@ -89,7 +89,7 @@ SOURCE s3_csv_demo TYPE S3 PARAMS {
     "mock_mode": false
 };
 
--- JSON format with flattening
+-- JSON format with flattening (reads entire directory)
 SOURCE s3_json_demo TYPE S3 PARAMS {
     "bucket": "sqlflow-demo",
     "path_prefix": "json-data/",

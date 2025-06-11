@@ -18,7 +18,7 @@ SOURCE users TYPE REST PARAMS {
 LOAD users_data FROM users;
 
 -- Create enriched posts analysis
-CREATE TABLE post_analysis AS
+CREATE TABLE post_analysis MODE REPLACE AS
 SELECT 
     p.id as post_id,
     p.userId as user_id,
@@ -39,7 +39,7 @@ FROM posts_data p
 LEFT JOIN users_data u ON p.userId = u.id;
 
 -- Create author statistics
-CREATE TABLE author_stats AS
+CREATE TABLE author_stats MODE REPLACE AS
 SELECT 
     user_id,
     author_name,
@@ -55,7 +55,7 @@ GROUP BY user_id, author_name, author_company
 ORDER BY total_posts DESC;
 
 -- Create content insights
-CREATE TABLE content_insights AS
+CREATE TABLE content_insights MODE REPLACE AS
 SELECT 
     post_length_category,
     COUNT(*) as post_count,

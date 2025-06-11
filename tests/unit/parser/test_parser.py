@@ -450,14 +450,15 @@ class TestParser:
         )
         assert "EXPORT directive requires a connector TYPE" in invalid_step3.validate()
 
-        invalid_step4 = ExportStep(
+        # Note: OPTIONS are now optional for simplified syntax, so empty options are valid
+        valid_step_no_options = ExportStep(
             sql_query="SELECT * FROM users",
             destination_uri="s3://bucket/users.csv",
             connector_type="csv",
             options={},
             line_number=1,
         )
-        assert "EXPORT directive requires OPTIONS" in invalid_step4.validate()
+        assert valid_step_no_options.validate() == []
 
     def test_source_syntax_error_handling(self):
         """Test that the parser correctly handles invalid SOURCE syntax patterns."""
@@ -526,3 +527,35 @@ class TestParser:
             parser.parse(validate=False)
 
         assert "Expected 'OPTIONS' after connector name" in str(excinfo.value)
+
+    def test_parse_simplified_export_directive(self):
+        """Test that the parser correctly parses simplified EXPORT directive."""
+        text = """EXPORT users_table TO "output/users.csv" TYPE CSV;"""
+
+        parser = Parser(text)
+        pipeline = parser.parse(validate=False)
+
+        assert len(pipeline.steps) == 1
+        assert isinstance(pipeline.steps[0], ExportStep)
+
+        export_step = pipeline.steps[0]
+        assert export_step.sql_query == "SELECT * FROM users_table"
+        assert export_step.destination_uri == "output/users.csv"
+        assert export_step.connector_type == "csv"
+        assert export_step.options == {}
+
+    def test_parse_simplified_export_directive_with_options(self):
+        """Test that the parser correctly parses simplified EXPORT directive with OPTIONS."""
+        text = """EXPORT sales_data TO "output/sales.csv" TYPE CSV OPTIONS { "header": true };"""
+
+        parser = Parser(text)
+        pipeline = parser.parse(validate=False)
+
+        assert len(pipeline.steps) == 1
+        assert isinstance(pipeline.steps[0], ExportStep)
+
+        export_step = pipeline.steps[0]
+        assert export_step.sql_query == "SELECT * FROM sales_data"
+        assert export_step.destination_uri == "output/sales.csv"
+        assert export_step.connector_type == "csv"
+        assert export_step.options["header"] is True

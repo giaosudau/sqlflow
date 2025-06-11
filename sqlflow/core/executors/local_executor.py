@@ -324,6 +324,8 @@ class ConnectorEngineStub:
         """Load data from S3 connector with discovery mode support."""
         import pandas as pd
 
+        from sqlflow.connectors.data_chunk import DataChunk
+
         config = getattr(connector_instance, "connection_params", {})
         has_path_prefix = config.get("path_prefix") or config.get("prefix")
         has_specific_key = config.get("key")
@@ -340,32 +342,28 @@ class ConnectorEngineStub:
 
             # Read the first discovered file (simplified for demo)
             first_file = discovered_files[0]
-            df = connector_instance.read(object_name=first_file)
+            result = connector_instance.read(object_name=first_file)
             logger.debug(
-                f"ConnectorEngineStub: Loaded {len(df)} rows from S3 file '{first_file}' (discovered from prefix)"
+                f"ConnectorEngineStub: Reading S3 file '{first_file}' (discovered from prefix) for source '{source_name}'"
             )
         else:
-            # Use specific key or default read
-            df = connector_instance.read()
-            logger.debug(
-                f"ConnectorEngineStub: Loaded {len(df)} rows from S3 source '{source_name}'"
-            )
-
-        return df
-
-    def _load_database_data(self, connector_instance, source_name, table_name):
-        """Load data from database connector."""
-        options = {}
-        if table_name:
-            options["table_name"] = table_name
-
-        result = connector_instance.read(options=options)
+            # Use specific key for reading
+            if has_specific_key:
+                result = connector_instance.read(object_name=has_specific_key)
+                logger.debug(
+                    f"ConnectorEngineStub: Reading S3 source '{source_name}' with key '{has_specific_key}'"
+                )
+            else:
+                logger.error(
+                    f"S3 source '{source_name}' missing required 'key' or 'path_prefix' parameter"
+                )
+                return pd.DataFrame()
 
         # Handle both DataFrame and Iterator[DataChunk] return types
         if isinstance(result, pd.DataFrame):
             # Legacy connector returning DataFrame
             logger.debug(
-                f"ConnectorEngineStub: Loaded {len(result)} rows from '{source_name}' table '{table_name}'"
+                f"ConnectorEngineStub: Loaded {len(result)} rows from S3 source '{source_name}'"
             )
             return result
         else:
@@ -386,14 +384,162 @@ class ConnectorEngineStub:
 
                 df = pd.concat(chunks, ignore_index=True) if chunks else pd.DataFrame()
                 logger.debug(
-                    f"ConnectorEngineStub: Loaded {len(df)} rows from '{source_name}' table '{table_name}'"
+                    f"ConnectorEngineStub: Loaded {len(df)} rows from S3 source '{source_name}'"
                 )
                 return df
             except Exception as e:
                 logger.error(
-                    f"ConnectorEngineStub: Failed to load data from '{source_name}': {str(e)}"
+                    f"ConnectorEngineStub: Failed to process S3 data from '{source_name}': {str(e)}"
                 )
                 raise
+
+    def _load_database_data(self, connector_instance, source_name, table_name):
+        """Load data from database connector."""
+        # Handle S3 connectors specially for discovery mode
+        if hasattr(connector_instance, "connection_params"):
+            config = connector_instance.connection_params
+            connector_type = getattr(connector_instance, "__class__", None)
+
+            if connector_type and "S3" in str(connector_type):
+                result = self._handle_s3_connector_data_loading(
+                    connector_instance, source_name, table_name, config
+                )
+            else:
+                # Non-S3 connectors - use standard logic
+                result = self._load_non_s3_database_data(
+                    connector_instance, source_name, table_name
+                )
+        else:
+            # Connectors without connection_params - use standard logic
+            result = self._load_non_s3_database_data(
+                connector_instance, source_name, table_name
+            )
+
+        return self._process_connector_result(result, source_name, table_name)
+
+    def _handle_s3_connector_data_loading(
+        self, connector_instance, source_name, table_name, config
+    ):
+        """Handle data loading for S3 connectors with discovery mode support."""
+        # For S3 connectors, handle path_prefix vs specific key
+        has_path_prefix = config.get("path_prefix") or config.get("prefix")
+        has_specific_key = config.get("key")
+
+        if has_path_prefix and not has_specific_key:
+            return self._load_s3_discovery_mode_data(
+                connector_instance, source_name, has_path_prefix
+            )
+        else:
+            return self._load_s3_specific_key_data(
+                connector_instance, source_name, table_name, has_specific_key
+            )
+
+    def _load_s3_discovery_mode_data(
+        self, connector_instance, source_name, path_prefix
+    ):
+        """Load data using S3 discovery mode."""
+        # Use discovery mode for path_prefix
+        discovered_files = connector_instance.discover()
+
+        if not discovered_files:
+            logger.warning(
+                f"No files discovered for S3 source '{source_name}' with prefix '{path_prefix}'"
+            )
+            return pd.DataFrame()
+
+        # Read the first discovered file
+        first_file = discovered_files[0]
+        result = connector_instance.read(object_name=first_file)
+        logger.debug(
+            f"ConnectorEngineStub: Using S3 discovery mode, reading file '{first_file}' from prefix '{path_prefix}'"
+        )
+        return result
+
+    def _load_s3_specific_key_data(
+        self, connector_instance, source_name, table_name, has_specific_key
+    ):
+        """Load data using S3 specific key mode."""
+        # Use specific key or fallback object_name
+        object_name = has_specific_key or table_name
+        if object_name:
+            return connector_instance.read(object_name=object_name)
+        else:
+            # S3 connector requires object_name, so we can't call without it
+            logger.error(
+                f"S3 source '{source_name}' missing required 'key' or 'path_prefix' parameter"
+            )
+            return pd.DataFrame()
+
+    def _process_connector_result(self, result, source_name, table_name):
+        """Process connector result, handling both DataFrame and Iterator[DataChunk] return types."""
+        # Handle both DataFrame and Iterator[DataChunk] return types
+        if isinstance(result, pd.DataFrame):
+            # Legacy connector returning DataFrame
+            logger.debug(
+                f"ConnectorEngineStub: Loaded {len(result)} rows from '{source_name}' table '{table_name}'"
+            )
+            return result
+        else:
+            # Modern connector returning Iterator[DataChunk]
+            return self._convert_chunks_to_dataframe(result, source_name, table_name)
+
+    def _convert_chunks_to_dataframe(self, result, source_name, table_name):
+        """Convert chunks to a single DataFrame."""
+        chunks = []
+        try:
+            for chunk in result:
+                if isinstance(chunk, DataChunk):
+                    # DataChunk object
+                    chunks.append(chunk.to_pandas())
+                elif hasattr(chunk, "to_pandas"):
+                    # PyArrow table
+                    chunks.append(chunk.to_pandas())
+                else:
+                    # Other format - try direct conversion
+                    chunks.append(pd.DataFrame(chunk))
+
+            df = pd.concat(chunks, ignore_index=True) if chunks else pd.DataFrame()
+            logger.debug(
+                f"ConnectorEngineStub: Loaded {len(df)} rows from '{source_name}' table '{table_name}'"
+            )
+            return df
+        except Exception as e:
+            logger.error(
+                f"ConnectorEngineStub: Failed to load data from '{source_name}': {str(e)}"
+            )
+            raise
+
+    def _load_non_s3_database_data(self, connector_instance, source_name, table_name):
+        """Load data from non-S3 database connectors."""
+        # Handle different connector read method signatures
+        read_method = getattr(connector_instance, "read", None)
+        if read_method:
+            import inspect
+
+            sig = inspect.signature(read_method)
+            connector_type = getattr(connector_instance, "__class__", None)
+
+            # For Parquet connectors, don't pass object_name as it's already configured with path
+            if connector_type and "Parquet" in str(connector_type):
+                result = connector_instance.read()
+            # Check if connector uses object_name parameter (new interface)
+            elif "object_name" in sig.parameters and table_name:
+                result = connector_instance.read(object_name=table_name)
+            # Check if connector uses legacy options parameter
+            elif (
+                "options" in sig.parameters
+                and table_name
+                and hasattr(connector_instance, "supports_table_names")
+            ):
+                options = {"table_name": table_name}
+                result = connector_instance.read(options=options)
+            else:
+                # For CSV and other connectors that don't use table_name
+                result = connector_instance.read()
+        else:
+            # Fallback for connectors without read method
+            result = connector_instance.read()
+        return result
 
 
 class LocalExecutor(BaseExecutor):
@@ -442,8 +588,13 @@ class LocalExecutor(BaseExecutor):
 
         # Discover UDFs if project directory is provided
         if project_dir:
-            self.discover_udfs(project_dir)
-            self._register_udfs_with_engine()
+            try:
+                self.discover_udfs(project_dir)
+                self._register_udfs_with_engine()
+            except Exception as e:
+                # UDF discovery is optional - don't fail initialization if it fails
+                logger.debug(f"UDF discovery failed: {e}")
+                self.discovered_udfs = {}
 
     def _create_project(
         self, project_dir: Optional[str], profile_name: Optional[str]
@@ -1895,81 +2046,9 @@ class LocalExecutor(BaseExecutor):
         )
 
         try:
-            # Get current watermark for this source
-            last_cursor_value = None
-            if self.watermark_manager:
-                last_cursor_value = self.watermark_manager.get_source_watermark(
-                    pipeline=pipeline_name,
-                    source=source_name,
-                    cursor_field=cursor_field,
-                )
-
-            logger.info(
-                f"Incremental SOURCE {source_name}: last_cursor_value={last_cursor_value}"
+            return self._perform_incremental_loading(
+                step, source_name, cursor_field, pipeline_name
             )
-
-            # Get connector instance
-            connector = self._get_incremental_connector_instance(step)
-            if not connector.supports_incremental():
-                logger.warning(
-                    f"Connector {source_name} doesn't support incremental, falling back to full refresh"
-                )
-                return self._handle_traditional_source(step, step["id"], source_name)
-
-            # Read incremental data with automatic filtering
-            max_cursor_value = last_cursor_value
-            total_rows = 0
-
-            # Get object name for reading (table name, file path, etc.)
-            object_name = self._extract_object_name_from_step(step)
-
-            for chunk in connector.read_incremental(
-                object_name=object_name,
-                cursor_field=cursor_field,
-                cursor_value=last_cursor_value,
-                batch_size=step.get("batch_size", 10000),
-            ):
-                # Store chunk data for subsequent LOAD operations
-                if not hasattr(self, "table_data"):
-                    self.table_data = {}
-                self.table_data[source_name] = chunk
-                total_rows += len(chunk)  # DataChunk has __len__ method
-
-                # Track maximum cursor value in this chunk
-                chunk_max = connector.get_cursor_value(chunk, cursor_field)
-                if chunk_max and (not max_cursor_value or chunk_max > max_cursor_value):
-                    max_cursor_value = chunk_max
-
-            # Update watermark after successful incremental read
-            # This is needed for complete incremental loading flow tests
-            if max_cursor_value and self.watermark_manager:
-                self.watermark_manager.update_source_watermark(
-                    pipeline=pipeline_name,
-                    source=source_name,
-                    cursor_field=cursor_field,
-                    value=max_cursor_value,
-                )
-                logger.debug(
-                    f"Updated watermark for {pipeline_name}.{source_name}.{cursor_field}: {max_cursor_value}"
-                )
-
-            logger.info(
-                f"Incremental SOURCE {source_name} read {total_rows} rows, max cursor: {max_cursor_value}"
-            )
-
-            return {
-                "status": "success",
-                "source_name": source_name,
-                "sync_mode": "incremental",
-                "previous_watermark": last_cursor_value,
-                "new_watermark": max_cursor_value,
-                "rows_processed": total_rows,
-                "incremental": True,
-                "connector_type": step.get(
-                    "connector_type", step.get("source_connector_type", "csv")
-                ),
-            }
-
         except Exception as e:
             logger.error(f"Incremental source execution failed for {source_name}: {e}")
             # Don't update watermark on failure
@@ -1979,6 +2058,170 @@ class LocalExecutor(BaseExecutor):
                 "error": str(e),
                 "sync_mode": "incremental",
             }
+
+    def _perform_incremental_loading(
+        self, step, source_name, cursor_field, pipeline_name
+    ):
+        """Perform the actual incremental loading process."""
+        # Get current watermark for this source
+        last_cursor_value = self._get_current_watermark(
+            pipeline_name, source_name, cursor_field
+        )
+
+        logger.info(
+            f"Incremental SOURCE {source_name}: last_cursor_value={last_cursor_value}"
+        )
+
+        # Get connector instance
+        connector = self._get_incremental_connector_instance(step)
+        if not connector.supports_incremental():
+            logger.warning(
+                f"Connector {source_name} doesn't support incremental, falling back to full refresh"
+            )
+            return self._handle_traditional_source(step, step["id"], source_name)
+
+        # Handle S3 discovery mode and get object name
+        object_name = self._handle_s3_incremental_discovery(
+            step, connector, source_name
+        )
+        if object_name is None:
+            # Early return for S3 discovery mode with no files
+            return self._create_incremental_result(
+                source_name, step, last_cursor_value, last_cursor_value, 0
+            )
+
+        # Read incremental data
+        max_cursor_value, total_rows = self._read_incremental_data(
+            connector, object_name, cursor_field, last_cursor_value, step, source_name
+        )
+
+        # Update watermark after successful incremental read
+        self._update_incremental_watermark(
+            pipeline_name, source_name, cursor_field, max_cursor_value
+        )
+
+        logger.info(
+            f"Incremental SOURCE {source_name} read {total_rows} rows, max cursor: {max_cursor_value}"
+        )
+
+        return self._create_incremental_result(
+            source_name, step, last_cursor_value, max_cursor_value, total_rows
+        )
+
+    def _get_current_watermark(self, pipeline_name, source_name, cursor_field):
+        """Get the current watermark value for incremental loading."""
+        last_cursor_value = None
+        if self.watermark_manager:
+            last_cursor_value = self.watermark_manager.get_source_watermark(
+                pipeline=pipeline_name,
+                source=source_name,
+                cursor_field=cursor_field,
+            )
+        return last_cursor_value
+
+    def _handle_s3_incremental_discovery(self, step, connector, source_name):
+        """Handle S3 connector discovery mode for incremental loading."""
+        # Get object name for reading (table name, file path, etc.)
+        object_name = self._extract_object_name_from_step(step)
+
+        # Handle S3 connectors specially for discovery mode in incremental loading
+        if hasattr(connector, "connection_params"):
+            config = connector.connection_params
+            connector_type = getattr(connector, "__class__", None)
+
+            if connector_type and "S3" in str(connector_type):
+                return self._handle_s3_discovery_mode_incremental(
+                    config, connector, source_name, step
+                )
+
+        return object_name
+
+    def _handle_s3_discovery_mode_incremental(
+        self, config, connector, source_name, step
+    ):
+        """Handle S3 discovery mode specifically for incremental loading."""
+        # For S3 connectors, handle path_prefix vs specific key
+        has_path_prefix = config.get("path_prefix") or config.get("prefix")
+        has_specific_key = config.get("key")
+
+        if has_path_prefix and not has_specific_key:
+            # Use discovery mode for path_prefix in incremental loading
+            discovered_files = connector.discover()
+
+            if not discovered_files:
+                logger.warning(
+                    f"No files discovered for S3 incremental source '{source_name}' with prefix '{has_path_prefix}'"
+                )
+                return None  # Signal to return early with empty result
+
+            # Read the first discovered file for incremental processing
+            first_file = discovered_files[0]
+            object_name = first_file
+            logger.debug(
+                f"Using S3 discovery mode for incremental loading, reading file '{first_file}' from prefix '{has_path_prefix}'"
+            )
+            return object_name
+
+        return self._extract_object_name_from_step(step)
+
+    def _read_incremental_data(
+        self, connector, object_name, cursor_field, last_cursor_value, step, source_name
+    ):
+        """Read incremental data and track the maximum cursor value."""
+        max_cursor_value = last_cursor_value
+        total_rows = 0
+
+        for chunk in connector.read_incremental(
+            object_name=object_name,
+            cursor_field=cursor_field,
+            cursor_value=last_cursor_value,
+            batch_size=step.get("batch_size", 10000),
+        ):
+            # Store chunk data for subsequent LOAD operations
+            if not hasattr(self, "table_data"):
+                self.table_data = {}
+            self.table_data[source_name] = chunk
+            total_rows += len(chunk)  # DataChunk has __len__ method
+
+            # Track maximum cursor value in this chunk
+            chunk_max = connector.get_cursor_value(chunk, cursor_field)
+            if chunk_max and (not max_cursor_value or chunk_max > max_cursor_value):
+                max_cursor_value = chunk_max
+
+        return max_cursor_value, total_rows
+
+    def _update_incremental_watermark(
+        self, pipeline_name, source_name, cursor_field, max_cursor_value
+    ):
+        """Update watermark after successful incremental read."""
+        # This is needed for complete incremental loading flow tests
+        if max_cursor_value and self.watermark_manager:
+            self.watermark_manager.update_source_watermark(
+                pipeline=pipeline_name,
+                source=source_name,
+                cursor_field=cursor_field,
+                value=max_cursor_value,
+            )
+            logger.debug(
+                f"Updated watermark for {pipeline_name}.{source_name}.{cursor_field}: {max_cursor_value}"
+            )
+
+    def _create_incremental_result(
+        self, source_name, step, last_cursor_value, max_cursor_value, total_rows
+    ):
+        """Create the result dictionary for incremental loading."""
+        return {
+            "status": "success",
+            "source_name": source_name,
+            "sync_mode": "incremental",
+            "previous_watermark": last_cursor_value,
+            "new_watermark": max_cursor_value,
+            "rows_processed": total_rows,
+            "incremental": True,
+            "connector_type": step.get(
+                "connector_type", step.get("source_connector_type", "csv")
+            ),
+        }
 
     def _get_incremental_connector_instance(self, step: Dict[str, Any]):
         """Get connector instance for incremental loading."""

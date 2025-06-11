@@ -10,7 +10,7 @@ SOURCE users TYPE REST PARAMS {
 LOAD users_data FROM users;
 
 -- Clean and structure user data
-CREATE TABLE clean_users AS
+CREATE TABLE clean_users MODE REPLACE AS
 SELECT 
     id as user_id,
     name as full_name,
@@ -30,7 +30,7 @@ SELECT
 FROM users_data;
 
 -- Create a user summary report
-CREATE TABLE user_summary AS
+CREATE TABLE user_summary MODE REPLACE AS
 SELECT 
     COUNT(*) as total_users,
     COUNT(DISTINCT city) as unique_cities,

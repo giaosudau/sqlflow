@@ -705,6 +705,10 @@ class Parser:
     def _parse_export_statement(self) -> ExportStep:
         """Parse an EXPORT statement.
 
+        Supports both syntaxes:
+        1. EXPORT SELECT ... TO "destination" TYPE connector OPTIONS {...};
+        2. EXPORT table_name TO connector "destination";
+
         Returns
         -------
             ExportStep
@@ -716,14 +720,30 @@ class Parser:
         """
         export_token = self._consume(TokenType.EXPORT, "Expected 'EXPORT'")
 
+        # Check if next token is SELECT (full syntax) or IDENTIFIER (simplified syntax)
+        if self._check(TokenType.SELECT):
+            # Full syntax: EXPORT SELECT ... TO "destination" TYPE connector OPTIONS {...};
+            return self._parse_full_export_statement(export_token)
+        elif self._check(TokenType.IDENTIFIER):
+            # Simplified syntax: EXPORT table_name TO connector "destination";
+            return self._parse_simplified_export_statement(export_token)
+        else:
+            token = self._peek()
+            raise ParserError(
+                "Expected 'SELECT' or table name after 'EXPORT'",
+                token.line,
+                token.column,
+            )
+
+    def _parse_full_export_statement(self, export_token) -> ExportStep:
+        """Parse the full EXPORT SELECT ... syntax."""
         self._consume(TokenType.SELECT, "Expected 'SELECT' after 'EXPORT'")
 
         sql_query_tokens = ["SELECT"]
         while not self._check(TokenType.TO) and not self._is_at_end():
             token = self._advance()
-            sql_query_tokens.append(token.value)  # Store token value, not Token object
+            sql_query_tokens.append(token.value)
 
-        # Properly handle SQL query tokens (especially DOT tokens)
         sql_query = self._format_sql_query(sql_query_tokens)
 
         self._consume(TokenType.TO, "Expected 'TO' after SQL query")
@@ -732,8 +752,6 @@ class Parser:
             TokenType.STRING, "Expected destination URI string after 'TO'"
         )
         destination_uri = destination_uri_token.value.strip("\"'")
-
-        # Fix variable references in the destination URI
         destination_uri = self._fix_variable_references(destination_uri)
 
         self._consume(TokenType.TYPE, "Expected 'TYPE' after destination URI")
@@ -744,10 +762,51 @@ class Parser:
 
         self._consume(TokenType.OPTIONS, "Expected 'OPTIONS' after connector type")
 
-        # Use the _parse_json_token method to handle JSON parsing with variable substitution
         options = self._parse_json_token()
 
         self._consume(TokenType.SEMICOLON, "Expected ';' after EXPORT statement")
+
+        return ExportStep(
+            sql_query=sql_query,
+            destination_uri=destination_uri,
+            connector_type=connector_type_token.value.lower(),
+            options=options,
+            line_number=export_token.line,
+        )
+
+    def _parse_simplified_export_statement(self, export_token) -> ExportStep:
+        """Parse the simplified EXPORT table_name TO "destination" TYPE connector syntax."""
+        # Parse table name
+        table_name_token = self._consume(
+            TokenType.IDENTIFIER, "Expected table name after 'EXPORT'"
+        )
+
+        self._consume(TokenType.TO, "Expected 'TO' after table name")
+
+        # Parse destination URI
+        destination_uri_token = self._consume(
+            TokenType.STRING, "Expected destination URI string after 'TO'"
+        )
+        destination_uri = destination_uri_token.value.strip("\"'")
+        destination_uri = self._fix_variable_references(destination_uri)
+
+        self._consume(TokenType.TYPE, "Expected 'TYPE' after destination URI")
+
+        # Parse connector type (CSV, PARQUET, etc.)
+        connector_type_token = self._consume(
+            TokenType.IDENTIFIER, "Expected connector type after 'TYPE'"
+        )
+
+        # Parse optional OPTIONS
+        options = {}
+        if self._check(TokenType.OPTIONS):
+            self._advance()  # consume OPTIONS token
+            options = self._parse_json_token()
+
+        self._consume(TokenType.SEMICOLON, "Expected ';' after EXPORT statement")
+
+        # Generate SQL query from table name
+        sql_query = f"SELECT * FROM {table_name_token.value}"
 
         return ExportStep(
             sql_query=sql_query,

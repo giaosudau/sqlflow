@@ -27,6 +27,7 @@ class DemoRunner:
     def __init__(self):
         self.service_manager = ServiceManager()
         self.pipeline_runner = PipelineRunner()
+        self._s3_data_setup = False  # Track if S3 data has been setup
 
     def run_full_demo(self) -> bool:
         """Complete demo: start services + run pipelines"""
@@ -59,12 +60,19 @@ class DemoRunner:
             print("\nRun 'python run_demo.py --start-only' first")
             return False
 
+        # Setup S3 test data (required for Enhanced S3 connector tests)
+        self._setup_s3_data()
+
         return self._run_pipeline_tests()
 
     def start_services_only(self) -> bool:
         """Start services only"""
         print("🚀 Starting SQLFlow Services...")
-        return self.service_manager.start_and_wait()
+        if self.service_manager.start_and_wait():
+            # Setup S3 test data when services are started
+            self._setup_s3_data()
+            return True
+        return False
 
     def stop_services(self) -> bool:
         """Stop all services"""
@@ -72,7 +80,12 @@ class DemoRunner:
         return self.service_manager.stop()
 
     def _setup_s3_data(self):
-        """Setup S3 test data if script exists"""
+        """Setup S3 test data if script exists (idempotent)"""
+        # Skip if already setup to avoid duplicate work
+        if self._s3_data_setup:
+            print("📊 S3 test data already setup, skipping...")
+            return
+
         try:
             import subprocess
 
@@ -90,12 +103,26 @@ class DemoRunner:
                         "scripts/setup_s3_test_data.py",
                     ],
                     capture_output=True,
-                    timeout=60,
+                    text=True,
+                    timeout=120,  # Increased timeout for larger files
                 )
                 if result.returncode == 0:
                     print("✅ S3 test data setup completed")
+                    self._s3_data_setup = True  # Mark as completed
+                    # Print success output for debugging
+                    if result.stdout and "🎉" in result.stdout:
+                        print("   S3 bucket populated with test files")
                 else:
                     print("⚠️ S3 test data setup failed, continuing with mock mode")
+                    # Print error details for debugging
+                    if result.stderr:
+                        print(f"   Error: {result.stderr.strip()}")
+                    if result.stdout:
+                        print(f"   Output: {result.stdout.strip()}")
+            else:
+                print(f"⚠️ S3 setup script not found at {setup_script}")
+        except subprocess.TimeoutExpired:
+            print("⚠️ S3 setup timed out, continuing with existing data")
         except Exception as e:
             print(f"⚠️ S3 setup error: {e}")
 
