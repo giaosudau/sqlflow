@@ -27,13 +27,11 @@ class TestCSVDestination(unittest.TestCase):
 
         try:
             connector = CSVDestination(config={"path": file_path})
-            connector.write(self.test_data)
+            connector.write(self.test_data, options={"index": False})
 
             # Verify the file was created and has the correct data
             self.assertTrue(os.path.exists(file_path))
-            written_df = pd.read_csv(
-                file_path, index_col=0
-            )  # pandas adds index by default
+            written_df = pd.read_csv(file_path)
             pd.testing.assert_frame_equal(self.test_data, written_df)
         finally:
             if os.path.exists(file_path):
@@ -74,11 +72,11 @@ class TestCSVDestination(unittest.TestCase):
         try:
             empty_df = pd.DataFrame(columns=["id", "name", "value"])
             connector = CSVDestination(config={"path": file_path})
-            connector.write(empty_df)
+            connector.write(empty_df, options={"index": False})
 
             # Verify the file was created
             self.assertTrue(os.path.exists(file_path))
-            written_df = pd.read_csv(file_path, index_col=0)
+            written_df = pd.read_csv(file_path)
             self.assertEqual(len(written_df), 0)
             self.assertEqual(list(written_df.columns), ["id", "name", "value"])
         finally:

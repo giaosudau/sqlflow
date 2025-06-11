@@ -1,12 +1,14 @@
 """Unit tests for the enhanced connector registry."""
 
-from typing import Any, Dict, Optional
-from unittest.mock import Mock
+from typing import Any, Dict, Iterator, List, Optional
 
 import pytest
 
+from sqlflow.connectors.base.connection_test_result import ConnectionTestResult
+from sqlflow.connectors.base.connector import Connector
 from sqlflow.connectors.base.destination_connector import DestinationConnector
-from sqlflow.connectors.base.source_connector import SourceConnector
+from sqlflow.connectors.base.schema import Schema
+from sqlflow.connectors.data_chunk import DataChunk
 from sqlflow.connectors.registry.enhanced_registry import (
     ConfigurationResolutionResult,
     ConnectorTypeInfo,
@@ -16,21 +18,30 @@ from sqlflow.connectors.registry.enhanced_registry import (
 
 
 # Mock connector classes for testing
-class MockSourceConnector(SourceConnector):
+class MockSourceConnector(Connector):
     """Mock source connector for testing."""
 
-    def __init__(self, config: Dict[str, Any]):
-        super().__init__(config)
-        self.configured = False
+    def __init__(self, config: Optional[Dict[str, Any]] = None):
+        super().__init__()
+        if config is not None:
+            self.configure(config)
 
     def configure(self, params: Dict[str, Any]) -> None:
-        """Configure the connector."""
         self.connection_params = params
-        self.configured = True
 
-    def read(self, options: Optional[Dict[str, Any]] = None):
-        """Mock read method."""
-        return Mock()
+    def test_connection(self) -> ConnectionTestResult:
+        return ConnectionTestResult(success=True)
+
+    def discover(self) -> List[str]:
+        return ["mock_object"]
+
+    def get_schema(self, object_name: str) -> Schema:
+        import pyarrow as pa
+
+        return Schema(pa.schema([]))
+
+    def read(self, object_name: str, **kwargs) -> Iterator[DataChunk]:
+        yield DataChunk(data=[])
 
 
 class MockDestinationConnector(DestinationConnector):
@@ -38,32 +49,34 @@ class MockDestinationConnector(DestinationConnector):
 
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
-        self.configured = False
 
-    def configure(self, params: Dict[str, Any]) -> None:
-        """Configure the connector."""
-        self.connection_params = params
-        self.configured = True
-
-    def write(self, df, options: Optional[Dict[str, Any]] = None):
+    def write(self, df, options: Optional[Dict[str, Any]] = None, **kwargs) -> None:
         """Mock write method."""
 
 
-class MockLegacyConnector(SourceConnector):
-    """Mock legacy connector that doesn't use config parameter."""
+class MockLegacyConnector(Connector):
+    """Mock legacy connector that doesn't use config parameter in init."""
 
     def __init__(self):
-        self.configured = False
+        super().__init__()
         self.connection_params = {}
 
     def configure(self, params: Dict[str, Any]) -> None:
-        """Configure the connector."""
         self.connection_params = params
-        self.configured = True
 
-    def read(self, options: Optional[Dict[str, Any]] = None):
-        """Mock read method."""
-        return Mock()
+    def test_connection(self) -> ConnectionTestResult:
+        return ConnectionTestResult(success=True)
+
+    def discover(self) -> List[str]:
+        return ["mock_legacy_object"]
+
+    def get_schema(self, object_name: str) -> Schema:
+        import pyarrow as pa
+
+        return Schema(pa.schema([]))
+
+    def read(self, object_name: str, **kwargs) -> Iterator[DataChunk]:
+        yield DataChunk(data=[])
 
 
 class TestEnhancedConnectorRegistry:
@@ -207,7 +220,8 @@ class TestEnhancedConnectorRegistry:
         connector = registry.create_source_connector("mock", config)
 
         assert isinstance(connector, MockSourceConnector)
-        assert connector.config == config
+        # The real check is that configure was called
+        assert connector.connection_params == config
 
     def test_create_source_connector_legacy_fallback(self, registry):
         """Test creating legacy connector that doesn't use config parameter."""
@@ -217,7 +231,6 @@ class TestEnhancedConnectorRegistry:
         connector = registry.create_source_connector("mock_legacy", config)
 
         assert isinstance(connector, MockLegacyConnector)
-        assert connector.configured is True
         assert connector.connection_params == config
 
     def test_create_destination_connector(self, registry):

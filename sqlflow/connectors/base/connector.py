@@ -30,13 +30,21 @@ class Connector(ABC):
             None  # Will be ResilienceManager when configured
         )
 
+    @property
+    def is_resilient(self) -> bool:
+        """Check if resilience is configured for this connector."""
+        return self.resilience_manager is not None
+
     def _needs_resilience(self) -> bool:
         """Determine if this connector type requires resilience patterns.
 
         Override in subclasses to customize resilience behavior.
         Default: Enable resilience for all connectors except in-memory types.
         """
-        # Check if this is an in-memory connector (no resilience needed)
+        # A more robust check than string matching
+        if getattr(self, "_is_resilient_by_design", True) is False:
+            return False
+
         class_name = self.__class__.__name__.lower()
         if "memory" in class_name or "mock" in class_name:
             return False
@@ -146,27 +154,5 @@ class Connector(ABC):
         Raises:
         ------
             ConnectorError: If reading fails
-
-        """
-
-
-class BidirectionalConnector(Connector):
-    """Base class for connectors that support both source and export operations."""
-
-    @abstractmethod
-    def write(
-        self, object_name: str, data_chunk: "DataChunk", mode: str = "append"
-    ) -> None:
-        """Write data to the destination.
-
-        Args:
-        ----
-            object_name: Name of the object to write to
-            data_chunk: Data to write
-            mode: Write mode (append, overwrite, etc.)
-
-        Raises:
-        ------
-            ConnectorError: If writing fails
 
         """

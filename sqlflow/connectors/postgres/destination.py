@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import pandas as pd
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 
 from sqlflow.connectors.base.destination_connector import DestinationConnector
+from sqlflow.connectors.postgres.utils import translate_postgres_parameters
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +21,7 @@ class PostgresDestination(DestinationConnector):
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
         # Apply parameter translation for industry-standard to psycopg2 compatibility
-        self.conn_params = self._translate_parameters(self.config)
+        self.conn_params = translate_postgres_parameters(self.config)
         self._engine = None
 
         # Validate that we have either operational parameters or connection parameters
@@ -37,43 +38,7 @@ class PostgresDestination(DestinationConnector):
                 "or operational parameters (table_name, table)"
             )
 
-    def _translate_parameters(self, config: Dict[str, Any]) -> Dict[str, Any]:
-        """Translate industry-standard parameters to psycopg2-compatible names.
-
-        Provides backward compatibility by supporting both naming conventions:
-        - Industry standard: database, username (Airbyte/Fivetran compatible)
-        - psycopg2 legacy: dbname, user
-
-        Args:
-            config: Original configuration parameters
-
-        Returns:
-            Translated configuration with psycopg2-compatible parameter names
-        """
-        translated = config.copy()
-
-        # Parameter mapping: industry_standard -> psycopg2_name
-        param_mapping = {
-            "database": "dbname",
-            "username": "user",
-        }
-
-        for industry_std, psycopg2_name in param_mapping.items():
-            if industry_std in config and psycopg2_name not in config:
-                translated[psycopg2_name] = config[industry_std]
-                logger.debug(
-                    f"PostgresDestination: Translated parameter '{industry_std}' -> '{psycopg2_name}' "
-                    f"for psycopg2 compatibility"
-                )
-
-        # Also handle table parameter mapping for consistency
-        if "table" in config and "table_name" not in config:
-            translated["table_name"] = config["table"]
-            logger.debug(
-                "PostgresDestination: Mapped 'table' parameter to 'table_name'"
-            )
-
-        return translated
+        self._configure_resilience(self.conn_params)
 
     @property
     def engine(self) -> Engine:
@@ -98,6 +63,8 @@ class PostgresDestination(DestinationConnector):
         self,
         df: pd.DataFrame,
         options: Optional[Dict[str, Any]] = None,
+        mode: str = "replace",
+        keys: Optional[List[str]] = None,
     ) -> None:
         """
         Write data to the PostgreSQL database.
@@ -110,7 +77,7 @@ class PostgresDestination(DestinationConnector):
             or self.config.get("table")
         )
         schema = write_options.get("schema", "public")
-        if_exists = write_options.get("if_exists", "replace")
+        if_exists = mode
 
         if not table_name:
             raise ValueError(

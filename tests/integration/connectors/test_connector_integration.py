@@ -148,7 +148,7 @@ def test_in_memory_connector_integration():
     # 2. Source - Read data from the in-memory store
     source_config = {"table_name": table_name}
     source = InMemorySource(config=source_config)
-    read_df = source.read()
+    read_df = pd.concat(chunk.pandas_df for chunk in source.read())
 
     pd.testing.assert_frame_equal(test_data, read_df)
 
