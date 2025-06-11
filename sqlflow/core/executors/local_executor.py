@@ -8,8 +8,12 @@ from typing import Any, Dict, List, Optional, Protocol, Tuple
 import pandas as pd
 
 from sqlflow.connectors.data_chunk import DataChunk
+from sqlflow.core.config_resolver import ConfigurationResolver
 from sqlflow.core.engines.duckdb import DuckDBEngine
 from sqlflow.core.executors.base_executor import BaseExecutor
+
+# Profile management imports
+from sqlflow.core.profiles import ProfileManager
 from sqlflow.core.state.backends import DuckDBStateBackend
 from sqlflow.core.state.watermark_manager import WatermarkManager
 from sqlflow.core.variable_substitution import VariableSubstitutionEngine
@@ -575,6 +579,9 @@ class LocalExecutor(BaseExecutor):
         self.profile = self._extract_profile()
         self.variables = self._extract_variables()
 
+        # Initialize profile management components
+        self._init_profile_components()
+
         # Initialize database configuration
         db_config = self._create_database_config()
         self.database_path = db_config.database_path
@@ -694,6 +701,35 @@ class LocalExecutor(BaseExecutor):
         except Exception as e:
             logger.warning(f"Failed to initialize watermark manager: {e}")
             self.watermark_manager = None
+
+    def _init_profile_components(self) -> None:
+        """Initialize profile management components."""
+        try:
+            if self.project and hasattr(self.project, "project_dir"):
+                # Create ProfileManager with project's profile directory
+                profiles_dir = os.path.join(self.project.project_dir, "profiles")
+                if os.path.exists(profiles_dir):
+                    self.profile_manager = ProfileManager(
+                        profiles_dir, self.profile_name
+                    )
+                    self.config_resolver = ConfigurationResolver(self.profile_manager)
+                    logger.debug(
+                        f"Profile components initialized for environment '{self.profile_name}'"
+                    )
+                else:
+                    logger.debug(
+                        "No profiles directory found, profile components not initialized"
+                    )
+                    self.profile_manager = None
+                    self.config_resolver = None
+            else:
+                logger.debug("No project available, profile components not initialized")
+                self.profile_manager = None
+                self.config_resolver = None
+        except Exception as e:
+            logger.warning(f"Failed to initialize profile components: {e}")
+            self.profile_manager = None
+            self.config_resolver = None
 
     def execute(
         self,
@@ -2302,6 +2338,26 @@ class LocalExecutor(BaseExecutor):
             # Validate connector type and parameters
             self._validate_connector_configuration(step, connector_type, source_name)
 
+            # Store source definition for traditional sources
+            params = step.get("query", step.get("params", {}))
+            sync_mode = params.get("sync_mode", step.get("sync_mode", "full_refresh"))
+            cursor_field = params.get("cursor_field", step.get("cursor_field"))
+
+            self.source_definitions[source_name] = {
+                "name": source_name,
+                "connector_type": connector_type,
+                "params": params,
+                "is_from_profile": False,
+                # Store industry-standard parameters for incremental loading
+                "sync_mode": sync_mode,
+                "cursor_field": cursor_field,
+                "primary_key": step.get("primary_key", []),
+            }
+
+            logger.debug(
+                f"Stored traditional SOURCE definition '{source_name}' with type '{connector_type}'"
+            )
+
             # Handle different connector types
             return self._handle_connector_type_specific_logic(
                 step, connector_type, source_name
@@ -2383,6 +2439,7 @@ class LocalExecutor(BaseExecutor):
         return {
             "status": "success",
             "source_name": source_name,
+            "connector_type": connector_type,
             "sync_mode": step.get("sync_mode", "full_refresh"),
             "rows_processed": 0,
             "message": f"Source definition for {connector_type} stored successfully",
@@ -2398,6 +2455,7 @@ class LocalExecutor(BaseExecutor):
         return {
             "status": "success",
             "source_name": source_name,
+            "connector_type": connector_type,
             "sync_mode": step.get("sync_mode", "full_refresh"),
             "rows_processed": 0,
             "message": f"API-based connector {connector_type} configured successfully",
@@ -2436,6 +2494,7 @@ class LocalExecutor(BaseExecutor):
                 return {
                     "status": "success",
                     "source_name": source_name,
+                    "connector_type": "csv",
                     "sync_mode": step.get("sync_mode", "full_refresh"),
                     "rows_processed": len(chunk),
                     "message": f"CSV source loaded with {len(chunk)} rows",
@@ -2447,6 +2506,7 @@ class LocalExecutor(BaseExecutor):
         return {
             "status": "success",
             "source_name": source_name,
+            "connector_type": "csv",
             "sync_mode": step.get("sync_mode", "full_refresh"),
             "rows_processed": 0,
             "message": "CSV source definition stored successfully",
@@ -2565,8 +2625,74 @@ class LocalExecutor(BaseExecutor):
             Dict containing execution results
 
         """
-        # Implementation will be added based on requirements
-        return {"status": "success"}
+        try:
+            if not self.profile_manager or not self.config_resolver:
+                raise ValueError(
+                    "Profile components not initialized. Ensure a project with profiles is available."
+                )
+
+            # Get profile connector name
+            profile_connector_name = step.get("profile_connector_name")
+            if not profile_connector_name:
+                raise ValueError("Profile connector name not specified in step")
+
+            # Get OPTIONS from the step (these override profile defaults)
+            options = step.get("params", {})
+
+            # Resolve configuration using ConfigurationResolver
+            resolved_config = self.config_resolver.resolve_config(
+                profile_connector_name, options, self.variables
+            )
+
+            # Get connector type from resolved config
+            connector_type = resolved_config.get("type")
+            if not connector_type:
+                raise ValueError(
+                    f"Connector type not found for profile connector '{profile_connector_name}'"
+                )
+
+            # Extract resolved parameters (everything except 'type')
+            resolved_params = {k: v for k, v in resolved_config.items() if k != "type"}
+
+            # Store source definition with resolved configuration
+            sync_mode = resolved_params.get(
+                "sync_mode", step.get("sync_mode", "full_refresh")
+            )
+            cursor_field = resolved_params.get("cursor_field", step.get("cursor_field"))
+
+            self.source_definitions[source_name] = {
+                "name": source_name,
+                "connector_type": connector_type,
+                "params": resolved_params,
+                "is_from_profile": True,
+                # Store industry-standard parameters for incremental loading
+                "sync_mode": sync_mode,
+                "cursor_field": cursor_field,
+                "primary_key": step.get("primary_key", []),
+            }
+
+            logger.debug(
+                f"Stored profile-based SOURCE definition '{source_name}' with type "
+                f"'{connector_type}' from profile connector '{profile_connector_name}'"
+            )
+
+            return {
+                "status": "success",
+                "source_name": source_name,
+                "connector_type": connector_type,
+                "step_id": step_id,
+                "resolved_params": resolved_params,
+                "profile_connector_name": profile_connector_name,
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to handle profile-based source '{source_name}': {e}")
+            return {
+                "status": "error",
+                "source_name": source_name,
+                "error": str(e),
+                "step_id": step_id,
+            }
 
     def can_resume(self) -> bool:
         """Check if the executor supports resuming from failure.

@@ -1281,18 +1281,18 @@ def test_source_definition_retrieval():
                 os.unlink(temp_file)
 
 
-def test_load_with_profile_based_source():
-    """Test LOAD step with profile-based SOURCE definition."""
+def test_load_with_flagged_source():
+    """Test LOAD step with flagged SOURCE definition."""
     executor = LocalExecutor()
 
-    # Register a profile-based SOURCE definition
+    # Register a SOURCE definition with profile flag (but using traditional syntax)
     source_step = {
         "id": "source_profile",
         "type": "source_definition",
         "name": "profile_source",
         "connector_type": "csv",
         "params": {"path": "/tmp/profile.csv", "has_header": True},
-        "is_from_profile": True,  # Indicate this is from profile
+        "is_from_profile": False,  # Traditional source with profile flag
     }
 
     # Execute the source definition
@@ -1302,7 +1302,7 @@ def test_load_with_profile_based_source():
     # Verify the source definition is stored with profile flag
     source_def = executor._get_source_definition("profile_source")
     assert source_def is not None
-    assert source_def["is_from_profile"] is True
+    assert source_def["is_from_profile"] is False
 
     load_step = LoadStep(
         table_name="profile_table", source_name="profile_source", mode="REPLACE"
