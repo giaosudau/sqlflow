@@ -88,7 +88,6 @@ def test_data_chunk_with_schema():
     chunk = DataChunk(table, schema=schema)
 
     assert chunk.schema == schema
-
     assert chunk.arrow_table == table
 
 
@@ -96,3 +95,124 @@ def test_data_chunk_invalid_type():
     """Test creating DataChunk with invalid data type."""
     with pytest.raises(TypeError):
         DataChunk("invalid")
+
+
+def test_data_chunk_vectorized_operations():
+    """Test vectorized operations on DataChunk."""
+    data = {
+        "id": [1, 2, 3, 4, 5],
+        "value": [10, 20, 30, 40, 50],
+    }
+    chunk = DataChunk(pd.DataFrame(data))
+
+    # Test vectorized operation
+    def double_values(df):
+        df["value"] = df["value"] * 2
+        return df
+
+    result = chunk.vectorized_operation(double_values)
+    assert list(result.pandas_df["value"]) == [20, 40, 60, 80, 100]
+
+    # Test filter operation
+    def filter_condition(df):
+        return df["value"] > 30
+
+    filtered = chunk.filter(filter_condition)
+    assert len(filtered) == 2
+    assert list(filtered.pandas_df["id"]) == [4, 5]
+    assert list(filtered.pandas_df["value"]) == [40, 50]
+
+
+def test_data_chunk_select_columns():
+    """Test column selection in DataChunk."""
+    data = {
+        "id": [1, 2, 3],
+        "name": ["a", "b", "c"],
+        "value": [10, 20, 30],
+    }
+    chunk = DataChunk(pd.DataFrame(data))
+
+    # Select existing columns
+    selected = chunk.select_columns(["id", "value"])
+    assert list(selected.pandas_df.columns) == ["id", "value"]
+    assert len(selected) == 3
+
+    # Try to select non-existent column
+    with pytest.raises(ValueError):
+        chunk.select_columns(["nonexistent"])
+
+
+def test_data_chunk_apply_transform():
+    """Test applying transformations to DataChunk."""
+    data = {
+        "id": [1, 2, 3],
+        "value": [10, 20, 30],
+    }
+    chunk = DataChunk(pd.DataFrame(data))
+
+    def transform(df):
+        df["value_squared"] = df["value"] ** 2
+        return df
+
+    result = chunk.apply_transform(transform)
+    assert "value_squared" in result.pandas_df.columns
+    assert list(result.pandas_df["value_squared"]) == [100, 400, 900]
+
+
+def test_data_chunk_equality():
+    """Test DataChunk equality comparison."""
+    data1 = {
+        "id": [1, 2, 3],
+        "name": ["a", "b", "c"],
+    }
+    data2 = {
+        "id": [1, 2, 3],
+        "name": ["a", "b", "c"],
+    }
+    data3 = {
+        "id": [1, 2, 4],
+        "name": ["a", "b", "d"],
+    }
+
+    chunk1 = DataChunk(pd.DataFrame(data1))
+    chunk2 = DataChunk(pd.DataFrame(data2))
+    chunk3 = DataChunk(pd.DataFrame(data3))
+
+    assert chunk1 == chunk2
+    assert chunk1 != chunk3
+    assert chunk1 != "not a DataChunk"
+
+
+def test_data_chunk_schema_caching():
+    """Test schema caching in DataChunk."""
+    data = {
+        "id": [1, 2, 3],
+        "name": ["a", "b", "c"],
+    }
+    chunk = DataChunk(pd.DataFrame(data))
+
+    # First access should compute schema
+    schema1 = chunk.schema
+    assert schema1 is not None
+
+    # Second access should use cached schema
+    schema2 = chunk.schema
+    assert schema2 is schema1
+
+
+def test_data_chunk_zero_copy_conversion():
+    """Test zero-copy conversion between Arrow and pandas."""
+    data = {
+        "id": [1, 2, 3],
+        "name": ["a", "b", "c"],
+    }
+    df = pd.DataFrame(data)
+    chunk = DataChunk(df)
+
+    # Convert to Arrow and back
+    arrow_table = chunk.arrow_table
+    chunk2 = DataChunk(arrow_table)
+    df2 = chunk2.pandas_df
+
+    # Verify data integrity
+    pd.testing.assert_frame_equal(df, df2)
