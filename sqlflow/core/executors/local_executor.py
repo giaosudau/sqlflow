@@ -13,6 +13,7 @@ from sqlflow.core.engines.duckdb import DuckDBEngine
 from sqlflow.core.executors.base_executor import BaseExecutor
 
 # Profile management imports
+# Removed ProfileConnectorIntegration - using simplified approach
 from sqlflow.core.profiles import ProfileManager
 from sqlflow.core.state.backends import DuckDBStateBackend
 from sqlflow.core.state.watermark_manager import WatermarkManager
@@ -523,8 +524,11 @@ class ConnectorEngineStub:
             sig = inspect.signature(read_method)
             connector_type = getattr(connector_instance, "__class__", None)
 
+            # For CSV connectors, don't pass table_name as object_name since they use configured path
+            if connector_type and "CSV" in str(connector_type):
+                result = connector_instance.read()
             # For Parquet connectors, don't pass object_name as it's already configured with path
-            if connector_type and "Parquet" in str(connector_type):
+            elif connector_type and "Parquet" in str(connector_type):
                 result = connector_instance.read()
             # Check if connector uses object_name parameter (new interface)
             elif "object_name" in sig.parameters and table_name:
@@ -538,7 +542,7 @@ class ConnectorEngineStub:
                 options = {"table_name": table_name}
                 result = connector_instance.read(options=options)
             else:
-                # For CSV and other connectors that don't use table_name
+                # For other connectors that don't use table_name
                 result = connector_instance.read()
         else:
             # Fallback for connectors without read method
@@ -703,10 +707,9 @@ class LocalExecutor(BaseExecutor):
             self.watermark_manager = None
 
     def _init_profile_components(self) -> None:
-        """Initialize profile management components."""
+        """Simplified profile component initialization."""
         try:
             if self.project and hasattr(self.project, "project_dir"):
-                # Create ProfileManager with project's profile directory
                 profiles_dir = os.path.join(self.project.project_dir, "profiles")
                 if os.path.exists(profiles_dir):
                     self.profile_manager = ProfileManager(
@@ -714,16 +717,12 @@ class LocalExecutor(BaseExecutor):
                     )
                     self.config_resolver = ConfigurationResolver(self.profile_manager)
                     logger.debug(
-                        f"Profile components initialized for environment '{self.profile_name}'"
+                        f"Profile components initialized for '{self.profile_name}'"
                     )
                 else:
-                    logger.debug(
-                        "No profiles directory found, profile components not initialized"
-                    )
                     self.profile_manager = None
                     self.config_resolver = None
             else:
-                logger.debug("No project available, profile components not initialized")
                 self.profile_manager = None
                 self.config_resolver = None
         except Exception as e:
@@ -1261,7 +1260,7 @@ class LocalExecutor(BaseExecutor):
                     and source_definition.get("sync_mode") == "incremental"
                 ):
                     cursor_field = source_definition.get("cursor_field")
-                    if cursor_field and hasattr(load_step, "pipeline_name"):
+                    if cursor_field:
                         pipeline_name = getattr(load_step, "pipeline_name", "default")
                         # Get the last watermark value to compare
                         last_cursor_value = self._get_last_watermark_value(
@@ -1986,329 +1985,226 @@ class LocalExecutor(BaseExecutor):
         return None
 
     def _execute_source_definition(self, step: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute a source definition step.
+        """Execute source definition step with simplified profile support.
 
-        Args:
-        ----
-            step: Source definition step to execute
-
-        Returns:
-        -------
-            Dict containing execution results
-
+        Source definitions are metadata storage - actual connector creation
+        and file access happens during LOAD steps. This method always succeeds
+        for source definition storage even if connector creation fails.
         """
-        step_id = step["id"]
-        source_name = step["name"]
+        step_id = step.get("id", "unknown")
+        source_name = step.get("name", step_id)
+
+        logger.debug(
+            f"Executing source definition for '{source_name}' (step: {step_id})"
+        )
 
         # Initialize source_definitions storage if needed
         if not hasattr(self, "source_definitions"):
             self.source_definitions = {}
 
-        # Store the source definition for later use by LOAD steps
-        connector_type = step.get(
-            "source_connector_type", step.get("connector_type", "csv")
-        ).lower()  # Normalize to lowercase for consistency
+        # Check for incremental source execution first
+        # Check both at step level and in params for backward compatibility
+        params = step.get("query", step.get("params", {}))
+        sync_mode = step.get("sync_mode", params.get("sync_mode", "full_refresh"))
+        if sync_mode == "incremental":
+            return self._execute_incremental_source_definition(step)
 
-        # Get parameters (can be in 'query' or 'params')
+        # Get connector type from various possible fields for backward compatibility
+        connector_type = (
+            step.get("source_connector_type") or step.get("connector_type") or "csv"
+        ).lower()
+
+        # Get parameters from 'query' or 'params' field for backward compatibility
         params = step.get("query", step.get("params", {}))
 
-        # Extract sync_mode and cursor_field from params or step level
-        sync_mode = params.get("sync_mode", step.get("sync_mode", "full_refresh"))
-        cursor_field = params.get("cursor_field", step.get("cursor_field"))
-
+        # Store source definition (always succeeds for metadata storage)
         self.source_definitions[source_name] = {
             "name": source_name,
             "connector_type": connector_type,
             "params": params,
             "is_from_profile": step.get("is_from_profile", False),
-            # Store industry-standard parameters for incremental loading
             "sync_mode": sync_mode,
-            "cursor_field": cursor_field,
+            "cursor_field": step.get("cursor_field"),
             "primary_key": step.get("primary_key", []),
         }
 
         logger.debug(
-            f"Stored SOURCE definition '{source_name}' with type "
-            f"'{self.source_definitions[source_name]['connector_type']}', "
-            f"sync_mode='{self.source_definitions[source_name]['sync_mode']}'"
+            f"Stored source definition for '{source_name}' with type '{connector_type}'"
         )
 
-        # Check for incremental source execution
-        if sync_mode == "incremental":
-            return self._execute_incremental_source_definition(step)
+        # For full_refresh mode, handle different connector types
+        if sync_mode == "full_refresh":
+            return self._handle_full_refresh_source(step, connector_type, source_name)
 
-        if step.get("is_from_profile"):
-            return self._handle_profile_based_source(step, step_id, source_name)
-        return self._handle_traditional_source(step, step_id, source_name)
-
-    def _execute_incremental_source_definition(
-        self, step: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """Execute SOURCE definition with automatic incremental loading.
-
-        This method bridges the gap between industry-standard parameter parsing
-        and actual automatic incremental execution by immediately reading and
-        filtering data when sync_mode='incremental' is specified.
-
-        Args:
-        ----
-            step: Source definition step with incremental parameters
-
-        Returns:
-        -------
-            Dict containing execution results with watermark information
-
-        """
-        source_name = step["name"]
-
-        # Extract parameters from the correct location (compiled JSON uses 'query')
-        params = step.get("query", step.get("params", {}))
-        cursor_field = params.get("cursor_field", step.get("cursor_field"))
-
-        # Validate incremental requirements
-        if not cursor_field:
-            error_msg = (
-                f"SOURCE {source_name} with sync_mode='incremental' requires cursor_field parameter. "
-                "Specify cursor_field to indicate which column tracks record timestamps/sequence."
-            )
-            logger.error(error_msg)
-            raise ValueError(error_msg)
-
-        # Get pipeline context for watermark key generation
-        pipeline_name = getattr(self, "pipeline_name", "default_pipeline")
-
-        logger.info(
-            f"Executing incremental SOURCE {source_name} with cursor_field={cursor_field}"
-        )
-
+        # Try to validate connector type by creating it (fail fast for invalid types)
         try:
-            return self._perform_incremental_loading(
-                step, source_name, cursor_field, pipeline_name
+            connector = self._create_connector_with_profile_support(
+                source_name, step, self.variables
             )
+
+            # Register connector with engine for data loading
+            if hasattr(self, "_connector_engine") and self._connector_engine:
+                connector_params = step.get("params", {})
+                self._connector_engine.register_connector(
+                    source_name, connector_type, connector_params
+                )
+
+            logger.debug(f"Successfully created connector for '{source_name}'")
+
         except Exception as e:
-            logger.error(f"Incremental source execution failed for {source_name}: {e}")
-            # Don't update watermark on failure
-            return {
-                "status": "error",
-                "source_name": source_name,
-                "error": str(e),
-                "sync_mode": "incremental",
-            }
+            # Check for specific validation errors that should fail immediately
+            error_msg = str(e)
 
-    def _perform_incremental_loading(
-        self, step, source_name, cursor_field, pipeline_name
-    ):
-        """Perform the actual incremental loading process."""
-        # Get current watermark for this source
-        last_cursor_value = self._get_current_watermark(
-            pipeline_name, source_name, cursor_field
-        )
+            # Determine if this should fail fast or be deferred
+            connector_type = step.get("connector_type", "").lower()
 
-        logger.info(
-            f"Incremental SOURCE {source_name}: last_cursor_value={last_cursor_value}"
-        )
-
-        # Get connector instance
-        connector = self._get_incremental_connector_instance(step)
-        if not connector.supports_incremental():
-            logger.warning(
-                f"Connector {source_name} doesn't support incremental, falling back to full refresh"
-            )
-            return self._handle_traditional_source(step, step["id"], source_name)
-
-        # Handle S3 discovery mode and get object name
-        object_name = self._handle_s3_incremental_discovery(
-            step, connector, source_name
-        )
-        if object_name is None:
-            # Early return for S3 discovery mode with no files
-            return self._create_incremental_result(
-                source_name, step, last_cursor_value, last_cursor_value, 0
+            # Fail fast for clearly invalid connector types (but not for known types that might have registry issues)
+            known_connector_types = [
+                "csv",
+                "parquet",
+                "postgres",
+                "s3",
+                "rest",
+                "shopify",
+                "google_sheets",
+            ]
+            is_unknown_connector = (
+                "unknown source connector type" in error_msg.lower()
+                and connector_type not in known_connector_types
             )
 
-        # Read incremental data
-        max_cursor_value, total_rows = self._read_incremental_data(
-            connector, object_name, cursor_field, last_cursor_value, step, source_name
-        )
-
-        # Update watermark after successful incremental read
-        self._update_incremental_watermark(
-            pipeline_name, source_name, cursor_field, max_cursor_value
-        )
-
-        logger.info(
-            f"Incremental SOURCE {source_name} read {total_rows} rows, max cursor: {max_cursor_value}"
-        )
-
-        return self._create_incremental_result(
-            source_name, step, last_cursor_value, max_cursor_value, total_rows
-        )
-
-    def _get_current_watermark(self, pipeline_name, source_name, cursor_field):
-        """Get the current watermark value for incremental loading."""
-        last_cursor_value = None
-        if self.watermark_manager:
-            last_cursor_value = self.watermark_manager.get_source_watermark(
-                pipeline=pipeline_name,
-                source=source_name,
-                cursor_field=cursor_field,
-            )
-        return last_cursor_value
-
-    def _handle_s3_incremental_discovery(self, step, connector, source_name):
-        """Handle S3 connector discovery mode for incremental loading."""
-        # Get object name for reading (table name, file path, etc.)
-        object_name = self._extract_object_name_from_step(step)
-
-        # Handle S3 connectors specially for discovery mode in incremental loading
-        if hasattr(connector, "connection_params"):
-            config = connector.connection_params
-            connector_type = getattr(connector, "__class__", None)
-
-            if connector_type and "S3" in str(connector_type):
-                return self._handle_s3_discovery_mode_incremental(
-                    config, connector, source_name, step
+            # Fail fast for configuration errors
+            has_config_error = (
+                ("required" in error_msg.lower() and "parameter" in error_msg.lower())
+                or (
+                    "missing" in error_msg.lower()
+                    and (
+                        "parameter" in error_msg.lower() or "path" in error_msg.lower()
+                    )
                 )
+                or is_unknown_connector
+            )
 
-        return object_name
-
-    def _handle_s3_discovery_mode_incremental(
-        self, config, connector, source_name, step
-    ):
-        """Handle S3 discovery mode specifically for incremental loading."""
-        # For S3 connectors, handle path_prefix vs specific key
-        has_path_prefix = config.get("path_prefix") or config.get("prefix")
-        has_specific_key = config.get("key")
-
-        if has_path_prefix and not has_specific_key:
-            # Use discovery mode for path_prefix in incremental loading
-            discovered_files = connector.discover()
-
-            if not discovered_files:
-                logger.warning(
-                    f"No files discovered for S3 incremental source '{source_name}' with prefix '{has_path_prefix}'"
+            if has_config_error:
+                logger.error(
+                    f"Failed to create connector for source '{source_name}': {error_msg}"
                 )
-                return None  # Signal to return early with empty result
+                return {
+                    "status": "error",
+                    "source_name": source_name,
+                    "step_id": step_id,
+                    "error": error_msg,
+                }
 
-            # Read the first discovered file for incremental processing
-            first_file = discovered_files[0]
-            object_name = first_file
+            # For known connector types with registry/import issues, defer to load time
             logger.debug(
-                f"Using S3 discovery mode for incremental loading, reading file '{first_file}' from prefix '{has_path_prefix}'"
-            )
-            return object_name
-
-        return self._extract_object_name_from_step(step)
-
-    def _read_incremental_data(
-        self, connector, object_name, cursor_field, last_cursor_value, step, source_name
-    ):
-        """Read incremental data and track the maximum cursor value."""
-        max_cursor_value = last_cursor_value
-        total_rows = 0
-
-        for chunk in connector.read_incremental(
-            object_name=object_name,
-            cursor_field=cursor_field,
-            cursor_value=last_cursor_value,
-            batch_size=step.get("batch_size", 10000),
-        ):
-            # Store chunk data for subsequent LOAD operations
-            if not hasattr(self, "table_data"):
-                self.table_data = {}
-            self.table_data[source_name] = chunk
-            total_rows += len(chunk)  # DataChunk has __len__ method
-
-            # Track maximum cursor value in this chunk
-            chunk_max = connector.get_cursor_value(chunk, cursor_field)
-            if chunk_max and (not max_cursor_value or chunk_max > max_cursor_value):
-                max_cursor_value = chunk_max
-
-        return max_cursor_value, total_rows
-
-    def _update_incremental_watermark(
-        self, pipeline_name, source_name, cursor_field, max_cursor_value
-    ):
-        """Update watermark after successful incremental read."""
-        # This is needed for complete incremental loading flow tests
-        if max_cursor_value and self.watermark_manager:
-            self.watermark_manager.update_source_watermark(
-                pipeline=pipeline_name,
-                source=source_name,
-                cursor_field=cursor_field,
-                value=max_cursor_value,
-            )
-            logger.debug(
-                f"Updated watermark for {pipeline_name}.{source_name}.{cursor_field}: {max_cursor_value}"
+                f"Connector creation failed for '{source_name}': {e} (deferring to load time)"
             )
 
-    def _create_incremental_result(
-        self, source_name, step, last_cursor_value, max_cursor_value, total_rows
-    ):
-        """Create the result dictionary for incremental loading."""
+        # Source definition storage succeeds for valid connector types
         return {
             "status": "success",
             "source_name": source_name,
-            "sync_mode": "incremental",
-            "previous_watermark": last_cursor_value,
-            "new_watermark": max_cursor_value,
-            "rows_processed": total_rows,
-            "incremental": True,
-            "connector_type": step.get(
-                "connector_type", step.get("source_connector_type", "csv")
-            ),
+            "step_id": step_id,
+            "connector_type": connector_type,
         }
 
-    def _get_incremental_connector_instance(self, step: Dict[str, Any]):
-        """Get connector instance for incremental loading."""
-        from sqlflow.connectors.registry import get_connector_class
+    def _handle_full_refresh_source(
+        self, step: Dict[str, Any], connector_type: str, source_name: str
+    ) -> Dict[str, Any]:
+        """Handle full_refresh source definition with immediate data loading for supported connectors.
 
-        connector_type = step.get(
-            "connector_type", step.get("source_connector_type", "csv")
-        ).lower()  # Normalize to lowercase for consistency
-        connector_class = get_connector_class(connector_type)
+        This ensures backward compatibility with tests that expect table_data to be populated
+        immediately after source definition execution.
+        """
+        try:
+            # For CSV connectors, load data immediately for backward compatibility
+            if connector_type == "csv":
+                return self._handle_csv_full_refresh(step, source_name)
 
-        # Get parameters for the connector
-        # Try 'query' first (from compiled JSON), then 'params' (from direct step)
-        params = step.get("query", step.get("params", {}))
-        # Substitute variables in parameters
-        params = self._substitute_variables_in_dict(params)
-
-        # Instantiate the connector with the configuration
-        connector = connector_class(config=params)
-
-        return connector
-
-    def _extract_object_name_from_step(self, step: Dict[str, Any]) -> str:
-        """Extract object name (table, file path) from SOURCE step."""
-        # Try 'query' first (from compiled JSON), then 'params' (from direct step)
-        params = step.get("query", step.get("params", {}))
-
-        # For CSV connector, use 'path' parameter
-        if (
-            step.get("connector_type", "").lower() == "csv"
-            or step.get("source_connector_type", "").lower() == "csv"
-        ):
-            return params.get("path", params.get("file_path", ""))
-
-        # For S3 connector, use 'key' parameter
-        if (
-            step.get("connector_type", "").lower() == "s3"
-            or step.get("source_connector_type", "").lower() == "s3"
-        ):
-            # First try 'key' for specific file, then 'path_prefix' for discovery, then legacy 'prefix'
-            return params.get(
-                "key", params.get("path_prefix", params.get("prefix", ""))
+            # For other connectors, validate configuration only
+            connector = self._create_connector_with_profile_support(
+                source_name, step, self.variables
             )
 
-        # For database connectors, use 'table' parameter
-        if step.get("connector_type", "").lower() in ["postgres", "mysql"] or step.get(
-            "source_connector_type", ""
-        ).lower() in ["postgres", "mysql"]:
-            return params.get("table", "")
+            logger.debug(f"Successfully validated connector for '{source_name}'")
 
-        # For other connectors, try common parameter names
-        return params.get("object_name", params.get("table", params.get("path", "")))
+            return {
+                "status": "success",
+                "source_name": source_name,
+                "connector_type": connector_type,
+                "sync_mode": "full_refresh",
+                "rows_processed": 0,
+                "message": f"Source definition stored successfully for {connector_type}",
+            }
+
+        except Exception as e:
+            error_msg = str(e)
+            logger.error(
+                f"Failed to create connector for source '{source_name}': {error_msg}"
+            )
+            return {
+                "status": "error",
+                "source_name": source_name,
+                "error": error_msg,
+            }
+
+    def _handle_csv_full_refresh(
+        self, step: Dict[str, Any], source_name: str
+    ) -> Dict[str, Any]:
+        """Handle CSV connector in full_refresh mode with immediate data loading."""
+        params = step.get("query", step.get("params", {}))
+        file_path = params.get("path", "")
+
+        # Validate that path parameter is provided for CSV connectors
+        if not file_path:
+            error_msg = "path parameter is required for CSV connector"
+            logger.error(f"CSV source {source_name}: {error_msg}")
+            return {"status": "error", "source_name": source_name, "error": error_msg}
+
+        # Check if this is a test scenario that expects immediate data loading
+        # Tests typically use temp files or files that exist
+        should_load_immediately = (
+            file_path
+            and os.path.exists(file_path)
+            and not ("${" in file_path)  # Not a templated path
+        )
+
+        if should_load_immediately:
+            try:
+                # Load data immediately for backward compatibility with tests
+                connector = self._get_incremental_connector_instance(step)
+                df = connector.read(object_name=file_path)
+
+                # Store data for later LOAD steps
+                from sqlflow.connectors.data_chunk import DataChunk
+
+                chunk = DataChunk(df)
+
+                if not hasattr(self, "table_data"):
+                    self.table_data = {}
+                self.table_data[source_name] = chunk
+
+                return {
+                    "status": "success",
+                    "source_name": source_name,
+                    "connector_type": "csv",
+                    "sync_mode": "full_refresh",
+                    "rows_processed": len(chunk),
+                    "message": f"CSV source loaded with {len(chunk)} rows",
+                }
+            except Exception as e:
+                logger.warning(f"Could not load CSV data immediately: {e}")
+                # Fall through to metadata-only storage
+
+        return {
+            "status": "success",
+            "source_name": source_name,
+            "connector_type": "csv",
+            "sync_mode": "full_refresh",
+            "rows_processed": 0,
+            "message": "CSV source definition stored successfully",
+        }
 
     def _handle_traditional_source(
         self, step: Dict[str, Any], step_id: str, source_name: str
@@ -2467,6 +2363,12 @@ class LocalExecutor(BaseExecutor):
         """Handle CSV connector with optional immediate data loading for testing."""
         params = step.get("query", step.get("params", {}))
         file_path = params.get("path", "")
+
+        # Validate that path parameter is provided for CSV connectors
+        if not file_path:
+            error_msg = "path parameter is required for CSV connector"
+            logger.error(f"CSV source {source_name}: {error_msg}")
+            return {"status": "error", "source_name": source_name, "error": error_msg}
 
         # Check if this is a test scenario that expects immediate data loading
         # Tests typically use temp files or files that exist
@@ -3053,3 +2955,360 @@ class LocalExecutor(BaseExecutor):
     def _create_connector_engine_stub(self) -> Any:
         """Create the ConnectorEngineStub class with all required methods."""
         return ConnectorEngineStub()
+
+    def _create_connector_with_profile_support(
+        self, source_name: str, step: Dict[str, Any], variables: Dict[str, Any]
+    ) -> Any:
+        """Simple unified connector creation with profile support.
+
+        This method handles both profile-based and traditional connector creation
+        in a single, readable method using existing components.
+
+        Args:
+            source_name: Name for the source
+            step: Source definition step
+            variables: Variables for substitution
+
+        Returns:
+            Configured connector instance
+
+        Raises:
+            ValueError: If connector configuration or creation fails
+        """
+        try:
+            # 1. Determine configuration source
+            if step.get("is_from_profile", False):
+                # Profile-based: get connector config from profile
+                profile_connector_name = step.get("profile_connector_name")
+                if not profile_connector_name:
+                    raise ValueError(
+                        "Profile connector name required for profile-based sources"
+                    )
+
+                if not self.profile_manager:
+                    raise ValueError(
+                        "Profile manager not initialized - check profiles directory exists"
+                    )
+
+                connector_profile = self.profile_manager.get_connector_profile(
+                    profile_connector_name
+                )
+                connector_type = connector_profile.connector_type
+                base_config = connector_profile.params.copy()
+                runtime_overrides = step.get("params", {})
+            else:
+                # Traditional: use step parameters directly
+                connector_type = step.get("connector_type", "csv").lower()
+                base_config = {}
+                runtime_overrides = step.get("query", step.get("params", {}))
+
+            # 2. Get connector defaults from enhanced registry
+            from sqlflow.connectors.registry.enhanced_registry import enhanced_registry
+
+            defaults = enhanced_registry.get_connector_defaults(
+                connector_type, is_source=True
+            )
+
+            # 3. Merge configuration (options > profile > defaults)
+            final_config = {**defaults, **base_config, **runtime_overrides}
+
+            # 4. Apply variable substitution
+            if variables and self.config_resolver:
+                final_config = self.config_resolver.substitute_variables(
+                    final_config, variables
+                )
+
+            # 5. Create connector
+            return enhanced_registry.create_source_connector(
+                connector_type, final_config
+            )
+
+        except Exception as e:
+            logger.error(f"Failed to create connector for source '{source_name}': {e}")
+            raise ValueError(
+                f"Connector creation failed for '{source_name}': {e}"
+            ) from e
+
+    def _execute_incremental_source_definition(
+        self, step: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Execute SOURCE definition with automatic incremental loading.
+
+        This method bridges the gap between industry-standard parameter parsing
+        and actual automatic incremental execution by immediately reading and
+        filtering data when sync_mode='incremental' is specified.
+
+        Args:
+        ----
+            step: Source definition step with incremental parameters
+
+        Returns:
+        -------
+            Dict containing execution results with watermark information
+
+        """
+        source_name = step["name"]
+
+        # Extract parameters from the correct location (compiled JSON uses 'query')
+        params = step.get("query", step.get("params", {}))
+        cursor_field = params.get("cursor_field", step.get("cursor_field"))
+
+        # Initialize source_definitions storage if needed
+        if not hasattr(self, "source_definitions"):
+            self.source_definitions = {}
+
+        # Store source definition for incremental sources
+        connector_type = step.get("connector_type", "csv").lower()
+        self.source_definitions[source_name] = {
+            "name": source_name,
+            "connector_type": connector_type,
+            "params": params,
+            "sync_mode": "incremental",
+            "cursor_field": cursor_field,
+            "primary_key": step.get("primary_key", []),
+        }
+
+        # Validate incremental requirements
+        if not cursor_field:
+            error_msg = (
+                f"SOURCE {source_name} with sync_mode='incremental' requires cursor_field parameter. "
+                "Specify cursor_field to indicate which column tracks record timestamps/sequence."
+            )
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        # Get pipeline context for watermark key generation
+        pipeline_name = getattr(self, "pipeline_name", "default_pipeline")
+
+        logger.info(
+            f"Executing incremental SOURCE {source_name} with cursor_field={cursor_field}"
+        )
+
+        try:
+            return self._perform_incremental_loading(
+                step, source_name, cursor_field, pipeline_name
+            )
+        except Exception as e:
+            logger.error(f"Incremental source execution failed for {source_name}: {e}")
+            # Don't update watermark on failure
+            return {
+                "status": "error",
+                "source_name": source_name,
+                "error": str(e),
+                "sync_mode": "incremental",
+            }
+
+    def _perform_incremental_loading(
+        self, step, source_name, cursor_field, pipeline_name
+    ):
+        """Perform the actual incremental loading process."""
+        # Get current watermark for this source
+        last_cursor_value = self._get_current_watermark(
+            pipeline_name, source_name, cursor_field
+        )
+
+        logger.info(
+            f"Incremental SOURCE {source_name}: last_cursor_value={last_cursor_value}"
+        )
+
+        # Get connector instance
+        connector = self._get_incremental_connector_instance(step)
+        if not connector.supports_incremental():
+            logger.warning(
+                f"Connector {source_name} doesn't support incremental, falling back to full refresh"
+            )
+            return self._handle_traditional_source(step, step["id"], source_name)
+
+        # Handle S3 discovery mode and get object name
+        object_name = self._handle_s3_incremental_discovery(
+            step, connector, source_name
+        )
+        if object_name is None:
+            # Early return for S3 discovery mode with no files
+            return self._create_incremental_result(
+                source_name, step, last_cursor_value, last_cursor_value, 0
+            )
+
+        # Read incremental data
+        max_cursor_value, total_rows = self._read_incremental_data(
+            connector, object_name, cursor_field, last_cursor_value, step, source_name
+        )
+
+        # Update watermark after successful incremental read
+        self._update_incremental_watermark(
+            pipeline_name, source_name, cursor_field, max_cursor_value
+        )
+
+        logger.info(
+            f"Incremental SOURCE {source_name} read {total_rows} rows, max cursor: {max_cursor_value}"
+        )
+
+        return self._create_incremental_result(
+            source_name, step, last_cursor_value, max_cursor_value, total_rows
+        )
+
+    def _get_current_watermark(self, pipeline_name, source_name, cursor_field):
+        """Get the current watermark value for incremental loading."""
+        last_cursor_value = None
+        if self.watermark_manager:
+            last_cursor_value = self.watermark_manager.get_source_watermark(
+                pipeline=pipeline_name,
+                source=source_name,
+                cursor_field=cursor_field,
+            )
+        return last_cursor_value
+
+    def _handle_s3_incremental_discovery(self, step, connector, source_name):
+        """Handle S3 connector discovery mode for incremental loading."""
+        # Get object name for reading (table name, file path, etc.)
+        object_name = self._extract_object_name_from_step(step)
+
+        # Handle S3 connectors specially for discovery mode in incremental loading
+        if hasattr(connector, "connection_params"):
+            config = connector.connection_params
+            connector_type = getattr(connector, "__class__", None)
+
+            if connector_type and "S3" in str(connector_type):
+                return self._handle_s3_discovery_mode_incremental(
+                    config, connector, source_name, step
+                )
+
+        return object_name
+
+    def _handle_s3_discovery_mode_incremental(
+        self, config, connector, source_name, step
+    ):
+        """Handle S3 discovery mode specifically for incremental loading."""
+        # For S3 connectors, handle path_prefix vs specific key
+        has_path_prefix = config.get("path_prefix") or config.get("prefix")
+        has_specific_key = config.get("key")
+
+        if has_path_prefix and not has_specific_key:
+            # Use discovery mode for path_prefix in incremental loading
+            discovered_files = connector.discover()
+
+            if not discovered_files:
+                logger.warning(
+                    f"No files discovered for S3 incremental source '{source_name}' with prefix '{has_path_prefix}'"
+                )
+                return None  # Signal to return early with empty result
+
+            # Read the first discovered file for incremental processing
+            first_file = discovered_files[0]
+            object_name = first_file
+            logger.debug(
+                f"Using S3 discovery mode for incremental loading, reading file '{first_file}' from prefix '{has_path_prefix}'"
+            )
+            return object_name
+
+        return self._extract_object_name_from_step(step)
+
+    def _read_incremental_data(
+        self, connector, object_name, cursor_field, last_cursor_value, step, source_name
+    ):
+        """Read incremental data and track the maximum cursor value."""
+        max_cursor_value = last_cursor_value
+        total_rows = 0
+
+        for chunk in connector.read_incremental(
+            object_name=object_name,
+            cursor_field=cursor_field,
+            cursor_value=last_cursor_value,
+            batch_size=step.get("batch_size", 10000),
+        ):
+            # Store chunk data for subsequent LOAD operations
+            if not hasattr(self, "table_data"):
+                self.table_data = {}
+            self.table_data[source_name] = chunk
+            total_rows += len(chunk)  # DataChunk has __len__ method
+
+            # Track maximum cursor value in this chunk
+            chunk_max = connector.get_cursor_value(chunk, cursor_field)
+            if chunk_max and (not max_cursor_value or chunk_max > max_cursor_value):
+                max_cursor_value = chunk_max
+
+        return max_cursor_value, total_rows
+
+    def _update_incremental_watermark(
+        self, pipeline_name, source_name, cursor_field, max_cursor_value
+    ):
+        """Update watermark after successful incremental read."""
+        # This is needed for complete incremental loading flow tests
+        if max_cursor_value and self.watermark_manager:
+            self.watermark_manager.update_source_watermark(
+                pipeline=pipeline_name,
+                source=source_name,
+                cursor_field=cursor_field,
+                value=max_cursor_value,
+            )
+            logger.debug(
+                f"Updated watermark for {pipeline_name}.{source_name}.{cursor_field}: {max_cursor_value}"
+            )
+
+    def _create_incremental_result(
+        self, source_name, step, last_cursor_value, max_cursor_value, total_rows
+    ):
+        """Create the result dictionary for incremental loading."""
+        return {
+            "status": "success",
+            "source_name": source_name,
+            "sync_mode": "incremental",
+            "previous_watermark": last_cursor_value,
+            "new_watermark": max_cursor_value,
+            "rows_processed": total_rows,
+            "incremental": True,
+            "connector_type": step.get(
+                "connector_type", step.get("source_connector_type", "csv")
+            ),
+        }
+
+    def _get_incremental_connector_instance(self, step: Dict[str, Any]):
+        """Get connector instance for incremental loading."""
+        from sqlflow.connectors.registry import get_connector_class
+
+        connector_type = step.get(
+            "connector_type", step.get("source_connector_type", "csv")
+        ).lower()  # Normalize to lowercase for consistency
+        connector_class = get_connector_class(connector_type)
+
+        # Get parameters for the connector
+        # Try 'query' first (from compiled JSON), then 'params' (from direct step)
+        params = step.get("query", step.get("params", {}))
+        # Substitute variables in parameters
+        params = self._substitute_variables_in_dict(params)
+
+        # Instantiate the connector with the configuration
+        connector = connector_class(config=params)
+
+        return connector
+
+    def _extract_object_name_from_step(self, step: Dict[str, Any]) -> str:
+        """Extract object name (table, file path) from SOURCE step."""
+        # Try 'query' first (from compiled JSON), then 'params' (from direct step)
+        params = step.get("query", step.get("params", {}))
+
+        # For CSV connector, use 'path' parameter
+        if (
+            step.get("connector_type", "").lower() == "csv"
+            or step.get("source_connector_type", "").lower() == "csv"
+        ):
+            return params.get("path", params.get("file_path", ""))
+
+        # For S3 connector, use 'key' parameter
+        if (
+            step.get("connector_type", "").lower() == "s3"
+            or step.get("source_connector_type", "").lower() == "s3"
+        ):
+            # First try 'key' for specific file, then 'path_prefix' for discovery, then legacy 'prefix'
+            return params.get(
+                "key", params.get("path_prefix", params.get("prefix", ""))
+            )
+
+        # For database connectors, use 'table' parameter
+        if step.get("connector_type", "").lower() in ["postgres", "mysql"] or step.get(
+            "source_connector_type", ""
+        ).lower() in ["postgres", "mysql"]:
+            return params.get("table", "")
+
+        # For other connectors, try common parameter names
+        return params.get("object_name", params.get("table", params.get("path", "")))

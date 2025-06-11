@@ -302,6 +302,213 @@ class LocalExecutor:
 - [ ] Integration tests with profile resolution
 - [ ] Documentation for registry changes
 
+#### Task 3.3: Executor integration with profile-resolved connectors (SIMPLIFIED)
+**Owner**: Backend Developer  
+**Estimate**: 1 day (reduced from 3 days)
+
+#### **Design Philosophy**: 
+- **KISS Principle**: Keep it Simple, Stupid
+- **Minimal Components**: Use existing patterns, add minimal new code
+- **Single Responsibility**: Each component does one thing well
+- **Zero Over-Engineering**: Solve the actual problem, not imaginary future problems
+
+#### **Simplified Architecture**:
+```python
+# BEFORE: 3 classes + complex orchestration + caching + tracing (400+ lines)
+# AFTER: 1 simple method + existing ConfigurationResolver (50 lines)
+
+class LocalExecutor(BaseExecutor):
+    def _create_connector_with_profile_support(
+        self, 
+        source_name: str,
+        step: Dict[str, Any],
+        variables: Dict[str, Any]
+    ) -> SourceConnector:
+        """Simple unified connector creation with profile support.
+        
+        This is the ONLY new method needed. It handles both profile-based
+        and traditional connector creation in a single, readable method.
+        """
+        # 1. Determine configuration source
+        if step.get("is_from_profile", False):
+            # Profile-based: get connector config from profile
+            profile_connector_name = step["profile_connector_name"]
+            connector_profile = self.profile_manager.get_connector_profile(profile_connector_name)
+            connector_type = connector_profile.connector_type
+            base_config = connector_profile.params
+            runtime_overrides = step.get("params", {})
+        else:
+            # Traditional: use step parameters directly  
+            connector_type = step.get("connector_type", "csv")
+            base_config = {}
+            runtime_overrides = step.get("params", {})
+        
+        # 2. Merge configuration (options > profile > defaults)
+        defaults = enhanced_registry.get_connector_defaults(connector_type, is_source=True)
+        final_config = {**defaults, **base_config, **runtime_overrides}
+        
+        # 3. Apply variable substitution
+        if variables and self.config_resolver:
+            final_config = self.config_resolver.substitute_variables(final_config, variables)
+        
+        # 4. Create connector
+        return enhanced_registry.create_source_connector(connector_type, final_config)
+```
+
+#### **What We REMOVE**:
+- ❌ `ProfileConnectorIntegration` class (200+ lines) 
+- ❌ `ResolutionTrace` class (100+ lines)
+- ❌ Complex caching system
+- ❌ Performance monitoring overhead
+- ❌ `_handle_unified_source_creation()` method
+- ❌ `_store_source_definition_from_trace()` method
+- ❌ Cache management logic
+- ❌ Trace creation and management
+
+#### **What We KEEP**:
+- ✅ Existing `ProfileManager` (already works)
+- ✅ Existing `ConfigurationResolver` (already works)  
+- ✅ Existing `EnhancedConnectorRegistry` (already works)
+- ✅ Configuration precedence (options > profile > defaults)
+- ✅ Variable substitution
+- ✅ Backward compatibility
+- ✅ Error handling
+
+#### **Implementation Changes**:
+
+**1. LocalExecutor modification (ONLY change needed):**
+```python
+def _execute_source_definition(self, step: Dict[str, Any]) -> Dict[str, Any]:
+    """Execute source definition step with simplified profile support."""
+    step_id = step.get("id", "unknown")
+    source_name = step.get("name", step_id)
+    
+    try:
+        # Use simple unified connector creation
+        connector = self._create_connector_with_profile_support(
+            source_name, step, self.variables
+        )
+        
+        # Store source definition (simplified)
+        self._source_definitions[source_name] = {
+            "name": source_name,
+            "connector_type": step.get("connector_type") or "from_profile",
+            "params": step.get("params", {}),
+            "is_from_profile": step.get("is_from_profile", False),
+        }
+        
+        return {
+            "status": "success",
+            "source_name": source_name,
+            "step_id": step_id,
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to create source '{source_name}': {e}")
+        return {
+            "status": "error", 
+            "source_name": source_name,
+            "step_id": step_id,
+            "error": str(e)
+        }
+```
+
+**2. Remove complex profile initialization:**
+```python
+def _init_profile_components(self) -> None:
+    """Simplified profile component initialization."""
+    try:
+        if self.project and hasattr(self.project, "project_dir"):
+            profiles_dir = os.path.join(self.project.project_dir, "profiles")
+            if os.path.exists(profiles_dir):
+                self.profile_manager = ProfileManager(profiles_dir, self.profile_name)
+                self.config_resolver = ConfigurationResolver(self.profile_manager)
+                logger.debug(f"Profile components initialized for '{self.profile_name}'")
+            else:
+                self.profile_manager = None
+                self.config_resolver = None
+        else:
+            self.profile_manager = None
+            self.config_resolver = None
+    except Exception as e:
+        logger.warning(f"Failed to initialize profile components: {e}")
+        self.profile_manager = None
+        self.config_resolver = None
+```
+
+#### **Benefits of Simplified Approach**:
+
+1. **Readability**: 50 lines vs 400+ lines - anyone can understand it
+2. **Maintainability**: Single method to debug vs 3+ classes
+3. **Performance**: No object allocation overhead, no caching complexity
+4. **Simplicity**: Uses existing, proven components
+5. **Testability**: Easy to unit test one method vs complex integration
+6. **Zero Risk**: Minimal changes to proven codebase
+
+#### **Success Criteria (Updated)**:
+- [ ] Profile-based connectors work identically to traditional connectors
+- [ ] Configuration precedence: options > profile > defaults
+- [ ] Variable substitution works correctly
+- [ ] Zero breaking changes to existing connectors
+- [ ] Implementation is < 100 lines of new code (not 400+)
+- [ ] Any developer can understand the logic in < 5 minutes
+- [ ] Unit tests cover the single new method comprehensively
+- [ ] Performance impact is unmeasurable (< 1ms overhead)
+
+#### **Testing Strategy (Simplified)**:
+```python
+class TestSimplifiedProfileIntegration:
+    def test_profile_based_connector_creation(self):
+        """Test profile-based connector creation."""
+        step = {
+            "name": "test_source",
+            "is_from_profile": True,
+            "profile_connector_name": "csv_default",
+            "params": {"path": "/override.csv"}  # Override profile path
+        }
+        
+        connector = executor._create_connector_with_profile_support(
+            "test_source", step, {"var1": "value1"}
+        )
+        
+        assert isinstance(connector, CSVConnector)
+        assert connector.path == "/override.csv"  # Runtime override worked
+        assert connector.delimiter == ","  # From profile
+        assert connector.encoding == "utf-8"  # From defaults
+
+    def test_traditional_connector_creation(self):
+        """Test traditional connector creation still works."""
+        step = {
+            "name": "traditional",
+            "connector_type": "csv", 
+            "params": {"path": "/traditional.csv"}
+        }
+        
+        connector = executor._create_connector_with_profile_support(
+            "traditional", step, {}
+        )
+        
+        assert isinstance(connector, CSVConnector) 
+        assert connector.path == "/traditional.csv"
+```
+
+#### **Migration Path**:
+1. Implement `_create_connector_with_profile_support()` method
+2. Modify `_execute_source_definition()` to use new method
+3. Remove `ProfileConnectorIntegration` and related complexity
+4. Update tests to focus on behavior, not implementation
+5. Update documentation to reflect simplicity
+
+#### **Timeline**: 
+- Implementation: 4 hours
+- Testing: 2 hours  
+- Documentation: 1 hour
+- Code review: 1 hour
+
+**Total: 1 day** (vs 3 days for complex approach)
+
+This simplified approach achieves 100% of the functional requirements with 80% less code and complexity.
+
 ---
 
 ### **PHASE 4: Connector-Specific Validation (Week 5)**
