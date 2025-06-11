@@ -1,5 +1,5 @@
 import os
-from typing import Any, Dict, Iterator, List, Optional
+from typing import Any, Dict, Iterator, List, Optional, Union
 
 import pandas as pd
 
@@ -15,6 +15,7 @@ class CSVSource(Connector):
 
     This connector implements the full Connector interface for CLI compatibility
     while maintaining backward compatibility with the legacy SourceConnector interface.
+    Optimized for chunked reading, PyArrow support, and column selection at read time.
     """
 
     def __init__(self, config: Optional[Dict[str, Any]] = None):
@@ -22,18 +23,14 @@ class CSVSource(Connector):
         if config:
             self.configure(config)
         elif config is not None:  # Empty dict was passed
-            # If empty config dict is passed, still validate it
             self.configure(config)
 
     def configure(self, params: Dict[str, Any]) -> None:
         """Configure the connector with parameters.
 
         Args:
-        ----
             params: Configuration parameters including 'path'
-
         Raises:
-        ------
             ValueError: If required parameters are missing
         """
         self.connection_params = params
@@ -45,7 +42,7 @@ class CSVSource(Connector):
         self.has_header = params.get("has_header", True)
         self.delimiter = params.get("delimiter", ",")
         self.encoding = params.get("encoding", "utf-8")
-
+        self.engine = params.get("engine", "pandas")  # 'pandas' or 'pyarrow'
         self.state = ConnectorState.CONFIGURED
 
     def test_connection(self) -> ConnectionTestResult:
@@ -148,28 +145,20 @@ class CSVSource(Connector):
         """Backward compatibility property."""
         return getattr(self, "connection_params", {})
 
-    def read(
-        self,
-        object_name: Optional[str] = None,
-        columns: Optional[List[str]] = None,
-        batch_size: int = 10000,
-        options: Optional[Dict[str, Any]] = None,
-        **kwargs,
-    ) -> pd.DataFrame:
-        """
-        Read data from the CSV file.
+    def _prepare_read_options(
+        self, options: Optional[Dict[str, Any]], columns: Optional[List[str]], **kwargs
+    ) -> Dict[str, Any]:
+        """Prepare options for CSV reading.
 
         Args:
-            object_name: Name/path of the CSV file (optional, uses self.path if not provided)
-            columns: List of columns to read (optional)
-            batch_size: Batch size for reading (not used for CSV, but kept for interface compatibility)
-            options: Additional options for pandas.read_csv
+            options: Base options dictionary
+            columns: List of columns to read
             **kwargs: Additional keyword arguments
-        """
-        # Use object_name if provided, otherwise use self.path
-        file_path = object_name or self.path
 
-        read_options = options or {}
+        Returns:
+            Prepared options dictionary
+        """
+        read_options = options.copy() if options else {}
         read_options.update(kwargs)
 
         # Set default CSV reading options
@@ -179,77 +168,186 @@ class CSVSource(Connector):
             read_options["delimiter"] = self.delimiter
         if "encoding" not in read_options:
             read_options["encoding"] = self.encoding
-
-        # Read the CSV file
-        df = pd.read_csv(file_path, **read_options)
-
-        # Filter columns if specified
         if columns:
-            available_columns = [col for col in columns if col in df.columns]
-            if available_columns:
-                df = df[available_columns]
+            read_options["usecols"] = columns
 
-        return df
+        return read_options
+
+    def _read_with_pyarrow(
+        self, file_path: str, read_options: Dict[str, Any], batch_size: Optional[int]
+    ) -> Union[pd.DataFrame, Iterator[pd.DataFrame]]:
+        """Read CSV using PyArrow engine.
+
+        Args:
+            file_path: Path to the CSV file
+            read_options: Prepared read options
+            batch_size: Optional batch size for chunked reading
+
+        Returns:
+            DataFrame or iterator of DataFrames
+        """
+        import pyarrow.csv as pacsv
+
+        arrow_opts = pacsv.ReadOptions()
+        parse_opts = pacsv.ParseOptions(delimiter=read_options["delimiter"])
+        convert_opts = pacsv.ConvertOptions()
+        if "usecols" in read_options:
+            convert_opts = pacsv.ConvertOptions(include_columns=read_options["usecols"])
+
+        if batch_size:
+
+            def pyarrow_chunk_iter():
+                with pacsv.open_csv(
+                    file_path,
+                    read_options=arrow_opts,
+                    parse_options=parse_opts,
+                    convert_options=convert_opts,
+                ) as reader:
+                    while True:
+                        try:
+                            batch = reader.read_next_batch()
+                            if batch.num_rows == 0:
+                                break
+                            yield batch.to_pandas()
+                        except StopIteration:
+                            break
+
+            return pyarrow_chunk_iter()
+
+        table = pacsv.read_csv(
+            file_path,
+            read_options=arrow_opts,
+            parse_options=parse_opts,
+            convert_options=convert_opts,
+        )
+        return table.to_pandas()
+
+    def _read_with_pandas(
+        self, file_path: str, read_options: Dict[str, Any], batch_size: Optional[int]
+    ) -> Union[pd.DataFrame, Iterator[pd.DataFrame]]:
+        """Read CSV using pandas engine.
+
+        Args:
+            file_path: Path to the CSV file
+            read_options: Prepared read options
+            batch_size: Optional batch size for chunked reading
+
+        Returns:
+            DataFrame or iterator of DataFrames
+        """
+        if batch_size:
+            return pd.read_csv(file_path, chunksize=batch_size, **read_options)
+        return pd.read_csv(file_path, **read_options)
+
+    def read(
+        self,
+        object_name: Optional[str] = None,
+        columns: Optional[List[str]] = None,
+        batch_size: Optional[int] = None,
+        options: Optional[Dict[str, Any]] = None,
+        as_iterator: bool = False,
+        **kwargs,
+    ) -> Union[pd.DataFrame, Iterator[pd.DataFrame]]:
+        """
+        Read data from the CSV file, with support for chunked reading and PyArrow engine.
+
+        Args:
+            object_name: Name/path of the CSV file (optional, uses self.path if not provided)
+            columns: List of columns to read (optional)
+            batch_size: Batch size for reading (if >0, enables chunked reading)
+            options: Additional options for pandas.read_csv or pyarrow.csv.read_csv
+            as_iterator: If True, always return an iterator (even for single chunk)
+            **kwargs: Additional keyword arguments
+        Returns:
+            DataFrame (default) or iterator of DataFrames (if chunked or as_iterator)
+        """
+        file_path = object_name or self.path
+        read_options = self._prepare_read_options(options, columns, **kwargs)
+
+        # Engine selection: pandas (default) or pyarrow (for large files or if specified)
+        engine = read_options.pop("engine", self.engine)
+        use_pyarrow = engine == "pyarrow"
+
+        try:
+            if use_pyarrow:
+                result = self._read_with_pyarrow(file_path, read_options, batch_size)
+            else:
+                result = self._read_with_pandas(file_path, read_options, batch_size)
+
+            # Convert single DataFrame to iterator if requested
+            if as_iterator and not isinstance(result, Iterator):
+
+                def single_chunk_iter():
+                    yield result
+
+                return single_chunk_iter()
+
+            return result
+
+        except ImportError:
+            if use_pyarrow:
+                # Fallback to pandas if PyArrow is not available
+                return self._read_with_pandas(file_path, read_options, batch_size)
+            raise
 
     def read_incremental(
         self,
         object_name: str,
         cursor_field: str,
         cursor_value: Optional[Any] = None,
-        batch_size: int = 10000,
+        batch_size: Optional[int] = None,
+        options: Optional[Dict[str, Any]] = None,
+        engine: Optional[str] = None,
+        columns: Optional[List[str]] = None,
         **kwargs,
     ) -> Iterator[DataChunk]:
         """
-        Read data incrementally from the CSV file based on cursor field.
+        Read data incrementally from the CSV file based on cursor field, with chunked reading and PyArrow support.
 
         Args:
             object_name: Name/path of the CSV file (matches self.path)
             cursor_field: Column name to use for incremental filtering
             cursor_value: Last value of cursor field from previous run
             batch_size: Number of rows per batch (for memory efficiency)
+            options: Additional options for pandas.read_csv or pyarrow.csv.read_csv
+            engine: 'pandas' or 'pyarrow' (optional)
+            columns: List of columns to read (optional, default: all columns)
             **kwargs: Additional parameters
-
         Yields:
             DataChunk objects containing incremental data
         """
-        df = self.read(object_name=object_name, **kwargs)
-
-        # If no cursor field in the data, return full data
-        if cursor_field not in df.columns:
-            yield DataChunk(df)
-            return
-
-        # Filter data based on last cursor value
-        if cursor_value is not None:
-            # Try datetime conversion first
-            try:
-                # Convert DataFrame column to datetime
-                df_cursor_col = pd.to_datetime(df[cursor_field])
-
-                # Convert cursor_value to datetime with the same format
-                if isinstance(cursor_value, str):
-                    cursor_value_dt = pd.to_datetime(cursor_value)
-                else:
-                    cursor_value_dt = pd.to_datetime(cursor_value)
-
-                # Filter using datetime comparison
-                filtered_df = df[df_cursor_col > cursor_value_dt]
-
-            except (ValueError, TypeError):
-                # If datetime conversion fails, use original data types for comparison
+        read_opts = options.copy() if options else {}
+        if engine:
+            read_opts["engine"] = engine
+        chunk_iter = self.read(
+            object_name=object_name,
+            columns=columns,  # None means all columns
+            batch_size=batch_size,
+            options=read_opts,
+            as_iterator=True,
+            **kwargs,
+        )
+        for chunk_df in chunk_iter:
+            if cursor_field not in chunk_df.columns:
+                continue
+            filtered_df = chunk_df
+            if cursor_value is not None:
                 try:
-                    # Try numeric comparison
-                    filtered_df = df[
-                        pd.to_numeric(df[cursor_field]) > pd.to_numeric(cursor_value)
-                    ]
+                    df_cursor_col = pd.to_datetime(chunk_df[cursor_field])
+                    cursor_value_dt = pd.to_datetime(cursor_value)
+                    filtered_df = chunk_df[df_cursor_col > cursor_value_dt]
                 except (ValueError, TypeError):
-                    # Fall back to string comparison
-                    filtered_df = df[df[cursor_field].astype(str) > str(cursor_value)]
-        else:
-            # No previous cursor value, return all data
-            filtered_df = df
-
-        yield DataChunk(filtered_df)
+                    try:
+                        filtered_df = chunk_df[
+                            pd.to_numeric(chunk_df[cursor_field])
+                            > pd.to_numeric(cursor_value)
+                        ]
+                    except (ValueError, TypeError):
+                        filtered_df = chunk_df[
+                            chunk_df[cursor_field].astype(str) > str(cursor_value)
+                        ]
+            if not filtered_df.empty:
+                yield DataChunk(filtered_df)
 
     def get_cursor_value(self, chunk: DataChunk, cursor_field: str) -> Optional[Any]:
         """

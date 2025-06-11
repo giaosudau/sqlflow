@@ -221,6 +221,55 @@ class TestCSVSource(unittest.TestCase):
         with self.assertRaises(AttributeError):
             connector.read()
 
+    def test_chunked_reading(self):
+        """Test chunked reading from a CSV file."""
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".csv") as f:
+            f.write(self.test_csv_content)
+            file_path = f.name
+
+        try:
+            connector = CSVSource(config={"path": file_path})
+            # Use small batch size to force chunking
+            chunk_iter = connector.read(batch_size=2, as_iterator=True)
+            chunks = list(chunk_iter)
+            self.assertEqual(len(chunks), 2)
+            self.assertEqual(chunks[0].shape, (2, 3))
+            self.assertEqual(chunks[1].shape, (1, 3))
+        finally:
+            os.remove(file_path)
+
+    def test_column_selection_at_read_time(self):
+        """Test column selection at read time (usecols)."""
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".csv") as f:
+            f.write(self.test_csv_content)
+            file_path = f.name
+
+        try:
+            connector = CSVSource(config={"path": file_path})
+            df = connector.read(columns=["id", "value"])
+            self.assertEqual(list(df.columns), ["id", "value"])
+            self.assertNotIn("name", df.columns)
+        finally:
+            os.remove(file_path)
+
+    def test_pyarrow_engine_reading(self):
+        """Test reading CSV with PyArrow engine if available."""
+        try:
+            pass
+        except ImportError:
+            self.skipTest("pyarrow is not installed")
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".csv") as f:
+            f.write(self.test_csv_content)
+            file_path = f.name
+        try:
+            connector = CSVSource(config={"path": file_path, "engine": "pyarrow"})
+            df = connector.read()
+            self.assertIsInstance(df, pd.DataFrame)
+            self.assertEqual(df.shape, (3, 3))
+            self.assertEqual(list(df.columns), ["id", "name", "value"])
+        finally:
+            os.remove(file_path)
+
 
 if __name__ == "__main__":
     unittest.main()
