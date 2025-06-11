@@ -352,3 +352,53 @@ class TestASTToDAGConverter:
         dag = converter.convert(pipeline)
 
         assert isinstance(dag, PipelineDAG)
+
+    def test_convert_step_to_dict_profile_based_source_definition(self):
+        """Test converting profile-based source definition step to dictionary."""
+        converter = ASTToDAGConverter()
+
+        step = SourceDefinitionStep(
+            name="users",
+            connector_type="",  # Empty for profile-based
+            params={"table": "users", "sync_mode": "full_refresh"},
+            is_from_profile=True,
+            profile_connector_name="postgres_prod",
+            line_number=1,
+        )
+
+        result = converter._convert_step_to_dict(step, 0)
+
+        assert result is not None
+        assert result["id"] == "step_0"
+        assert result["name"] == "users"
+        assert result["type"] == "SOURCE"
+        assert result["connector_type"] == ""
+        assert result["params"] == {"table": "users", "sync_mode": "full_refresh"}
+        assert result["is_from_profile"] is True
+        assert result["profile_connector_name"] == "postgres_prod"
+        assert result["line_number"] == 1
+
+    def test_convert_step_to_dict_traditional_source_definition(self):
+        """Test converting traditional source definition to ensure profile fields are included."""
+        converter = ASTToDAGConverter()
+
+        step = SourceDefinitionStep(
+            name="users",
+            connector_type="csv",
+            params={"file_path": "data/users.csv"},
+            is_from_profile=False,
+            profile_connector_name=None,
+            line_number=1,
+        )
+
+        result = converter._convert_step_to_dict(step, 0)
+
+        assert result is not None
+        assert result["id"] == "step_0"
+        assert result["name"] == "users"
+        assert result["type"] == "SOURCE"
+        assert result["connector_type"] == "csv"
+        assert result["params"] == {"file_path": "data/users.csv"}
+        assert result["is_from_profile"] is False
+        assert result["profile_connector_name"] is None
+        assert result["line_number"] == 1

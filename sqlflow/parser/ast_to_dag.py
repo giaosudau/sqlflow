@@ -68,6 +68,8 @@ class ASTToDAGConverter:
                 "type": "SOURCE",
                 "connector_type": step.connector_type,
                 "params": step.params,
+                "is_from_profile": step.is_from_profile,
+                "profile_connector_name": step.profile_connector_name,
                 "line_number": step.line_number,
             }
         elif isinstance(step, LoadStep):
