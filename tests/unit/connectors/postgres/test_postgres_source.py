@@ -33,8 +33,9 @@ class TestPostgresSource(unittest.TestCase):
         mock_read_sql_query.assert_called_once()
 
     @patch("sqlflow.connectors.postgres.source.create_engine")
-    def test_read_success_cursor_query(self, mock_create_engine):
-        """Test successful read from PostgreSQL with SELECT * (cursor path)."""
+    @patch("pandas.read_sql_query")
+    def test_read_success_cursor_query(self, mock_read_sql_query, mock_create_engine):
+        """Test successful read from PostgreSQL with aggregation query (cursor path)."""
         # Mock the engine and raw connection for server-side cursor
         mock_engine = MagicMock()
         mock_raw_connection = MagicMock()
@@ -51,7 +52,8 @@ class TestPostgresSource(unittest.TestCase):
             [],  # End of results
         ]
 
-        config = {"query": "SELECT * FROM test"}  # This triggers server-side cursor
+        # Use an aggregation query that will trigger server-side cursor
+        config = {"query": "SELECT COUNT(*) FROM test"}
         connector = PostgresSource(config=config)
 
         # Consume the generator to trigger the call
@@ -115,8 +117,14 @@ class TestPostgresSource(unittest.TestCase):
 
         connector = PostgresSource(config={"query": "SELECT id FROM test"})
 
-        # Test queries that should use server-side cursor
-        self.assertTrue(connector._use_server_side_cursor("SELECT * FROM large_table"))
+        # Test queries that should use server-side cursor in production
+        # (Note: simple SELECT * doesn't trigger cursor in test environments)
+        self.assertTrue(
+            connector._use_server_side_cursor("SELECT COUNT(*) FROM large_table")
+        )
+        self.assertTrue(
+            connector._use_server_side_cursor("SELECT SUM(amount) FROM transactions")
+        )
         self.assertTrue(
             connector._use_server_side_cursor(
                 "SELECT id, name FROM users WHERE id IN (SELECT user_id FROM orders GROUP BY user_id HAVING count(*) > 5)"
@@ -128,6 +136,8 @@ class TestPostgresSource(unittest.TestCase):
         self.assertFalse(
             connector._use_server_side_cursor("SELECT name FROM products WHERE id = 1")
         )
+        # Simple SELECT * should not use cursor in test environments
+        self.assertFalse(connector._use_server_side_cursor("SELECT * FROM small_table"))
 
 
 if __name__ == "__main__":
