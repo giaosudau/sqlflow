@@ -1,9 +1,11 @@
 """Data chunk container for SQLFlow connectors."""
 
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, TypeVar, Union
 
 import pandas as pd
 import pyarrow as pa
+
+T = TypeVar("T", pd.DataFrame, pa.Table)
 
 
 class DataChunk:
@@ -28,6 +30,7 @@ class DataChunk:
         "_cached_schema",
         "_cached_arrow_table",
         "_cached_pandas_df",
+        "_conversion_cache",
     )
 
     def __init__(
@@ -55,6 +58,7 @@ class DataChunk:
         self._cached_schema: Optional[pa.Schema] = None
         self._cached_arrow_table: Optional[pa.Table] = None
         self._cached_pandas_df: Optional[pd.DataFrame] = None
+        self._conversion_cache: Dict[str, Any] = {}
 
         if isinstance(data, pa.Table):
             self._arrow_table = data
@@ -79,9 +83,7 @@ class DataChunk:
         if self._arrow_table is None:
             assert self._pandas_df is not None
             # Use zero-copy conversion when possible
-            self._arrow_table = pa.Table.from_pandas(
-                self._pandas_df, preserve_index=False
-            )
+            self._arrow_table = self._convert_pandas_to_arrow(self._pandas_df)
         return self._arrow_table
 
     @property
@@ -96,7 +98,7 @@ class DataChunk:
         if self._pandas_df is None:
             assert self._arrow_table is not None
             # Use zero-copy conversion when possible
-            self._pandas_df = self._arrow_table.to_pandas(use_threads=True)
+            self._pandas_df = self._convert_arrow_to_pandas(self._arrow_table)
         return self._pandas_df
 
     @property
@@ -148,6 +150,56 @@ class DataChunk:
 
         """
         return self.pandas_df
+
+    def _convert_pandas_to_arrow(self, df: pd.DataFrame) -> pa.Table:
+        """Convert pandas DataFrame to Arrow Table with optimizations.
+
+        Args:
+        ----
+            df: pandas DataFrame to convert
+
+        Returns
+        -------
+            PyArrow Table
+
+        """
+        cache_key = f"pandas_to_arrow_{id(df)}"
+        if cache_key in self._conversion_cache:
+            return self._conversion_cache[cache_key]
+
+        # Use optimal conversion settings
+        table = pa.Table.from_pandas(
+            df,
+            preserve_index=False,  # Usually not needed for data processing
+            safe=False,  # Allow unsafe conversions for performance
+        )
+        self._conversion_cache[cache_key] = table
+        return table
+
+    def _convert_arrow_to_pandas(self, table: pa.Table) -> pd.DataFrame:
+        """Convert Arrow Table to pandas DataFrame with optimizations.
+
+        Args:
+        ----
+            table: PyArrow Table to convert
+
+        Returns
+        -------
+            pandas DataFrame
+
+        """
+        cache_key = f"arrow_to_pandas_{id(table)}"
+        if cache_key in self._conversion_cache:
+            return self._conversion_cache[cache_key]
+
+        # Use optimal conversion settings
+        df = table.to_pandas(
+            use_threads=True,  # Enable parallel processing
+            date_as_object=False,  # Use native datetime types
+            strings_to_categorical=False,  # Avoid categorical conversion overhead
+        )
+        self._conversion_cache[cache_key] = df
+        return df
 
     def vectorized_operation(
         self, operation: Callable[[pd.DataFrame], pd.DataFrame]
