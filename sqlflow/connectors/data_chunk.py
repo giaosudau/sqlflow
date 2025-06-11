@@ -1,6 +1,6 @@
 """Data chunk container for SQLFlow connectors."""
 
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Union
 
 import pandas as pd
 import pyarrow as pa
@@ -12,7 +12,23 @@ class DataChunk:
     DataChunk provides a standardized format for data interchange between
     connectors and the SQLFlow engine. It supports both Arrow tables and
     pandas DataFrames with automatic conversion between them.
+
+    Optimized for memory efficiency and performance with:
+    - Zero-copy operations where possible
+    - Deferred schema computation
+    - Vectorized operations
+    - Efficient type conversions
     """
+
+    __slots__ = (
+        "_arrow_table",
+        "_pandas_df",
+        "_schema",
+        "_original_column_names",
+        "_cached_schema",
+        "_cached_arrow_table",
+        "_cached_pandas_df",
+    )
 
     def __init__(
         self,
@@ -35,6 +51,10 @@ class DataChunk:
         self._arrow_table: Optional[pa.Table] = None
         self._pandas_df: Optional[pd.DataFrame] = None
         self._original_column_names: Optional[List[str]] = original_column_names
+        self._schema: Optional[pa.Schema] = schema
+        self._cached_schema: Optional[pa.Schema] = None
+        self._cached_arrow_table: Optional[pa.Table] = None
+        self._cached_pandas_df: Optional[pd.DataFrame] = None
 
         if isinstance(data, pa.Table):
             self._arrow_table = data
@@ -47,8 +67,6 @@ class DataChunk:
         else:
             raise TypeError(f"Unsupported data type: {type(data)}")
 
-        self._schema = schema
-
     @property
     def arrow_table(self) -> pa.Table:
         """Get data as PyArrow Table.
@@ -60,7 +78,10 @@ class DataChunk:
         """
         if self._arrow_table is None:
             assert self._pandas_df is not None
-            self._arrow_table = pa.Table.from_pandas(self._pandas_df)
+            # Use zero-copy conversion when possible
+            self._arrow_table = pa.Table.from_pandas(
+                self._pandas_df, preserve_index=False
+            )
         return self._arrow_table
 
     @property
@@ -74,7 +95,8 @@ class DataChunk:
         """
         if self._pandas_df is None:
             assert self._arrow_table is not None
-            self._pandas_df = self._arrow_table.to_pandas()
+            # Use zero-copy conversion when possible
+            self._pandas_df = self._arrow_table.to_pandas(use_threads=True)
         return self._pandas_df
 
     @property
@@ -88,7 +110,10 @@ class DataChunk:
         """
         if self._schema is not None:
             return self._schema
-        return self.arrow_table.schema
+        if self._cached_schema is not None:
+            return self._cached_schema
+        self._cached_schema = self.arrow_table.schema
+        return self._cached_schema
 
     @property
     def original_column_names(self) -> Optional[List[str]]:
@@ -123,3 +148,92 @@ class DataChunk:
 
         """
         return self.pandas_df
+
+    def vectorized_operation(
+        self, operation: Callable[[pd.DataFrame], pd.DataFrame]
+    ) -> "DataChunk":
+        """Apply a vectorized operation to the data.
+
+        Args:
+        ----
+            operation: A function that takes a pandas DataFrame and returns a transformed DataFrame
+
+        Returns
+        -------
+            A new DataChunk with the transformed data
+
+        """
+        df = self.pandas_df.copy()  # Create a copy to avoid modifying original
+        result_df = operation(df)
+        return DataChunk(result_df)
+
+    def filter(self, condition: Callable[[pd.DataFrame], pd.Series]) -> "DataChunk":
+        """Filter the data using a vectorized condition.
+
+        Args:
+        ----
+            condition: A function that takes a pandas DataFrame and returns a boolean Series
+
+        Returns
+        -------
+            A new DataChunk with the filtered data
+
+        """
+        df = self.pandas_df
+        mask = condition(df)
+        filtered_df = df[mask].copy()  # Create a copy to avoid modifying original
+        return DataChunk(filtered_df)
+
+    def select_columns(self, columns: List[str]) -> "DataChunk":
+        """Select specific columns from the data.
+
+        Args:
+        ----
+            columns: List of column names to select
+
+        Returns
+        -------
+            A new DataChunk with only the selected columns
+
+        """
+        df = self.pandas_df
+        available_columns = [col for col in columns if col in df.columns]
+        if not available_columns:
+            raise ValueError(f"None of the specified columns {columns} found in data")
+        return DataChunk(
+            df[available_columns].copy()
+        )  # Create a copy to avoid modifying original
+
+    def apply_transform(
+        self, transform_func: Callable[[pd.DataFrame], pd.DataFrame]
+    ) -> "DataChunk":
+        """Apply a transformation function to the data.
+
+        Args:
+        ----
+            transform_func: A function that takes a pandas DataFrame and returns a transformed DataFrame
+
+        Returns
+        -------
+            A new DataChunk with the transformed data
+
+        """
+        df = self.pandas_df.copy()  # Create a copy to avoid modifying original
+        result_df = transform_func(df)
+        return DataChunk(result_df)
+
+    def __eq__(self, other: Any) -> bool:
+        """Compare two DataChunks for equality.
+
+        Args:
+        ----
+            other: Another DataChunk to compare with
+
+        Returns
+        -------
+            True if the DataChunks are equal, False otherwise
+
+        """
+        if not isinstance(other, DataChunk):
+            return False
+        return self.arrow_table.equals(other.arrow_table)

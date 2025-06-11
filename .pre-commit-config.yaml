@@ -52,7 +52,7 @@ repos:
             '--cov=sqlflow',
             '--cov-branch',
             '--cov-report=xml',
-            '--maxfail=3',
+            '--maxfail=50',
             '-q',
             '--disable-warnings'
         ]
