@@ -1022,7 +1022,7 @@ class LocalExecutor(BaseExecutor):
             row_count = len(data_chunk) if data_chunk else 0
 
             # Create parent directory if needed
-            if connector_type.upper() == "csv":
+            if connector_type.upper() == "CSV":
                 dirname = os.path.dirname(destination_uri)
                 if dirname:
                     os.makedirs(dirname, exist_ok=True)
@@ -1044,7 +1044,7 @@ class LocalExecutor(BaseExecutor):
                 # For tests without a real connector engine, simulate the export
                 # Create a mock file if it's a CSV export
                 if (
-                    connector_type.upper() == "csv"
+                    connector_type.upper() == "CSV"
                     and os.path.splitext(destination_uri)[1].lower() == ".csv"
                 ):
                     self._create_mock_csv_file(destination_uri, data_chunk)
@@ -2804,8 +2804,9 @@ class LocalExecutor(BaseExecutor):
             return text
 
         # Feature flag for gradual migration to new VariableManager system
+        # Changed default to 'true' in Phase 3: Enable new system by default
         use_new_system = (
-            os.getenv("SQLFLOW_USE_NEW_VARIABLES", "false").lower() == "true"
+            os.getenv("SQLFLOW_USE_NEW_VARIABLES", "true").lower() == "true"
         )
 
         if use_new_system:

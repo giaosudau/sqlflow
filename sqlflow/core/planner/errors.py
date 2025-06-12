@@ -11,7 +11,7 @@ from typing import Dict, List, Optional
 
 class PlannerError(Exception):
     """Base class for all planner-related errors.
-    
+
     Provides consistent error formatting and context management.
     Following Zen of Python: Explicit is better than implicit.
     """
@@ -24,7 +24,7 @@ class PlannerError(Exception):
     def _format_message(self) -> str:
         """Format error message with context information."""
         formatted = self.message
-        
+
         if self.context:
             context_parts = []
             for key, value in self.context.items():
@@ -32,16 +32,16 @@ class PlannerError(Exception):
                     context_parts.append(f"{key}: {', '.join(map(str, value))}")
                 elif value:
                     context_parts.append(f"{key}: {value}")
-            
+
             if context_parts:
-                formatted += f"\n\nContext:\n  - " + "\n  - ".join(context_parts)
-        
+                formatted += "\n\nContext:\n  - " + "\n  - ".join(context_parts)
+
         return formatted
 
 
 class ValidationError(PlannerError):
     """Error for validation failures.
-    
+
     Provides detailed information about what failed validation
     and where the issues were found.
     """
@@ -63,12 +63,12 @@ class ValidationError(PlannerError):
             context["invalid_references"] = invalid_references
         if context_locations:
             context["reference_locations"] = self._format_locations(context_locations)
-        
+
         self.missing_variables = missing_variables or []
         self.missing_tables = missing_tables or []
         self.invalid_references = invalid_references or []
         self.context_locations = context_locations or {}
-        
+
         super().__init__(message, context)
 
     def _format_locations(self, locations: Dict[str, List[str]]) -> List[str]:
@@ -81,7 +81,7 @@ class ValidationError(PlannerError):
 
 class DependencyError(PlannerError):
     """Error for dependency resolution issues.
-    
+
     Includes information about circular dependencies,
     missing dependencies, and dependency conflicts.
     """
@@ -99,12 +99,14 @@ class DependencyError(PlannerError):
         if missing_dependencies:
             context["missing_dependencies"] = missing_dependencies
         if conflicting_dependencies:
-            context["conflicting_dependencies"] = self._format_conflicts(conflicting_dependencies)
-        
+            context["conflicting_dependencies"] = self._format_conflicts(
+                conflicting_dependencies
+            )
+
         self.cycles = cycles or []
         self.missing_dependencies = missing_dependencies or []
         self.conflicting_dependencies = conflicting_dependencies or {}
-        
+
         super().__init__(message, context)
 
     def _format_cycles(self, cycles: List[List[str]]) -> List[str]:
@@ -125,7 +127,7 @@ class DependencyError(PlannerError):
 
 class StepBuildError(PlannerError):
     """Error for step building failures.
-    
+
     Provides information about which steps failed to build
     and why the building process failed.
     """
@@ -140,11 +142,13 @@ class StepBuildError(PlannerError):
         if failed_steps:
             context["failed_steps"] = failed_steps
         if step_errors:
-            context["step_errors"] = [f"{step}: {error}" for step, error in step_errors.items()]
-        
+            context["step_errors"] = [
+                f"{step}: {error}" for step, error in step_errors.items()
+            ]
+
         self.failed_steps = failed_steps or []
         self.step_errors = step_errors or {}
-        
+
         super().__init__(message, context)
 
 
@@ -156,26 +160,26 @@ def create_validation_error(
     context_locations: Dict[str, List[str]] = None,
 ) -> ValidationError:
     """Create a standardized validation error with appropriate message.
-    
+
     Following Zen of Python: Simple is better than complex.
     Provides a simple way to create validation errors with standard messaging.
     """
     message_parts = []
-    
+
     if missing_variables:
         message_parts.append(f"Missing variables: {', '.join(missing_variables)}")
-    
+
     if missing_tables:
         message_parts.append(f"Missing tables: {', '.join(missing_tables)}")
-    
+
     if invalid_references:
         message_parts.append(f"Invalid references: {', '.join(invalid_references)}")
-    
+
     if not message_parts:
         message = "Pipeline validation failed"
     else:
         message = "Pipeline validation failed: " + "; ".join(message_parts)
-    
+
     return ValidationError(
         message=message,
         missing_variables=missing_variables,
@@ -191,28 +195,30 @@ def create_dependency_error(
     conflicting_dependencies: Dict[str, List[str]] = None,
 ) -> DependencyError:
     """Create a standardized dependency error with appropriate message.
-    
+
     Following Zen of Python: Simple is better than complex.
     """
     message_parts = []
-    
+
     if cycles:
         message_parts.append(f"Circular dependencies detected ({len(cycles)} cycles)")
-    
+
     if missing_dependencies:
         message_parts.append(f"Missing dependencies: {', '.join(missing_dependencies)}")
-    
+
     if conflicting_dependencies:
-        message_parts.append(f"Conflicting dependencies for {len(conflicting_dependencies)} steps")
-    
+        message_parts.append(
+            f"Conflicting dependencies for {len(conflicting_dependencies)} steps"
+        )
+
     if not message_parts:
         message = "Dependency resolution failed"
     else:
         message = "Dependency resolution failed: " + "; ".join(message_parts)
-    
+
     return DependencyError(
         message=message,
         cycles=cycles,
         missing_dependencies=missing_dependencies,
         conflicting_dependencies=conflicting_dependencies,
-    ) 
+    )
