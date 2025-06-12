@@ -150,7 +150,7 @@ class TestConfigurationResolver:
 
         # Mock the profile manager to return our nested config
         with patch.object(
-            resolver.profile_manager, "get_connector_profile"
+            resolver.profile_manager, "get_connector_profile_raw"
         ) as mock_get:
             from sqlflow.core.profiles import ConnectorProfile
 
@@ -175,21 +175,15 @@ class TestConfigurationResolver:
 
     def test_resolve_config_type_conversion(self, resolver):
         """Test type conversion during configuration resolution."""
-        # Mock variable engine to test type handling
-        with patch.object(resolver.variable_engine, "substitute") as mock_substitute:
-            # Return config with string numbers that should be converted
-            mock_substitute.return_value = {
-                "type": "postgres",
-                "port": "5432",  # String number
-                "timeout": "30",  # String number
-                "ssl": "true",  # String boolean
-            }
+        # Use real configuration - no mocking needed since we're testing actual behavior
+        resolved = resolver.resolve_config(profile_name="postgres_main")
 
-            resolved = resolver.resolve_config(profile_name="postgres_main")
-
-            # The resolver itself doesn't do type conversion - that's up to the variable engine
-            # Just verify the substitution was called
-            mock_substitute.assert_called_once()
+        # The resolved config should have the substituted values
+        assert resolved["type"] == "postgres"
+        assert resolved["host"] == "localhost"  # ${db_host} should be substituted
+        assert resolved["port"] == "5432"  # ${db_port} should be substituted
+        assert resolved["database"] == "test_db"
+        assert resolved["schema"] == "public"
 
     def test_resolve_config_missing_profile(self, resolver):
         """Test error handling for missing profile."""
@@ -377,7 +371,7 @@ class TestConfigurationResolver:
             resolver.profile_manager, "get_variables", return_value=profile_vars
         ):
             with patch.object(
-                resolver.profile_manager, "get_connector_profile"
+                resolver.profile_manager, "get_connector_profile_raw"
             ) as mock_get:
                 from sqlflow.core.profiles import ConnectorProfile
 
