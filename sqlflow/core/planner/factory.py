@@ -20,7 +20,7 @@ logger = get_logger(__name__)
 
 class PlannerConfig:
     """Configuration for planner component dependencies.
-    
+
     Simple configuration object that allows for optional component injection.
     Following Zen of Python: Simple is better than complex.
     """
@@ -38,7 +38,7 @@ class PlannerConfig:
 
 class PlannerFactory:
     """Factory for creating planner components with optional dependency injection.
-    
+
     Following Zen of Python:
     - Simple is better than complex: Default components for simple usage
     - Explicit is better than implicit: Clear injection points for testing
@@ -50,17 +50,17 @@ class PlannerFactory:
         custom_analyzer: Optional[IDependencyAnalyzer] = None,
     ) -> IDependencyAnalyzer:
         """Create dependency analyzer with optional injection.
-        
+
         Args:
             custom_analyzer: Optional custom implementation
-            
+
         Returns:
             IDependencyAnalyzer instance
         """
         if custom_analyzer is not None:
             logger.debug("Using injected dependency analyzer")
             return custom_analyzer
-        
+
         logger.debug("Creating default dependency analyzer")
         return DependencyAnalyzer()
 
@@ -69,17 +69,17 @@ class PlannerFactory:
         custom_resolver: Optional[IExecutionOrderResolver] = None,
     ) -> IExecutionOrderResolver:
         """Create execution order resolver with optional injection.
-        
+
         Args:
             custom_resolver: Optional custom implementation
-            
+
         Returns:
             IExecutionOrderResolver instance
         """
         if custom_resolver is not None:
             logger.debug("Using injected execution order resolver")
             return custom_resolver
-        
+
         logger.debug("Creating default execution order resolver")
         return ExecutionOrderResolver()
 
@@ -88,17 +88,17 @@ class PlannerFactory:
         custom_builder: Optional[IStepBuilder] = None,
     ) -> IStepBuilder:
         """Create step builder with optional injection.
-        
+
         Args:
             custom_builder: Optional custom implementation
-            
+
         Returns:
             IStepBuilder instance
         """
         if custom_builder is not None:
             logger.debug("Using injected step builder")
             return custom_builder
-        
+
         logger.debug("Creating default step builder")
         return StepBuilder()
 
@@ -107,10 +107,10 @@ class PlannerFactory:
         config: Optional[PlannerConfig] = None,
     ) -> tuple[IDependencyAnalyzer, IExecutionOrderResolver, IStepBuilder]:
         """Create all planner components from optional configuration.
-        
+
         Args:
             config: Optional configuration with injected components
-            
+
         Returns:
             Tuple of (dependency_analyzer, order_resolver, step_builder)
         """
@@ -121,10 +121,10 @@ class PlannerFactory:
                 ExecutionOrderResolver(),
                 StepBuilder(),
             )
-        
+
         logger.debug("Creating planner components from configuration")
         return (
             PlannerFactory.create_dependency_analyzer(config.dependency_analyzer),
             PlannerFactory.create_order_resolver(config.order_resolver),
             PlannerFactory.create_step_builder(config.step_builder),
-        ) 
+        )

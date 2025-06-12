@@ -23,8 +23,9 @@ class VariableHandler:
         self._variables = variables or {}
 
         # Feature flag for gradual migration to new VariableManager system
+        # Changed default to 'true' in Phase 3: Enable new system by default
         self._use_new_system = (
-            os.getenv("SQLFLOW_USE_NEW_VARIABLES", "false").lower() == "true"
+            os.getenv("SQLFLOW_USE_NEW_VARIABLES", "true").lower() == "true"
         )
 
         if self._use_new_system:
@@ -37,11 +38,12 @@ class VariableHandler:
         else:
             # Use existing system (default for backward compatibility)
             self.engine = VariableSubstitutionEngine(self._variables)
-            # Keep var_pattern for backward compatibility
-            import re
-
-            self.var_pattern = re.compile(r"\$\{([^}|]+)(?:\|([^}]+))?\}")
             logger.debug("VariableHandler initialized with legacy system")
+
+        # Keep var_pattern for backward compatibility with existing tests
+        import re
+
+        self.var_pattern = re.compile(r"\$\{([^}|]+)(?:\|([^}]+))?\}")
 
     @property
     def variables(self) -> Dict[str, Any]:

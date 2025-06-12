@@ -692,7 +692,7 @@ class DuckDBEngine(SQLEngine):
         """
         # Feature flag for gradual migration to new VariableManager system
         use_new_system = (
-            os.getenv("SQLFLOW_USE_NEW_VARIABLES", "false").lower() == "true"
+            os.getenv("SQLFLOW_USE_NEW_VARIABLES", "true").lower() == "true"
         )
 
         if use_new_system:

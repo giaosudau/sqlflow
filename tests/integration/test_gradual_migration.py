@@ -43,16 +43,18 @@ class TestGradualMigration:
             assert result == "Hello Alice, you are 30"
 
     def test_duckdb_engine_with_old_system_default(self):
-        """DuckDB engine works with old system (default behavior)."""
-        engine = DuckDBEngine()
-        engine.register_variable("table_name", "users")
-        engine.register_variable("limit", 100)
+        """DuckDB engine works with old system (explicit false)."""
+        # Test with explicit old system since we've changed the default
+        with patch.dict(os.environ, {"SQLFLOW_USE_NEW_VARIABLES": "false"}):
+            engine = DuckDBEngine()
+            engine.register_variable("table_name", "users")
+            engine.register_variable("limit", 100)
 
-        result = engine.substitute_variables(
-            "SELECT * FROM ${table_name} LIMIT ${limit}"
-        )
-        # Note: DuckDB engine formats values differently - adds quotes for strings
-        assert "'users'" in result and "100" in result
+            result = engine.substitute_variables(
+                "SELECT * FROM ${table_name} LIMIT ${limit}"
+            )
+            # Note: DuckDB engine formats values differently - adds quotes for strings
+            assert "'users'" in result and "100" in result
 
     def test_duckdb_engine_with_new_system_enabled(self):
         """DuckDB engine works with new system (feature flag enabled)."""

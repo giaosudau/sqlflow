@@ -7,7 +7,7 @@ Clear interfaces make the system more testable and extensible.
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List
 
-from sqlflow.parser.ast import Pipeline, PipelineStep
+from sqlflow.parser.ast import Pipeline
 
 
 class IDependencyAnalyzer(ABC):
@@ -18,24 +18,22 @@ class IDependencyAnalyzer(ABC):
         self, pipeline: Pipeline, step_id_map: Dict[int, str]
     ) -> Dict[str, List[str]]:
         """Analyze dependencies in a pipeline.
-        
+
         Args:
             pipeline: The pipeline to analyze
             step_id_map: Mapping from step object IDs to step IDs
-            
+
         Returns:
             Dict mapping step IDs to their dependency step IDs
         """
-        pass
 
     @abstractmethod
     def get_undefined_table_references(self) -> List[tuple]:
         """Get undefined table references found during analysis.
-        
+
         Returns:
             List of tuples (table_name, step, line_number) for undefined tables
         """
-        pass
 
 
 class IExecutionOrderResolver(ABC):
@@ -46,15 +44,14 @@ class IExecutionOrderResolver(ABC):
         self, step_dependencies: Dict[str, List[str]], all_step_ids: List[str]
     ) -> List[str]:
         """Resolve execution order from dependencies.
-        
+
         Args:
             step_dependencies: Dict mapping step IDs to their dependency step IDs
             all_step_ids: List of all step IDs in the pipeline
-            
+
         Returns:
             List of step IDs in execution order
         """
-        pass
 
 
 class IStepBuilder(ABC):
@@ -69,14 +66,13 @@ class IStepBuilder(ABC):
         step_dependencies: Dict[str, List[str]],
     ) -> List[Dict[str, Any]]:
         """Build execution steps from pipeline and execution order.
-        
+
         Args:
             pipeline: The source pipeline
             execution_order: List of step IDs in execution order
             step_id_map: Mapping from step object IDs to step IDs
             step_dependencies: Dict mapping step IDs to their dependency step IDs
-            
+
         Returns:
             List of execution step dictionaries
         """
-        pass 

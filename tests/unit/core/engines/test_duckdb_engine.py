@@ -403,33 +403,48 @@ class TestDuckDBEngine(unittest.TestCase):
 
     def test_variable_substitution(self):
         """Test variable substitution in templates."""
-        self.engine.register_variable("table_name", "users")
-        self.engine.register_variable("limit", 100)
-        self.engine.register_variable("quoted_value", "'test'")
+        # Use old system for this test to maintain expected behavior
+        import os
+        from unittest.mock import patch
 
-        template = (
-            "SELECT * FROM ${table_name} LIMIT ${limit} WHERE status = ${quoted_value}"
-        )
-        result = self.engine.substitute_variables(template)
+        with patch.dict(os.environ, {"SQLFLOW_USE_NEW_VARIABLES": "false"}):
+            self.engine.register_variable("table_name", "users")
+            self.engine.register_variable("limit", 100)
+            self.engine.register_variable("quoted_value", "'test'")
 
-        expected = "SELECT * FROM 'users' LIMIT 100 WHERE status = 'test'"
-        self.assertEqual(result, expected)
+            template = "SELECT * FROM ${table_name} LIMIT ${limit} WHERE status = ${quoted_value}"
+            result = self.engine.substitute_variables(template)
+
+            expected = "SELECT * FROM 'users' LIMIT 100 WHERE status = 'test'"
+            self.assertEqual(result, expected)
 
     def test_variable_substitution_with_defaults(self):
         """Test variable substitution with default values."""
-        template = "SELECT * FROM ${table_name|default_table} WHERE id = ${user_id|1}"
-        result = self.engine.substitute_variables(template)
+        # Use old system for this test to maintain expected behavior
+        import os
+        from unittest.mock import patch
 
-        expected = "SELECT * FROM 'default_table' WHERE id = '1'"
-        self.assertEqual(result, expected)
+        with patch.dict(os.environ, {"SQLFLOW_USE_NEW_VARIABLES": "false"}):
+            template = (
+                "SELECT * FROM ${table_name|default_table} WHERE id = ${user_id|1}"
+            )
+            result = self.engine.substitute_variables(template)
+
+            expected = "SELECT * FROM 'default_table' WHERE id = '1'"
+            self.assertEqual(result, expected)
 
     def test_variable_substitution_missing_variable(self):
         """Test variable substitution with missing variable."""
-        template = "SELECT * FROM ${missing_table}"
-        result = self.engine.substitute_variables(template)
+        # Use old system for this test to maintain expected behavior
+        import os
+        from unittest.mock import patch
 
-        expected = "SELECT * FROM NULL"
-        self.assertEqual(result, expected)
+        with patch.dict(os.environ, {"SQLFLOW_USE_NEW_VARIABLES": "false"}):
+            template = "SELECT * FROM ${missing_table}"
+            result = self.engine.substitute_variables(template)
+
+            expected = "SELECT * FROM NULL"
+            self.assertEqual(result, expected)
 
     def test_configure_engine(self):
         """Test engine configuration."""
