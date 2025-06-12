@@ -18,6 +18,9 @@ from typing import Any, Dict, List, Optional
 from sqlflow.core.dependencies import DependencyResolver
 from sqlflow.core.errors import PlanningError
 from sqlflow.core.evaluator import ConditionEvaluator, EvaluationError
+from sqlflow.core.planner.dependency_analyzer import DependencyAnalyzer
+from sqlflow.core.planner.order_resolver import ExecutionOrderResolver
+from sqlflow.core.planner.step_builder import StepBuilder
 from sqlflow.core.variable_substitution import VariableSubstitutionEngine
 from sqlflow.logging import get_logger
 from sqlflow.parser.ast import (
@@ -42,14 +45,25 @@ def _format_error(msg: str, *lines: str) -> str:
 
 # --- EXECUTION PLAN BUILDER ---
 class ExecutionPlanBuilder:
-    """Builds an execution plan from a validated SQLFlow DAG."""
+    """Builds an execution plan from a validated SQLFlow DAG.
+    
+    Following Zen of Python: Simple is better than complex.
+    Delegates to specialized components for single responsibilities.
+    """
 
     def __init__(self):
+        # Legacy compatibility attributes
         self.dependency_resolver = DependencyResolver()
         self.step_id_map: Dict[int, str] = {}
         self.step_dependencies: Dict[str, List[str]] = {}
         self._source_definitions: Dict[str, Dict[str, Any]] = {}
-        logger.debug("ExecutionPlanBuilder initialized")
+        
+        # New extracted components (Zen of Python: Simple is better than complex)
+        self._dependency_analyzer = DependencyAnalyzer()
+        self._order_resolver = ExecutionOrderResolver() 
+        self._step_builder = StepBuilder()
+        
+        logger.debug("ExecutionPlanBuilder initialized with extracted components")
 
     # --- PIPELINE VALIDATION ---
     def _validate_variable_references(
@@ -888,6 +902,9 @@ class ExecutionPlanBuilder:
     ) -> List[Dict[str, Any]]:
         """Build an execution plan from a pipeline.
 
+        Following Zen of Python: Simple is better than complex.
+        Delegates to specialized components for clear responsibilities.
+
         Args:
         ----
             pipeline: The validated pipeline to build a plan for
@@ -902,93 +919,44 @@ class ExecutionPlanBuilder:
             PlanningError: If the plan cannot be built
 
         """
-        logger.info("Building execution plan")
+        logger.info("Building execution plan using extracted components")
         if not pipeline.steps:
             logger.warning("Planning an empty pipeline")
             return []
 
-        # Initialize state
-        self.dependency_resolver = DependencyResolver()
-        self.step_id_map = {}
-        self.step_dependencies = {}
-
         # Use provided variables or initialize empty dict
         variables_to_use = variables or {}
         logger.debug(f"Planning with {len(variables_to_use)} variables")
-        if variables_to_use:
-            logger.debug(
-                f"Variables: {', '.join(f'{k}={v}' for k, v in variables_to_use.items())}"
-            )
 
         try:
-            # Validate variable references and values
+            # Step 1: Validate variable references and values
             logger.info("Validating variable references and values")
             self._validate_variable_references(pipeline, variables_to_use)
             logger.info("Variable validation successful")
 
-            # Flatten conditional blocks to just the active branch steps
-            logger.debug(
-                f"Flattening conditional blocks in pipeline with {len(pipeline.steps)} steps"
-            )
-            flattened_pipeline = self._flatten_conditional_blocks(
-                pipeline, variables_to_use
-            )
-            logger.debug(
-                f"Flattened pipeline has {len(flattened_pipeline.steps)} steps"
-            )
+            # Step 2: Flatten conditional blocks to just the active branch steps
+            logger.debug(f"Flattening conditional blocks in pipeline with {len(pipeline.steps)} steps")
+            flattened_pipeline = self._flatten_conditional_blocks(pipeline, variables_to_use)
+            logger.debug(f"Flattened pipeline has {len(flattened_pipeline.steps)} steps")
 
-            # Build dependency graph using flattened pipeline
-            self._build_dependency_graph(flattened_pipeline)
-
-            # Set up additional dependencies for correct execution order
-            source_steps, load_steps = self._get_sources_and_loads(flattened_pipeline)
-            logger.debug(
-                f"Found {len(source_steps)} source steps and {len(load_steps)} load steps"
-            )
-
-            # Build source definitions mapping for use in load step building
-            self._source_definitions = {}
-            for source_name, source_step in source_steps.items():
-                self._source_definitions[source_name] = {
-                    "name": source_name,
-                    "connector_type": source_step.connector_type,
-                    "params": source_step.params,
-                    "is_from_profile": getattr(source_step, "is_from_profile", False),
-                }
-            logger.debug(
-                f"Built source definitions mapping with {len(self._source_definitions)} sources"
-            )
-
-            # Add load dependencies using the flattened pipeline objects
-            # This ensures dependencies are built with the same object IDs that will be used for step mapping
-            self._add_load_dependencies(source_steps, load_steps)
-
-            # Generate unique IDs for each step using the flattened pipeline
+            # Step 3: Generate step IDs (needed for component delegation)
             self._generate_step_ids(flattened_pipeline)
 
-            # Check for cycles in the dependency graph
-            resolver = self._create_dependency_resolver()
-            cycles = self._detect_cycles(resolver)
-            if cycles:
-                error_msg = self._format_cycle_error(cycles)
-                logger.debug(f"Dependency cycle detected: {error_msg}")
-                raise PlanningError(error_msg)
+            # Step 4: Delegate dependency analysis (Zen of Python: Single responsibility)
+            logger.debug("Delegating dependency analysis to DependencyAnalyzer")
+            self.step_dependencies = self._dependency_analyzer.analyze(flattened_pipeline, self.step_id_map)
 
-            # Resolve execution order based on dependencies
-            all_step_ids = list(self.step_id_map.values())
-            logger.debug(f"Resolving execution order for {len(all_step_ids)} steps")
-            entry_points = self._find_entry_points(resolver, all_step_ids)
-            logger.debug(f"Found {len(entry_points)} entry points")
-            execution_order = self._build_execution_order(resolver, entry_points)
+            # Step 5: Delegate execution order resolution (Zen of Python: Single responsibility)
+            logger.debug("Delegating execution order resolution to ExecutionOrderResolver")
+            execution_order = self._order_resolver.resolve(self.step_dependencies)
 
-            # Create execution steps from pipeline steps in the determined order
-            logger.debug(f"Creating {len(execution_order)} execution steps")
-            execution_steps = self._build_execution_steps(
-                flattened_pipeline, execution_order
+            # Step 6: Delegate step building (Zen of Python: Single responsibility) 
+            logger.debug("Delegating step building to StepBuilder")
+            execution_steps = self._step_builder.build_steps(
+                flattened_pipeline, execution_order, self.step_id_map, self.step_dependencies
             )
-            logger.info(
-                f"Successfully built execution plan with {len(execution_steps)} steps"
-            )
+
+            logger.info(f"Successfully built execution plan with {len(execution_steps)} steps")
             return execution_steps
 
         except Exception as e:
