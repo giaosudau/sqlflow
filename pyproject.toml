@@ -85,6 +85,7 @@ dev = [
     "mock>=5.0.0",
     "moto[s3]>=5.0.0",
     "requests-mock>=1.9.3",
+    "psutil>=5.9.0",  # For memory usage testing in integration tests
     "sqlflow-core[aws,gcp,postgres]",
 ]
 
@@ -163,6 +164,7 @@ markers = [
     "redis: marks tests as requiring Redis cache",
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "integration: marks tests as integration tests",
+    "performance: marks tests as performance and load tests",
 ]
 
 [tool.coverage.run]
