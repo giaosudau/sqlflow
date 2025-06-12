@@ -118,7 +118,11 @@ class TestProfileManager:
         manager = ProfileManager(temp_profile_dir, "test")
         profile = manager.load_profile()
 
-        assert profile == sample_profile_data
+        # After variable substitution, ${db_host} should be replaced with 'localhost'
+        expected_profile = sample_profile_data.copy()
+        expected_profile["connectors"]["postgres_main"]["params"]["host"] = "localhost"
+
+        assert profile == expected_profile
         assert len(manager._profile_cache) == 1
 
     def test_load_profile_missing_file(self, temp_profile_dir):

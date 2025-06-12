@@ -5,11 +5,13 @@ and variable substitution for connector configurations.
 """
 
 import copy
-from typing import Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from sqlflow.core.profiles import ProfileManager
-from sqlflow.core.variable_substitution import VariableSubstitutionEngine
 from sqlflow.logging import get_logger
+
+if TYPE_CHECKING:
+    from sqlflow.core.variable_substitution import VariableSubstitutionEngine
 
 logger = get_logger(__name__)
 
@@ -26,7 +28,7 @@ class ConfigurationResolver:
     def __init__(
         self,
         profile_manager: ProfileManager,
-        variable_engine: Optional[VariableSubstitutionEngine] = None,
+        variable_engine: Optional["VariableSubstitutionEngine"] = None,
     ):
         """Initialize ConfigurationResolver.
 
@@ -35,6 +37,9 @@ class ConfigurationResolver:
             variable_engine: VariableSubstitutionEngine for variable substitution
         """
         self.profile_manager = profile_manager
+        # Import here to avoid circular imports
+        from sqlflow.core.variable_substitution import VariableSubstitutionEngine
+
         self.variable_engine = variable_engine or VariableSubstitutionEngine()
 
         logger.debug("Initialized ConfigurationResolver")
@@ -67,25 +72,29 @@ class ConfigurationResolver:
         Raises:
             ValueError: If profile or connector not found
         """
+        from sqlflow.core.variable_substitution import VariableSubstitutionEngine
+
         options = options or {}
         variables = variables or {}
         defaults = defaults or {}
 
         logger.debug(f"Resolving configuration for profile '{profile_name}'")
 
-        # 1. Get connector configuration from profile
+        # 1. Get connector configuration from raw profile (no substitution yet)
         try:
-            connector_profile = self.profile_manager.get_connector_profile(
+            connector_profile = self.profile_manager.get_connector_profile_raw(
                 profile_name, environment
             )
         except ValueError as e:
             logger.error(f"Failed to get connector profile '{profile_name}': {e}")
             raise
 
-        # 2. Merge profile variables with provided variables
-        profile_variables = self.profile_manager.get_variables(environment)
+        # 2. Get fully resolved profile variables (includes nested variable resolution)
+        resolved_profile_variables = self.profile_manager.get_variables(environment)
+
+        # 3. Merge profile variables with provided variables (runtime variables override)
         merged_variables = {
-            **profile_variables,
+            **resolved_profile_variables,
             **variables,
         }  # variables override profile vars
 
@@ -106,18 +115,14 @@ class ConfigurationResolver:
         logger.debug(f"Pre-substitution config: {resolved_config}")
 
         # 4. Apply variable substitution to the final configuration
-        if merged_variables:
-            # Update variable engine with merged variables
-            old_variables = getattr(self.variable_engine, "variables", {})
-            self.variable_engine.update_variables(merged_variables)
+        # Create a new engine with proper priority handling for this resolution
+        resolver_engine = VariableSubstitutionEngine(
+            cli_variables=variables,  # Highest priority - runtime variables
+            profile_variables=resolved_profile_variables,  # Medium priority - profile variables
+            set_variables={},  # No SET variables at this level
+        )
 
-            try:
-                resolved_config = self.substitute_variables(
-                    resolved_config, merged_variables
-                )
-            finally:
-                # Restore original variables
-                self.variable_engine.update_variables(old_variables)
+        resolved_config = resolver_engine.substitute(resolved_config)
 
         logger.debug(f"Final resolved config for '{profile_name}': {resolved_config}")
         return resolved_config

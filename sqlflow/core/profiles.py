@@ -122,6 +122,9 @@ class ProfileManager:
         if profile_data is None:
             profile_data = {}
 
+        # Apply variable substitution to the loaded profile
+        profile_data = self._apply_variable_substitution(profile_data)
+
         # Validate profile structure
         validation_result = self.validate_profile(profile_path, profile_data)
         if not validation_result.is_valid:
@@ -135,7 +138,7 @@ class ProfileManager:
         for warning in validation_result.warnings:
             logger.warning(f"Profile '{profile_path}': {warning}")
 
-        # Cache the loaded profile
+        # Cache the loaded and substituted profile
         self._profile_cache[profile_path] = profile_data
         self._cache_timestamps[profile_path] = time.time()
 
@@ -143,6 +146,116 @@ class ProfileManager:
             f"Successfully loaded and cached profile for environment '{env_name}'"
         )
         return profile_data
+
+    def load_profile_raw(self, environment: Optional[str] = None) -> Dict[str, Any]:
+        """Load environment-specific profile without variable substitution.
+
+        Args:
+            environment: Environment name to load (uses instance default if None)
+
+        Returns:
+            Raw profile configuration dictionary without variable substitution
+
+        Raises:
+            FileNotFoundError: If profile file doesn't exist
+            ValueError: If profile YAML is invalid
+        """
+        env_name = environment or self.environment
+        profile_path = os.path.join(self.profile_dir, f"{env_name}.yml")
+
+        logger.debug(f"Loading raw profile from '{profile_path}' (no substitution)")
+
+        if not os.path.exists(profile_path):
+            raise FileNotFoundError(f"Profile file not found: {profile_path}")
+
+        try:
+            with open(profile_path, "r", encoding="utf-8") as f:
+                profile_data = yaml.safe_load(f)
+        except yaml.YAMLError as e:
+            raise ValueError(f"Invalid YAML in profile '{profile_path}': {e}")
+
+        if profile_data is None:
+            profile_data = {}
+
+        logger.debug(f"Successfully loaded raw profile for environment '{env_name}'")
+        return profile_data
+
+    def _apply_variable_substitution(
+        self, profile_data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Apply variable substitution to profile data.
+
+        This method substitutes variables in the profile using an iterative approach:
+        1. First pass: Substitute environment variables in the variables section
+        2. Iterative passes: Substitute profile variables until no more changes occur
+        3. Final pass: Apply substitution to the entire profile data
+
+        Args:
+            profile_data: Raw profile data from YAML
+
+        Returns:
+            Profile data with variables substituted
+        """
+        logger.debug("Applying variable substitution to profile data")
+
+        # Make a deep copy to avoid mutating the original
+        import copy
+
+        substituted_data = copy.deepcopy(profile_data)
+
+        # First pass: Substitute environment variables in the variables section
+        if "variables" in substituted_data:
+            logger.debug(
+                "Substituting environment variables in profile variables section"
+            )
+            # Create engine with empty variables to only use environment variables
+            env_only_engine = VariableSubstitutionEngine({})
+            substituted_data["variables"] = env_only_engine.substitute(
+                substituted_data["variables"]
+            )
+
+        # Iterative resolution of profile variables that reference each other
+        if "variables" in substituted_data:
+            logger.debug("Resolving profile variable interdependencies")
+            variables = substituted_data["variables"]
+
+            # Iterate until no more substitutions occur (max 10 iterations to prevent infinite loops)
+            max_iterations = 10
+            for iteration in range(max_iterations):
+                logger.debug(f"Variable resolution iteration {iteration + 1}")
+                old_variables = copy.deepcopy(variables)
+
+                # Create engine with current variable state
+                var_engine = VariableSubstitutionEngine(variables)
+                variables = var_engine.substitute(variables)
+
+                # Check if any changes occurred
+                if variables == old_variables:
+                    logger.debug(
+                        f"Variable resolution converged after {iteration + 1} iterations"
+                    )
+                    break
+            else:
+                logger.warning(
+                    f"Variable resolution did not converge after {max_iterations} iterations"
+                )
+
+            substituted_data["variables"] = variables
+
+        # Final pass: Create engine with resolved profile variables and apply to everything
+        profile_variables = substituted_data.get("variables", {})
+        logger.debug(
+            f"Using resolved profile variables for substitution: {profile_variables}"
+        )
+
+        # Create engine with profile variables (which will also check environment)
+        full_engine = VariableSubstitutionEngine(profile_variables)
+
+        # Apply substitution to entire profile data
+        substituted_data = full_engine.substitute(substituted_data)
+
+        logger.debug("Variable substitution completed")
+        return substituted_data
 
     def get_connector_profile(
         self, connector_name: str, environment: Optional[str] = None
@@ -154,7 +267,7 @@ class ProfileManager:
             environment: Environment name (uses instance default if None)
 
         Returns:
-            ConnectorProfile instance
+            ConnectorProfile instance with variables substituted
 
         Raises:
             ValueError: If connector not found or invalid configuration
@@ -171,6 +284,49 @@ class ProfileManager:
 
         connector_config = connectors[connector_name]
         return ConnectorProfile.from_dict(connector_name, connector_config)
+
+    def get_connector_profile_raw(
+        self, connector_name: str, environment: Optional[str] = None
+    ) -> ConnectorProfile:
+        """Get specific connector configuration from raw profile (no variable substitution).
+
+        Args:
+            connector_name: Name of the connector in the profile
+            environment: Environment name (uses instance default if None)
+
+        Returns:
+            ConnectorProfile instance without variable substitution
+
+        Raises:
+            ValueError: If connector not found or invalid configuration
+        """
+        profile = self.load_profile_raw(environment)
+
+        connectors = profile.get("connectors", {})
+        if connector_name not in connectors:
+            available = list(connectors.keys())
+            raise ValueError(
+                f"Connector '{connector_name}' not found in profile. "
+                f"Available connectors: {available}"
+            )
+
+        connector_config = connectors[connector_name]
+        return ConnectorProfile.from_dict(connector_name, connector_config)
+
+    def get_variables_raw(self, environment: Optional[str] = None) -> Dict[str, Any]:
+        """Get variables from the raw profile without substitution applied.
+
+        Args:
+            environment: Environment name (uses instance default if None)
+
+        Returns:
+            Dictionary of raw profile variables without substitution applied
+        """
+        try:
+            profile = self.load_profile_raw(environment)
+            return profile.get("variables", {})
+        except (FileNotFoundError, ValueError):
+            return {}
 
     def validate_profile(
         self, profile_path: str, profile_data: Optional[Dict[str, Any]] = None
@@ -296,13 +452,13 @@ class ProfileManager:
             return []
 
     def get_variables(self, environment: Optional[str] = None) -> Dict[str, Any]:
-        """Get variables from the profile.
+        """Get variables from the profile with substitution applied.
 
         Args:
             environment: Environment name (uses instance default if None)
 
         Returns:
-            Dictionary of profile variables
+            Dictionary of profile variables with substitution applied
         """
         try:
             profile = self.load_profile(environment)
