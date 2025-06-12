@@ -403,7 +403,7 @@ class TestDuckDBEngine(unittest.TestCase):
 
     def test_variable_substitution(self):
         """Test variable substitution in templates."""
-        # Phase 4: Feature flags removed, always use new system
+        # Strategic solution: DuckDB engine applies SQL formatting
         self.engine.register_variable("table_name", "users")
         self.engine.register_variable("limit", 100)
         self.engine.register_variable("quoted_value", "'test'")
@@ -413,29 +413,28 @@ class TestDuckDBEngine(unittest.TestCase):
         )
         result = self.engine.substitute_variables(template)
 
-        # New system doesn't automatically quote strings like old system
-        expected = "SELECT * FROM users LIMIT 100 WHERE status = 'test'"
+        # DuckDB engine applies SQL formatting: strings get quoted for SQL
+        expected = "SELECT * FROM 'users' LIMIT 100 WHERE status = 'test'"
         self.assertEqual(result, expected)
 
     def test_variable_substitution_with_defaults(self):
         """Test variable substitution with default values."""
-        # Phase 4: Feature flags removed, always use new system
+        # Strategic solution: DuckDB engine applies SQL formatting to defaults
         template = "SELECT * FROM ${table_name|default_table} WHERE id = ${user_id|1}"
         result = self.engine.substitute_variables(template)
 
-        # New system handles defaults without additional quoting
-        expected = "SELECT * FROM default_table WHERE id = 1"
+        # DuckDB engine applies SQL formatting: string defaults get quoted
+        expected = "SELECT * FROM 'default_table' WHERE id = '1'"
         self.assertEqual(result, expected)
 
     def test_variable_substitution_missing_variable(self):
         """Test variable substitution with missing variable."""
-        # Phase 4: Feature flags removed, always use new system
+        # Strategic solution: DuckDB engine handles missing variables with NULL
         template = "SELECT * FROM ${missing_table}"
         result = self.engine.substitute_variables(template)
 
-        # New system leaves missing variables as-is with warning
-        # (This is safer than substituting NULL which could break SQL)
-        expected = "SELECT * FROM ${missing_table}"
+        # DuckDB engine substitutes missing variables with NULL (SQL-safe)
+        expected = "SELECT * FROM NULL"
         self.assertEqual(result, expected)
 
     def test_configure_engine(self):

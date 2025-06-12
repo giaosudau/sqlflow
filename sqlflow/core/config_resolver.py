@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from sqlflow.core.profiles import ProfileManager
-from sqlflow.core.variable_substitution import VariableSubstitutionEngine
+from sqlflow.core.variables.manager import VariableConfig, VariableManager
 from sqlflow.logging import get_logger
 
 if TYPE_CHECKING:
@@ -41,16 +41,16 @@ class ConfigurationResolver:
     def __init__(
         self,
         profile_manager: ProfileManager,
-        variable_engine: Optional[VariableSubstitutionEngine] = None,
+        variable_manager: Optional[VariableManager] = None,
     ):
         """Initialize ConfigurationResolver.
 
         Args:
             profile_manager: ProfileManager instance for profile access
-            variable_engine: VariableSubstitutionEngine for variable substitution
+            variable_manager: VariableManager for variable substitution
         """
         self.profile_manager = profile_manager
-        self.variable_engine = variable_engine or VariableSubstitutionEngine()
+        self.variable_manager = variable_manager or VariableManager(VariableConfig())
 
         logger.debug("Initialized ConfigurationResolver")
 
@@ -150,14 +150,15 @@ class ConfigurationResolver:
         logger.debug(f"Pre-substitution config: {resolved_config}")
 
         # 5. Apply variable substitution to the final configuration
-        # Create a new engine with proper priority handling for this resolution
-        resolver_engine = VariableSubstitutionEngine(
+        # Create a new manager with proper priority handling for this resolution
+        resolver_config = VariableConfig(
             cli_variables=config.variables,  # Highest priority - runtime variables
             profile_variables=resolved_profile_variables,  # Medium priority - profile variables
             set_variables={},  # No SET variables at this level
         )
+        resolver_manager = VariableManager(resolver_config)
 
-        resolved_config = resolver_engine.substitute(resolved_config)
+        resolved_config = resolver_manager.substitute(resolved_config)
 
         logger.debug(
             f"Final resolved config for '{config.profile_name}': {resolved_config}"
@@ -178,8 +179,8 @@ class ConfigurationResolver:
         """
         logger.debug(f"Applying variable substitution with {len(variables)} variables")
 
-        # Use the variable engine to substitute variables
-        substituted_config = self.variable_engine.substitute(config)
+        # Use the variable manager to substitute variables
+        substituted_config = self.variable_manager.substitute(config)
 
         logger.debug("Variable substitution completed")
         return substituted_config

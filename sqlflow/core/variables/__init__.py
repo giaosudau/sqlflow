@@ -4,9 +4,8 @@ This package provides a single, consistent interface for variable substitution
 across the entire codebase, eliminating duplication and ensuring Zen of Python
 principles are followed.
 
-This module maintains backward compatibility by exporting the existing
-VariableContext and VariableSubstitutor classes, while introducing the new
-unified VariableManager for future development.
+Following the completion of Phase 4, this module now provides only the new
+unified VariableManager system, having removed all legacy implementations.
 """
 
 from .facade import (
@@ -15,24 +14,18 @@ from .facade import (
     validate_variables_unified,
 )
 
-# Import legacy classes for backward compatibility
-from .legacy import VariableContext, VariableSubstitutor
-
 # Import new unified system
 from .manager import ValidationResult, VariableConfig, VariableManager
 from .validator import VariableValidator
 
-# Export everything for backward compatibility and new functionality
+# Export only the new unified system (legacy classes removed in Phase 4)
 __all__ = [
-    # Legacy classes (backward compatibility)
-    "VariableContext",
-    "VariableSubstitutor",
     # New unified system
     "VariableManager",
     "VariableConfig",
     "ValidationResult",
     "VariableValidator",
-    # Migration facade (Task 1.3)
+    # Migration facade (for transition compatibility)
     "LegacyVariableSupport",
     "substitute_variables_unified",
     "validate_variables_unified",

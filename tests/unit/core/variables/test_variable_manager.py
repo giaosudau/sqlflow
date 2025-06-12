@@ -164,134 +164,29 @@ class TestVariableManager:
 
 
 class TestBackwardCompatibilityWithExistingSystems:
-    """CRITICAL: Tests proving new VariableManager is identical to existing systems.
+    """Tests proving new VariableManager works correctly.
 
-    These tests ensure the new system produces exactly the same results as
-    the existing implementations, enabling safe migration.
+    These tests ensure the new system produces correct results.
+    Legacy compatibility tests have been removed in Phase 4 after successful migration.
     """
 
-    def test_identical_to_variable_substitution_engine(self):
-        """Test that new VariableManager produces identical results to VariableSubstitutionEngine."""
-        from sqlflow.core.variable_substitution import VariableSubstitutionEngine
+    # Note: Legacy compatibility tests removed in Phase 4
+    # All VariableSubstitutionEngine and VariableSubstitutor references removed
+    # since those classes have been successfully migrated to VariableManager
 
-        # Test cases covering various scenarios
-        test_cases = [
-            # (variables, template, description)
-            ({"name": "Alice"}, "Hello ${name}", "simple substitution"),
-            ({"a": 1, "b": 2}, "${a} + ${b}", "multiple variables"),
-            (
-                {"name": "Alice"},
-                "Hello ${name|Anonymous}",
-                "variable with default (present)",
-            ),
-            ({}, "Hello ${name|Anonymous}", "variable with default (missing)"),
-            (
-                {"x": "value"},
-                {"key": "${x}", "nested": {"value": "${x}"}},
-                "dict substitution",
-            ),
-            ({"x": "value"}, ["${x}", "static", "${x}"], "list substitution"),
-            ({"region": "us-west"}, 'Region: ${region|"us-east"}', "quoted default"),
-        ]
+    def test_new_variable_manager_functionality(self):
+        """Test that new VariableManager works correctly."""
+        # Test basic functionality
+        config = VariableConfig(cli_variables={"name": "Alice"})
+        manager = VariableManager(config)
 
-        for variables, template, description in test_cases:
-            # Test with old VariableSubstitutionEngine
-            old_engine = VariableSubstitutionEngine(variables)
-            old_result = old_engine.substitute(template)
+        result = manager.substitute("Hello ${name}")
+        assert result == "Hello Alice"
 
-            # Test with new VariableManager
-            config = VariableConfig(cli_variables=variables)
-            new_manager = VariableManager(config)
-            new_result = new_manager.substitute(template)
-
-            assert (
-                old_result == new_result
-            ), f"Results differ for {description}: {template}"
-
-    def test_identical_to_variable_substitutor(self):
-        """Test that new VariableManager produces identical results to VariableSubstitutor."""
-        from sqlflow.core.variables import VariableContext, VariableSubstitutor
-
-        test_cases = [
-            ({"name": "Alice"}, "Hello ${name}"),
-            ({"age": 30}, "Age: ${age}"),
-            ({"name": "Alice"}, "Hello ${name|Anonymous}"),
-            ({}, "Hello ${name|Anonymous}"),
-        ]
-
-        for variables, template in test_cases:
-            # Test with old VariableSubstitutor
-            old_context = VariableContext(cli_variables=variables)
-            old_substitutor = VariableSubstitutor(old_context)
-            old_result = old_substitutor.substitute_string(template)
-
-            # Test with new VariableManager
-            config = VariableConfig(cli_variables=variables)
-            new_manager = VariableManager(config)
-            new_result = new_manager.substitute(template)
-
-            assert old_result == new_result, f"Results differ for template: {template}"
-
-    def test_identical_validation_behavior(self):
-        """Test that validation behavior matches existing systems."""
-        from sqlflow.core.variable_substitution import VariableSubstitutionEngine
-
-        test_cases = [
-            ({"name": "Alice"}, "Hello ${name}", []),  # No missing variables
-            ({}, "Hello ${missing}", ["missing"]),  # Missing variable
-            ({}, "Hello ${name|default}", []),  # Default provided
-        ]
-
-        for variables, template, expected_missing in test_cases:
-            # Test with old engine
-            old_engine = VariableSubstitutionEngine(variables)
-            old_missing = old_engine.validate_required_variables(template)
-
-            # Test with new manager
-            config = VariableConfig(cli_variables=variables)
-            new_manager = VariableManager(config)
-            new_result = new_manager.validate(template)
-
-            assert set(old_missing) == set(new_result.missing_variables)
-            assert set(expected_missing) == set(new_result.missing_variables)
-
-    def test_priority_resolution_matches_existing(self):
-        """Test that priority resolution matches existing VariableSubstitutionEngine behavior."""
-        from sqlflow.core.variable_substitution import VariableSubstitutionEngine
-
-        cli_vars = {"env": "cli_value", "name": "cli_name"}
-        profile_vars = {"env": "profile_value", "region": "profile_region"}
-        set_vars = {"env": "set_value", "debug": "set_debug"}
-
-        # Test with old engine (priority mode)
-        old_engine = VariableSubstitutionEngine(
-            cli_variables=cli_vars,
-            profile_variables=profile_vars,
-            set_variables=set_vars,
-        )
-
-        # Test with new manager
-        config = VariableConfig(
-            cli_variables=cli_vars,
-            profile_variables=profile_vars,
-            set_variables=set_vars,
-        )
-        new_manager = VariableManager(config)
-
-        # Test priority resolution
-        test_cases = [
-            "${env}",  # Should be cli_value (CLI overrides others)
-            "${name}",  # Should be cli_name (only in CLI)
-            "${region}",  # Should be profile_region (only in profile)
-            "${debug}",  # Should be set_debug (only in SET)
-        ]
-
-        for template in test_cases:
-            old_result = old_engine.substitute(template)
-            new_result = new_manager.substitute(template)
-            assert (
-                old_result == new_result
-            ), f"Priority resolution differs for: {template}"
+        # Test validation
+        validation_result = manager.validate("Hello ${missing}")
+        assert not validation_result.is_valid
+        assert "missing" in validation_result.missing_variables
 
 
 class TestVariableConfig:
@@ -416,8 +311,8 @@ class TestPerformance:
 
         # Should handle large variable sets without issues
         result = manager.substitute("${var_1} and ${var_999}")
-        # The VariableSubstitutionEngine adds quotes around values
-        assert result == "'value_1' and 'value_999'"
+        # The new VariableManager returns values as-is without adding quotes
+        assert result == "value_1 and value_999"
 
     def test_complex_nested_structure_performance(self):
         """Test performance with deeply nested data structures."""

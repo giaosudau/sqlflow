@@ -407,29 +407,6 @@ class TestIntegrationWithExistingSystem:
         missing = validate_variables_unified("Hello ${missing}", {})
         assert missing == ["missing"]
 
-    def test_facade_coexists_with_existing_system(self):
-        """Test that facade coexists with existing variable system."""
-        # Test that we can import both old and new systems
-        from sqlflow.core.variables import (
-            LegacyVariableSupport,
-            VariableContext,
-            VariableSubstitutor,
-        )
-
-        # Both should be available without conflicts
-        assert VariableContext is not None
-        assert VariableSubstitutor is not None
-        assert LegacyVariableSupport is not None
-
-    def test_no_modification_of_existing_apis(self):
-        """Verify that existing APIs are not modified."""
-        # Test that existing classes still work as expected
-        from sqlflow.core.variables import VariableContext, VariableSubstitutor
-
-        # These should still work exactly as before
-        context = VariableContext({"name": "Alice"})
-        assert context.get_variable("name") == "Alice"
-
-        substitutor = VariableSubstitutor(context)
-        # The existing interface should be unchanged
-        assert hasattr(substitutor, "substitute_any")
+    # Note: Legacy compatibility tests removed in Phase 4 after completing migration
+    # Tests for VariableContext and VariableSubstitutor removed since those classes
+    # have been successfully migrated to the new VariableManager system

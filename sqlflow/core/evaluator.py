@@ -7,7 +7,7 @@ import ast
 import re
 from typing import Any, Dict, Optional
 
-from sqlflow.core.variable_substitution import VariableSubstitutionEngine
+from sqlflow.core.variables.manager import VariableConfig, VariableManager
 from sqlflow.logging import get_logger
 
 logger = get_logger(__name__)
@@ -34,23 +34,24 @@ class ConditionEvaluator:
     def __init__(
         self,
         variables: Dict[str, Any],
-        substitution_engine: Optional[VariableSubstitutionEngine] = None,
+        variable_manager: Optional[VariableManager] = None,
     ):
         """Initialize with a variables dictionary.
 
         Args:
         ----
             variables: Dictionary of variable names to values
-            substitution_engine: Optional VariableSubstitutionEngine to use for substitution.
-                                If not provided, creates a backward-compatible one.
+            variable_manager: Optional VariableManager to use for substitution.
+                                If not provided, creates one from variables.
 
         """
         self.variables = variables
-        if substitution_engine is not None:
-            self.substitution_engine = substitution_engine
+        if variable_manager is not None:
+            self.variable_manager = variable_manager
         else:
-            # Backward compatibility: create engine with just variables
-            self.substitution_engine = VariableSubstitutionEngine(variables)
+            # Create manager with variables
+            config = VariableConfig(cli_variables=variables)
+            self.variable_manager = VariableManager(config)
         # Define operators that are allowed
         self.operators = {
             # Comparison operators
@@ -87,7 +88,7 @@ class ConditionEvaluator:
         logger.debug(f"Evaluating condition: '{condition}'")
 
         # First substitute variables using centralized engine
-        substituted_condition = self._substitute_variables(condition)
+        substituted_condition = self.substitute_variables(condition)
         logger.debug(f"After substitution: '{substituted_condition}'")
 
         # Detect accidental use of '=' instead of '==' (not part of '==', '!=', '>=', '<=')
@@ -114,23 +115,26 @@ class ConditionEvaluator:
                 f"Failed to evaluate condition: {condition}. Error: {str(e)}"
             )
 
-    def _substitute_variables(self, condition: str) -> str:
-        """Replace ${var} with the variable value using centralized engine.
+    def substitute_variables(self, condition: str) -> str:
+        """Substitute variables in a condition string for condition evaluation.
+
+        Uses the new unified variable management system for consistent variable handling,
+        then applies condition-specific formatting for AST evaluation.
 
         Args:
         ----
-            condition: Condition containing variable references
+            condition: Original condition string with variables
 
         Returns:
         -------
-            Condition with variables substituted
+            Condition with variables substituted and formatted for AST evaluation
 
         """
-        # Use the centralized substitution engine
-        substituted = self.substitution_engine._substitute_string(condition)
+        # Use the new variable manager for basic substitution
+        substituted = self.variable_manager.substitute(condition)
 
-        # The centralized engine returns values as-is, but for condition evaluation
-        # we need to ensure proper formatting for Python AST parsing
+        # Apply condition-specific formatting for AST evaluation
+        # This ensures string identifiers are properly quoted for Python AST parsing
         return self._format_for_ast_evaluation(substituted)
 
     def _format_for_ast_evaluation(self, condition: str) -> str:
@@ -144,8 +148,48 @@ class ConditionEvaluator:
         -------
             Condition formatted for Python AST evaluation
         """
-        # This method handles any additional formatting needed for AST evaluation
-        # The centralized engine should handle most cases correctly
+        import re
+
+        # Handle any remaining unsubstituted variables (missing variables) - convert to None
+        def replace_missing_vars(match):
+            return "None"
+
+        condition = re.sub(r"\$\{[^}]+\}", replace_missing_vars, condition)
+
+        # Find unquoted identifiers and quote them if they look like string values
+        # This handles cases like: global == 'us-east' -> 'global' == 'us-east'
+
+        # Pattern to find unquoted identifiers that could be string values
+        # Look for word characters (possibly with hyphens) that aren't already quoted
+        # and appear in comparison contexts
+
+        # First, handle identifiers with hyphens (like us-east-1)
+        pattern_hyphen = (
+            r"(?<!')(?<!\")\b([a-zA-Z][a-zA-Z0-9]*(-[a-zA-Z0-9]+)+)\b(?!')(?!\")"
+        )
+
+        def quote_identifier(match):
+            identifier = match.group(1)
+            return f"'{identifier}'"
+
+        condition = re.sub(pattern_hyphen, quote_identifier, condition)
+
+        # Then, handle simple word identifiers that appear before comparison operators
+        # Look for patterns like: word == 'value' or word != 'value'
+        pattern_word = (
+            r"(?<!')(?<!\")\b([a-zA-Z][a-zA-Z0-9_]*)\b(?!')(?!\") *(?===|!=|<|>)"
+        )
+
+        def quote_word_before_comparison(match):
+            word = match.group(1)
+            # Don't quote Python keywords or boolean values
+            python_keywords = {"True", "False", "None", "and", "or", "not", "in", "is"}
+            if word in python_keywords:
+                return match.group(0)  # Return unchanged
+            return f"'{word}'" + match.group(0)[len(word) :]
+
+        condition = re.sub(pattern_word, quote_word_before_comparison, condition)
+
         return condition
 
     def _safe_eval(self, expr: str) -> bool:
