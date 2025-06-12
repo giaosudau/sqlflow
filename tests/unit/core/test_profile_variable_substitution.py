@@ -25,8 +25,37 @@ class TestProfileVariableSubstitution:
         yield temp_dir
         shutil.rmtree(temp_dir)
 
+    @pytest.fixture
+    def standard_env_vars(self):
+        """Standard environment variables for testing."""
+        return {
+            "POSTGRES_HOST": "db.example.com",
+            "POSTGRES_USER": "sqlflow_user",
+            "POSTGRES_PASSWORD": "secret123",
+            "DATA_PATH": "/data/warehouse",
+            "DB_HOST": "localhost",
+            "DB_NAME": "warehouse",
+            "S3_BUCKET": "my-data-bucket",
+            "ENVIRONMENT": "staging",
+        }
+
+    def _create_profile_file(
+        self, temp_profile_dir: str, profile_data: dict, filename: str = "test.yml"
+    ):
+        """Helper to create profile file with given data."""
+        profile_path = os.path.join(temp_profile_dir, filename)
+        with open(profile_path, "w") as f:
+            yaml.dump(profile_data, f)
+        return profile_path
+
+    def _get_profile_manager(
+        self, temp_profile_dir: str, environment: str = "test"
+    ) -> ProfileManager:
+        """Helper to create ProfileManager instance."""
+        return ProfileManager(temp_profile_dir, environment)
+
     def test_environment_variable_substitution_in_connector_params(
-        self, temp_profile_dir
+        self, temp_profile_dir, standard_env_vars
     ):
         """Test that environment variables are substituted in connector params."""
         # Create profile with environment variable references
@@ -59,27 +88,13 @@ class TestProfileVariableSubstitution:
             },
         }
 
-        # Create profile file
-        profile_path = os.path.join(temp_profile_dir, "test.yml")
-        with open(profile_path, "w") as f:
-            yaml.dump(profile_data, f)
+        self._create_profile_file(temp_profile_dir, profile_data)
 
-        # Set environment variables
-        env_vars = {
-            "POSTGRES_HOST": "db.example.com",
-            "POSTGRES_USER": "sqlflow_user",
-            "POSTGRES_PASSWORD": "secret123",
-            "DATA_PATH": "/data/warehouse",
-        }
+        with mock.patch.dict(os.environ, standard_env_vars, clear=False):
+            profile_manager = self._get_profile_manager(temp_profile_dir)
 
-        with mock.patch.dict(os.environ, env_vars, clear=False):
-            # Create ProfileManager
-            profile_manager = ProfileManager(temp_profile_dir, "test")
-
-            # Get connector profile
+            # Test PostgreSQL connector
             postgres_profile = profile_manager.get_connector_profile("postgres_main")
-
-            # Variables should be substituted
             assert postgres_profile.params["host"] == "db.example.com"
             assert postgres_profile.params["port"] == "5432"  # Default value
             assert (
@@ -96,7 +111,9 @@ class TestProfileVariableSubstitution:
             assert csv_profile.params["path"] == "/data/warehouse/customers.csv"
             assert csv_profile.params["delimiter"] == ","  # Profile variable
 
-    def test_variable_substitution_in_profile_variables_section(self, temp_profile_dir):
+    def test_variable_substitution_in_profile_variables_section(
+        self, temp_profile_dir, standard_env_vars
+    ):
         """Test that variables section itself can contain environment variable references."""
         profile_data = {
             "version": "1.0",
@@ -122,26 +139,16 @@ class TestProfileVariableSubstitution:
             },
         }
 
-        # Create profile file
-        profile_path = os.path.join(temp_profile_dir, "test.yml")
-        with open(profile_path, "w") as f:
-            yaml.dump(profile_data, f)
+        self._create_profile_file(temp_profile_dir, profile_data)
 
-        # Set environment variables
-        env_vars = {
-            "DB_HOST": "localhost",
-            "DB_NAME": "warehouse",
-            "S3_BUCKET": "my-data-bucket",
-        }
-
-        with mock.patch.dict(os.environ, env_vars, clear=False):
-            profile_manager = ProfileManager(temp_profile_dir, "test")
+        with mock.patch.dict(os.environ, standard_env_vars, clear=False):
+            profile_manager = self._get_profile_manager(temp_profile_dir)
 
             # Get variables (should be substituted)
             variables = profile_manager.get_variables()
             assert variables["database_url"] == "localhost:5432/warehouse"
             assert variables["s3_bucket"] == "my-data-bucket"
-            assert variables["environment"] == "development"  # Default value
+            assert variables["environment"] == "staging"  # From env, not default
 
             # Get connector profiles (should use substituted variables)
             postgres_profile = profile_manager.get_connector_profile("postgres_main")
@@ -153,7 +160,7 @@ class TestProfileVariableSubstitution:
             s3_profile = profile_manager.get_connector_profile("s3_data")
             assert s3_profile.params["bucket"] == "my-data-bucket"
 
-    def test_nested_variable_substitution(self, temp_profile_dir):
+    def test_nested_variable_substitution(self, temp_profile_dir, standard_env_vars):
         """Test complex nested variable substitution scenarios."""
         profile_data = {
             "version": "1.0",
@@ -178,12 +185,10 @@ class TestProfileVariableSubstitution:
             },
         }
 
-        profile_path = os.path.join(temp_profile_dir, "test.yml")
-        with open(profile_path, "w") as f:
-            yaml.dump(profile_data, f)
+        self._create_profile_file(temp_profile_dir, profile_data)
 
-        with mock.patch.dict(os.environ, {"ENVIRONMENT": "staging"}, clear=False):
-            profile_manager = ProfileManager(temp_profile_dir, "test")
+        with mock.patch.dict(os.environ, standard_env_vars, clear=False):
+            profile_manager = self._get_profile_manager(temp_profile_dir)
 
             # Variables should be resolved in proper order
             variables = profile_manager.get_variables()

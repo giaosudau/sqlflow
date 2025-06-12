@@ -5,15 +5,28 @@ and variable substitution for connector configurations.
 """
 
 import copy
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from sqlflow.core.profiles import ProfileManager
+from sqlflow.core.variable_substitution import VariableSubstitutionEngine
 from sqlflow.logging import get_logger
 
 if TYPE_CHECKING:
-    from sqlflow.core.variable_substitution import VariableSubstitutionEngine
+    pass
 
 logger = get_logger(__name__)
+
+
+@dataclass
+class ResolutionConfig:
+    """Configuration for config resolution to simplify parameter passing."""
+
+    profile_name: str
+    options: Dict[str, Any] = field(default_factory=dict)
+    variables: Dict[str, Any] = field(default_factory=dict)
+    defaults: Dict[str, Any] = field(default_factory=dict)
+    environment: Optional[str] = None
 
 
 class ConfigurationResolver:
@@ -28,7 +41,7 @@ class ConfigurationResolver:
     def __init__(
         self,
         profile_manager: ProfileManager,
-        variable_engine: Optional["VariableSubstitutionEngine"] = None,
+        variable_engine: Optional[VariableSubstitutionEngine] = None,
     ):
         """Initialize ConfigurationResolver.
 
@@ -37,9 +50,6 @@ class ConfigurationResolver:
             variable_engine: VariableSubstitutionEngine for variable substitution
         """
         self.profile_manager = profile_manager
-        # Import here to avoid circular imports
-        from sqlflow.core.variable_substitution import VariableSubstitutionEngine
-
         self.variable_engine = variable_engine or VariableSubstitutionEngine()
 
         logger.debug("Initialized ConfigurationResolver")
@@ -72,35 +82,60 @@ class ConfigurationResolver:
         Raises:
             ValueError: If profile or connector not found
         """
-        from sqlflow.core.variable_substitution import VariableSubstitutionEngine
+        # Create configuration object for cleaner parameter handling
+        config = ResolutionConfig(
+            profile_name=profile_name,
+            options=options or {},
+            variables=variables or {},
+            defaults=defaults or {},
+            environment=environment,
+        )
 
-        options = options or {}
-        variables = variables or {}
-        defaults = defaults or {}
+        return self._resolve_with_config(config)
 
-        logger.debug(f"Resolving configuration for profile '{profile_name}'")
+    def resolve_with_config(self, config: ResolutionConfig) -> Dict[str, Any]:
+        """Resolve configuration using ResolutionConfig object.
+
+        Args:
+            config: ResolutionConfig with all resolution parameters
+
+        Returns:
+            Merged and resolved configuration dictionary
+
+        Raises:
+            ValueError: If profile or connector not found
+        """
+        return self._resolve_with_config(config)
+
+    def _resolve_with_config(self, config: ResolutionConfig) -> Dict[str, Any]:
+        """Internal method to resolve configuration with ResolutionConfig."""
+        logger.debug(f"Resolving configuration for profile '{config.profile_name}'")
 
         # 1. Get connector configuration from raw profile (no substitution yet)
         try:
             connector_profile = self.profile_manager.get_connector_profile_raw(
-                profile_name, environment
+                config.profile_name, config.environment
             )
         except ValueError as e:
-            logger.error(f"Failed to get connector profile '{profile_name}': {e}")
+            logger.error(
+                f"Failed to get connector profile '{config.profile_name}': {e}"
+            )
             raise
 
         # 2. Get fully resolved profile variables (includes nested variable resolution)
-        resolved_profile_variables = self.profile_manager.get_variables(environment)
+        resolved_profile_variables = self.profile_manager.get_variables(
+            config.environment
+        )
 
         # 3. Merge profile variables with provided variables (runtime variables override)
         merged_variables = {
             **resolved_profile_variables,
-            **variables,
+            **config.variables,
         }  # variables override profile vars
 
-        # 3. Build configuration with priority merging
+        # 4. Build configuration with priority merging
         # Start with defaults (lowest priority)
-        resolved_config = copy.deepcopy(defaults)
+        resolved_config = copy.deepcopy(config.defaults)
 
         # Add connector type information
         resolved_config["type"] = connector_profile.connector_type
@@ -110,21 +145,23 @@ class ConfigurationResolver:
         self._deep_merge(resolved_config, profile_params)
 
         # Apply options (highest priority)
-        self._deep_merge(resolved_config, options)
+        self._deep_merge(resolved_config, config.options)
 
         logger.debug(f"Pre-substitution config: {resolved_config}")
 
-        # 4. Apply variable substitution to the final configuration
+        # 5. Apply variable substitution to the final configuration
         # Create a new engine with proper priority handling for this resolution
         resolver_engine = VariableSubstitutionEngine(
-            cli_variables=variables,  # Highest priority - runtime variables
+            cli_variables=config.variables,  # Highest priority - runtime variables
             profile_variables=resolved_profile_variables,  # Medium priority - profile variables
             set_variables={},  # No SET variables at this level
         )
 
         resolved_config = resolver_engine.substitute(resolved_config)
 
-        logger.debug(f"Final resolved config for '{profile_name}': {resolved_config}")
+        logger.debug(
+            f"Final resolved config for '{config.profile_name}': {resolved_config}"
+        )
         return resolved_config
 
     def substitute_variables(
@@ -237,13 +274,15 @@ class ConfigurationResolver:
         required_fields = required_fields or []
         errors = []
 
-        for field in required_fields:
-            if field not in config:
-                errors.append(f"Required field '{field}' missing from configuration")
-            elif config[field] is None:
-                errors.append(f"Required field '{field}' cannot be null")
-            elif isinstance(config[field], str) and not config[field].strip():
-                errors.append(f"Required field '{field}' cannot be empty")
+        for field_name in required_fields:
+            if field_name not in config:
+                errors.append(
+                    f"Required field '{field_name}' missing from configuration"
+                )
+            elif config[field_name] is None:
+                errors.append(f"Required field '{field_name}' cannot be null")
+            elif isinstance(config[field_name], str) and not config[field_name].strip():
+                errors.append(f"Required field '{field_name}' cannot be empty")
 
         logger.debug(f"Configuration validation: {len(errors)} errors found")
         return errors

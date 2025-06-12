@@ -28,15 +28,8 @@ class TestProfileToEngineE2E:
         temp_dir = tempfile.mkdtemp()
 
         # Create project structure
-        profiles_dir = os.path.join(temp_dir, "profiles")
-        pipelines_dir = os.path.join(temp_dir, "pipelines")
-        data_dir = os.path.join(temp_dir, "data")
-        output_dir = os.path.join(temp_dir, "output")
-
-        os.makedirs(profiles_dir)
-        os.makedirs(pipelines_dir)
-        os.makedirs(data_dir)
-        os.makedirs(output_dir)
+        for subdir in ["profiles", "pipelines", "data", "output"]:
+            os.makedirs(os.path.join(temp_dir, subdir))
 
         yield temp_dir
         shutil.rmtree(temp_dir)
@@ -65,13 +58,43 @@ class TestProfileToEngineE2E:
 
         return data_dir
 
+    @pytest.fixture
+    def standard_env_vars(self):
+        """Standard environment variables for testing."""
+        return {
+            "DATA_DIR": "data",
+            "OUTPUT_DIR": "output",
+            "ENVIRONMENT": "integration_test",
+            "POSTGRES_HOST": "staging-db.example.com",
+            "POSTGRES_PORT": "5433",
+            "BASE_PATH": "/custom/data",
+            "ENV": "staging",
+        }
+
+    def _create_profile_file(
+        self, profiles_dir: str, profile_data: dict, filename: str = "test.yml"
+    ):
+        """Helper to create profile file."""
+        profile_path = os.path.join(profiles_dir, filename)
+        with open(profile_path, "w") as f:
+            yaml.dump(profile_data, f)
+        return profile_path
+
+    def _create_pipeline_file(
+        self, pipelines_dir: str, content: str, filename: str = "test.sf"
+    ):
+        """Helper to create pipeline file."""
+        pipeline_path = os.path.join(pipelines_dir, filename)
+        with open(pipeline_path, "w") as f:
+            f.write(content)
+        return pipeline_path
+
     def test_e2e_csv_connector_with_variable_substitution(
-        self, temp_project_dir, sample_csv_data
+        self, temp_project_dir, sample_csv_data, standard_env_vars
     ):
         """Test complete pipeline with CSV connector using variable substitution."""
         profiles_dir = os.path.join(temp_project_dir, "profiles")
         pipelines_dir = os.path.join(temp_project_dir, "pipelines")
-        os.path.join(temp_project_dir, "output")
 
         # Create profile with variable substitution
         profile_data = {
@@ -119,9 +142,7 @@ class TestProfileToEngineE2E:
             },
         }
 
-        profile_path = os.path.join(profiles_dir, "test.yml")
-        with open(profile_path, "w") as f:
-            yaml.dump(profile_data, f)
+        self._create_profile_file(profiles_dir, profile_data)
 
         # Create pipeline file
         pipeline_content = """
@@ -152,18 +173,11 @@ ORDER BY total_spent DESC;
 EXPORT customer_summary TO output_csv;
 """
 
-        pipeline_path = os.path.join(pipelines_dir, "customer_analytics.sf")
-        with open(pipeline_path, "w") as f:
-            f.write(pipeline_content)
+        self._create_pipeline_file(
+            pipelines_dir, pipeline_content, "customer_analytics.sf"
+        )
 
-        # Set environment variables to test substitution
-        env_vars = {
-            "DATA_DIR": "data",
-            "OUTPUT_DIR": "output",
-            "ENVIRONMENT": "integration_test",
-        }
-
-        with mock.patch.dict(os.environ, env_vars, clear=False):
+        with mock.patch.dict(os.environ, standard_env_vars, clear=False):
             # Test ProfileManager variable substitution
             profile_manager = ProfileManager(profiles_dir, "test")
 
@@ -173,9 +187,7 @@ EXPORT customer_summary TO output_csv;
             # Test resolving customers connector with runtime variables
             customers_config = resolver.resolve_config(
                 profile_name="customers_csv",
-                variables={
-                    "csv_delimiter": "|"
-                },  # Override delimiter (profile variable name)
+                variables={"csv_delimiter": "|"},  # Override delimiter
             )
 
             # Verify variable substitution worked
