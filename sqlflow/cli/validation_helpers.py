@@ -9,7 +9,6 @@ from typing import List, Optional
 
 import typer
 
-from sqlflow.core.variable_substitution import VariableSubstitutionEngine
 from sqlflow.logging import get_logger
 from sqlflow.parser.parser import Parser
 from sqlflow.project import Project
@@ -83,24 +82,22 @@ def _apply_variable_substitution(pipeline_text: str, profile_variables: dict) ->
     -------
         Pipeline text with variables substituted
     """
-    # Combine all variables with proper priority
-    all_variables = {}
+    # Phase 4 Day 2: Use new VariableManager instead of old VariableSubstitutionEngine
+    from sqlflow.core.variables.manager import VariableConfig, VariableManager
 
-    # Add profile variables (lower priority)
-    if profile_variables:
-        all_variables.update(profile_variables)
-        logger.debug(f"Added profile variables for validation: {profile_variables}")
+    # Create configuration with profile variables
+    config = VariableConfig(profile_variables=profile_variables)
+    manager = VariableManager(config)
 
-    # Create substitution engine that also checks environment variables
-    engine = VariableSubstitutionEngine(all_variables)
-    result = engine.substitute(pipeline_text)
+    result = manager.substitute(pipeline_text)
+    logger.debug("Applied variable substitution for validation using VariableManager")
 
-    logger.debug("Applied variable substitution for validation")
-
-    # Log any missing variables (those without defaults)
-    missing_vars = engine.validate_required_variables(pipeline_text)
-    if missing_vars:
-        logger.debug(f"Missing variables during validation: {', '.join(missing_vars)}")
+    # Log any missing variables using the new validation system
+    validation_result = manager.validate(pipeline_text)
+    if not validation_result.is_valid:
+        logger.debug(
+            f"Missing variables during validation: {', '.join(validation_result.missing_variables)}"
+        )
 
     return result
 
