@@ -11,6 +11,7 @@ import typer
 from sqlflow import __version__
 from sqlflow.cli import connect
 from sqlflow.cli.commands.env import app as env_app
+from sqlflow.cli.commands.profiles import profiles_app
 from sqlflow.cli.commands.udf import app as udf_app
 from sqlflow.cli.pipeline import pipeline_app
 from sqlflow.logging import configure_logging, suppress_third_party_loggers
@@ -24,6 +25,7 @@ app = typer.Typer(
 
 app.add_typer(pipeline_app, name="pipeline")
 app.add_typer(connect.app, name="connect")
+app.add_typer(profiles_app, name="profiles")
 app.add_typer(udf_app, name="udf")
 app.add_typer(env_app, name="env")
 
