@@ -730,7 +730,10 @@ class TestComprehensiveProfileIntegration:
         """Test memory usage stability under sustained load."""
         import gc
 
-        import psutil
+        try:
+            import psutil
+        except ImportError:
+            pytest.skip("psutil not available for memory testing")
 
         profiles_dir = os.path.join(multi_env_profiles_dir, "profiles")
         process = psutil.Process()

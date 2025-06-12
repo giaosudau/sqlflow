@@ -12,7 +12,7 @@ import pandas as pd
 import pytest
 
 from sqlflow.core.executors.local_executor import LocalExecutor
-from sqlflow.core.planner import Planner
+from sqlflow.core.planner_main import Planner
 from sqlflow.parser import SQLFlowParser
 
 

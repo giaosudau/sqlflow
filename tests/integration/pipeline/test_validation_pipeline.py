@@ -5,7 +5,7 @@ from unittest.mock import patch
 import pytest
 
 from sqlflow.core.errors import PlanningError
-from sqlflow.core.planner import Planner
+from sqlflow.core.planner_main import Planner
 from sqlflow.parser.ast import (
     ExportStep,
     LoadStep,
@@ -125,8 +125,8 @@ def test_sql_syntax_validation_warnings_integration():
     # Create a planner
     planner = Planner()
 
-    # Mock the logger to check for warnings
-    with patch("sqlflow.core.planner.logger") as mock_logger:
+    # Mock the logger to check for warnings - FIXED: correct logger path
+    with patch("sqlflow.core.planner_main.logger") as mock_logger:
         # Should still create a plan but log warnings
         planner.create_plan(pipeline)
 
@@ -158,8 +158,8 @@ def test_undefined_table_warning_integration():
     # Create a planner
     planner = Planner()
 
-    # Mock the logger to check for warnings
-    with patch("sqlflow.core.planner.logger") as mock_logger:
+    # Mock the logger to check for warnings - FIXED: correct logger path
+    with patch("sqlflow.core.planner_main.logger") as mock_logger:
         # Should still create a plan but log warnings
         planner.create_plan(pipeline)
 

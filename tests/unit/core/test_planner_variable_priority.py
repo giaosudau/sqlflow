@@ -12,7 +12,7 @@ import os
 
 import pytest
 
-from sqlflow.core.planner import Planner
+from sqlflow.core.planner_main import Planner
 from sqlflow.parser.ast import (
     ConditionalBlockStep,
     ConditionalBranchStep,

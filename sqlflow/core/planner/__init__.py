@@ -9,15 +9,25 @@ Following Zen of Python:
 - Practicality beats purity: Backward compatibility maintained
 """
 
-# Import main classes from planner_main.py for backward compatibility
-from sqlflow.core.planner_main import (
-    ExecutionPlanBuilder,
-    OperationPlanner,
-    Planner,
-    logger,
-)
+# Avoid circular imports - let users import directly from planner_main if needed
+# from sqlflow.core.planner_main import (
+#     ExecutionPlanBuilder,
+#     OperationPlanner,
+#     Planner,
+#     logger,
+# )
 
 from .dependency_analyzer import DependencyAnalyzer
+from .errors import (
+    DependencyError,
+    PlannerError,
+    StepBuildError,
+    ValidationError,
+    create_dependency_error,
+    create_validation_error,
+)
+from .factory import PlannerConfig, PlannerFactory
+from .interfaces import IDependencyAnalyzer, IExecutionOrderResolver, IStepBuilder
 from .order_resolver import ExecutionOrderResolver
 from .step_builder import StepBuilder
 
@@ -25,8 +35,19 @@ __all__ = [
     "DependencyAnalyzer",
     "ExecutionOrderResolver",
     "StepBuilder",
-    "ExecutionPlanBuilder",
-    "OperationPlanner",
-    "Planner",
-    "logger",
+    "IDependencyAnalyzer",
+    "IExecutionOrderResolver",
+    "IStepBuilder",
+    "PlannerConfig",
+    "PlannerFactory",
+    "PlannerError",
+    "ValidationError",
+    "DependencyError",
+    "StepBuildError",
+    "create_validation_error",
+    "create_dependency_error",
+    # "ExecutionPlanBuilder",
+    # "OperationPlanner",
+    # "Planner",
+    # "logger",
 ]

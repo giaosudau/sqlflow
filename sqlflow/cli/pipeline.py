@@ -11,7 +11,7 @@ import typer
 from sqlflow.cli.utils import parse_vars, resolve_pipeline_name
 from sqlflow.core.dependencies import DependencyResolver
 from sqlflow.core.executors.local_executor import LocalExecutor
-from sqlflow.core.planner import Planner
+from sqlflow.core.planner_main import Planner
 from sqlflow.core.storage.artifact_manager import ArtifactManager
 from sqlflow.logging import configure_logging, get_logger
 from sqlflow.parser.parser import Parser
@@ -191,7 +191,7 @@ def _compile_pipeline_to_plan(
         The execution plan as a list of operations
 
     """
-    from sqlflow.core.planner import Planner
+    from sqlflow.core.planner_main import Planner
     from sqlflow.project import Project
 
     try:
@@ -2084,8 +2084,10 @@ def validate_pipeline_command(
             # Validate pipeline
             errors = validate_pipeline(pipeline_path, profile)
 
-            # Print results
-            print_validation_summary(errors, pipeline_name, quiet=quiet)
+            # Print results - FIXED: Pass verbose flag for detailed suggestions
+            print_validation_summary(
+                errors, pipeline_name, quiet=quiet, verbose=verbose
+            )
 
             # Exit with error code if validation failed
             if errors:

@@ -1,6 +1,6 @@
 """Tests for DAG visualization with conditional execution."""
 
-from sqlflow.core.planner import ExecutionPlanBuilder
+from sqlflow.core.planner_main import ExecutionPlanBuilder
 from sqlflow.parser.ast import (
     ConditionalBlockStep,
     ConditionalBranchStep,

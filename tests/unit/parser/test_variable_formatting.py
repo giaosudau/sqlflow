@@ -2,7 +2,7 @@
 
 import unittest
 
-from sqlflow.core.planner import Planner
+from sqlflow.core.planner_main import Planner
 from sqlflow.parser.parser import Parser
 
 
@@ -87,6 +87,13 @@ class TestVariableFormatting(unittest.TestCase):
     def test_variable_with_quoted_defaults(self):
         """Test that variables with quoted default values are handled correctly."""
         sql = """
+        SOURCE data_source TYPE CSV PARAMS {
+          "path": "data.csv",
+          "has_header": true
+        };
+        
+        LOAD data FROM data_source;
+        
         CREATE TABLE filtered_data AS
         SELECT * FROM data
         WHERE region = ${region|"us east"} AND

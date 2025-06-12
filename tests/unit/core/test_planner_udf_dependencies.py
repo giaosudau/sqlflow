@@ -1,6 +1,6 @@
 """Tests for table UDF dependency detection in planner."""
 
-from sqlflow.core.planner import ExecutionPlanBuilder
+from sqlflow.core.planner_main import ExecutionPlanBuilder
 from sqlflow.parser.ast import Pipeline, SQLBlockStep
 
 

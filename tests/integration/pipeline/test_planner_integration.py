@@ -4,7 +4,7 @@ import json
 import os
 import tempfile
 
-from sqlflow.core.planner import OperationPlanner
+from sqlflow.core.planner_main import OperationPlanner
 from sqlflow.parser.ast import (
     ExportStep,
     LoadStep,
@@ -158,10 +158,10 @@ def test_plan_order_matches_dependencies():
         i for i, step in enumerate(step_ids) if step.startswith("load_")
     )
     sql_step1_id = next(
-        i for i, step in enumerate(step_ids) if step == "transform_filtered_users"
+        i for i, step in enumerate(step_ids) if step == "transform_filtered_users_1"
     )
     sql_step2_id = next(
-        i for i, step in enumerate(step_ids) if step == "transform_user_stats"
+        i for i, step in enumerate(step_ids) if step == "transform_user_stats_2"
     )
 
     assert load_step_id < sql_step1_id < sql_step2_id

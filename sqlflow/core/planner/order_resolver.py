@@ -15,10 +15,12 @@ from sqlflow.core.dependencies import DependencyResolver
 from sqlflow.core.errors import PlanningError
 from sqlflow.logging import get_logger
 
+from .interfaces import IExecutionOrderResolver
+
 logger = get_logger(__name__)
 
 
-class ExecutionOrderResolver:
+class ExecutionOrderResolver(IExecutionOrderResolver):
     """Resolves execution order for pipeline steps based on dependencies.
 
     Following Zen of Python: Simple is better than complex.
