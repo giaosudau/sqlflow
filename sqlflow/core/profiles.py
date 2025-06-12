@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional
 
 import yaml
 
+from sqlflow.core.variables import substitute_variables
 from sqlflow.core.variables.manager import VariableConfig, VariableManager
 from sqlflow.logging import get_logger
 
@@ -111,9 +112,9 @@ class VariableResolver:
 
     def _substitute_pass(self, variables: Dict[str, Any]) -> Dict[str, Any]:
         """Perform one pass of variable substitution."""
-        config = VariableConfig(cli_variables=variables)
-        manager = VariableManager(config)
-        return manager.substitute(variables)
+        # ZEN OF PYTHON: Simple is better than complex
+        # Use utility function - one obvious way to do it
+        return substitute_variables(variables, variables)
 
     def _has_converged(self, previous: Dict[str, Any], current: Dict[str, Any]) -> bool:
         """Check if variable resolution has converged (no more changes)."""
@@ -255,16 +256,16 @@ class ProfileManager:
         # Make a deep copy to avoid mutating the original
         substituted_data = copy.deepcopy(profile_data)
 
+        # ZEN OF PYTHON: Simple is better than complex
+        # Use utility function - one obvious way to do it
+
         # First pass: Substitute environment variables in the variables section
         if "variables" in substituted_data:
             logger.debug(
                 "Substituting environment variables in profile variables section"
             )
-            # Create manager with empty variables to only use environment variables
-            env_only_config = VariableConfig()
-            env_only_manager = VariableManager(env_only_config)
-            substituted_data["variables"] = env_only_manager.substitute(
-                substituted_data["variables"]
+            substituted_data["variables"] = substitute_variables(
+                substituted_data["variables"], dict(os.environ)
             )
 
         # Iterative resolution of profile variables that reference each other
@@ -272,24 +273,21 @@ class ProfileManager:
             logger.debug("Resolving profile variable interdependencies")
             variables = substituted_data["variables"]
 
-            # Create variable resolver
+            # Create variable resolver (this is lightweight)
             variable_resolver = VariableResolver()
             variables = variable_resolver.resolve_variables(variables)
 
             substituted_data["variables"] = variables
 
-        # Final pass: Create engine with resolved profile variables and apply to everything
+        # Final pass: Apply substitution to entire profile data using utility function
         profile_variables = substituted_data.get("variables", {})
         logger.debug(
             f"Using resolved profile variables for substitution: {profile_variables}"
         )
 
-        # Create manager with profile variables (which will also check environment)
-        full_config = VariableConfig(profile_variables=profile_variables)
-        full_manager = VariableManager(full_config)
-
-        # Apply substitution to entire profile data
-        substituted_data = full_manager.substitute(substituted_data)
+        # ZEN OF PYTHON: Simple is better than complex
+        # Use utility function - one obvious way to do it
+        substituted_data = substitute_variables(substituted_data, profile_variables)
 
         logger.debug("Variable substitution completed")
         return substituted_data

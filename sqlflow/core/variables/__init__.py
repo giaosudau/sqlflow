@@ -1,32 +1,26 @@
-"""Unified variable management system for SQLFlow.
+"""Unified Variable Management System for SQLFlow.
 
-This package provides a single, consistent interface for variable substitution
-across the entire codebase, eliminating duplication and ensuring Zen of Python
-principles are followed.
+This module provides the VariableManager class as the single source of truth
+for variable substitution across the entire codebase.
 
-Following the completion of Phase 4, this module now provides only the new
-unified VariableManager system, having removed all legacy implementations.
+Following Zen of Python principles:
+- Simple is better than complex
+- There should be one obvious way to do it
+- Explicit is better than implicit
 """
 
-from .facade import (
-    LegacyVariableSupport,
-    substitute_variables_unified,
-    validate_variables_unified,
+from .manager import (
+    VariableConfig,
+    VariableManager,
+    substitute_variables,
+    validate_variables,
 )
-
-# Import new unified system
-from .manager import ValidationResult, VariableConfig, VariableManager
 from .validator import VariableValidator
 
-# Export only the new unified system (legacy classes removed in Phase 4)
 __all__ = [
-    # New unified system
     "VariableManager",
     "VariableConfig",
-    "ValidationResult",
     "VariableValidator",
-    # Migration facade (for transition compatibility)
-    "LegacyVariableSupport",
-    "substitute_variables_unified",
-    "validate_variables_unified",
+    "substitute_variables",
+    "validate_variables",
 ]

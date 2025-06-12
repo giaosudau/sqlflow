@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from sqlflow.core.profiles import ProfileManager
+from sqlflow.core.variables import substitute_variables
 from sqlflow.core.variables.manager import VariableConfig, VariableManager
 from sqlflow.logging import get_logger
 
@@ -150,15 +151,9 @@ class ConfigurationResolver:
         logger.debug(f"Pre-substitution config: {resolved_config}")
 
         # 5. Apply variable substitution to the final configuration
-        # Create a new manager with proper priority handling for this resolution
-        resolver_config = VariableConfig(
-            cli_variables=config.variables,  # Highest priority - runtime variables
-            profile_variables=resolved_profile_variables,  # Medium priority - profile variables
-            set_variables={},  # No SET variables at this level
-        )
-        resolver_manager = VariableManager(resolver_config)
-
-        resolved_config = resolver_manager.substitute(resolved_config)
+        # ZEN OF PYTHON: Simple is better than complex
+        # Use utility function - one obvious way to do it
+        resolved_config = substitute_variables(resolved_config, merged_variables)
 
         logger.debug(
             f"Final resolved config for '{config.profile_name}': {resolved_config}"
