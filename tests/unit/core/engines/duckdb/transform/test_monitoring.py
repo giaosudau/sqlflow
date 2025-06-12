@@ -5,6 +5,7 @@ Tests the monitoring components including MetricsCollector, AlertManager,
 RealTimeMonitor, and integration with incremental strategies.
 """
 
+import sys
 import time
 import unittest
 from datetime import datetime
@@ -376,8 +377,19 @@ class TestRealTimeMonitor(unittest.TestCase):
         original_enabled = self.monitor.system_metrics_enabled
         self.monitor.system_metrics_enabled = True
 
-        # This should not raise an error and should disable system metrics
-        self.monitor._collect_system_metrics()
+        # Mock psutil as unavailable by removing it from sys.modules temporarily
+        psutil_module = sys.modules.get("psutil")
+        if "psutil" in sys.modules:
+            del sys.modules["psutil"]
+
+        # Patch dict to prevent psutil import
+        with patch.dict("sys.modules", {"psutil": None}):
+            # This should not raise an error and should disable system metrics
+            self.monitor._collect_system_metrics()
+
+        # Restore psutil module if it was available
+        if psutil_module is not None:
+            sys.modules["psutil"] = psutil_module
 
         # System metrics should be disabled after failed import
         self.assertFalse(self.monitor.system_metrics_enabled)
