@@ -83,16 +83,18 @@ def _apply_variable_substitution(pipeline_text: str, variables: Dict[str, Any]) 
         Pipeline text with variables substituted
 
     """
-    from sqlflow.core.variable_substitution import VariableSubstitutionEngine
+    from sqlflow.core.variables.manager import VariableConfig, VariableManager
 
-    # Create a variable substitution engine
-    engine = VariableSubstitutionEngine(variables)
+    # Create a variable manager using new unified system
+    config = VariableConfig(cli_variables=variables)
+    manager = VariableManager(config)
 
     # Substitute variables in the pipeline text
-    result = engine.substitute(pipeline_text)
+    result = manager.substitute(pipeline_text)
 
-    # Log any missing variables (those without defaults)
-    missing_vars = engine.validate_required_variables(pipeline_text)
+    # Log any missing variables using new validation system
+    validation_result = manager.validate(pipeline_text)
+    missing_vars = validation_result.missing_variables
     if missing_vars:
         logger.warning(
             f"Pipeline contains missing variables: {', '.join(missing_vars)}"
@@ -221,16 +223,17 @@ def _compile_pipeline_to_plan(
             all_variables.update(variables)
             logger.debug(f"Added CLI variables for compilation: {variables}")
 
-        # Apply variable substitution - the engine will automatically check environment variables
-        from sqlflow.core.variable_substitution import VariableSubstitutionEngine
+        # Apply variable substitution - the manager will automatically check environment variables
+        from sqlflow.core.variables.manager import VariableConfig, VariableManager
 
-        # Use modern VariableSubstitutionEngine with priority-based resolution
-        engine = VariableSubstitutionEngine(
+        # Use new VariableManager with priority-based resolution
+        config = VariableConfig(
             cli_variables=variables,
             profile_variables=profile_variables,
             set_variables={},  # SET variables will be extracted during parsing
         )
-        pipeline_text = engine.substitute(pipeline_text)
+        manager = VariableManager(config)
+        pipeline_text = manager.substitute(pipeline_text)
 
         logger.debug(
             f"Pipeline text after CLI substitution (first 500 chars): {pipeline_text[:500]}"
@@ -238,8 +241,9 @@ def _compile_pipeline_to_plan(
 
         logger.debug("Applied variable substitution before compilation")
 
-        # Log any missing variables (those without defaults)
-        missing_vars = engine.validate_required_variables(pipeline_text)
+        # Log any missing variables using new validation system
+        validation_result = manager.validate(pipeline_text)
+        missing_vars = validation_result.missing_variables
         if missing_vars:
             logger.warning(
                 f"Missing variables during compilation: {', '.join(missing_vars)}"
@@ -913,7 +917,7 @@ def _read_and_substitute_pipeline(pipeline_path: str, variables: dict) -> str:
         Pipeline text with variables substituted
 
     """
-    from sqlflow.core.variable_substitution import VariableSubstitutionEngine
+    from sqlflow.core.variables.manager import VariableConfig, VariableManager
 
     # Read the pipeline file
     with open(pipeline_path, "r") as f:
@@ -923,17 +927,18 @@ def _read_and_substitute_pipeline(pipeline_path: str, variables: dict) -> str:
     if not variables:
         return pipeline_text
 
-    # Create a variable substitution engine
-    engine = VariableSubstitutionEngine(variables)
+    # Create variable manager with new system
+    config = VariableConfig(cli_variables=variables)
+    manager = VariableManager(config)
 
     # Substitute variables in the pipeline text
-    result = engine.substitute(pipeline_text)
+    result = manager.substitute(pipeline_text)
 
-    # Log any missing variables (those without defaults)
-    missing_vars = engine.validate_required_variables(pipeline_text)
-    if missing_vars:
+    # Log any missing variables using new validation system
+    validation_result = manager.validate(pipeline_text)
+    if validation_result.missing_variables:
         logger.warning(
-            f"Pipeline contains missing variables: {', '.join(missing_vars)}"
+            f"Pipeline contains missing variables: {', '.join(validation_result.missing_variables)}"
         )
 
     return result
@@ -1317,20 +1322,17 @@ def _get_execution_operations(
 
             logger.debug(f"Final combined variables for parsing: {all_variables}")
 
-            # Substitute variables in pipeline text BEFORE parsing
-            # Always apply substitution - the engine will check environment variables
-            # even when no explicit variables are provided
-            from sqlflow.core.variable_substitution import (
-                VariableSubstitutionEngine,
-            )
+            # Substitute variables in pipeline text BEFORE parsing using new VariableManager
+            from sqlflow.core.variables.manager import VariableConfig, VariableManager
 
-            # Use modern VariableSubstitutionEngine with priority-based resolution
-            engine = VariableSubstitutionEngine(
+            # Use new VariableManager with priority-based resolution
+            config = VariableConfig(
                 cli_variables=variables,
                 profile_variables=profile_variables,
                 set_variables={},  # SET variables will be extracted during parsing
             )
-            pipeline_text = engine.substitute(pipeline_text)
+            manager = VariableManager(config)
+            pipeline_text = manager.substitute(pipeline_text)
 
             logger.debug(
                 f"Pipeline text after CLI substitution (first 500 chars): {pipeline_text[:500]}"
@@ -1338,11 +1340,11 @@ def _get_execution_operations(
 
             logger.debug("Applied variable substitution before parsing")
 
-            # Log any missing variables (those without defaults)
-            missing_vars = engine.validate_required_variables(pipeline_text)
-            if missing_vars:
+            # Log any missing variables using new validation system
+            validation_result = manager.validate(pipeline_text)
+            if validation_result.missing_variables:
                 logger.warning(
-                    f"Missing variables during compilation: {', '.join(missing_vars)}"
+                    f"Missing variables during compilation: {', '.join(validation_result.missing_variables)}"
                 )
 
             # Parse the pipeline (now with variables substituted)

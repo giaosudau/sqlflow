@@ -494,7 +494,7 @@ class TestDuckDBEngineIntegration:
 
     def test_variable_formatting_behavior(self):
         """Test how variables are formatted in SQL."""
-        # Phase 4: Feature flags removed, always use new system
+        # Strategic solution: DuckDB engine applies SQL formatting
         engine = DuckDBEngine()
 
         # Test different variable types
@@ -507,11 +507,11 @@ class TestDuckDBEngineIntegration:
         template = "SELECT ${string_var}, ${int_var}, ${float_var}, ${bool_var}"
         result = engine.substitute_variables(template)
 
-        # Verify formatting behavior with new system
-        assert "test_string" in result  # Strings don't get auto-quoted in new system
+        # Verify SQL formatting behavior with strategic solution
+        assert "'test_string'" in result  # Strings get quoted for SQL
         assert "42" in result  # Integers don't get quoted
         assert "3.14" in result  # Floats don't get quoted
-        assert "True" in result  # Booleans maintain Python format
+        assert "true" in result  # Booleans get SQL format (lowercase)
 
     def test_empty_table_operations(self):
         """Test operations with empty tables."""

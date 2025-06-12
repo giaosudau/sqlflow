@@ -19,7 +19,7 @@ except ImportError:
     pass
 
 # Import core modules for easier access
-from sqlflow.core.variables import VariableContext, VariableSubstitutor
+from sqlflow.core.variables import VariableConfig, VariableManager
 
 from .exceptions import (
     ConnectorError,

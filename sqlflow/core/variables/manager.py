@@ -4,10 +4,12 @@ This module provides the VariableManager class, which serves as the single
 source of truth for variable substitution across the entire codebase.
 It follows Zen of Python principles: Simple, Readable, Explicit.
 
-The VariableManager uses the existing VariableSubstitutionEngine internally
-to ensure backward compatibility during the transition period.
+The VariableManager provides its own robust implementation for
+variable substitution with clear priority ordering and validation.
 """
 
+import os
+import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
@@ -117,9 +119,12 @@ class VariableManager(IVariableManager):
     - There should be one obvious way to do it
 
     This class provides a single, consistent interface for all variable
-    operations while internally using the existing VariableSubstitutionEngine
-    to ensure backward compatibility.
+    operations with its own implementation, no longer depending on legacy systems.
     """
+
+    # Compile regex patterns once for better performance
+    VARIABLE_PATTERN = re.compile(r"\$\{([^}]+)\}")
+    VARIABLE_WITH_DEFAULT_PATTERN = re.compile(r"\$\{([^|}]+)\|([^}]+)\}")
 
     def __init__(self, config: Optional[VariableConfig] = None):
         """Initialize the variable manager with configuration.
@@ -128,52 +133,29 @@ class VariableManager(IVariableManager):
             config: Variable configuration with priority-ordered variables
         """
         self._config = config or VariableConfig()
-        self._engine = None  # Lazy initialization
-        self._is_setup = False
+        self._resolved_variables = None  # Lazy initialization
 
         logger.debug(
             f"VariableManager initialized with {self._count_total_variables()} variables"
         )
 
-    def _ensure_setup(self):
-        """Ensure internal components are set up (lazy initialization).
+    def _get_resolved_variables(self) -> Dict[str, Any]:
+        """Get resolved variables with lazy initialization.
 
-        Following Zen of Python: Practicality beats purity.
-        Only initialize when actually needed for better performance.
+        Returns:
+            Dictionary of all variables resolved according to priority
         """
-        if self._is_setup:
-            return
+        if self._resolved_variables is None:
+            self._resolved_variables = self._config.resolve_priority()
+            # Add environment variables automatically
+            env_vars = dict(os.environ)
+            # Environment variables have lowest priority
+            combined = {}
+            combined.update(env_vars)
+            combined.update(self._resolved_variables)
+            self._resolved_variables = combined
 
-        self._setup_components()
-        self._is_setup = True
-
-    def _setup_components(self):
-        """Setup internal components using existing implementations.
-
-        Following Zen of Python: Practicality beats purity.
-        Uses existing VariableSubstitutionEngine to ensure compatibility.
-        """
-        # Import here to avoid circular imports
-        from sqlflow.core.variable_substitution import VariableSubstitutionEngine
-
-        # Merge environment variables into set variables since they have same priority level
-        merged_set_variables = {}
-        merged_set_variables.update(self._config.env_variables)
-        merged_set_variables.update(
-            self._config.set_variables
-        )  # SET variables override env
-
-        # Use existing engine with priority-based configuration
-        self._engine = VariableSubstitutionEngine(
-            cli_variables=self._config.cli_variables,
-            profile_variables=self._config.profile_variables,
-            set_variables=merged_set_variables,
-            # Environment variables from os.environ are handled automatically by VariableSubstitutionEngine
-        )
-
-        logger.debug(
-            "Internal components initialized using existing VariableSubstitutionEngine"
-        )
+        return self._resolved_variables
 
     def substitute(self, data: Any) -> Any:
         """Substitute variables in any data structure.
@@ -190,12 +172,85 @@ class VariableManager(IVariableManager):
         if data is None:
             return None
 
-        self._ensure_setup()  # Lazy initialization
         logger.debug(f"Substituting variables in {type(data).__name__}")
-        result = self._engine.substitute(data)
-        logger.debug("Variable substitution completed")
 
+        if isinstance(data, str):
+            result = self._substitute_string(data)
+        elif isinstance(data, dict):
+            result = self._substitute_dict(data)
+        elif isinstance(data, list):
+            result = self._substitute_list(data)
+        else:
+            result = data
+
+        logger.debug("Variable substitution completed")
         return result
+
+    def _substitute_string(self, text: str) -> str:
+        """Substitute variables in a string.
+
+        Args:
+            text: String containing variable references
+
+        Returns:
+            String with variables substituted
+        """
+        variables = self._get_resolved_variables()
+
+        def replace_variable(match: re.Match) -> str:
+            var_expr = match.group(1)
+
+            # Handle expressions with defaults: ${var|default}
+            if "|" in var_expr:
+                var_name, default_value = var_expr.split("|", 1)
+                var_name = var_name.strip()
+                default_value = default_value.strip()
+
+                # Remove quotes from default value if present
+                default_value = self._unquote_value(default_value)
+
+                # Check variables
+                if var_name in variables:
+                    value = variables[var_name]
+                    logger.debug(f"Using variable ${{{var_name}}} = '{value}'")
+                    return str(value)
+                else:
+                    logger.debug(
+                        f"Using default value '{default_value}' for variable ${{{var_name}}}"
+                    )
+                    return default_value
+            else:
+                # Simple variable reference: ${var}
+                var_name = var_expr.strip()
+                if var_name in variables:
+                    value = variables[var_name]
+                    logger.debug(f"Using variable ${{{var_name}}} = '{value}'")
+                    return str(value)
+                else:
+                    logger.warning(
+                        f"Variable '{var_name}' not found and no default provided"
+                    )
+                    return match.group(0)  # Keep original text
+
+        result = self.VARIABLE_PATTERN.sub(replace_variable, text)
+        return result
+
+    def _substitute_dict(self, data_dict: Dict[str, Any]) -> Dict[str, Any]:
+        """Substitute variables in a dictionary."""
+        return {key: self.substitute(value) for key, value in data_dict.items()}
+
+    def _substitute_list(self, data_list: List[Any]) -> List[Any]:
+        """Substitute variables in a list."""
+        return [self.substitute(item) for item in data_list]
+
+    def _unquote_value(self, value: str) -> str:
+        """Remove quotes from a value if present."""
+        if len(value) >= 2:
+            if (value.startswith('"') and value.endswith('"')) or (
+                value.startswith("'") and value.endswith("'")
+            ):
+                return value[1:-1]
+        return value
 
     def validate(self, content: str) -> ValidationResult:
         """Validate variable usage in content.
@@ -218,11 +273,9 @@ class VariableManager(IVariableManager):
                 context_locations={},
             )
 
-        self._ensure_setup()  # Lazy initialization
         logger.debug(f"Validating variable usage in content ({len(content)} chars)")
 
-        # Use existing validation from VariableSubstitutionEngine
-        missing = self._engine.validate_required_variables(content)
+        missing = self._validate_required_variables(content)
 
         # Create validation result
         result = ValidationResult(
@@ -238,6 +291,35 @@ class VariableManager(IVariableManager):
             logger.debug(f"Missing variables: {', '.join(result.missing_variables)}")
 
         return result
+
+    def _validate_required_variables(self, content: str) -> List[str]:
+        """Find missing required variables in content.
+
+        Args:
+            content: Content to check for missing variables
+
+        Returns:
+            List of missing variable names
+        """
+        variables = self._get_resolved_variables()
+        missing = []
+
+        for match in self.VARIABLE_PATTERN.finditer(content):
+            var_expr = match.group(1)
+
+            # Handle expressions with defaults: ${var|default}
+            if "|" in var_expr:
+                var_name, _ = var_expr.split("|", 1)
+                var_name = var_name.strip()
+                # Variables with defaults are not considered missing
+            else:
+                # Simple variable reference: ${var}
+                var_name = var_expr.strip()
+                if var_name not in variables:
+                    if var_name not in missing:
+                        missing.append(var_name)
+
+        return missing
 
     def _count_total_variables(self) -> int:
         """Count total variables across all sources."""
@@ -265,7 +347,7 @@ class VariableManager(IVariableManager):
         Returns:
             Dictionary of all variables resolved according to priority
         """
-        return self._config.resolve_priority()
+        return self._get_resolved_variables().copy()
 
     def has_variable(self, name: str) -> bool:
         """Check if a variable is available.
@@ -276,5 +358,5 @@ class VariableManager(IVariableManager):
         Returns:
             True if variable is available, False otherwise
         """
-        resolved = self._config.resolve_priority()
-        return name in resolved
+        variables = self._get_resolved_variables()
+        return name in variables

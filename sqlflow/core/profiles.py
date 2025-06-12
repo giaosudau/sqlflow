@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional
 
 import yaml
 
-from sqlflow.core.variable_substitution import VariableSubstitutionEngine
+from sqlflow.core.variables.manager import VariableConfig, VariableManager
 from sqlflow.logging import get_logger
 
 logger = get_logger(__name__)
@@ -111,8 +111,9 @@ class VariableResolver:
 
     def _substitute_pass(self, variables: Dict[str, Any]) -> Dict[str, Any]:
         """Perform one pass of variable substitution."""
-        engine = VariableSubstitutionEngine(variables)
-        return engine.substitute(variables)
+        config = VariableConfig(cli_variables=variables)
+        manager = VariableManager(config)
+        return manager.substitute(variables)
 
     def _has_converged(self, previous: Dict[str, Any], current: Dict[str, Any]) -> bool:
         """Check if variable resolution has converged (no more changes)."""
@@ -133,7 +134,7 @@ class ProfileManager:
         self.environment = environment
         self._profile_cache: Dict[str, Dict[str, Any]] = {}
         self._cache_timestamps: Dict[str, float] = {}
-        self._variable_engine = VariableSubstitutionEngine()
+        self._variable_manager = VariableManager(VariableConfig())
 
         logger.debug(
             f"Initialized ProfileManager for environment '{environment}' in '{profile_dir}'"
@@ -259,9 +260,10 @@ class ProfileManager:
             logger.debug(
                 "Substituting environment variables in profile variables section"
             )
-            # Create engine with empty variables to only use environment variables
-            env_only_engine = VariableSubstitutionEngine({})
-            substituted_data["variables"] = env_only_engine.substitute(
+            # Create manager with empty variables to only use environment variables
+            env_only_config = VariableConfig()
+            env_only_manager = VariableManager(env_only_config)
+            substituted_data["variables"] = env_only_manager.substitute(
                 substituted_data["variables"]
             )
 
@@ -282,11 +284,12 @@ class ProfileManager:
             f"Using resolved profile variables for substitution: {profile_variables}"
         )
 
-        # Create engine with profile variables (which will also check environment)
-        full_engine = VariableSubstitutionEngine(profile_variables)
+        # Create manager with profile variables (which will also check environment)
+        full_config = VariableConfig(profile_variables=profile_variables)
+        full_manager = VariableManager(full_config)
 
         # Apply substitution to entire profile data
-        substituted_data = full_engine.substitute(substituted_data)
+        substituted_data = full_manager.substitute(substituted_data)
 
         logger.debug("Variable substitution completed")
         return substituted_data

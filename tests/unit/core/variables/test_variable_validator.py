@@ -179,40 +179,26 @@ Line 3"""
 
 
 class TestBackwardCompatibilityWithExistingValidation:
-    """CRITICAL: Tests proving new validator is compatible with existing systems.
+    """Test compatibility with existing validation systems."""
 
-    These tests ensure the new validator produces consistent results with
-    existing validation logic throughout the codebase.
-    """
+    # Note: Backward compatibility test for VariableSubstitutionEngine removed
+    # in Phase 4 after successful migration to new VariableManager system
 
-    def test_compatibility_with_variable_substitution_engine(self):
-        """New validator consistent with VariableSubstitutionEngine validation."""
-        from sqlflow.core.variable_substitution import VariableSubstitutionEngine
+    def test_validator_basic_functionality(self):
+        """Test that validator works correctly with new system."""
+        variables = {"name": "Alice", "age": 30}
+        validator = VariableValidator(variables)
+        config = VariableConfig(cli_variables=variables)
 
-        test_cases = [
-            # (variables, content, description)
-            ({"name": "Alice"}, "Hello ${name}", "simple variable"),
-            ({}, "Hello ${missing}", "missing variable"),
-            ({}, "Hello ${name|default}", "variable with default"),
-            ({"a": 1, "b": 2}, "${a} and ${b}", "multiple variables"),
-            ({}, "No variables here", "no variables"),
-            ({"x": "value"}, "${x} ${missing} ${y|default}", "mixed scenario"),
-        ]
+        # Valid content - all variables present
+        result = validator.validate("Hello ${name}, you are ${age}", config)
+        assert result.is_valid
+        assert len(result.missing_variables) == 0
 
-        for variables, content, description in test_cases:
-            # Test with existing engine
-            old_engine = VariableSubstitutionEngine(variables)
-            old_missing = old_engine.validate_required_variables(content)
-
-            # Test with new validator
-            config = VariableConfig(cli_variables=variables)
-            new_validator = VariableValidator(variables)
-            new_result = new_validator.validate(content, config)
-
-            # Results should be consistent
-            assert set(old_missing) == set(
-                new_result.missing_variables
-            ), f"Validation differs for {description}: {content}"
+        # Invalid content - missing variable
+        result = validator.validate("Hello ${missing}", config)
+        assert not result.is_valid
+        assert "missing" in result.missing_variables
 
     def test_compatibility_with_planner_validation(self):
         """New validator consistent with planner validation logic."""

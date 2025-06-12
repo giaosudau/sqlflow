@@ -679,7 +679,10 @@ class DuckDBEngine(SQLEngine):
 
     # Simplified methods that delegate to other components
     def substitute_variables(self, template: str) -> str:
-        """Substitute variables in a template.
+        """Substitute variables in a template with SQL-appropriate formatting.
+
+        Following Zen of Python: Explicit is better than implicit.
+        This method handles SQL-specific variable substitution with proper SQL value formatting.
 
         Args:
         ----
@@ -687,13 +690,47 @@ class DuckDBEngine(SQLEngine):
 
         Returns:
         -------
-            Template with variables substituted
+            Template with variables substituted and formatted for SQL
 
         """
-        # Use new VariableManager system (Phase 4: Feature flags removed)
-        from sqlflow.core.variables.facade import LegacyVariableSupport
+        import re
 
-        return LegacyVariableSupport.substitute_variables_new(template, self.variables)
+        # Use our own SQL-aware variable substitution logic
+        # This ensures string values get quoted for SQL contexts
+        variable_pattern = re.compile(r"\$\{([^}]+)\}")
+
+        def format_sql_variable(match):
+            var_expr = match.group(1)
+
+            # Handle expressions with defaults: ${var|default}
+            if "|" in var_expr:
+                var_name, default = var_expr.split("|", 1)
+                var_name = var_name.strip()
+                default = default.strip()
+
+                if var_name in self.variables:
+                    value = self.variables[var_name]
+                    return self._format_sql_value(value)
+                else:
+                    # Handle quoted default values
+                    if self._is_quoted_string(default):
+                        return default.strip("\"'")
+                    return self._format_sql_value(default)
+            else:
+                # Simple variable reference: ${var}
+                var_name = var_expr.strip()
+                if var_name in self.variables:
+                    value = self.variables[var_name]
+                    return self._format_sql_value(value)
+                else:
+                    logger.warning(
+                        f"Variable {var_name} not found and no default provided"
+                    )
+                    return "NULL"
+
+        # Apply SQL-specific variable substitution with proper formatting
+        result = variable_pattern.sub(format_sql_variable, template)
+        return result
 
     def _substitute_variables_legacy(self, template: str) -> str:
         """Legacy variable substitution implementation.

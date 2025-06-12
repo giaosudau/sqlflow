@@ -10,7 +10,7 @@ import yaml
 
 from sqlflow.core.config_resolver import ConfigurationResolver
 from sqlflow.core.profiles import ProfileManager
-from sqlflow.core.variable_substitution import VariableSubstitutionEngine
+from sqlflow.core.variables.manager import VariableManager
 
 
 class TestConfigurationResolver:
@@ -74,15 +74,15 @@ class TestConfigurationResolver:
         resolver = ConfigurationResolver(profile_manager)
 
         assert resolver.profile_manager == profile_manager
-        assert resolver.variable_engine is not None
-        assert isinstance(resolver.variable_engine, VariableSubstitutionEngine)
+        assert resolver.variable_manager is not None
+        assert isinstance(resolver.variable_manager, VariableManager)
 
-    def test_init_with_custom_variable_engine(self, profile_manager):
-        """Test initialization with custom variable engine."""
-        custom_engine = VariableSubstitutionEngine()
-        resolver = ConfigurationResolver(profile_manager, custom_engine)
+    def test_init_with_custom_variable_manager(self, profile_manager):
+        """Test initialization with custom variable manager."""
+        custom_manager = VariableManager()
+        resolver = ConfigurationResolver(profile_manager, custom_manager)
 
-        assert resolver.variable_engine == custom_engine
+        assert resolver.variable_manager == custom_manager
 
     def test_resolve_config_basic_merging(self, resolver):
         """Test basic configuration merging without variables."""
@@ -315,14 +315,14 @@ class TestConfigurationResolver:
         # Check that runtime variables override profile variables
         assert info["merged_variables"]["csv_delimiter"] == "|"
 
-    def test_integration_with_variable_substitution_engine(self, resolver):
-        """Test integration with VariableSubstitutionEngine."""
+    def test_integration_with_variable_manager(self, resolver):
+        """Test integration with VariableManager."""
         config = {"host": "${db_host}", "other": "static"}
         variables = {"db_host": "new.host.com"}
 
-        # Test that substitute_variables delegates to the engine
+        # Test that substitute_variables delegates to the manager
         with patch.object(
-            resolver.variable_engine, "substitute", return_value=config
+            resolver.variable_manager, "substitute", return_value=config
         ) as mock_sub:
             result = resolver.substitute_variables(config, variables)
 
@@ -352,9 +352,9 @@ class TestConfigurationResolver:
 
     def test_error_handling_variable_substitution(self, resolver):
         """Test error handling during variable substitution."""
-        # Mock variable engine to raise an exception
+        # Mock variable manager to raise an exception
         with patch.object(
-            resolver.variable_engine,
+            resolver.variable_manager,
             "substitute",
             side_effect=Exception("Substitution error"),
         ):
@@ -378,36 +378,20 @@ class TestConfigurationResolver:
                 mock_profile = ConnectorProfile(
                     name="test",
                     connector_type="postgres",
-                    params={"database": "test_db"},
+                    params={
+                        "host": "${host}",
+                        "port": "${port}",
+                        "database": "test_db",
+                    },
                 )
                 mock_get.return_value = mock_profile
 
-                # Mock variable engine to verify what variables it receives
-                with patch.object(
-                    resolver.variable_engine, "update_variables"
-                ) as mock_update:
-                    with patch.object(
-                        resolver.variable_engine,
-                        "substitute",
-                        return_value={"merged": "result"},
-                    ):
-                        resolver.resolve_config(
-                            profile_name="test", variables=runtime_vars
-                        )
+                # Test the actual behavior - runtime variables should override profile variables
+                result = resolver.resolve_config(
+                    profile_name="test", variables=runtime_vars
+                )
 
-                        # Should have been called with merged variables where runtime overrides profile
-                        call_args = mock_update.call_args_list
-                        # Find the call with merged variables
-                        merged_vars = None
-                        for call in call_args:
-                            if "host" in call[0][0]:
-                                merged_vars = call[0][0]
-                                break
-
-                        if merged_vars:
-                            assert (
-                                merged_vars["host"] == "runtime.host.com"
-                            )  # Runtime wins
-                            assert (
-                                merged_vars["port"] == "5432"
-                            )  # Profile value preserved
+                # Verify that runtime variable took priority over profile variable
+                assert result["host"] == "runtime.host.com"  # Runtime wins
+                assert result["port"] == "5432"  # Profile value preserved
+                assert result["database"] == "test_db"  # Direct value preserved

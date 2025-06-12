@@ -30,17 +30,24 @@ class LegacyVariableSupport:
 
     @staticmethod
     def substitute_variables_new(data: Any, variables: Dict[str, Any]) -> Any:
-        """New implementation available alongside existing substitute_variables().
+        """Pure variable substitution using the unified VariableManager.
 
-        This method provides the same interface as the existing substitute_variables()
-        function but uses the new unified VariableManager internally.
+        Following Zen of Python: Simple is better than complex.
+        This method provides PURE variable substitution without any formatting.
+        Each consuming component (DuckDB engine, ConditionEvaluator, etc.)
+        applies its own context-specific formatting on top.
+
+        DESIGN PRINCIPLE: Separation of Concerns
+        - VariableManager: Pure variable substitution (raw values)
+        - DuckDBEngine: Adds SQL formatting (quotes strings)
+        - ConditionEvaluator: Adds AST formatting (quotes identifiers)
 
         Args:
             data: The data structure to perform variable substitution on
             variables: Dictionary of variable name->value mappings
 
         Returns:
-            The data structure with variables substituted
+            The data structure with variables substituted (raw values, no formatting)
 
         Example:
             >>> result = LegacyVariableSupport.substitute_variables_new(
