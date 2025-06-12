@@ -128,11 +128,24 @@ class VariableManager(IVariableManager):
             config: Variable configuration with priority-ordered variables
         """
         self._config = config or VariableConfig()
-        self._setup_components()
+        self._engine = None  # Lazy initialization
+        self._is_setup = False
 
         logger.debug(
             f"VariableManager initialized with {self._count_total_variables()} variables"
         )
+
+    def _ensure_setup(self):
+        """Ensure internal components are set up (lazy initialization).
+
+        Following Zen of Python: Practicality beats purity.
+        Only initialize when actually needed for better performance.
+        """
+        if self._is_setup:
+            return
+
+        self._setup_components()
+        self._is_setup = True
 
     def _setup_components(self):
         """Setup internal components using existing implementations.
@@ -142,8 +155,6 @@ class VariableManager(IVariableManager):
         """
         # Import here to avoid circular imports
         from sqlflow.core.variable_substitution import VariableSubstitutionEngine
-
-        self._config.resolve_priority()
 
         # Merge environment variables into set variables since they have same priority level
         merged_set_variables = {}
@@ -179,6 +190,7 @@ class VariableManager(IVariableManager):
         if data is None:
             return None
 
+        self._ensure_setup()  # Lazy initialization
         logger.debug(f"Substituting variables in {type(data).__name__}")
         result = self._engine.substitute(data)
         logger.debug("Variable substitution completed")
@@ -206,6 +218,7 @@ class VariableManager(IVariableManager):
                 context_locations={},
             )
 
+        self._ensure_setup()  # Lazy initialization
         logger.debug(f"Validating variable usage in content ({len(content)} chars)")
 
         # Use existing validation from VariableSubstitutionEngine
