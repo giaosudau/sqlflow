@@ -38,75 +38,72 @@ class TestEndToEndVariableSystem:
         This is the core end-to-end test validating that real pipeline execution
         uses the new variable system correctly throughout the entire flow.
         """
-        # Ensure new system is enabled (should be default by Phase 3)
-        with patch.dict(os.environ, {}, clear=True):
-            if "SQLFLOW_USE_NEW_VARIABLES" in os.environ:
-                del os.environ["SQLFLOW_USE_NEW_VARIABLES"]
+        # Set up variables for complete pipeline
+        variables = {
+            "environment": "test",
+            "schema": "analytics",
+            "table_prefix": "fact_",
+            "output_format": "csv",
+        }
 
-            # Set up variables for complete pipeline
-            variables = {
-                "environment": "test",
-                "schema": "analytics",
-                "table_prefix": "fact_",
-                "output_format": "csv",
-            }
+        # Create minimal pipeline content with variables
+        pipeline_content = """
+        -- This pipeline uses variables throughout
+        DEFINE customers AS (
+            SELECT customer_id, name, region
+            FROM ${schema}.${table_prefix}customers
+            WHERE environment = '${environment}'
+        );
+        
+        EXPORT customers TO CSV './output/${environment}_customers.${output_format}';
+        """
 
-            # Create minimal pipeline content with variables
-            pipeline_content = """
-            -- This pipeline uses variables throughout
-            DEFINE customers AS (
-                SELECT customer_id, name, region
-                FROM ${schema}.${table_prefix}customers
-                WHERE environment = '${environment}'
-            );
-            
-            EXPORT customers TO CSV './output/${environment}_customers.${output_format}';
-            """
+        # Test CLI Variable Handler (entry point)
+        handler = VariableHandler(variables)
+        # Phase 4: Feature flags removed, new system is always used
 
-            # Test CLI Variable Handler (entry point)
-            handler = VariableHandler(variables)
-            assert handler._use_new_system is True
+        substituted_pipeline = handler.substitute_variables(pipeline_content)
 
-            substituted_pipeline = handler.substitute_variables(pipeline_content)
+        # Verify variable substitution occurred
+        assert "analytics.fact_customers" in substituted_pipeline
+        assert "environment = 'test'" in substituted_pipeline
+        assert "./output/test_customers.csv" in substituted_pipeline
 
-            # Verify variable substitution occurred
-            assert "analytics.fact_customers" in substituted_pipeline
-            assert "environment = 'test'" in substituted_pipeline
-            assert "./output/test_customers.csv" in substituted_pipeline
+        # Test Parser with substituted content
+        parser = Parser()
+        # Parser should handle pre-substituted content
+        assert parser is not None  # Basic parser validation
 
-            # Test Parser with substituted content
-            parser = Parser()
-            # Parser should handle pre-substituted content
-            assert parser is not None  # Basic parser validation
+        # Test DuckDB Engine
+        engine = DuckDBEngine(database_path=":memory:")
+        engine.variables = variables
 
-            # Test DuckDB Engine
-            engine = DuckDBEngine(database_path=":memory:")
-            engine.variables = variables
+        # Test variable substitution in engine
+        query = (
+            "SELECT * FROM ${schema}.${table_prefix}sales WHERE env = '${environment}'"
+        )
+        engine_result = engine.substitute_variables(query)
+        assert "analytics.fact_sales" in engine_result
+        assert "env = 'test'" in engine_result
 
-            # Test variable substitution in engine
-            query = "SELECT * FROM ${schema}.${table_prefix}sales WHERE env = '${environment}'"
-            engine_result = engine.substitute_variables(query)
-            assert "analytics.fact_sales" in engine_result
-            assert "env = 'test'" in engine_result
+        # Test Local Executor
+        executor = LocalExecutor()
+        executor.variables = variables
 
-            # Test Local Executor
-            executor = LocalExecutor()
-            executor.variables = variables
+        # Test string substitution (what _substitute_variables actually does)
+        test_string = "${environment}_data in ${schema}/${table_prefix}file"
+        executor_result = executor._substitute_variables(test_string)
+        assert "test_data" in executor_result
+        assert "analytics/fact_file" in executor_result
 
-            # Test string substitution (what _substitute_variables actually does)
-            test_string = "${environment}_data in ${schema}/${table_prefix}file"
-            executor_result = executor._substitute_variables(test_string)
-            assert "test_data" in executor_result
-            assert "analytics/fact_file" in executor_result
-
-            # Test dictionary substitution
-            test_dict = {
-                "key": "${environment}_data",
-                "path": "/tmp/${schema}/${table_prefix}file",
-            }
-            dict_result = executor._substitute_variables_in_dict(test_dict)
-            assert "test_data" in dict_result["key"]
-            assert "/tmp/analytics/fact_file" in dict_result["path"]
+        # Test dictionary substitution
+        test_dict = {
+            "key": "${environment}_data",
+            "path": "/tmp/${schema}/${table_prefix}file",
+        }
+        dict_result = executor._substitute_variables_in_dict(test_dict)
+        assert "test_data" in dict_result["key"]
+        assert "/tmp/analytics/fact_file" in dict_result["path"]
 
     def test_all_connector_types_with_variables(self):
         """Test all connector types work with new variable system.

@@ -1,10 +1,7 @@
 """Variable handling utilities for SQLFlow CLI."""
 
 import logging
-import os
 from typing import Any, Dict, Optional, Tuple
-
-from sqlflow.core.variable_substitution import VariableSubstitutionEngine
 
 logger = logging.getLogger(__name__)
 
@@ -22,23 +19,12 @@ class VariableHandler:
         """
         self._variables = variables or {}
 
-        # Feature flag for gradual migration to new VariableManager system
-        # Changed default to 'true' in Phase 3: Enable new system by default
-        self._use_new_system = (
-            os.getenv("SQLFLOW_USE_NEW_VARIABLES", "true").lower() == "true"
-        )
+        # Use new VariableManager system (Phase 4: Feature flags removed)
+        from sqlflow.core.variables.manager import VariableConfig, VariableManager
 
-        if self._use_new_system:
-            # Use new VariableManager system
-            from sqlflow.core.variables.manager import VariableConfig, VariableManager
-
-            config = VariableConfig(cli_variables=self._variables)
-            self._manager = VariableManager(config)
-            logger.debug("VariableHandler initialized with new VariableManager system")
-        else:
-            # Use existing system (default for backward compatibility)
-            self.engine = VariableSubstitutionEngine(self._variables)
-            logger.debug("VariableHandler initialized with legacy system")
+        config = VariableConfig(cli_variables=self._variables)
+        self._manager = VariableManager(config)
+        logger.debug("VariableHandler initialized with VariableManager system")
 
         # Keep var_pattern for backward compatibility with existing tests
         import re
@@ -65,12 +51,8 @@ class VariableHandler:
         if not text:
             return text
 
-        if self._use_new_system:
-            # Use new VariableManager
-            return self._manager.substitute(text)
-        else:
-            # Use legacy implementation to maintain exact behavior
-            return self._substitute_variables_legacy(text)
+        # Use new VariableManager system
+        return self._manager.substitute(text)
 
     def _substitute_variables_legacy(self, text: str) -> str:
         """Legacy variable substitution implementation.
@@ -114,24 +96,14 @@ class VariableHandler:
             True if all required variables are available or have defaults
 
         """
-        if self._use_new_system:
-            # Use new VariableManager validation
-            result = self._manager.validate(text)
-            if not result.is_valid:
-                logger.error(
-                    f"Missing required variables: {', '.join(result.missing_variables)}"
-                )
-                return False
-            return True
-        else:
-            # Use legacy validation
-            missing_vars = self.engine.validate_required_variables(text)
-
-            if missing_vars:
-                logger.error(f"Missing required variables: {', '.join(missing_vars)}")
-                return False
-
-            return True
+        # Use new VariableManager validation
+        result = self._manager.validate(text)
+        if not result.is_valid:
+            logger.error(
+                f"Missing required variables: {', '.join(result.missing_variables)}"
+            )
+            return False
+        return True
 
     def _parse_variable_expr(self, expr: str) -> Tuple[str, Optional[str]]:
         """Parse a variable expression into name and default value.

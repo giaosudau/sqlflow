@@ -24,15 +24,14 @@ class TestNewSystemAsDefault:
 
     def test_cli_variable_handler_uses_new_system_by_default(self):
         """CLI VariableHandler uses new system by default (no env var set)."""
-        # Clear any existing environment variable
+        # Clear any existing environment variable (Phase 4: always use new system)
         with patch.dict(os.environ, {}, clear=True):
             # Ensure the key is not in the environment
             if "SQLFLOW_USE_NEW_VARIABLES" in os.environ:
                 del os.environ["SQLFLOW_USE_NEW_VARIABLES"]
 
             handler = VariableHandler({"name": "Alice"})
-            # With new system as default, this should use VariableManager
-            assert handler._use_new_system is True
+            # Phase 4: Feature flags removed, new system always used
 
             result = handler.substitute_variables("Hello ${name}")
             assert result == "Hello Alice"
@@ -66,41 +65,28 @@ class TestNewSystemAsDefault:
             assert "public" in result
 
     def test_rollback_capability_with_explicit_false(self):
-        """Can still rollback to old system with explicit environment variable."""
-        with patch.dict(os.environ, {"SQLFLOW_USE_NEW_VARIABLES": "false"}):
-            handler = VariableHandler({"name": "Bob"})
-            assert handler._use_new_system is False
+        """Phase 4: Feature flags removed - test still validates basic functionality."""
+        # Phase 4: Feature flags removed, but test validates basic functionality
+        handler = VariableHandler({"name": "Bob"})
+        # New system is always used now
 
-            # Should still work with old system
-            result = handler.substitute_variables("Hello ${name}")
-            assert result == "Hello Bob"
+        # Should work with new system
+        result = handler.substitute_variables("Hello ${name}")
+        assert result == "Hello Bob"
 
     def test_rollback_capability_case_insensitive(self):
-        """Rollback works with case-insensitive values."""
-        test_cases = ["FALSE", "False", "false", "0", "no", "NO"]
-
-        for false_value in test_cases:
-            with patch.dict(os.environ, {"SQLFLOW_USE_NEW_VARIABLES": false_value}):
-                handler = VariableHandler({"test": "value"})
-                # All these should result in using old system
-                if false_value.lower() in ["false", "0", "no"]:
-                    assert handler._use_new_system is False
+        """Phase 4: Feature flags removed - test validates basic substitution."""
+        # Phase 4: Feature flags removed, but we test basic functionality still works
+        handler = VariableHandler({"test": "value"})
+        result = handler.substitute_variables("Test: ${test}")
+        assert "value" in result
 
     def test_new_system_enabled_with_various_true_values(self):
-        """New system enabled with various true values."""
-        true_values = ["true", "TRUE", "True", "1", "yes", "YES"]
-
-        for true_value in true_values:
-            with patch.dict(os.environ, {"SQLFLOW_USE_NEW_VARIABLES": true_value}):
-                handler = VariableHandler({"test": "value"})
-                # Only 'true' (case insensitive) should enable new system
-                if true_value.lower() == "true":
-                    assert handler._use_new_system is True
-                else:
-                    # Our implementation only checks for "true", others default to new system
-                    # but evaluate to False in the condition
-                    expected = true_value.lower() == "true"
-                    assert handler._use_new_system == expected
+        """Phase 4: Feature flags removed - new system always enabled."""
+        # Phase 4: Feature flags removed, new system always used
+        handler = VariableHandler({"test": "value"})
+        result = handler.substitute_variables("Test: ${test}")
+        assert "value" in result
 
 
 class TestBackwardCompatibilityWithNewDefault:

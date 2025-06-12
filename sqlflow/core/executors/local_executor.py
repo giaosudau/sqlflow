@@ -17,7 +17,6 @@ from sqlflow.core.executors.base_executor import BaseExecutor
 from sqlflow.core.profiles import ProfileManager
 from sqlflow.core.state.backends import DuckDBStateBackend
 from sqlflow.core.state.watermark_manager import WatermarkManager
-from sqlflow.core.variable_substitution import VariableSubstitutionEngine
 from sqlflow.logging import get_logger
 from sqlflow.project import Project
 
@@ -2803,25 +2802,11 @@ class LocalExecutor(BaseExecutor):
         if not text or not self.variables:
             return text
 
-        # Feature flag for gradual migration to new VariableManager system
-        # Changed default to 'true' in Phase 3: Enable new system by default
-        use_new_system = (
-            os.getenv("SQLFLOW_USE_NEW_VARIABLES", "true").lower() == "true"
-        )
+        # Use new VariableManager system (Phase 4: Feature flags removed)
+        from sqlflow.core.variables.facade import LegacyVariableSupport
 
-        if use_new_system:
-            # Use new VariableManager system
-            from sqlflow.core.variables.facade import LegacyVariableSupport
-
-            result = LegacyVariableSupport.substitute_variables_new(
-                text, self.variables
-            )
-            return str(result) if result is not None else text
-        else:
-            # Use existing implementation (default for backward compatibility)
-            engine = VariableSubstitutionEngine(self.variables)
-            result = engine.substitute(text)
-            return str(result) if result is not None else text
+        result = LegacyVariableSupport.substitute_variables_new(text, self.variables)
+        return str(result) if result is not None else text
 
     def _substitute_variables_in_dict(
         self, options_dict: Dict[str, Any]
@@ -2840,24 +2825,13 @@ class LocalExecutor(BaseExecutor):
         if not options_dict or not self.variables:
             return options_dict
 
-        # Feature flag for gradual migration to new VariableManager system
-        use_new_system = (
-            os.getenv("SQLFLOW_USE_NEW_VARIABLES", "false").lower() == "true"
+        # Use new VariableManager system (Phase 4: Feature flags removed)
+        from sqlflow.core.variables.facade import LegacyVariableSupport
+
+        result = LegacyVariableSupport.substitute_variables_new(
+            options_dict, self.variables
         )
-
-        if use_new_system:
-            # Use new VariableManager system
-            from sqlflow.core.variables.facade import LegacyVariableSupport
-
-            result = LegacyVariableSupport.substitute_variables_new(
-                options_dict, self.variables
-            )
-            return result if isinstance(result, dict) else options_dict
-        else:
-            # Use existing implementation (default for backward compatibility)
-            engine = VariableSubstitutionEngine(self.variables)
-            result = engine.substitute(options_dict)
-            return result if isinstance(result, dict) else options_dict
+        return result if isinstance(result, dict) else options_dict
 
     def _prepare_export_parameters(
         self, step: Dict[str, Any]

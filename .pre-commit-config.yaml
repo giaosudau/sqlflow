@@ -67,7 +67,7 @@ repos:
         args: [
             'tests/integration/',
             '-k', 'not external_services',
-            '--maxfail=3',
+            '--maxfail=50',
             '-q',
             '--disable-warnings'
         ]

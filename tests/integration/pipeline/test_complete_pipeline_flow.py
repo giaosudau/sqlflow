@@ -494,28 +494,24 @@ class TestDuckDBEngineIntegration:
 
     def test_variable_formatting_behavior(self):
         """Test how variables are formatted in SQL."""
-        # Use old system for this test to maintain expected behavior
-        import os
-        from unittest.mock import patch
+        # Phase 4: Feature flags removed, always use new system
+        engine = DuckDBEngine()
 
-        with patch.dict(os.environ, {"SQLFLOW_USE_NEW_VARIABLES": "false"}):
-            engine = DuckDBEngine()
+        # Test different variable types
+        engine.register_variable("string_var", "test_string")
+        engine.register_variable("int_var", 42)
+        engine.register_variable("float_var", 3.14)
+        engine.register_variable("bool_var", True)
 
-            # Test different variable types
-            engine.register_variable("string_var", "test_string")
-            engine.register_variable("int_var", 42)
-            engine.register_variable("float_var", 3.14)
-            engine.register_variable("bool_var", True)
+        # Test formatting
+        template = "SELECT ${string_var}, ${int_var}, ${float_var}, ${bool_var}"
+        result = engine.substitute_variables(template)
 
-            # Test formatting
-            template = "SELECT ${string_var}, ${int_var}, ${float_var}, ${bool_var}"
-            result = engine.substitute_variables(template)
-
-            # Verify formatting behavior
-            assert "'test_string'" in result  # Strings get quoted
+        # Verify formatting behavior with new system
+        assert "test_string" in result  # Strings don't get auto-quoted in new system
         assert "42" in result  # Integers don't get quoted
         assert "3.14" in result  # Floats don't get quoted
-        assert "true" in result  # Booleans become lowercase
+        assert "True" in result  # Booleans maintain Python format
 
     def test_empty_table_operations(self):
         """Test operations with empty tables."""
