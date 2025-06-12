@@ -690,21 +690,10 @@ class DuckDBEngine(SQLEngine):
             Template with variables substituted
 
         """
-        # Feature flag for gradual migration to new VariableManager system
-        use_new_system = (
-            os.getenv("SQLFLOW_USE_NEW_VARIABLES", "true").lower() == "true"
-        )
+        # Use new VariableManager system (Phase 4: Feature flags removed)
+        from sqlflow.core.variables.facade import LegacyVariableSupport
 
-        if use_new_system:
-            # Use new VariableManager system
-            from sqlflow.core.variables.facade import LegacyVariableSupport
-
-            return LegacyVariableSupport.substitute_variables_new(
-                template, self.variables
-            )
-        else:
-            # Use existing implementation (default for backward compatibility)
-            return self._substitute_variables_legacy(template)
+        return LegacyVariableSupport.substitute_variables_new(template, self.variables)
 
     def _substitute_variables_legacy(self, template: str) -> str:
         """Legacy variable substitution implementation.
