@@ -22,10 +22,12 @@ from sqlflow.parser.ast import (
     SQLBlockStep,
 )
 
+from .interfaces import IDependencyAnalyzer
+
 logger = get_logger(__name__)
 
 
-class DependencyAnalyzer:
+class DependencyAnalyzer(IDependencyAnalyzer):
     """Analyzes dependencies between pipeline steps.
 
     Following Zen of Python: Simple is better than complex.
@@ -36,6 +38,7 @@ class DependencyAnalyzer:
         """Initialize the dependency analyzer."""
         self.step_dependencies: Dict[str, List[str]] = {}
         self.step_id_map: Dict[int, str] = {}
+        self._undefined_tables: List[tuple] = []
         logger.debug("DependencyAnalyzer initialized")
 
     def analyze(
@@ -54,6 +57,7 @@ class DependencyAnalyzer:
         """
         self.step_id_map = step_id_map
         self.step_dependencies = {}
+        self._undefined_tables = []  # Clear undefined tables for new analysis
 
         # Initialize dependencies for all steps
         for step_id in step_id_map.values():
@@ -77,6 +81,14 @@ class DependencyAnalyzer:
             f"Dependency analysis complete with {len(self.step_dependencies)} steps"
         )
         return self.step_dependencies
+
+    def get_undefined_table_references(self) -> List[tuple]:
+        """Get undefined table references found during analysis.
+
+        Following Zen of Python: Explicit is better than implicit.
+        Provide clear access to validation information.
+        """
+        return self._undefined_tables
 
     def _build_table_to_step_mapping(
         self, pipeline: Pipeline
@@ -139,6 +151,13 @@ class DependencyAnalyzer:
             if table_name in table_to_step:
                 dependency_step = table_to_step[table_name]
                 self._add_dependency(step, dependency_step)
+            else:
+                # Track undefined table reference
+                line_number = getattr(step, "line_number", "unknown")
+                self._undefined_tables.append((table_name, step, line_number))
+                logger.warning(
+                    f"Step at line {line_number} references undefined table: {table_name}"
+                )
 
     def _analyze_export_dependencies(
         self, step: ExportStep, table_to_step: Dict[str, PipelineStep]
@@ -156,17 +175,31 @@ class DependencyAnalyzer:
                 if table_name in table_to_step:
                     dependency_step = table_to_step[table_name]
                     self._add_dependency(step, dependency_step)
+                else:
+                    # Track undefined table reference
+                    line_number = getattr(step, "line_number", "unknown")
+                    self._undefined_tables.append((table_name, step, line_number))
+                    logger.warning(
+                        f"Export step at line {line_number} references undefined table: {table_name}"
+                    )
         elif hasattr(step, "table_name") and step.table_name:
             # Export of existing table
             if step.table_name in table_to_step:
                 dependency_step = table_to_step[step.table_name]
                 self._add_dependency(step, dependency_step)
+            else:
+                # Track undefined table reference
+                line_number = getattr(step, "line_number", "unknown")
+                self._undefined_tables.append((step.table_name, step, line_number))
+                logger.warning(
+                    f"Export step at line {line_number} references undefined table: {step.table_name}"
+                )
 
     def _extract_referenced_tables(self, sql_query: str) -> List[str]:
         """Extract table names referenced in SQL query.
 
         Following Zen of Python: Simple is better than complex.
-        Clear pattern matching for table references.
+        But also: Practicality beats purity - avoid false positives from aliases.
         """
         sql_lower = sql_query.lower()
         tables = []
@@ -182,46 +215,73 @@ class DependencyAnalyzer:
             "main",
         }
 
-        # Handle standard SQL FROM clauses
+        # Extract table aliases to avoid false positives
+        table_aliases = self._extract_table_aliases(sql_lower)
+
+        # Handle standard SQL FROM clauses with optional aliases
+        # Pattern: FROM table_name [AS] alias
         from_matches = re.finditer(
-            r"from\s+([a-zA-Z0-9_]+(?:\s*,\s*[a-zA-Z0-9_]+)*)", sql_lower
+            r"from\s+([a-zA-Z0-9_]+)(?:\s+(?:as\s+)?[a-zA-Z0-9_]+)?", sql_lower
         )
         for match in from_matches:
-            table_list = match.group(1).split(",")
-            for table in table_list:
-                table_name = table.strip()
-                if (
-                    table_name
-                    and table_name not in tables
-                    and table_name not in builtin_functions
-                ):
-                    tables.append(table_name)
+            table_name = match.group(1).strip()
+            if (
+                table_name
+                and table_name not in tables
+                and table_name not in builtin_functions
+                and len(table_name) > 1  # Avoid single-letter false positives
+            ):
+                tables.append(table_name)
 
-        # Handle standard SQL JOINs
-        join_matches = re.finditer(r"join\s+([a-zA-Z0-9_]+)", sql_lower)
+        # Handle standard SQL JOINs with optional aliases
+        # Pattern: JOIN table_name [AS] alias
+        join_matches = re.finditer(
+            r"join\s+([a-zA-Z0-9_]+)(?:\s+(?:as\s+)?[a-zA-Z0-9_]+)?", sql_lower
+        )
         for match in join_matches:
             table_name = match.group(1).strip()
             if (
                 table_name
                 and table_name not in tables
                 and table_name not in builtin_functions
+                and table_name not in table_aliases  # Skip if it's an alias
+                and len(table_name) > 1  # Avoid single-letter false positives
             ):
                 tables.append(table_name)
 
-        # Handle table UDF pattern: PYTHON_FUNC("module.function", table_name)
-        udf_table_matches = re.finditer(
-            r"python_func\s*\(\s*['\"][\w\.]+['\"]\s*,\s*([a-zA-Z0-9_]+)", sql_lower
-        )
-        for match in udf_table_matches:
-            table_name = match.group(1).strip()
-            if (
-                table_name
-                and table_name not in tables
-                and table_name not in builtin_functions
-            ):
-                tables.append(table_name)
+        # Note: PYTHON_FUNC patterns are not included because they typically reference
+        # columns, not tables. Table dependencies for UDFs should be handled through
+        # the FROM clause analysis above.
 
         return tables
+
+    def _extract_table_aliases(self, sql_lower: str) -> set:
+        """Extract table aliases from SQL to avoid false positives.
+
+        Following Zen of Python: Simple is better than complex.
+        Basic alias extraction to improve table detection accuracy.
+        """
+        aliases = set()
+
+        # Pattern: FROM table_name [AS] alias
+        from_alias_matches = re.finditer(
+            r"from\s+[a-zA-Z0-9_]+\s+(?:as\s+)?([a-zA-Z0-9_]+)", sql_lower
+        )
+        for match in from_alias_matches:
+            alias = match.group(1).strip()
+            if alias and len(alias) <= 3:  # Short aliases are common (s, st, etc.)
+                aliases.add(alias)
+
+        # Pattern: JOIN table_name [AS] alias
+        join_alias_matches = re.finditer(
+            r"join\s+[a-zA-Z0-9_]+\s+(?:as\s+)?([a-zA-Z0-9_]+)", sql_lower
+        )
+        for match in join_alias_matches:
+            alias = match.group(1).strip()
+            if alias and len(alias) <= 3:  # Short aliases are common
+                aliases.add(alias)
+
+        return aliases
 
     def _add_dependency(
         self, dependent_step: PipelineStep, dependency_step: PipelineStep

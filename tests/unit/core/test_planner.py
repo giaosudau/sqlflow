@@ -6,7 +6,7 @@ from unittest.mock import patch
 import pytest
 
 from sqlflow.core.errors import PlanningError
-from sqlflow.core.planner import ExecutionPlanBuilder, OperationPlanner
+from sqlflow.core.planner_main import ExecutionPlanBuilder, OperationPlanner
 from sqlflow.parser.ast import (
     ExportStep,
     LoadStep,
@@ -68,26 +68,26 @@ class TestExecutionPlanBuilder:
         assert plan[0]["source_connector_type"] == "csv"
         assert plan[0]["query"] == {"path": "users.csv"}
 
-        assert plan[1]["id"] == "load_users_table"
+        assert plan[1]["id"] == "load_users_table_replace_1"
         assert plan[1]["type"] == "load"
         assert plan[1]["name"] == "users_table"
-        assert plan[1]["query"]["source_name"] == "users_source"
-        assert plan[1]["query"]["table_name"] == "users_table"
+        assert plan[1]["source_name"] == "users_source"
+        assert plan[1]["depends_on"] == ["source_users_source"]
 
-        assert plan[2]["id"] == "transform_users_summary"
+        assert plan[2]["id"] == "transform_users_summary_2"
         assert plan[2]["type"] == "transform"
         assert plan[2]["name"] == "users_summary"
         assert plan[2]["query"] == "SELECT COUNT(*) FROM users_table"
-        assert "load_users_table" in plan[2]["depends_on"]
+        assert plan[2]["depends_on"] == ["load_users_table_replace_1"]
 
-        assert plan[3]["id"].startswith("export_")
+        assert plan[3]["id"] == "export_csv_users_summary"
         assert plan[3]["type"] == "export"
         assert plan[3]["source_connector_type"] == "csv"
         assert plan[3]["query"]["destination_uri"] == "s3://bucket/users_summary.csv"
         assert plan[3]["query"]["options"] == {"delimiter": ","}
         assert (
-            "transform_users_summary" in plan[3]["depends_on"]
-            or "load_users_table" in plan[3]["depends_on"]
+            "transform_users_summary_2" in plan[3]["depends_on"]
+            or "load_users_table_replace_1" in plan[3]["depends_on"]
         )
 
     def test_build_plan_dependency_resolution(self):
@@ -117,16 +117,16 @@ class TestExecutionPlanBuilder:
 
         assert len(plan) == 3
 
-        assert plan[0]["id"] == "load_users_table"
+        assert plan[0]["id"] == "load_users_table_replace_0"
         assert plan[0]["type"] == "load"
 
-        assert plan[1]["id"] == "transform_users_filtered"
+        assert plan[1]["id"] == "transform_users_filtered_1"
         assert plan[1]["type"] == "transform"
-        assert "load_users_table" in plan[1]["depends_on"]
+        assert "load_users_table_replace_0" in plan[1]["depends_on"]
 
-        assert plan[2]["id"] == "transform_users_summary"
+        assert plan[2]["id"] == "transform_users_summary_2"
         assert plan[2]["type"] == "transform"
-        assert "transform_users_filtered" in plan[2]["depends_on"]
+        assert "transform_users_filtered_1" in plan[2]["depends_on"]
 
     def test_generate_step_id(self):
         """Test generating step IDs for different step types."""
@@ -143,13 +143,13 @@ class TestExecutionPlanBuilder:
             table_name="users_table",
             source_name="users_source",
         )
-        assert builder._generate_step_id(load_step, 1) == "load_users_table"
+        assert builder._generate_step_id(load_step, 1) == "load_users_table_replace_1"
 
         sql_step = SQLBlockStep(
             table_name="users_summary",
             sql_query="SELECT COUNT(*) FROM users_table",
         )
-        assert builder._generate_step_id(sql_step, 2) == "transform_users_summary"
+        assert builder._generate_step_id(sql_step, 2) == "transform_users_summary_2"
 
         export_step = ExportStep(
             sql_query="SELECT * FROM users_summary",
@@ -183,8 +183,15 @@ class TestOperationPlanner:
         plan = planner.plan(pipeline)
 
         assert len(plan) == 2
-        assert plan[0]["id"] == "load_users_table"
-        assert plan[1]["id"] == "transform_users_summary"
+        assert plan[0]["id"] == "load_users_table_replace_0"
+        assert plan[0]["type"] == "load"
+        assert plan[0]["name"] == "users_table"
+        assert plan[0]["source_name"] == "users_source"
+
+        assert plan[1]["id"] == "transform_users_summary_1"
+        assert plan[1]["type"] == "transform"
+        assert plan[1]["name"] == "users_summary"
+        assert plan[1]["query"] == "SELECT COUNT(*) FROM users_table"
 
     def test_to_json(self):
         """Test converting a plan to JSON."""

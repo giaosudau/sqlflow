@@ -7,7 +7,7 @@ from typing import Any, Dict, Generator
 import pytest
 
 from sqlflow.core.executors.local_executor import LocalExecutor
-from sqlflow.core.planner import OperationPlanner
+from sqlflow.core.planner_main import OperationPlanner
 from sqlflow.parser.ast import Pipeline
 
 

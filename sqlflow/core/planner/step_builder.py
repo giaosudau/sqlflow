@@ -23,10 +23,12 @@ from sqlflow.parser.ast import (
     SQLBlockStep,
 )
 
+from .interfaces import IStepBuilder
+
 logger = get_logger(__name__)
 
 
-class StepBuilder:
+class StepBuilder(IStepBuilder):
     """Builds execution steps from pipeline steps.
 
     Following Zen of Python: Simple is better than complex.

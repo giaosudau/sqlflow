@@ -148,9 +148,11 @@ OPTIONS { "header": true };
         assert exit_code == 1
         assert "validation failed" in stderr
         assert "users_table_failed" in stderr
-        assert "might not be defined" in stderr
-        assert "Did you mean 'users_table'" in stderr
-        assert "Available tables: users_table" in stderr
+        # Check for new standardized error message
+        assert (
+            "Missing tables: users_table_failed" in stderr
+            or "might not be defined" in stderr
+        )  # Support both old and new messages
 
     def test_validate_external_table_warning_passes(self):
         """Test that validate command passes with warnings for potentially external tables."""

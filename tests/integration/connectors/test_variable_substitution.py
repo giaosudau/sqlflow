@@ -16,7 +16,7 @@ import pytest
 
 from sqlflow.connectors.data_chunk import DataChunk
 from sqlflow.core.executors.local_executor import LocalExecutor
-from sqlflow.core.planner import Planner
+from sqlflow.core.planner_main import Planner
 from sqlflow.parser.parser import Parser
 
 

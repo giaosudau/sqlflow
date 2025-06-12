@@ -8,7 +8,7 @@ in conditional expressions.
 import pytest
 
 from sqlflow.core.evaluator import ConditionEvaluator
-from sqlflow.core.planner import ExecutionPlanBuilder
+from sqlflow.core.planner_main import ExecutionPlanBuilder
 from sqlflow.core.variable_substitution import VariableSubstitutionEngine
 from sqlflow.parser.ast import (
     ConditionalBlockStep,

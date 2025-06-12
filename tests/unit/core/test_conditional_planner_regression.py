@@ -4,7 +4,7 @@ This module tests specific bugs found in the conditional planner where
 certain operations are missing from the execution plan.
 """
 
-from sqlflow.core.planner import OperationPlanner
+from sqlflow.core.planner_main import OperationPlanner
 from sqlflow.parser.ast import (
     ConditionalBlockStep,
     ConditionalBranchStep,

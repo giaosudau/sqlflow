@@ -19,6 +19,12 @@ from sqlflow.core.dependencies import DependencyResolver
 from sqlflow.core.errors import PlanningError
 from sqlflow.core.evaluator import ConditionEvaluator, EvaluationError
 from sqlflow.core.planner.dependency_analyzer import DependencyAnalyzer
+from sqlflow.core.planner.factory import PlannerConfig, PlannerFactory
+from sqlflow.core.planner.interfaces import (
+    IDependencyAnalyzer,
+    IExecutionOrderResolver,
+    IStepBuilder,
+)
 from sqlflow.core.planner.order_resolver import ExecutionOrderResolver
 from sqlflow.core.planner.step_builder import StepBuilder
 from sqlflow.core.variable_substitution import VariableSubstitutionEngine
@@ -46,81 +52,87 @@ def _format_error(msg: str, *lines: str) -> str:
 # --- EXECUTION PLAN BUILDER ---
 class ExecutionPlanBuilder:
     """Builds an execution plan from a validated SQLFlow DAG.
-    
+
     Following Zen of Python: Simple is better than complex.
     Delegates to specialized components for single responsibilities.
+
+    Supports optional dependency injection for testability while maintaining
+    backward compatibility through default component construction.
     """
 
-    def __init__(self):
+    def __init__(
+        self,
+        dependency_analyzer: Optional[IDependencyAnalyzer] = None,
+        order_resolver: Optional[IExecutionOrderResolver] = None,
+        step_builder: Optional[IStepBuilder] = None,
+        config: Optional[PlannerConfig] = None,
+    ):
+        """Initialize ExecutionPlanBuilder with optional dependency injection.
+
+        Args:
+            dependency_analyzer: Optional custom dependency analyzer
+            order_resolver: Optional custom execution order resolver
+            step_builder: Optional custom step builder
+            config: Optional configuration object (overrides individual components)
+
+        Following Zen of Python:
+        - Simple is better than complex: Default components for simple usage
+        - Explicit is better than implicit: Clear injection points for testing
+        - Practicality beats purity: Backward compatibility maintained
+        """
         # Legacy compatibility attributes
         self.dependency_resolver = DependencyResolver()
         self.step_id_map: Dict[int, str] = {}
         self.step_dependencies: Dict[str, List[str]] = {}
         self._source_definitions: Dict[str, Dict[str, Any]] = {}
-        
-        # New extracted components (Zen of Python: Simple is better than complex)
-        self._dependency_analyzer = DependencyAnalyzer()
-        self._order_resolver = ExecutionOrderResolver() 
-        self._step_builder = StepBuilder()
-        
-        logger.debug("ExecutionPlanBuilder initialized with extracted components")
+
+        # Component injection with fallback to defaults
+        if config is not None:
+            # Use factory to create components from config
+            self._dependency_analyzer, self._order_resolver, self._step_builder = (
+                PlannerFactory.create_components_from_config(config)
+            )
+            logger.debug(
+                "ExecutionPlanBuilder initialized with configuration-based components"
+            )
+        else:
+            # Individual component injection or defaults
+            self._dependency_analyzer = dependency_analyzer or DependencyAnalyzer()
+            self._order_resolver = order_resolver or ExecutionOrderResolver()
+            self._step_builder = step_builder or StepBuilder()
+
+            if dependency_analyzer or order_resolver or step_builder:
+                logger.debug(
+                    "ExecutionPlanBuilder initialized with injected components"
+                )
+            else:
+                logger.debug("ExecutionPlanBuilder initialized with default components")
 
     # --- PIPELINE VALIDATION ---
     def _validate_variable_references(
         self, pipeline: Pipeline, variables: Dict[str, Any]
     ) -> None:
-        """Validate that all variable references in the pipeline exist in variables or have defaults.
-        Also checks that default values are valid (no unquoted spaces).
+        """Validate variable references and substitution.
+
+        Following Zen of Python: Errors should never pass silently.
+        Comprehensive validation with clear error messages.
         """
-        logger.debug("Validating variable references in pipeline")
+        logger.debug("Validating variable references and values")  # Reduced from INFO
 
-        # Extract SET variables from pipeline for priority-based validation
-        set_variables = self._extract_set_defined_variables(pipeline)
-
-        # Create a modern VariableSubstitutionEngine for validation
-        # Use the variables dict as CLI variables for validation purposes
-        engine = VariableSubstitutionEngine(
-            cli_variables=variables,  # Use provided variables as CLI variables
-            profile_variables={},  # No profile variables available at this level
-            set_variables=set_variables,
-        )
-
-        # Extract all referenced variables
+        # Use modern variable validation approach
         referenced_vars = self._collect_all_referenced_variables(pipeline)
 
-        # Log variable reference report using the modern system
+        # Get all variables (including set variables from pipeline)
+        all_variables = self._get_effective_variables(pipeline, variables)
+
+        # Create engine for validation
+        engine = VariableSubstitutionEngine(all_variables)
+
+        # Log comprehensive variable reference report
         self._log_modern_variable_reference_report(referenced_vars, engine, pipeline)
 
-        # Check for missing variables directly from the collected variables
-        # This is more reliable than using the serialized pipeline text
-        missing_vars = []
-        for var in referenced_vars:
-            value = engine._get_variable_value(var)
-            has_default = self._has_default_in_pipeline(var, pipeline)
-            if value is None and not has_default:
-                missing_vars.append(var)
-
-        # Check for invalid defaults (this logic can remain the same)
-        invalid_defaults = self._find_invalid_defaults(referenced_vars, pipeline)
-
-        # Handle missing variables - log and raise error
-        if missing_vars:
-            # Just log each missing variable individually at INFO level to help
-            # users understand which variables might be affecting conditionals
-            for var in missing_vars:
-                logger.info(f"Variable {var} not found in context")
-
-            # Still raise the error but avoid extra logging
-            self._raise_missing_variables_error(missing_vars, pipeline)
-
-        # Handle invalid defaults error
-        if invalid_defaults:
-            self._raise_invalid_defaults_error(invalid_defaults)
-
-        # Verify all variable values using modern engine
+        # Verify all variables have values or defaults
         self._verify_variable_values_modern(referenced_vars, engine, pipeline)
-
-        logger.info("Variable validation completed successfully")
 
     def _serialize_pipeline_for_validation(self, pipeline: Pipeline) -> str:
         """Serialize pipeline steps to text for variable validation."""
@@ -155,39 +167,32 @@ class ExecutionPlanBuilder:
         engine: VariableSubstitutionEngine,
         pipeline: Pipeline,
     ) -> None:
-        """Verify that all variable values are valid using the modern engine."""
-        logger.debug("Verifying all variable values using modern engine")
-        invalid_vars = []
+        """Verify all referenced variables have values or defaults.
+
+        Following Zen of Python: Errors should never pass silently.
+        Comprehensive validation with clear error messages.
+        """
+        missing_vars = []
+        invalid_defaults = []
 
         for var in referenced_vars:
+            # Check if variable has a value through the engine
             value = engine._get_variable_value(var)
-            if value is not None:
-                # Empty values are now allowed (behavior change)
-                if value == "":
-                    # Just log a warning but don't treat as invalid
-                    logger.debug(f"Found empty value for variable: ${{{var}}}")
-                # Add more validation logic here as needed
-            elif self._has_default_in_pipeline(var, pipeline):
-                # Variable has a default value which is used in the absence of a provided value
-                logger.debug(f"Using default value for variable: ${{{var}}}")
+            has_default = self._has_default_in_pipeline(var, pipeline)
 
-        if invalid_vars:
-            error_msg = "Invalid variable values detected:\n" + "\n".join(
-                f"  - {err}" for err in invalid_vars
-            )
-            error_msg += "\n\nPlease provide valid values for these variables."
+            if value is None and not has_default:
+                missing_vars.append(var)
 
-            # Add additional debugging info about where variables are used
-            error_msg += "\n\nVariable reference locations:"
-            for var in [v.split()[0].strip("${}") for v in invalid_vars]:
-                locations = self._find_variable_reference_locations(var, pipeline)
-                if locations:
-                    error_msg += f"\n  ${{{var}}} referenced at: {', '.join(locations)}"
+        # Check for invalid default values (unquoted values with spaces)
+        invalid_defaults = self._find_invalid_defaults(referenced_vars, pipeline)
 
-            logger.warning(f"Variable value validation failed: {error_msg}")
-            raise PlanningError(error_msg)
+        # Raise errors for missing variables
+        if missing_vars:
+            self._raise_missing_variables_error(missing_vars, pipeline)
 
-        logger.debug("All variable values verified successfully using modern engine")
+        # Raise errors for invalid defaults
+        if invalid_defaults:
+            self._raise_invalid_defaults_error(invalid_defaults)
 
     def _raise_missing_variables_error(
         self, missing_vars: List[str], pipeline: Pipeline
@@ -672,51 +677,114 @@ class ExecutionPlanBuilder:
     def _build_table_to_step_mapping(
         self, pipeline: Pipeline
     ) -> Dict[str, PipelineStep]:
-        table_to_step = {}
+        """Build mapping from table names to pipeline steps.
+
+        Following Zen of Python: Explicit is better than implicit.
+        Clear mapping for dependency analysis with duplicate detection.
+
+        CRITICAL FIX: Multiple LoadSteps on same table must be preserved for execution.
+        Only the table-to-step mapping should avoid duplicates for dependency purposes.
+        """
+        self._table_to_step_mapping = {}
         duplicate_tables = []
+        # NEW: Track all load steps separately for execution planning
+        self._all_load_steps = []
 
         for step in pipeline.steps:
-            if isinstance(step, (LoadStep, SQLBlockStep)):
-                table_name = step.table_name
+            self._process_step_for_mapping(step, duplicate_tables)
 
-                if table_name in table_to_step:
-                    existing_step = table_to_step[table_name]
+        self._validate_no_duplicate_tables(duplicate_tables)
+        return self._table_to_step_mapping
 
-                    # Allow multiple LoadSteps on the same table (for different load modes)
-                    # but disallow:
-                    # 1. Multiple SQLBlockSteps creating the same table (unless using CREATE OR REPLACE)
-                    # 2. SQLBlockStep creating a table that LoadStep already created
-                    # 3. LoadStep creating a table that SQLBlockStep already created
-                    if isinstance(step, LoadStep) and isinstance(
-                        existing_step, LoadStep
-                    ):
-                        # Multiple LoadSteps on same table are allowed for load modes
-                        # Keep the first one in the mapping for dependency purposes
-                        continue
-                    elif isinstance(step, SQLBlockStep) and isinstance(
-                        existing_step, SQLBlockStep
-                    ):
-                        # Allow SQLBlockStep to redefine a table if it uses CREATE OR REPLACE
-                        if getattr(step, "is_replace", False):
-                            # This step uses CREATE OR REPLACE, so it can redefine the table
-                            table_to_step[table_name] = step  # Update to the newer step
-                            continue
-                        else:
-                            # Regular CREATE without OR REPLACE - this is a duplicate
-                            duplicate_tables.append((table_name, step.line_number))
-                    else:
-                        # This is a true duplicate: different step types creating same table
-                        duplicate_tables.append((table_name, step.line_number))
-                else:
-                    table_to_step[table_name] = step
+    def _process_step_for_mapping(
+        self, step: PipelineStep, duplicate_tables: List
+    ) -> None:
+        """Process a single step for table mapping."""
+        # Collect ALL LoadSteps for execution (CRITICAL FIX)
+        if isinstance(step, LoadStep):
+            self._all_load_steps.append(step)
 
+        table_name = self._extract_table_name_from_step(step)
+        if table_name:
+            self._handle_table_mapping(step, table_name, duplicate_tables)
+
+    def _extract_table_name_from_step(self, step: PipelineStep) -> Optional[str]:
+        """Extract table name from different step types."""
+        if hasattr(step, "table_name") and step.table_name:
+            return step.table_name
+        elif isinstance(step, SQLBlockStep):
+            # Extract table name from CREATE TABLE statements
+            table_name = self._extract_table_name_from_sql(step.sql_query)
+            if table_name:
+                step.table_name = table_name  # Set it for consistency
+            return table_name
+        return None
+
+    def _handle_table_mapping(
+        self, step: PipelineStep, table_name: str, duplicate_tables: List
+    ) -> None:
+        """Handle table mapping with duplicate detection."""
+        if table_name in self._table_to_step_mapping:
+            self._handle_duplicate_table(step, table_name, duplicate_tables)
+        else:
+            self._table_to_step_mapping[table_name] = step
+
+    def _handle_duplicate_table(
+        self, step: PipelineStep, table_name: str, duplicate_tables: List
+    ) -> None:
+        """Handle duplicate table definitions."""
+        existing_step = self._table_to_step_mapping[table_name]
+
+        if self._is_allowed_load_duplicate(step, existing_step, table_name):
+            return
+        elif self._is_allowed_sql_duplicate(step, existing_step, table_name):
+            return
+        else:
+            # Different step types creating same table - this is a duplicate
+            duplicate_tables.append((table_name, step.line_number))
+
+    def _is_allowed_load_duplicate(
+        self, step: PipelineStep, existing_step: PipelineStep, table_name: str
+    ) -> bool:
+        """Check if multiple LoadSteps on same table are allowed."""
+        if isinstance(step, LoadStep) and isinstance(existing_step, LoadStep):
+            # Multiple LoadSteps on same table are allowed for load modes
+            # Keep the first one in the mapping for dependency purposes ONLY
+            # BUT still preserve all LoadSteps for execution (via _all_load_steps)
+            logger.debug(
+                f"Multiple LOAD steps detected for table '{table_name}' - preserving all for execution"
+            )
+            return True
+        return False
+
+    def _is_allowed_sql_duplicate(
+        self, step: PipelineStep, existing_step: PipelineStep, table_name: str
+    ) -> bool:
+        """Check if multiple SQLBlockSteps on same table are allowed."""
+        if isinstance(step, SQLBlockStep) and isinstance(existing_step, SQLBlockStep):
+            # FIXED: Allow SQLBlockStep to create multiple operations on same table
+            # when using CREATE OR REPLACE - don't merge, preserve both
+            if getattr(step, "is_replace", False):
+                # CREATE OR REPLACE can coexist with regular CREATE
+                # Don't update mapping - keep both operations separate
+                # Add this step to separate tracking for execution
+                if not hasattr(self, "_all_sql_block_steps"):
+                    self._all_sql_block_steps = []
+                self._all_sql_block_steps.append(step)
+                logger.debug(
+                    f"CREATE OR REPLACE operation for table '{table_name}' - preserving both CREATE and CREATE OR REPLACE"
+                )
+                return True
+        return False
+
+    def _validate_no_duplicate_tables(self, duplicate_tables: List) -> None:
+        """Validate that no duplicate tables exist."""
         if duplicate_tables:
             error_msg = "Duplicate table definitions found:\n" + "".join(
-                f"  - Table '{table}' defined at line {line}, but already defined at line {getattr(table_to_step[table], 'line_number', 'unknown')}\n"
+                f"  - Table '{table}' defined at line {line}, but already defined at line {getattr(self._table_to_step_mapping[table], 'line_number', 'unknown')}\n"
                 for table, line in duplicate_tables
             )
             raise PlanningError(error_msg)
-        return table_to_step
 
     def _extract_referenced_tables(self, sql_query: str) -> List[str]:
         sql_lower = sql_query.lower()
@@ -791,6 +859,245 @@ class ExecutionPlanBuilder:
             logger.warning(
                 f"Step at line {line_number} references tables that might not be defined: {', '.join(undefined_tables)}"
             )
+            # Store undefined tables for validation error raising
+            if not hasattr(self, "_undefined_tables"):
+                self._undefined_tables = []
+            self._undefined_tables.extend(
+                [(table, step, line_number) for table in undefined_tables]
+            )
+
+    def _validate_table_references(self) -> None:
+        """Validate that all table references are defined.
+
+        Following Zen of Python: Errors should never pass silently.
+        Comprehensive validation with clear error messages.
+        """
+        if not hasattr(self, "_undefined_tables") or not self._undefined_tables:
+            return
+
+        defined_tables = self._get_defined_tables()
+        typo_analysis = self._analyze_undefined_tables(defined_tables)
+
+        if typo_analysis["likely_typos"]:
+            self._raise_typo_validation_error(typo_analysis, defined_tables)
+
+        self._log_external_table_warnings(typo_analysis["likely_typos"])
+
+    def _get_defined_tables(self) -> set:
+        """Get all defined table names for similarity checking."""
+        if hasattr(self, "_table_to_step_mapping"):
+            return set(self._table_to_step_mapping.keys())
+        return set()
+
+    def _analyze_undefined_tables(self, defined_tables: set) -> Dict[str, Any]:
+        """Analyze undefined tables to identify likely typos."""
+        likely_typos = []
+        context_locations = {}
+        suggestions_map = {}
+
+        for table, step, line_number in self._undefined_tables:
+            self._collect_table_context(table, step, line_number, context_locations)
+
+            if self._is_likely_typo(table, defined_tables):
+                likely_typos.append(table)
+                best_suggestion = self._find_best_suggestion(table, defined_tables)
+                if best_suggestion:
+                    suggestions_map[table] = best_suggestion
+
+        return {
+            "likely_typos": likely_typos,
+            "context_locations": context_locations,
+            "suggestions_map": suggestions_map,
+        }
+
+    def _collect_table_context(
+        self, table: str, step: PipelineStep, line_number: int, context_locations: Dict
+    ) -> None:
+        """Collect context information for undefined table references."""
+        if table not in context_locations:
+            context_locations[table] = []
+        step_name = getattr(step, "table_name", "unknown step")
+        context_locations[table].append(f"line {line_number} in {step_name}")
+
+    def _raise_typo_validation_error(
+        self, typo_analysis: Dict[str, Any], defined_tables: set
+    ) -> None:
+        """Raise validation error for likely typos."""
+        suggestions = self._build_typo_suggestions(typo_analysis, defined_tables)
+        error_message = self._build_typo_error_message(typo_analysis["likely_typos"])
+
+        from sqlflow.validation.errors import ValidationError as StandardValidationError
+
+        raise StandardValidationError(
+            message=error_message,
+            line=1,  # Use first undefined table's line or default
+            error_type="Table Reference Error",
+            suggestions=suggestions,
+        )
+
+    def _build_typo_suggestions(
+        self, typo_analysis: Dict[str, Any], defined_tables: set
+    ) -> List[str]:
+        """Build suggestions for typo validation error."""
+        suggestions = []
+
+        # Add specific suggestions for each typo
+        for table in typo_analysis["likely_typos"]:
+            if table in typo_analysis["suggestions_map"]:
+                suggestions.append(
+                    f"Did you mean '{typo_analysis['suggestions_map'][table]}' instead of '{table}'?"
+                )
+
+        # Add context information that verbose mode expects
+        if defined_tables:
+            suggestions.append(f"Available tables: {', '.join(sorted(defined_tables))}")
+
+        # Add reference locations
+        for table in typo_analysis["likely_typos"]:
+            if table in typo_analysis["context_locations"]:
+                locations_str = ", ".join(typo_analysis["context_locations"][table])
+                suggestions.append(f"{table} referenced at: {locations_str}")
+
+        return suggestions
+
+    def _build_typo_error_message(self, likely_typos: List[str]) -> str:
+        """Build error message for typo validation."""
+        if len(likely_typos) == 1:
+            return f"Referenced table '{likely_typos[0]}' might not be defined"
+        else:
+            return f"Referenced table '{', '.join(likely_typos)}' might not be defined"
+
+    def _log_external_table_warnings(self, likely_typos: List[str]) -> None:
+        """Log warnings for tables that might be external/intentional."""
+        for table in set(table for table, _, _ in self._undefined_tables):
+            if table not in likely_typos:
+                logger.warning(
+                    f"Table '{table}' is referenced but not defined - this might be an external table"
+                )
+
+    def _find_best_suggestion(
+        self, undefined_table: str, defined_tables: set
+    ) -> Optional[str]:
+        """Find the best suggestion for a typo among defined tables."""
+        best_match = None
+        best_score = float("inf")
+
+        for defined_table in defined_tables:
+            # Check if this matches our typo detection criteria
+            if self._tables_are_similar(undefined_table, defined_table):
+                # Use edit distance as score (lower is better)
+                score = self._edit_distance(undefined_table, defined_table)
+                if score < best_score:
+                    best_score = score
+                    best_match = defined_table
+
+        return best_match
+
+    def _tables_are_similar(self, table1: str, table2: str) -> bool:
+        """Check if two table names are similar enough to be considered typos.
+
+        Following Zen of Python: Simple is better than complex.
+        Practical patterns for real-world typos.
+        """
+        # Same length with small edit distance (1-2 character changes)
+        if abs(len(table1) - len(table2)) <= 2:
+            edit_dist = self._edit_distance(table1, table2)
+            if edit_dist <= 2:
+                return True
+
+        # ENHANCED: Common typo patterns (appending or removing suffixes)
+        # Examples: users_table vs users_table_failed, users_table_wrong, etc.
+        longer, shorter = (
+            (table1, table2) if len(table1) > len(table2) else (table2, table1)
+        )
+
+        if shorter in longer:
+            # Check if it's a suffix pattern
+            if longer.startswith(shorter):
+                suffix = longer[len(shorter) :]
+                # Common typo suffixes that people add when debugging/testing
+                common_suffixes = [
+                    "_failed",
+                    "_wrong",
+                    "_test",
+                    "_old",
+                    "_new",
+                    "_backup",
+                    "_temp",
+                    "_copy",
+                    "_typo",
+                    "_error",
+                    "_bad",
+                    "_fixed",
+                ]
+                if suffix in common_suffixes or (
+                    suffix.startswith("_") and len(suffix) <= 10
+                ):
+                    return True
+
+            # Check if it's a prefix pattern
+            if longer.endswith(shorter):
+                prefix = longer[: -len(shorter)]
+                # Common typo prefixes
+                if prefix.endswith("_") and len(prefix) <= 10:
+                    return True
+
+        # Check for single character insertions/deletions that are common typos
+        if abs(len(table1) - len(table2)) == 1:
+            edit_dist = self._edit_distance(table1, table2)
+            if edit_dist == 1:  # Single character difference
+                return True
+
+        return False
+
+    def _is_likely_typo(self, undefined_table: str, defined_tables: set) -> bool:
+        """Check if an undefined table is likely a typo of a defined table.
+
+        Following Zen of Python: Simple is better than complex.
+        Practicality beats purity - be conservative about flagging typos but catch obvious ones.
+
+        Only flag as typos when there's strong evidence:
+        1. Very close edit distance (1-2 characters different)
+        2. OR similar table names with common typo patterns (appending/removing suffixes)
+        3. BUT not very short table names (common test table names like 'data', 'users')
+        """
+        if not defined_tables:
+            return False
+
+        # Don't flag very short table names as typos (common test table names)
+        if len(undefined_table) <= 3:
+            return False
+
+        for defined_table in defined_tables:
+            # ENHANCED: Check for common typo patterns
+            if self._tables_are_similar(undefined_table, defined_table):
+                return True
+
+        return False
+
+    def _edit_distance(self, s1: str, s2: str) -> int:
+        """Calculate edit distance between two strings.
+
+        Following Zen of Python: Simple is better than complex.
+        Basic edit distance calculation for typo detection.
+        """
+        if len(s1) < len(s2):
+            return self._edit_distance(s2, s1)
+
+        if len(s2) == 0:
+            return len(s1)
+
+        previous_row = list(range(len(s2) + 1))
+        for i, c1 in enumerate(s1):
+            current_row = [i + 1]
+            for j, c2 in enumerate(s2):
+                insertions = previous_row[j + 1] + 1
+                deletions = current_row[j] + 1
+                substitutions = previous_row[j] + (c1 != c2)
+                current_row.append(min(insertions, deletions, substitutions))
+            previous_row = current_row
+
+        return previous_row[-1]
 
     # --- CYCLE DETECTION ---
     def _detect_cycles(self, resolver: DependencyResolver) -> List[List[str]]:
@@ -900,73 +1207,49 @@ class ExecutionPlanBuilder:
     def build_plan(
         self, pipeline: Pipeline, variables: Optional[Dict[str, Any]] = None
     ) -> List[Dict[str, Any]]:
-        """Build an execution plan from a pipeline.
+        """Build execution plan from pipeline.
 
-        Following Zen of Python: Simple is better than complex.
-        Delegates to specialized components for clear responsibilities.
-
-        Args:
-        ----
-            pipeline: The validated pipeline to build a plan for
-            variables: Variables for variable substitution
-
-        Returns:
-        -------
-            A list of execution steps in topological order
-
-        Raises:
-        ------
-            PlanningError: If the plan cannot be built
-
+        Following Zen of Python: Explicit is better than implicit.
+        Clean separation of concerns with comprehensive validation.
         """
-        logger.info("Building execution plan using extracted components")
-        if not pipeline.steps:
-            logger.warning("Planning an empty pipeline")
-            return []
+        logger.debug("Building execution plan using extracted components")
 
-        # Use provided variables or initialize empty dict
-        variables_to_use = variables or {}
-        logger.debug(f"Planning with {len(variables_to_use)} variables")
+        if variables is None:
+            variables = {}
 
-        try:
-            # Step 1: Validate variable references and values
-            logger.info("Validating variable references and values")
-            self._validate_variable_references(pipeline, variables_to_use)
-            logger.info("Variable validation successful")
+        # 1. Variable validation (critical - must happen first)
+        self._validate_variable_references(pipeline, variables)
+        logger.debug("Variable validation successful")
 
-            # Step 2: Flatten conditional blocks to just the active branch steps
-            logger.debug(f"Flattening conditional blocks in pipeline with {len(pipeline.steps)} steps")
-            flattened_pipeline = self._flatten_conditional_blocks(pipeline, variables_to_use)
-            logger.debug(f"Flattened pipeline has {len(flattened_pipeline.steps)} steps")
+        # 2. Flatten conditional blocks based on variable values
+        flattened_pipeline = self._flatten_conditional_blocks(pipeline, variables)
+        logger.debug("Conditional blocks flattened")
 
-            # Step 3: Generate step IDs (needed for component delegation)
-            self._generate_step_ids(flattened_pipeline)
+        # 3. Build table-to-step mapping (includes duplicate detection)
+        self._build_table_to_step_mapping(flattened_pipeline)
+        logger.debug("Table-to-step mapping built")
 
-            # Step 4: Delegate dependency analysis (Zen of Python: Single responsibility)
-            logger.debug("Delegating dependency analysis to DependencyAnalyzer")
-            self.step_dependencies = self._dependency_analyzer.analyze(flattened_pipeline, self.step_id_map)
+        # 4. Build dependency graph for execution ordering
+        self._build_dependency_graph(flattened_pipeline)
+        logger.debug("Dependency graph built")
 
-            # Step 5: Delegate execution order resolution (Zen of Python: Single responsibility)
-            logger.debug("Delegating execution order resolution to ExecutionOrderResolver")
-            execution_order = self._order_resolver.resolve(self.step_dependencies)
+        # 5. Validate table references (raise errors for likely typos)
+        self._validate_table_references()
+        logger.debug("Table references validated")
 
-            # Step 6: Delegate step building (Zen of Python: Single responsibility) 
-            logger.debug("Delegating step building to StepBuilder")
-            execution_steps = self._step_builder.build_steps(
-                flattened_pipeline, execution_order, self.step_id_map, self.step_dependencies
-            )
+        # 6. Resolve execution order from dependencies
+        execution_order = self._resolve_execution_order()
+        logger.debug(f"Execution order resolved: {len(execution_order)} steps")
 
-            logger.info(f"Successfully built execution plan with {len(execution_steps)} steps")
-            return execution_steps
+        # 7. Build execution steps using existing working logic
+        execution_steps = self._build_execution_steps(
+            flattened_pipeline, execution_order
+        )
 
-        except Exception as e:
-            # Just log at DEBUG level and re-raise - let the CLI handle user-facing errors
-            logger.debug(f"Planning failed: {str(e)}", exc_info=True)
-            if isinstance(e, (PlanningError, EvaluationError)):
-                # Just pass through existing errors
-                raise
-            # Wrap unexpected errors
-            raise PlanningError(f"Failed to create plan: {str(e)}") from e
+        logger.debug(
+            f"Successfully built execution plan with {len(execution_steps)} steps"
+        )
+        return execution_steps
 
     # --- CONDITIONALS & FLATTENING ---
     def _flatten_conditional_blocks(
@@ -1105,43 +1388,30 @@ class ExecutionPlanBuilder:
 
     # --- DEPENDENCY GRAPH & EXECUTION ORDER ---
     def _build_dependency_graph(self, pipeline: Pipeline) -> None:
-        """Build a dependency graph for the pipeline.
+        """Build dependency graph for pipeline execution.
 
-        This method analyzes dependencies between steps and builds a graph
-        for determining the correct execution order.
-
-        Args:
-        ----
-            pipeline: The pipeline to analyze
-
+        Following Zen of Python: Explicit is better than implicit.
+        Clear dependency relationships for proper execution order.
         """
-        # Initialize step dependencies dict early
+        # Initialize dependencies tracking
         self.step_dependencies = {}
 
-        # Generate step IDs for all steps
+        # Generate step IDs for all steps (needed for dependency tracking)
         self._generate_step_ids(pipeline)
 
-        # Create table name to step mapping
-        table_to_step = self._build_table_to_step_mapping(pipeline)
+        # Use the table mapping we built earlier
+        table_to_step = self._table_to_step_mapping or {}
 
-        # First add source and load dependencies
-        source_steps, load_steps = self._get_sources_and_loads(pipeline)
-        self._add_load_dependencies(source_steps, load_steps)
-
-        # Then add SQL step dependencies
+        # Analyze dependencies for each step
         for step in pipeline.steps:
             if isinstance(step, SQLBlockStep):
                 self._analyze_sql_dependencies(step, table_to_step)
             elif isinstance(step, ExportStep):
                 self._analyze_export_dependencies(step, table_to_step)
 
-        # Debug dependency graph
-        logger.debug(
-            f"Dependency graph created with {len(self.step_dependencies)} entries"
-        )
-        for step_id, deps in self.step_dependencies.items():
-            if deps:
-                logger.debug(f"Step {step_id} depends on: {deps}")
+        # Add load dependencies
+        source_steps, load_steps = self._get_sources_and_loads(pipeline)
+        self._add_load_dependencies(source_steps, load_steps)
 
         # Ensure all steps have a dependency entry (even if empty)
         for step in pipeline.steps:
@@ -1201,17 +1471,30 @@ class ExecutionPlanBuilder:
     def _add_dependency(
         self, dependent_step: PipelineStep, dependency_step: PipelineStep
     ) -> None:
-        # Use deterministic step IDs instead of object IDs to avoid issues with conditional flattening
-        dependent_id = self._generate_step_id(dependent_step, 0)
-        dependency_id = self._generate_step_id(dependency_step, 0)
+        # FIXED: Use step_id_map for consistent step IDs instead of generating with index 0
+        # This ensures dependency IDs match the actual step IDs in the final plan
+        dependent_id = self.step_id_map.get(id(dependent_step))
+        dependency_id = self.step_id_map.get(id(dependency_step))
 
-        # Add to step_dependencies directly instead of using dependency_resolver
-        if dependent_id not in self.step_dependencies:
-            self.step_dependencies[dependent_id] = []
+        # Only add dependency if both step IDs exist
+        if dependent_id and dependency_id:
+            # Add to step_dependencies directly
+            if dependent_id not in self.step_dependencies:
+                self.step_dependencies[dependent_id] = []
 
-        if dependency_id not in self.step_dependencies[dependent_id]:
-            self.step_dependencies[dependent_id].append(dependency_id)
-            logger.debug(f"Added dependency: {dependent_id} -> {dependency_id}")
+            if dependency_id not in self.step_dependencies[dependent_id]:
+                self.step_dependencies[dependent_id].append(dependency_id)
+                logger.debug(f"Added dependency: {dependent_id} -> {dependency_id}")
+        else:
+            # Debug info for missing step IDs
+            if not dependent_id:
+                logger.warning(
+                    f"Could not find step ID for dependent step: {type(dependent_step).__name__}"
+                )
+            if not dependency_id:
+                logger.warning(
+                    f"Could not find step ID for dependency step: {type(dependency_step).__name__}"
+                )
 
     def _get_sources_and_loads(
         self, pipeline: Pipeline
@@ -1262,9 +1545,15 @@ class ExecutionPlanBuilder:
         if isinstance(step, SourceDefinitionStep):
             return f"source_{step.name}"
         elif isinstance(step, LoadStep):
-            return f"load_{step.table_name}"
+            # CRITICAL FIX: Make LoadStep IDs unique by including mode and index
+            # This prevents multiple LOAD operations on same table from being merged
+            mode = getattr(step, "mode", "REPLACE").lower()
+            return f"load_{step.table_name}_{mode}_{index}"
         elif isinstance(step, SQLBlockStep):
-            return f"transform_{step.table_name}"
+            # Make SQL block step IDs unique by including index for CREATE OR REPLACE scenarios
+            is_replace = getattr(step, "is_replace", False)
+            replace_suffix = "_replace" if is_replace else ""
+            return f"transform_{step.table_name}{replace_suffix}_{index}"
         elif isinstance(step, ExportStep):
             table_name = getattr(
                 step, "table_name", None
@@ -1343,38 +1632,42 @@ class ExecutionPlanBuilder:
     def _build_execution_steps(
         self, pipeline: Pipeline, execution_order: List[str]
     ) -> List[Dict[str, Any]]:
-        """Build execution steps from the execution order.
+        """Build final execution steps from pipeline.
 
-        Args:
-        ----
-            pipeline: The pipeline to build steps for
-            execution_order: The order of steps to execute
+        Following Zen of Python: Simple is better than complex.
+        Clear step building with proper dependency ordering.
 
-        Returns:
-        -------
-            List of executable steps
-
+        CRITICAL FIX: Include ALL LoadSteps, not just those in table mapping.
         """
-        execution_steps = []
+        logger.debug(
+            f"Building execution steps for {len(execution_order)} ordered steps"
+        )
 
-        # First, make sure all pipeline steps have IDs
-        if not self.step_id_map:
-            self._generate_step_ids(pipeline)
-
-        # Create mapping for faster lookup
+        # Create step ID to pipeline step mapping for ordered steps
         step_id_to_pipeline_step = self._create_step_lookup_mapping(pipeline)
 
-        # Process steps in execution order
+        # Process steps in dependency order
         execution_steps = self._process_steps_in_execution_order(
             execution_order, step_id_to_pipeline_step
         )
 
-        # Add any missing steps
+        # CRITICAL FIX: Add any missing LoadSteps that weren't in the dependency order
+        # This handles multiple LOAD operations on the same table
+        execution_steps = self._add_missing_load_steps(
+            pipeline, execution_steps, step_id_to_pipeline_step
+        )
+
+        # CRITICAL FIX: Add any missing SQL block steps (CREATE OR REPLACE operations)
+        execution_steps = self._add_missing_sql_block_steps(
+            pipeline, execution_steps, step_id_to_pipeline_step
+        )
+
+        # Add any other missing steps (backward compatibility)
         execution_steps = self._add_missing_steps(
             pipeline, execution_steps, step_id_to_pipeline_step
         )
 
-        logger.info(f"Built execution plan with {len(execution_steps)} steps")
+        logger.debug(f"Built {len(execution_steps)} execution steps total")
         return execution_steps
 
     def _create_step_lookup_mapping(
@@ -1649,6 +1942,76 @@ class ExecutionPlanBuilder:
         # Delegate to the new method
         return self._generate_source_definition_step(step)
 
+    def _add_missing_load_steps(
+        self,
+        pipeline: Pipeline,
+        execution_steps: List[Dict[str, Any]],
+        step_id_to_pipeline_step: Dict[str, PipelineStep],
+    ) -> List[Dict[str, Any]]:
+        """Add missing LoadSteps that weren't included in dependency ordering.
+
+        CRITICAL FIX: Multiple LOAD operations on same table must all execute.
+        The dependency ordering might only include the first LoadStep per table,
+        but we need ALL LoadSteps to execute in order.
+        """
+        if not hasattr(self, "_all_load_steps"):
+            return execution_steps  # No LoadSteps tracked
+
+        existing_step_ids = {step.get("id") for step in execution_steps}
+
+        for load_step in self._all_load_steps:
+            # Generate step ID for this load step
+            step_id = self._get_step_id(load_step)
+
+            # If this LoadStep is not already in execution steps, add it
+            if step_id not in existing_step_ids:
+                logger.debug(f"Adding missing LoadStep: {step_id}")
+
+                # Build execution step for this LoadStep
+                execution_step = self._build_execution_step(load_step)
+                if execution_step:
+                    # Insert in the right position to maintain dependency order
+                    # For now, append - more sophisticated ordering can be added later
+                    execution_steps.append(execution_step)
+                    existing_step_ids.add(step_id)
+
+        return execution_steps
+
+    def _add_missing_sql_block_steps(
+        self,
+        pipeline: Pipeline,
+        execution_steps: List[Dict[str, Any]],
+        step_id_to_pipeline_step: Dict[str, PipelineStep],
+    ) -> List[Dict[str, Any]]:
+        """Add missing SQL block steps (CREATE OR REPLACE operations) that weren't included in dependency ordering.
+
+        CRITICAL FIX: Multiple SQL block steps on same table must all execute.
+        The dependency ordering might only include the first SQL block step per table,
+        but we need ALL SQL block steps to execute in order.
+        """
+        if not hasattr(self, "_all_sql_block_steps"):
+            return execution_steps  # No SQL block steps tracked
+
+        existing_step_ids = {step.get("id") for step in execution_steps}
+
+        for sql_block_step in self._all_sql_block_steps:
+            # Generate step ID for this SQL block step
+            step_id = self._get_step_id(sql_block_step)
+
+            # If this SQL block step is not already in execution steps, add it
+            if step_id not in existing_step_ids:
+                logger.debug(f"Adding missing SQL block step: {step_id}")
+
+                # Build execution step for this SQL block step
+                execution_step = self._build_execution_step(sql_block_step)
+                if execution_step:
+                    # Insert in the right position to maintain dependency order
+                    # For now, append - more sophisticated ordering can be added later
+                    execution_steps.append(execution_step)
+                    existing_step_ids.add(step_id)
+
+        return execution_steps
+
 
 # --- OPERATION PLANNER ---
 class OperationPlanner:
@@ -1672,12 +2035,37 @@ class OperationPlanner:
 
 # --- MAIN PLANNER ---
 class Planner:
-    """Interface to the ExecutionPlanBuilder with a simplified API."""
+    """Interface to the ExecutionPlanBuilder with a simplified API.
 
-    def __init__(self):
-        """Initialize the planner."""
-        self.builder = ExecutionPlanBuilder()
-        logger.debug("Planner initialized")
+    Following Zen of Python: Simple is better than complex.
+    Supports optional dependency injection for testability.
+    """
+
+    def __init__(
+        self,
+        builder: Optional[ExecutionPlanBuilder] = None,
+        config: Optional[PlannerConfig] = None,
+    ):
+        """Initialize the planner with optional dependency injection.
+
+        Args:
+            builder: Optional custom ExecutionPlanBuilder
+            config: Optional configuration for component injection
+
+        Following Zen of Python:
+        - Simple is better than complex: Default construction for simple usage
+        - Explicit is better than implicit: Clear injection points for testing
+        - Practicality beats purity: Backward compatibility maintained
+        """
+        if builder is not None:
+            self.builder = builder
+            logger.debug("Planner initialized with injected builder")
+        elif config is not None:
+            self.builder = ExecutionPlanBuilder(config=config)
+            logger.debug("Planner initialized with configuration-based builder")
+        else:
+            self.builder = ExecutionPlanBuilder()
+            logger.debug("Planner initialized with default builder")
 
     def create_plan(
         self,

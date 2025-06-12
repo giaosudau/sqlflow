@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from sqlflow.core.errors import PlanningError
-from sqlflow.core.planner import ExecutionPlanBuilder
+from sqlflow.core.planner_main import ExecutionPlanBuilder
 from sqlflow.parser.ast import (
     ConditionalBlockStep,
     ConditionalBranchStep,
@@ -193,7 +193,7 @@ class TestTableReferenceExtraction:
         table_to_step = builder._build_table_to_step_mapping(pipeline)
 
         # Mock the logger to check warnings
-        with patch("sqlflow.core.planner.logger") as mock_logger:
+        with patch("sqlflow.core.planner_main.logger") as mock_logger:
             builder._find_table_references(
                 report_step, report_step.sql_query.lower(), table_to_step
             )
@@ -213,7 +213,7 @@ class TestSQLSyntaxValidation:
         """Test warning for unmatched parentheses in SQL."""
         builder = ExecutionPlanBuilder()
 
-        with patch("sqlflow.core.planner.logger") as mock_logger:
+        with patch("sqlflow.core.planner_main.logger") as mock_logger:
             builder._validate_sql_syntax(
                 "SELECT * FROM users WHERE (id > 10", "transform_users", 10
             )
@@ -227,7 +227,7 @@ class TestSQLSyntaxValidation:
         """Test warning for SQL without SELECT keyword."""
         builder = ExecutionPlanBuilder()
 
-        with patch("sqlflow.core.planner.logger") as mock_logger:
+        with patch("sqlflow.core.planner_main.logger") as mock_logger:
             builder._validate_sql_syntax(
                 "INSERT INTO users VALUES (1, 'test')", "transform_users", 10
             )
@@ -241,7 +241,7 @@ class TestSQLSyntaxValidation:
         """Test warning for incomplete FROM clause."""
         builder = ExecutionPlanBuilder()
 
-        with patch("sqlflow.core.planner.logger") as mock_logger:
+        with patch("sqlflow.core.planner_main.logger") as mock_logger:
             builder._validate_sql_syntax("SELECT * FROM ", "transform_users", 10)
 
             # Verify warning was logged
@@ -253,7 +253,7 @@ class TestSQLSyntaxValidation:
         """Test warning for unclosed quotes in SQL."""
         builder = ExecutionPlanBuilder()
 
-        with patch("sqlflow.core.planner.logger") as mock_logger:
+        with patch("sqlflow.core.planner_main.logger") as mock_logger:
             builder._validate_sql_syntax(
                 "SELECT * FROM users WHERE name = 'John", "transform_users", 10
             )
@@ -267,7 +267,7 @@ class TestSQLSyntaxValidation:
         """Test info message for multiple SQL statements."""
         builder = ExecutionPlanBuilder()
 
-        with patch("sqlflow.core.planner.logger") as mock_logger:
+        with patch("sqlflow.core.planner_main.logger") as mock_logger:
             builder._validate_sql_syntax(
                 "SELECT * FROM users; SELECT * FROM orders", "transform_users", 10
             )

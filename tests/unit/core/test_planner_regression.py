@@ -6,7 +6,7 @@ These tests ensure that specific planner issues are never reintroduced:
 3. Load step structure generation
 """
 
-from sqlflow.core.planner import Planner
+from sqlflow.core.planner_main import Planner
 from sqlflow.parser.parser import Parser
 
 

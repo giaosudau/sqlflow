@@ -5,7 +5,7 @@ import sys
 
 sys.path.append(".")
 
-from sqlflow.core.planner import Planner, PlanningError
+from sqlflow.core.planner_main import Planner, PlanningError
 from sqlflow.parser.parser import Parser
 
 

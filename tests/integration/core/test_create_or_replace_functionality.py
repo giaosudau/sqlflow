@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 
 from sqlflow.core.executors.local_executor import LocalExecutor
-from sqlflow.core.planner import Planner
+from sqlflow.core.planner_main import Planner
 from sqlflow.core.sql_generator import SQLGenerator
 from sqlflow.parser.ast import SQLBlockStep
 from sqlflow.parser.parser import Parser

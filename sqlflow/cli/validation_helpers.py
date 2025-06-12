@@ -305,15 +305,40 @@ def _validate_with_planner(
         List of validation errors from planner analysis
     """
     try:
-        captured_warnings = _capture_planner_warnings(pipeline, profile_name)
-        if captured_warnings:
-            return _process_captured_warnings(
-                captured_warnings, pipeline_text, profile_name
+        # First try to catch new standardized ValidationError from planner
+        from sqlflow.core.planner_main import ExecutionPlanBuilder
+        from sqlflow.validation.errors import ValidationError as PlannerValidationError
+
+        builder = ExecutionPlanBuilder()
+        planner_variables = _get_planner_variables(profile_name)
+        builder.build_plan(pipeline, variables=planner_variables)
+
+        # If we get here, no validation errors were raised
+        return []
+
+    except PlannerValidationError as e:
+        # Convert planner ValidationError to CLI ValidationError
+        cli_error = ValidationError(
+            message=str(e),
+            line=1,  # Could be enhanced to extract line from context
+            error_type="Table Reference Error",
+        )
+        return [cli_error]
+
+    except Exception:
+        # Fall back to warning capture for other issues
+        try:
+            captured_warnings = _capture_planner_warnings(pipeline, profile_name)
+            if captured_warnings:
+                return _process_captured_warnings(
+                    captured_warnings, pipeline_text, profile_name
+                )
+            return []
+        except Exception as fallback_e:
+            logger.debug(
+                f"Could not run planner validation for {pipeline_path}: {fallback_e}"
             )
-        return []
-    except Exception as e:
-        logger.debug(f"Could not run planner validation for {pipeline_path}: {e}")
-        return []
+            return []
 
 
 def _capture_planner_warnings(pipeline, profile_name: Optional[str] = None):
@@ -326,7 +351,7 @@ def _capture_planner_warnings(pipeline, profile_name: Optional[str] = None):
     """
     import logging
 
-    from sqlflow.core.planner import Planner
+    from sqlflow.core.planner_main import Planner
 
     captured_warnings = []
 
@@ -335,18 +360,23 @@ def _capture_planner_warnings(pipeline, profile_name: Optional[str] = None):
             if "might not be defined" in record.getMessage():
                 captured_warnings.append(record.getMessage())
 
-    # Set up warning capture
-    planner_logger = logging.getLogger("sqlflow.core.planner")
+    # Set up warning capture - listen to both specific and parent loggers
+    planner_main_logger = logging.getLogger("sqlflow.core.planner_main")
+    sqlflow_core_logger = logging.getLogger("sqlflow.core")
     warning_handler = ValidationWarningHandler()
     warning_handler.setLevel(logging.WARNING)
-    planner_logger.addHandler(warning_handler)
+
+    # Add handler to both loggers to ensure we catch warnings
+    planner_main_logger.addHandler(warning_handler)
+    sqlflow_core_logger.addHandler(warning_handler)
 
     try:
         planner = Planner()
         planner_variables = _get_planner_variables(profile_name)
         planner.create_plan(pipeline, variables=planner_variables)
     finally:
-        planner_logger.removeHandler(warning_handler)
+        planner_main_logger.removeHandler(warning_handler)
+        sqlflow_core_logger.removeHandler(warning_handler)
 
     return captured_warnings
 
@@ -464,29 +494,123 @@ def _process_warning_for_validation(
 
 
 def _check_for_typos(undefined_table, available_tables):
-    """Check if undefined table is likely a typo."""
-    import difflib
-
+    """Check if undefined table is likely a typo using the same logic as the planner."""
     suggestions = []
     should_fail = False
 
     if undefined_table and available_tables:
-        close_matches = difflib.get_close_matches(
-            undefined_table, available_tables, n=3, cutoff=0.6
-        )
-        if close_matches:
-            best_match = close_matches[0]
-            similarity = difflib.SequenceMatcher(
-                None, undefined_table, best_match
-            ).ratio()
-
-            if similarity >= 0.7:  # Very similar - likely a typo
+        # Use the same sophisticated typo detection as the planner
+        for available_table in available_tables:
+            if _tables_are_similar(undefined_table, available_table):
                 should_fail = True
-                suggestions.append(f"Did you mean '{best_match}'?")
-            else:
-                suggestions.append(f"Similar table available: '{best_match}'")
+                suggestions.append(f"Did you mean '{available_table}'?")
+                break  # Found a likely typo, no need to check others
+
+        # If no sophisticated match found, fall back to difflib for other cases
+        if not should_fail:
+            import difflib
+
+            close_matches = difflib.get_close_matches(
+                undefined_table, available_tables, n=3, cutoff=0.6
+            )
+            if close_matches:
+                best_match = close_matches[0]
+                similarity = difflib.SequenceMatcher(
+                    None, undefined_table, best_match
+                ).ratio()
+
+                if similarity >= 0.7:  # Very similar - likely a typo
+                    should_fail = True
+                    suggestions.append(f"Did you mean '{best_match}'?")
+                else:
+                    suggestions.append(f"Similar table available: '{best_match}'")
 
     return should_fail, suggestions
+
+
+def _tables_are_similar(table1: str, table2: str) -> bool:
+    """Check if two table names are similar enough to be considered typos.
+
+    Following Zen of Python: Simple is better than complex.
+    Practical patterns for real-world typos.
+
+    This uses the same logic as the planner for consistency.
+    """
+    # Same length with small edit distance (1-2 character changes)
+    if abs(len(table1) - len(table2)) <= 2:
+        edit_dist = _edit_distance(table1, table2)
+        if edit_dist <= 2:
+            return True
+
+    # ENHANCED: Common typo patterns (appending or removing suffixes)
+    # Examples: users_table vs users_table_failed, users_table_wrong, etc.
+    longer, shorter = (
+        (table1, table2) if len(table1) > len(table2) else (table2, table1)
+    )
+
+    if shorter in longer:
+        # Check if it's a suffix pattern
+        if longer.startswith(shorter):
+            suffix = longer[len(shorter) :]
+            # Common typo suffixes that people add when debugging/testing
+            common_suffixes = [
+                "_failed",
+                "_wrong",
+                "_test",
+                "_old",
+                "_new",
+                "_backup",
+                "_temp",
+                "_copy",
+                "_typo",
+                "_error",
+                "_bad",
+                "_fixed",
+            ]
+            if suffix in common_suffixes or (
+                suffix.startswith("_") and len(suffix) <= 10
+            ):
+                return True
+
+        # Check if it's a prefix pattern
+        if longer.endswith(shorter):
+            prefix = longer[: -len(shorter)]
+            # Common typo prefixes
+            if prefix.endswith("_") and len(prefix) <= 10:
+                return True
+
+    # Check for single character insertions/deletions that are common typos
+    if abs(len(table1) - len(table2)) == 1:
+        edit_dist = _edit_distance(table1, table2)
+        if edit_dist == 1:  # Single character difference
+            return True
+
+    return False
+
+
+def _edit_distance(s1: str, s2: str) -> int:
+    """Calculate edit distance between two strings.
+
+    Following Zen of Python: Simple is better than complex.
+    Basic edit distance calculation for typo detection.
+    """
+    if len(s1) < len(s2):
+        return _edit_distance(s2, s1)
+
+    if len(s2) == 0:
+        return len(s1)
+
+    previous_row = list(range(len(s2) + 1))
+    for i, c1 in enumerate(s1):
+        current_row = [i + 1]
+        for j, c2 in enumerate(s2):
+            insertions = previous_row[j + 1] + 1
+            deletions = current_row[j] + 1
+            substitutions = previous_row[j] + (c1 != c2)
+            current_row.append(min(insertions, deletions, substitutions))
+        previous_row = current_row
+
+    return previous_row[-1]
 
 
 def _build_context_suggestions(available_tables, available_sources):
@@ -643,7 +767,10 @@ def format_validation_errors_for_cli(
 
 
 def print_validation_summary(
-    errors: List[ValidationError], pipeline_name: str, quiet: bool = False
+    errors: List[ValidationError],
+    pipeline_name: str,
+    quiet: bool = False,
+    verbose: bool = False,
 ) -> None:
     """Print validation summary to console.
 
@@ -652,6 +779,7 @@ def print_validation_summary(
         errors: List of validation errors
         pipeline_name: Name of the pipeline being validated
         quiet: Whether to use quiet output mode
+        verbose: Whether to show verbose details and suggestions
 
     """
     if not errors:
@@ -659,8 +787,8 @@ def print_validation_summary(
             typer.echo(f"✅ Pipeline '{pipeline_name}' validation passed!")
         return
 
-    # Show detailed errors unless in quiet mode
-    show_details = not quiet
+    # Show detailed errors unless in quiet mode OR if verbose mode is enabled
+    show_details = not quiet or verbose
     formatted_errors = format_validation_errors_for_cli(
         errors, show_details=show_details
     )
