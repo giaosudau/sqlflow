@@ -145,12 +145,19 @@ class VariableManager(IVariableManager):
 
         self._config.resolve_priority()
 
+        # Merge environment variables into set variables since they have same priority level
+        merged_set_variables = {}
+        merged_set_variables.update(self._config.env_variables)
+        merged_set_variables.update(
+            self._config.set_variables
+        )  # SET variables override env
+
         # Use existing engine with priority-based configuration
         self._engine = VariableSubstitutionEngine(
             cli_variables=self._config.cli_variables,
             profile_variables=self._config.profile_variables,
-            set_variables=self._config.set_variables,
-            # Environment variables are handled automatically by VariableSubstitutionEngine
+            set_variables=merged_set_variables,
+            # Environment variables from os.environ are handled automatically by VariableSubstitutionEngine
         )
 
         logger.debug(

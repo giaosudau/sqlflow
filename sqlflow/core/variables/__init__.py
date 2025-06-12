@@ -9,6 +9,12 @@ VariableContext and VariableSubstitutor classes, while introducing the new
 unified VariableManager for future development.
 """
 
+from .facade import (
+    LegacyVariableSupport,
+    substitute_variables_unified,
+    validate_variables_unified,
+)
+
 # Import legacy classes for backward compatibility
 from .legacy import VariableContext, VariableSubstitutor
 
@@ -26,4 +32,8 @@ __all__ = [
     "VariableConfig",
     "ValidationResult",
     "VariableValidator",
+    # Migration facade (Task 1.3)
+    "LegacyVariableSupport",
+    "substitute_variables_unified",
+    "validate_variables_unified",
 ]
