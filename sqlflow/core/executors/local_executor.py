@@ -2802,10 +2802,11 @@ class LocalExecutor(BaseExecutor):
         if not text or not self.variables:
             return text
 
-        # Use new VariableManager system (Phase 4: Feature flags removed)
-        from sqlflow.core.variables.facade import LegacyVariableSupport
+        # ZEN OF PYTHON: Simple is better than complex
+        # Use utility function - one obvious way to do it
+        from sqlflow.core.variables import substitute_variables
 
-        result = LegacyVariableSupport.substitute_variables_new(text, self.variables)
+        result = substitute_variables(text, self.variables)
         return str(result) if result is not None else text
 
     def _substitute_variables_in_dict(
@@ -2825,12 +2826,11 @@ class LocalExecutor(BaseExecutor):
         if not options_dict or not self.variables:
             return options_dict
 
-        # Use new VariableManager system (Phase 4: Feature flags removed)
-        from sqlflow.core.variables.facade import LegacyVariableSupport
+        # ZEN OF PYTHON: Simple is better than complex
+        # Use utility function - one obvious way to do it
+        from sqlflow.core.variables import substitute_variables
 
-        result = LegacyVariableSupport.substitute_variables_new(
-            options_dict, self.variables
-        )
+        result = substitute_variables(options_dict, self.variables)
         return result if isinstance(result, dict) else options_dict
 
     def _prepare_export_parameters(

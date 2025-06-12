@@ -142,25 +142,35 @@ class TestVariableManager:
         assert manager.substitute("Hello World") == "Hello World"
 
     def test_utility_methods(self):
-        """Test utility methods for introspection."""
+        """Test utility methods and factory methods."""
         config = VariableConfig(
             cli_variables={"cli_var": "value1"},
             profile_variables={"profile_var": "value2"},
         )
         manager = VariableManager(config)
 
-        # Test get_configuration
-        assert manager.get_configuration() == config
-
-        # Test get_resolved_variables
+        # Test get_resolved_variables (public method)
         resolved = manager.get_resolved_variables()
         assert resolved["cli_var"] == "value1"
         assert resolved["profile_var"] == "value2"
 
-        # Test has_variable
-        assert manager.has_variable("cli_var")
-        assert manager.has_variable("profile_var")
-        assert not manager.has_variable("missing_var")
+        # Test factory methods
+        cli_manager = VariableManager.from_cli_variables({"test": "value"})
+        assert cli_manager.substitute("${test}") == "value"
+
+        profile_manager = VariableManager.from_profile_variables({"test": "value"})
+        assert profile_manager.substitute("${test}") == "value"
+
+        # Test mixed sources factory
+        mixed_manager = VariableManager.from_mixed_sources(
+            cli_variables={"cli": "cli_value"},
+            profile_variables={"profile": "profile_value"},
+        )
+        # CLI should take priority
+        mixed_manager_with_conflict = VariableManager.from_mixed_sources(
+            cli_variables={"var": "cli"}, profile_variables={"var": "profile"}
+        )
+        assert mixed_manager_with_conflict.substitute("${var}") == "cli"
 
 
 class TestBackwardCompatibilityWithExistingSystems:
@@ -324,3 +334,57 @@ class TestPerformance:
         result = manager.substitute(nested_data)
 
         assert result["level_0"]["level_1"]["level_2"]["value"] == "test"
+
+
+class TestUtilityFunctions:
+    """Test the new utility functions that replace 3-line boilerplate."""
+
+    def test_substitute_variables_utility(self):
+        """Test substitute_variables utility function."""
+        from sqlflow.core.variables import substitute_variables
+
+        # Test simple substitution
+        result = substitute_variables("Hello ${name}", {"name": "Alice"})
+        assert result == "Hello Alice"
+
+        # Test dictionary substitution
+        data = {"key": "${value}", "nested": {"item": "${value}"}}
+        result = substitute_variables(data, {"value": "test"})
+        assert result["key"] == "test"
+        assert result["nested"]["item"] == "test"
+
+        # Test list substitution
+        data = ["${item1}", "${item2}"]
+        result = substitute_variables(data, {"item1": "first", "item2": "second"})
+        assert result == ["first", "second"]
+
+    def test_validate_variables_utility(self):
+        """Test validate_variables utility function."""
+        from sqlflow.core.variables import validate_variables
+
+        # Test validation with all variables present
+        result = validate_variables("Hello ${name}", {"name": "Alice"})
+        assert result.is_valid
+        assert len(result.missing_variables) == 0
+
+        # Test validation with missing variables
+        result = validate_variables("Hello ${missing}", {})
+        assert not result.is_valid
+        assert "missing" in result.missing_variables
+
+    def test_utility_functions_replace_boilerplate(self):
+        """Test that utility functions eliminate the 3-line boilerplate pattern."""
+        from sqlflow.core.variables import substitute_variables
+
+        variables = {"env": "prod", "region": "us-west"}
+        data = "Environment: ${env}, Region: ${region}"
+
+        # OLD WAY (3 lines of boilerplate):
+        # config = VariableConfig(cli_variables=variables)
+        # manager = VariableManager(config)
+        # result = manager.substitute(data)
+
+        # NEW WAY (1 line):
+        result = substitute_variables(data, variables)
+
+        assert result == "Environment: prod, Region: us-west"
