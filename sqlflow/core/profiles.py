@@ -4,6 +4,7 @@ This module provides centralized profile configuration management with caching,
 validation, and variable substitution for connector configurations.
 """
 
+import copy
 import os
 import time
 from dataclasses import dataclass
@@ -64,6 +65,58 @@ class ValidationResult:
     def __bool__(self) -> bool:
         """Returns True if validation passed."""
         return self.is_valid
+
+
+class VariableResolver:
+    """Handles iterative variable resolution with clear convergence strategy."""
+
+    def __init__(self, max_iterations: int = 10):
+        """Initialize variable resolver.
+
+        Args:
+            max_iterations: Maximum number of resolution iterations to prevent infinite loops
+        """
+        self.max_iterations = max_iterations
+
+    def resolve_variables(self, variables: Dict[str, Any]) -> Dict[str, Any]:
+        """Resolve variables with iterative substitution until convergence.
+
+        Args:
+            variables: Dictionary of variables that may reference each other
+
+        Returns:
+            Dictionary with all variable references resolved
+        """
+        if not variables:
+            return {}
+
+        resolved = copy.deepcopy(variables)
+
+        for iteration in range(self.max_iterations):
+            logger.debug(f"Variable resolution iteration {iteration + 1}")
+            previous = copy.deepcopy(resolved)
+
+            # Apply one round of substitution
+            resolved = self._substitute_pass(resolved)
+
+            # Check for convergence
+            if self._has_converged(previous, resolved):
+                logger.debug(f"Variables converged after {iteration + 1} iterations")
+                return resolved
+
+        logger.warning(
+            f"Variable resolution did not converge after {self.max_iterations} iterations"
+        )
+        return resolved
+
+    def _substitute_pass(self, variables: Dict[str, Any]) -> Dict[str, Any]:
+        """Perform one pass of variable substitution."""
+        engine = VariableSubstitutionEngine(variables)
+        return engine.substitute(variables)
+
+    def _has_converged(self, previous: Dict[str, Any], current: Dict[str, Any]) -> bool:
+        """Check if variable resolution has converged (no more changes)."""
+        return previous == current
 
 
 class ProfileManager:
@@ -199,8 +252,6 @@ class ProfileManager:
         logger.debug("Applying variable substitution to profile data")
 
         # Make a deep copy to avoid mutating the original
-        import copy
-
         substituted_data = copy.deepcopy(profile_data)
 
         # First pass: Substitute environment variables in the variables section
@@ -219,26 +270,9 @@ class ProfileManager:
             logger.debug("Resolving profile variable interdependencies")
             variables = substituted_data["variables"]
 
-            # Iterate until no more substitutions occur (max 10 iterations to prevent infinite loops)
-            max_iterations = 10
-            for iteration in range(max_iterations):
-                logger.debug(f"Variable resolution iteration {iteration + 1}")
-                old_variables = copy.deepcopy(variables)
-
-                # Create engine with current variable state
-                var_engine = VariableSubstitutionEngine(variables)
-                variables = var_engine.substitute(variables)
-
-                # Check if any changes occurred
-                if variables == old_variables:
-                    logger.debug(
-                        f"Variable resolution converged after {iteration + 1} iterations"
-                    )
-                    break
-            else:
-                logger.warning(
-                    f"Variable resolution did not converge after {max_iterations} iterations"
-                )
+            # Create variable resolver
+            variable_resolver = VariableResolver()
+            variables = variable_resolver.resolve_variables(variables)
 
             substituted_data["variables"] = variables
 
