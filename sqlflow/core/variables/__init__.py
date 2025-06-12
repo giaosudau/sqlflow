@@ -14,6 +14,7 @@ from .legacy import VariableContext, VariableSubstitutor
 
 # Import new unified system
 from .manager import ValidationResult, VariableConfig, VariableManager
+from .validator import VariableValidator
 
 # Export everything for backward compatibility and new functionality
 __all__ = [
@@ -24,4 +25,5 @@ __all__ = [
     "VariableManager",
     "VariableConfig",
     "ValidationResult",
+    "VariableValidator",
 ]
