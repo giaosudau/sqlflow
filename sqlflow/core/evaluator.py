@@ -130,12 +130,165 @@ class ConditionEvaluator:
             Condition with variables substituted and formatted for AST evaluation
 
         """
-        # Use the new variable manager for basic substitution
-        substituted = self.variable_manager.substitute(condition)
+        from sqlflow.core.variables.parser import StandardVariableParser
 
-        # Apply condition-specific formatting for AST evaluation
-        # This ensures string identifiers are properly quoted for Python AST parsing
-        return self._format_for_ast_evaluation(substituted)
+        parse_result = StandardVariableParser.find_variables(condition)
+
+        if not parse_result.has_variables:
+            return condition
+
+        new_parts = []
+        last_end = 0
+
+        for expr in parse_result.expressions:
+            # Append the text between the last match and this one
+            new_parts.append(condition[last_end : expr.span[0]])
+
+            # Check if variable is inside quotes using proper context detection
+            start_pos = expr.span[0]
+            end_pos = expr.span[1]
+            inside_quotes = self._is_inside_quoted_string(condition, start_pos, end_pos)
+
+            formatted_value = None
+            if expr.variable_name in self.variables:
+                value = self.variables[expr.variable_name]
+                formatted_value = self._format_value_for_ast(value, inside_quotes)
+            elif expr.default_value is not None:
+                formatted_value = self._format_value_for_ast(
+                    expr.default_value, inside_quotes
+                )
+            else:
+                # For AST evaluation, missing variables become None
+                formatted_value = "None"
+
+            # Append the substituted value
+            new_parts.append(formatted_value)
+            last_end = expr.span[1]
+
+        # Append the rest of the string after the last match
+        new_parts.append(condition[last_end:])
+
+        return "".join(new_parts)
+
+    def _is_inside_quotes(self, condition: str, start_pos: int, end_pos: int) -> bool:
+        """Check if a variable is inside quotes."""
+        # Check if we're immediately surrounded by quotes
+        if start_pos > 0 and end_pos < len(condition):
+            char_before = condition[start_pos - 1]
+            char_after = condition[end_pos]
+            if (char_before == "'" and char_after == "'") or (
+                char_before == '"' and char_after == '"'
+            ):
+                return True
+        return False
+
+    def _is_inside_quoted_string(
+        self, condition: str, start_pos: int, end_pos: int
+    ) -> bool:
+        """Check if a variable is inside quotes using proper context detection."""
+        # Track quote state by scanning from beginning (same logic as SQLGenerator)
+        in_single_quotes = False
+        in_double_quotes = False
+        i = 0
+
+        while i < start_pos:
+            char = condition[i]
+
+            if char == "'" and not in_double_quotes:
+                # Check for escaped quote
+                if i > 0 and condition[i - 1] == "\\":
+                    i += 1
+                    continue
+                in_single_quotes = not in_single_quotes
+            elif char == '"' and not in_single_quotes:
+                # Check for escaped quote
+                if i > 0 and condition[i - 1] == "\\":
+                    i += 1
+                    continue
+                in_double_quotes = not in_double_quotes
+
+            i += 1
+
+        # Variable is inside quotes if we're currently in a quoted section
+        return in_single_quotes or in_double_quotes
+
+    def _format_value_for_ast(self, value: Any, inside_quotes: bool = False) -> str:
+        """Format a value for AST evaluation context.
+
+        Args:
+        ----
+            value: The value to format
+            inside_quotes: Whether the variable is already inside quotes in the template
+
+        Returns:
+        -------
+            String representation suitable for AST evaluation
+        """
+        if value is None:
+            return "None"
+        elif isinstance(value, str):
+            return self._format_string_for_ast(value, inside_quotes)
+        elif isinstance(value, bool):
+            # Keep boolean values as unquoted for AST evaluation
+            return str(value)
+        elif isinstance(value, (int, float)):
+            # Keep numeric values as unquoted for AST evaluation
+            return str(value)
+        else:
+            # For other types, convert to string and quote
+            if inside_quotes:
+                return str(value)
+            return f"'{value}'"
+
+    def _format_string_for_ast(self, value: str, inside_quotes: bool = False) -> str:
+        """Format a string for AST evaluation context.
+
+        Args:
+        ----
+            value: The string to format
+            inside_quotes: Whether the string is already inside quotes in the template
+
+        Returns:
+        -------
+            String representation suitable for AST evaluation
+        """
+        if value.lower() == "true":
+            # Convert string 'true' to unquoted boolean for AST evaluation
+            return "True"
+        elif value.lower() == "false":
+            # Convert string 'false' to unquoted boolean for AST evaluation
+            return "False"
+        elif value.isdigit():
+            # Convert string numbers to unquoted numbers for AST evaluation
+            return value
+        elif self._is_sql_expression(value):
+            # Don't quote SQL expressions like lists
+            return value
+        else:
+            # Quote string values for AST evaluation unless already inside quotes
+            if inside_quotes:
+                return value
+            return f"'{value}'"
+
+    def _is_sql_expression(self, value: str) -> bool:
+        """Check if a string value is already a properly formatted SQL expression."""
+        if not isinstance(value, str):
+            return False
+
+        value = value.strip()
+
+        # Check for SQL lists (values separated by commas, with quoted elements)
+        if "," in value and ("'" in value or '"' in value):
+            # This looks like a SQL list: 'value1','value2' or "value1","value2"
+            return True
+
+        # Check for function calls
+        if "(" in value and value.endswith(")"):
+            return True
+
+        # Check for other SQL expressions (this can be expanded as needed)
+        # For now, we'll be conservative and only handle the list case
+        return False
 
     def _format_for_ast_evaluation(self, condition: str) -> str:
         """Format substituted condition for AST evaluation.

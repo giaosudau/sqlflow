@@ -700,17 +700,28 @@ class DuckDBEngine(SQLEngine):
         if not parse_result.has_variables:
             return template
 
+        # Pre-compile the template analysis for better performance
         new_parts = []
         last_end = 0
+
         for expr in parse_result.expressions:
             # Append the text between the last match and this one
             new_parts.append(template[last_end : expr.span[0]])
 
+            # Enhanced context detection - check if we're inside a larger quoted string
+            inside_quotes = self._is_inside_quoted_string(
+                template, expr.span[0], expr.span[1]
+            )
+
             if expr.variable_name in self.variables:
                 value = self.variables[expr.variable_name]
-                formatted_value = self._format_sql_value(value)
+                formatted_value = self._format_sql_value_with_context(
+                    value, inside_quotes
+                )
             elif expr.default_value is not None:
-                formatted_value = self._format_sql_value(expr.default_value)
+                formatted_value = self._format_sql_value_with_context(
+                    expr.default_value, inside_quotes
+                )
             else:
                 logger.warning(f"Variable '{expr.variable_name}' not found")
                 formatted_value = "NULL"
@@ -723,6 +734,44 @@ class DuckDBEngine(SQLEngine):
         new_parts.append(template[last_end:])
 
         return "".join(new_parts)
+
+    def _is_inside_quoted_string(
+        self, template: str, start_pos: int, end_pos: int
+    ) -> bool:
+        """Check if a variable is inside a quoted string context."""
+        # Optimized quote detection - only scan a reasonable window around the variable
+        # to avoid expensive string operations on large templates
+
+        # Define a reasonable search window (100 chars before/after should be enough)
+        window_size = 100
+        search_start = max(0, start_pos - window_size)
+        search_end = min(len(template), end_pos + window_size)
+
+        # Extract the window for analysis
+        window = template[search_start:search_end]
+
+        # Adjust positions relative to the window
+        rel_start = start_pos - search_start
+        rel_end = end_pos - search_start
+
+        # Simple but effective: check if we're inside quotes by counting quote pairs
+        # Check for single quotes
+        single_quotes_before = window[:rel_start].count("'")
+        if single_quotes_before > 0 and single_quotes_before % 2 == 1:
+            # Odd number of quotes before means we're inside single quotes
+            # Verify there's a closing quote after
+            if window[rel_end:].count("'") > 0:
+                return True
+
+        # Check for double quotes
+        double_quotes_before = window[:rel_start].count('"')
+        if double_quotes_before > 0 and double_quotes_before % 2 == 1:
+            # Odd number of quotes before means we're inside double quotes
+            # Verify there's a closing quote after
+            if window[rel_end:].count('"') > 0:
+                return True
+
+        return False
 
     def _substitute_variables_legacy(self, template: str) -> str:
         """Legacy variable substitution implementation.
@@ -776,6 +825,12 @@ class DuckDBEngine(SQLEngine):
 
     def _format_sql_value(self, value: Any) -> str:
         """Format a value for SQL based on its type."""
+        return self._format_sql_value_with_context(value, inside_quotes=False)
+
+    def _format_sql_value_with_context(
+        self, value: Any, inside_quotes: bool = False
+    ) -> str:
+        """Format a value for SQL context based on its type and position."""
         if value is None:
             return "NULL"
         elif isinstance(value, bool):
@@ -783,15 +838,45 @@ class DuckDBEngine(SQLEngine):
         elif isinstance(value, (int, float)):
             return str(value)
         elif isinstance(value, str):
-            # Check if the value is already quoted
-            if value.startswith("'") and value.endswith("'"):
-                return value
-            # Escape single quotes and wrap in quotes
-            escaped_value = value.replace("'", "''")
-            return "'" + escaped_value + "'"
+            return self._format_string_value(value, inside_quotes)
         else:
             # For any other type, convert to string and quote
+            if inside_quotes:
+                return str(value)
             return "'" + str(value) + "'"
+
+    def _format_string_value(self, value: str, inside_quotes: bool) -> str:
+        """Format a string value for SQL context."""
+        # If already inside quotes, return the raw value
+        if inside_quotes:
+            return value
+
+        # Check if the value is already quoted
+        if value.startswith("'") and value.endswith("'"):
+            return value
+        # Check if it's a plain numeric string
+        if self._is_numeric_string(value):
+            return value
+        # Check if it's a boolean string
+        if value.lower() in ("true", "false"):
+            return value.lower()
+        # Check if it's already a properly formatted SQL expression (like a list)
+        if self._is_sql_expression(value):
+            return value
+        # Escape single quotes and wrap in quotes
+        escaped_value = value.replace("'", "''")
+        return "'" + escaped_value + "'"
+
+    def _is_numeric_string(self, value: str) -> bool:
+        """Check if a string represents a numeric value."""
+        return (
+            value.replace(".", "")
+            .replace("-", "")
+            .replace("+", "")
+            .replace("e", "")
+            .replace("E", "")
+            .isdigit()
+        )
 
     def register_variable(self, name: str, value: Any) -> None:
         """Register a variable for use in queries.
@@ -1655,3 +1740,23 @@ class DuckDBEngine(SQLEngine):
             f"Applied {len(optimization_results['optimizations_applied'])} optimizations to UDF {udf_name}"
         )
         return optimization_results
+
+    def _is_sql_expression(self, value: str) -> bool:
+        """Check if a string value is already a properly formatted SQL expression."""
+        if not isinstance(value, str):
+            return False
+
+        value = value.strip()
+
+        # Check for SQL lists (values separated by commas, with quoted elements)
+        if "," in value and ("'" in value or '"' in value):
+            # This looks like a SQL list: 'value1','value2' or "value1","value2"
+            return True
+
+        # Check for function calls
+        if "(" in value and value.endswith(")"):
+            return True
+
+        # Check for other SQL expressions (this can be expanded as needed)
+        # For now, we'll be conservative and only handle the list case
+        return False
