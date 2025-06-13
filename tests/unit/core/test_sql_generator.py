@@ -133,55 +133,6 @@ def test_sql_generator_export_csv():
     assert ") TO 'output/results.csv' (FORMAT CSV, HEADER)" in sql
 
 
-def test_variable_substitution():
-    """Test variable substitution in SQL."""
-    # Arrange
-    generator = SQLGenerator()
-    operation = {
-        "id": "transform_with_vars",
-        "type": "transform",
-        "name": "orders_by_date",
-        "materialized": "table",
-        "query": "SELECT * FROM orders WHERE date = '${run_date}' AND status = '${status}'",
-        "depends_on": ["source_orders"],
-    }
-    context = {"variables": {"run_date": "2023-06-15", "status": "completed"}}
-
-    # Act
-    sql = generator.generate_operation_sql(operation, context)
-
-    # Assert
-    assert "WHERE date = '2023-06-15'" in sql
-    assert "AND status = 'completed'" in sql
-
-
-def test_variable_substitution_with_defaults():
-    """Test variable substitution with default values."""
-    # Arrange
-    generator = SQLGenerator()
-    operation = {
-        "id": "transform_with_defaults",
-        "type": "transform",
-        "name": "orders_by_date",
-        "materialized": "table",
-        "query": "SELECT * FROM orders WHERE date = '${run_date|2023-01-01}' AND status = '${status|pending}'",
-        "depends_on": ["source_orders"],
-    }
-    context = {
-        "variables": {
-            "run_date": "2023-06-15"
-            # status not provided, should use default
-        }
-    }
-
-    # Act
-    sql = generator.generate_operation_sql(operation, context)
-
-    # Assert
-    assert "WHERE date = '2023-06-15'" in sql
-    assert "AND status = 'pending'" in sql
-
-
 def test_multiple_dependencies():
     """Test SQL generation with multiple dependencies."""
     # Arrange

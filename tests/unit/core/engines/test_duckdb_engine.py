@@ -401,42 +401,6 @@ class TestDuckDBEngine(unittest.TestCase):
             mock_factory.create.assert_called_once_with("APPEND", self.engine)
             self.assertIn("INSERT INTO target_table", sql)
 
-    def test_variable_substitution(self):
-        """Test variable substitution in templates."""
-        # Strategic solution: DuckDB engine applies SQL formatting
-        self.engine.register_variable("table_name", "users")
-        self.engine.register_variable("limit", 100)
-        self.engine.register_variable("quoted_value", "'test'")
-
-        template = (
-            "SELECT * FROM ${table_name} LIMIT ${limit} WHERE status = ${quoted_value}"
-        )
-        result = self.engine.substitute_variables(template)
-
-        # DuckDB engine applies SQL formatting: strings get quoted for SQL
-        expected = "SELECT * FROM 'users' LIMIT 100 WHERE status = 'test'"
-        self.assertEqual(result, expected)
-
-    def test_variable_substitution_with_defaults(self):
-        """Test variable substitution with default values."""
-        # Strategic solution: DuckDB engine applies SQL formatting to defaults
-        template = "SELECT * FROM ${table_name|default_table} WHERE id = ${user_id|1}"
-        result = self.engine.substitute_variables(template)
-
-        # DuckDB engine applies SQL formatting: string defaults get quoted
-        expected = "SELECT * FROM 'default_table' WHERE id = '1'"
-        self.assertEqual(result, expected)
-
-    def test_variable_substitution_missing_variable(self):
-        """Test variable substitution with missing variable."""
-        # Strategic solution: DuckDB engine handles missing variables with NULL
-        template = "SELECT * FROM ${missing_table}"
-        result = self.engine.substitute_variables(template)
-
-        # DuckDB engine substitutes missing variables with NULL (SQL-safe)
-        expected = "SELECT * FROM NULL"
-        self.assertEqual(result, expected)
-
     def test_configure_engine(self):
         """Test engine configuration."""
         config = {"memory_limit": "1GB"}

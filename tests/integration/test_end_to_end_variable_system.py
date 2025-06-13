@@ -86,8 +86,8 @@ class TestEndToEndVariableSystem:
         # Strategic solution: DuckDB engine applies SQL formatting (quotes string values)
         assert "'analytics'.'fact_'sales" in engine_result
         assert (
-            "env = ''test''" in engine_result
-        )  # Values already in quotes get double-quoted
+            "env = 'test'" in engine_result
+        )  # Fixed: Values in quotes no longer get double-quoted (correct behavior)
 
         # Test Local Executor
         executor = LocalExecutor()

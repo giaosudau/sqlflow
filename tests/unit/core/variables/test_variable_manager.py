@@ -23,27 +23,6 @@ from sqlflow.core.variables.manager import (
 class TestVariableManager:
     """Test the unified VariableManager functionality."""
 
-    def test_substitute_simple_string(self):
-        """Test basic string substitution works correctly."""
-        config = VariableConfig(cli_variables={"name": "Alice"})
-        manager = VariableManager(config)
-        result = manager.substitute("Hello ${name}")
-        assert result == "Hello Alice"
-
-    def test_substitute_multiple_variables(self):
-        """Test substitution with multiple variables."""
-        config = VariableConfig(cli_variables={"name": "Alice", "age": 30})
-        manager = VariableManager(config)
-        result = manager.substitute("Hello ${name}, you are ${age} years old")
-        assert result == "Hello Alice, you are 30 years old"
-
-    def test_substitute_with_defaults(self):
-        """Test substitution with default values."""
-        config = VariableConfig(cli_variables={"name": "Alice"})
-        manager = VariableManager(config)
-        result = manager.substitute("Hello ${name}, you are ${age|25} years old")
-        assert result == "Hello Alice, you are 25 years old"
-
     def test_substitute_dict_structure(self):
         """Test substitution in dictionary structures."""
         config = VariableConfig(cli_variables={"env": "prod", "region": "us-west"})

@@ -393,10 +393,6 @@ COPY (
         if not sql:
             return "", 0
 
-        if not variables:
-            logger.debug("No variables to substitute in SQL")
-            return sql, 0
-
         from sqlflow.core.variables.parser import StandardVariableParser
 
         parse_result = StandardVariableParser.find_variables(sql)
@@ -404,7 +400,9 @@ COPY (
         if not parse_result.has_variables:
             return sql, 0
 
-        logger.debug(f"Substituting {len(variables)} variables in SQL")
+        logger.debug(
+            f"Substituting variables in SQL with {len(parse_result.expressions)} expressions"
+        )
 
         new_parts = []
         last_end = 0
@@ -414,20 +412,12 @@ COPY (
             # Append the text between the last match and this one
             new_parts.append(sql[last_end : expr.span[0]])
 
-            # Check if variable is inside quotes by looking at the context
+            # Check if variable is inside quotes using proper context detection
             start_pos = expr.span[0]
             end_pos = expr.span[1]
+            inside_quotes = self._is_inside_quoted_string(sql, start_pos, end_pos)
 
-            # Look for quotes immediately before and after the variable
-            inside_quotes = False
-            if start_pos > 0 and end_pos < len(sql):
-                char_before = sql[start_pos - 1]
-                char_after = sql[end_pos]
-                if (char_before == "'" and char_after == "'") or (
-                    char_before == '"' and char_after == '"'
-                ):
-                    inside_quotes = True
-
+            formatted_value = None
             if expr.variable_name in variables:
                 value = variables[expr.variable_name]
                 formatted_value = self._format_sql_value_for_context(
@@ -500,3 +490,31 @@ COPY (
             if inside_quotes:
                 return str(value)
             return "'" + str(value) + "'"
+
+    def _is_inside_quoted_string(self, sql: str, start_pos: int, end_pos: int) -> bool:
+        """Check if a position is inside a quoted string."""
+        # Track quote state by scanning from beginning
+        in_single_quotes = False
+        in_double_quotes = False
+        i = 0
+
+        while i < start_pos:
+            char = sql[i]
+
+            if char == "'" and not in_double_quotes:
+                # Check for escaped quote
+                if i > 0 and sql[i - 1] == "\\":
+                    i += 1
+                    continue
+                in_single_quotes = not in_single_quotes
+            elif char == '"' and not in_single_quotes:
+                # Check for escaped quote
+                if i > 0 and sql[i - 1] == "\\":
+                    i += 1
+                    continue
+                in_double_quotes = not in_double_quotes
+
+            i += 1
+
+        # Variable is inside quotes if we're currently in a quoted section
+        return in_single_quotes or in_double_quotes

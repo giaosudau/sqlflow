@@ -50,9 +50,11 @@ class StandardVariableParser:
         var_name = match.group(1).strip()
         default = match.group(2).strip() if match.group(2) else None
 
-        # Handle quoted defaults consistently
+        # Handle quoted defaults more intelligently
         if default and cls._is_quoted(default):
-            default = default[1:-1]  # Remove quotes
+            # Only strip quotes from simple string values, not SQL expressions
+            if cls._is_simple_string_value(default):
+                default = default[1:-1]  # Remove quotes
 
         return VariableExpression(
             variable_name=var_name,
@@ -84,3 +86,23 @@ class StandardVariableParser:
         return (value.startswith('"') and value.endswith('"')) or (
             value.startswith("'") and value.endswith("'")
         )
+
+    @classmethod
+    def _is_simple_string_value(cls, value: str) -> bool:
+        """Check if a quoted value is a simple string value that should have quotes stripped.
+
+        Returns False ONLY for SQL lists that contain both commas and quotes.
+        """
+        if not value or len(value) < 2:
+            return True
+
+        # Extract the content inside the quotes
+        content = value[1:-1]
+
+        # Only preserve quotes for SQL lists that have BOTH commas AND internal quotes
+        # This catches cases like: 'value1','value2' but not simple strings like 'hello world'
+        if "," in content and ("'" in content or '"' in content):
+            return False
+
+        # Everything else is a simple string value (including strings with spaces, function names, etc.)
+        return True
