@@ -693,44 +693,36 @@ class DuckDBEngine(SQLEngine):
             Template with variables substituted and formatted for SQL
 
         """
-        import re
+        from sqlflow.core.variables.parser import StandardVariableParser
 
-        # Use our own SQL-aware variable substitution logic
-        # This ensures string values get quoted for SQL contexts
-        variable_pattern = re.compile(r"\$\{([^}]+)\}")
+        parse_result = StandardVariableParser.find_variables(template)
 
-        def format_sql_variable(match):
-            var_expr = match.group(1)
+        if not parse_result.has_variables:
+            return template
 
-            # Handle expressions with defaults: ${var|default}
-            if "|" in var_expr:
-                var_name, default = var_expr.split("|", 1)
-                var_name = var_name.strip()
-                default = default.strip()
+        new_parts = []
+        last_end = 0
+        for expr in parse_result.expressions:
+            # Append the text between the last match and this one
+            new_parts.append(template[last_end : expr.span[0]])
 
-                if var_name in self.variables:
-                    value = self.variables[var_name]
-                    return self._format_sql_value(value)
-                else:
-                    # Handle quoted default values
-                    if self._is_quoted_string(default):
-                        return default.strip("\"'")
-                    return self._format_sql_value(default)
+            if expr.variable_name in self.variables:
+                value = self.variables[expr.variable_name]
+                formatted_value = self._format_sql_value(value)
+            elif expr.default_value is not None:
+                formatted_value = self._format_sql_value(expr.default_value)
             else:
-                # Simple variable reference: ${var}
-                var_name = var_expr.strip()
-                if var_name in self.variables:
-                    value = self.variables[var_name]
-                    return self._format_sql_value(value)
-                else:
-                    logger.warning(
-                        f"Variable {var_name} not found and no default provided"
-                    )
-                    return "NULL"
+                logger.warning(f"Variable '{expr.variable_name}' not found")
+                formatted_value = "NULL"
 
-        # Apply SQL-specific variable substitution with proper formatting
-        result = variable_pattern.sub(format_sql_variable, template)
-        return result
+            # Append the substituted value
+            new_parts.append(formatted_value)
+            last_end = expr.span[1]
+
+        # Append the rest of the string after the last match
+        new_parts.append(template[last_end:])
+
+        return "".join(new_parts)
 
     def _substitute_variables_legacy(self, template: str) -> str:
         """Legacy variable substitution implementation.
