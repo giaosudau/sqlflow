@@ -148,13 +148,27 @@ class ConditionEvaluator:
         -------
             Condition formatted for Python AST evaluation
         """
-        import re
+        from sqlflow.core.variables.parser import StandardVariableParser
 
         # Handle any remaining unsubstituted variables (missing variables) - convert to None
-        def replace_missing_vars(match):
-            return "None"
+        parse_result = StandardVariableParser.find_variables(condition)
 
-        condition = re.sub(r"\$\{[^}]+\}", replace_missing_vars, condition)
+        if parse_result.has_variables:
+            new_parts = []
+            last_end = 0
+
+            for expr in parse_result.expressions:
+                # Append the text between the last match and this one
+                new_parts.append(condition[last_end : expr.span[0]])
+
+                # Convert missing variables to None for AST evaluation
+                new_parts.append("None")
+                last_end = expr.span[1]
+
+            # Append the rest of the string after the last match
+            new_parts.append(condition[last_end:])
+
+            condition = "".join(new_parts)
 
         # Find unquoted identifiers and quote them if they look like string values
         # This handles cases like: global == 'us-east' -> 'global' == 'us-east'
