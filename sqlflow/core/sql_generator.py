@@ -5,7 +5,6 @@ It handles the conversion of operations to executable SQL statements with proper
 template substitution and SQL dialect adaptations.
 """
 
-import re
 from datetime import datetime
 from typing import Any, Dict
 
@@ -377,7 +376,7 @@ COPY (
     def _substitute_variables(
         self, sql: str, variables: Dict[str, Any]
     ) -> tuple[str, int]:
-        """Substitute variables in SQL.
+        """Substitute variables in SQL with standardized parsing.
 
         Args:
         ----
@@ -398,18 +397,59 @@ COPY (
             logger.debug("No variables to substitute in SQL")
             return sql, 0
 
+        from sqlflow.core.variables.parser import StandardVariableParser
+
+        parse_result = StandardVariableParser.find_variables(sql)
+
+        if not parse_result.has_variables:
+            return sql, 0
+
         logger.debug(f"Substituting {len(variables)} variables in SQL")
 
-        # Track variable replacements for logging
+        new_parts = []
+        last_end = 0
         total_replacements = 0
 
-        # First pass: replace variables that have values
-        result, total_replacements = self._replace_variables_with_values(
-            sql, variables, total_replacements
-        )
+        for expr in parse_result.expressions:
+            # Append the text between the last match and this one
+            new_parts.append(sql[last_end : expr.span[0]])
 
-        # Second pass: handle variables with default values and missing variables
-        result_with_defaults = self._handle_variable_defaults(result)
+            # Check if variable is inside quotes by looking at the context
+            start_pos = expr.span[0]
+            end_pos = expr.span[1]
+
+            # Look for quotes immediately before and after the variable
+            inside_quotes = False
+            if start_pos > 0 and end_pos < len(sql):
+                char_before = sql[start_pos - 1]
+                char_after = sql[end_pos]
+                if (char_before == "'" and char_after == "'") or (
+                    char_before == '"' and char_after == '"'
+                ):
+                    inside_quotes = True
+
+            if expr.variable_name in variables:
+                value = variables[expr.variable_name]
+                formatted_value = self._format_sql_value_for_context(
+                    value, inside_quotes
+                )
+                total_replacements += 1
+            elif expr.default_value is not None:
+                formatted_value = self._format_sql_value_for_context(
+                    expr.default_value, inside_quotes
+                )
+                total_replacements += 1
+            else:
+                logger.warning(f"Variable '{expr.variable_name}' not found")
+                formatted_value = "NULL"
+                total_replacements += 1
+
+            # Append the substituted value
+            new_parts.append(formatted_value)
+            last_end = expr.span[1]
+
+        # Append the rest of the string after the last match
+        new_parts.append(sql[last_end:])
 
         # Log summary of replacements
         if total_replacements > 0:
@@ -417,247 +457,46 @@ COPY (
                 f"Completed variable substitution: {total_replacements} total replacements"
             )
 
-        return result_with_defaults, total_replacements
+        return "".join(new_parts), total_replacements
 
-    def _replace_variables_with_values(
-        self, sql: str, variables: Dict[str, Any], replacements_made: int
-    ) -> tuple[str, int]:
-        """Replace variables with their values in the SQL.
-
-        Args:
-        ----
-            sql: SQL string with variables.
-            variables: Dictionary of variables.
-            replacements_made: Counter for replacements (modified in place).
-
-        Returns:
-        -------
-            A tuple containing:
-            - SQL with variables replaced by their values
-            - The total number of replacements made
-
-        """
-        result = sql
-        total_replacements = replacements_made
-
-        for var_name, var_value in variables.items():
-            # Two patterns: one for variables inside quotes, one for standalone variables
-            # Pattern for variables inside quotes: '${var}' or "${var}"
-            quoted_pattern = (
-                r"('?\${"
-                + re.escape(var_name)
-                + r"}'?|'?\${"
-                + re.escape(var_name)
-                + r"\|[^}]*}'?)"
-            )
-            # Pattern for standalone variables: ${var}
-            standalone_pattern = (
-                r"\${"
-                + re.escape(var_name)
-                + r"}|\${"
-                + re.escape(var_name)
-                + r"\|[^}]*}"
-            )
-
-            # Convert Python objects to SQL literals based on context
-            if isinstance(var_value, str):
-                quoted_replacement = var_value  # Already quoted
-                standalone_replacement = f"'{var_value}'"  # Add quotes for standalone
-            elif isinstance(var_value, bool):
-                bool_value = str(var_value).lower()
-                quoted_replacement = bool_value
-                standalone_replacement = bool_value
-            else:
-                str_value = str(var_value)
-                quoted_replacement = str_value
-                standalone_replacement = str_value
-
-            # First replace variables inside quotes
-            count_before = len(re.findall(quoted_pattern, result))
-            # Look for '${var}' or "${var}" and replace with just the value (no quotes added)
-            result = re.sub(
-                r"'(\${"
-                + re.escape(var_name)
-                + r"}|\${"
-                + re.escape(var_name)
-                + r"\|[^}]*})'",
-                f"'{quoted_replacement}'",
-                result,
-            )
-            result = re.sub(
-                r'"(\${'
-                + re.escape(var_name)
-                + r"}|\${"
-                + re.escape(var_name)
-                + r'\|[^}]*})"',
-                f'"{quoted_replacement}"',
-                result,
-            )
-            count_after_quoted = len(re.findall(quoted_pattern, result))
-            quoted_replacements = count_before - count_after_quoted
-
-            # Then replace standalone variables
-            count_before = len(re.findall(standalone_pattern, result))
-            result = re.sub(standalone_pattern, standalone_replacement, result)
-            count_after_standalone = len(re.findall(standalone_pattern, result))
-            standalone_replacements = count_before - count_after_standalone
-
-            var_replacements = quoted_replacements + standalone_replacements
-            if var_replacements > 0:
-                total_replacements += var_replacements
-                logger.debug(
-                    f"Variable '{var_name}' replaced {var_replacements} times with value: {var_value}"
-                )
-
-        return result, total_replacements
-
-    def _handle_variable_defaults(self, sql: str) -> str:
-        """Handle default values for variables and missing variables.
-
-        Args:
-        ----
-            sql: SQL string with variables.
-
-        Returns:
-        -------
-            SQL with default values applied and missing variables replaced with NULL.
-
-        """
-        # First replace variables inside quotes
-        # Look for '${var|default}' patterns
-        sql = re.sub(
-            r"'(\${([^}]*\|[^}]*)})(')",
-            lambda m: f"'{self._extract_default_value(m.group(2))}'",
-            sql,
-        )
-        # Look for "${var|default}" patterns
-        sql = re.sub(
-            r'"(\${([^}]*\|[^}]*)})(")',
-            lambda m: f'"{self._extract_default_value(m.group(2))}"',
-            sql,
-        )
-
-        # Then handle standalone variables with defaults
-        pattern_with_defaults = r"\${[^}]*\|[^}]*}"
-        result_with_defaults = re.sub(
-            pattern_with_defaults, self._replace_with_default, sql
-        )
-
-        # Handle any remaining ${var} without defaults or values
-        pattern_without_defaults = r"\${[^}]*}"
-        final_result = re.sub(
-            pattern_without_defaults,
-            self._handle_missing_variable,
-            result_with_defaults,
-        )
-
-        if final_result != result_with_defaults:
-            logger.warning(
-                "Some variables had no values or defaults and were replaced with NULL"
-            )
-
-        return final_result
-
-    def _extract_default_value(self, var_with_default: str) -> str:
-        """Extract default value from a variable|default format string.
-
-        Args:
-        ----
-            var_with_default: String in format "varname|default_value"
-
-        Returns:
-        -------
-            The default value
-
-        """
-        if "|" in var_with_default:
-            # Extract default value
-            var_name, default_value = var_with_default.split("|", 1)
-            var_name = var_name.strip()
-            default_value = default_value.strip()
-            logger.debug(f"Using default value for '{var_name}': {default_value}")
-            return default_value
-
-        # Should not happen
-        logger.warning(f"Expected default value not found for: '{var_with_default}'")
-        return "NULL"
-
-    def _replace_with_default(self, match: re.Match) -> str:
-        """Replace a variable reference with its default value.
-
-        Args:
-        ----
-            match: Regex match object for the variable reference.
-
-        Returns:
-        -------
-            Default value for the variable or NULL if no default is provided.
-
-        """
-        # Parse variable and default value
-        var_expr = match.group(0)
-
-        # Check if this is already inside quotes
-        inside_quotes = False
-        if var_expr.startswith("'${") and var_expr.endswith("}'"):
-            inside_quotes = True
-            var_expr = var_expr[1:-1]  # Remove surrounding quotes
-        elif var_expr.startswith('"${') and var_expr.endswith('}"'):
-            inside_quotes = True
-            var_expr = var_expr[1:-1]  # Remove surrounding quotes
-
-        without_delimiters = var_expr[2:-1]  # Remove ${ and }
-        if "|" in without_delimiters:
-            # Extract default value
-            var_name, default_value = without_delimiters.split("|", 1)
-            var_name = var_name.strip()
-            default_value = default_value.strip()
-
-            # If we're already inside quotes, don't add more quotes
+    def _format_sql_value_for_context(
+        self, value: Any, inside_quotes: bool = False
+    ) -> str:
+        """Format a value for SQL context based on its type and position."""
+        if value is None:
+            return "NULL"
+        elif isinstance(value, bool):
+            return str(value).lower()
+        elif isinstance(value, (int, float)):
+            return str(value)
+        elif isinstance(value, str):
+            # If already inside quotes, return the raw value
             if inside_quotes:
-                return default_value
+                return value
 
-            # Handle quoted default values
-            if (default_value.startswith("'") and default_value.endswith("'")) or (
-                default_value.startswith('"') and default_value.endswith('"')
+            # Check if the value is already quoted
+            if (value.startswith("'") and value.endswith("'")) or (
+                value.startswith('"') and value.endswith('"')
             ):
-                # Keep as is - already quoted
-                pass
-            elif default_value.lower() == "true" or default_value.lower() == "false":
-                # Boolean value - lowercase in SQL
-                default_value = default_value.lower()
-            elif re.match(r"^-?\d+(\.\d+)?$", default_value):
-                # Numeric value - keep as is
-                pass
-            else:
-                # Quote string values
-                default_value = f"'{default_value}'"
-
-            logger.debug(f"Using default value for '{var_name}': {default_value}")
-            return default_value
-
-        # This should not happen as we're only matching variables with defaults
-        var_name = without_delimiters.strip()
-        logger.warning(f"Expected default value not found for variable: '{var_name}'")
-        return "NULL"
-
-    def _handle_missing_variable(self, match: re.Match) -> str:
-        """Handle a variable reference with no value or default.
-
-        Args:
-        ----
-            match: Regex match object for the variable reference.
-
-        Returns:
-        -------
-            NULL as a replacement for the missing variable.
-
-        """
-        # Extract variable name for logging
-        var_expr = match.group(0)
-        without_delimiters = var_expr[2:-1]  # Remove ${ and }
-        var_name = without_delimiters.strip()
-        logger.warning(
-            f"No value or default found for variable: '{var_name}', using NULL"
-        )
-        return "NULL"
+                return value
+            # Check if it's a plain numeric string
+            if (
+                value.replace(".", "")
+                .replace("-", "")
+                .replace("+", "")
+                .replace("e", "")
+                .replace("E", "")
+                .isdigit()
+            ):
+                return value
+            # Check if it's a boolean string
+            if value.lower() in ("true", "false"):
+                return value.lower()
+            # Escape single quotes and wrap in quotes
+            escaped_value = value.replace("'", "''")
+            return "'" + escaped_value + "'"
+        else:
+            # For any other type, convert to string and quote
+            if inside_quotes:
+                return str(value)
+            return "'" + str(value) + "'"
