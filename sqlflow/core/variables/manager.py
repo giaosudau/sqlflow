@@ -10,7 +10,6 @@ Following Zen of Python principles:
 """
 
 import os
-import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
@@ -73,8 +72,6 @@ class VariableManager:
     - There should be one obvious way to do it
     - Explicit is better than implicit
     """
-
-    VARIABLE_PATTERN = re.compile(r"\$\{([^}]+)\}")
 
     def __init__(self, config: Optional[VariableConfig] = None):
         """Initialize the variable manager with configuration.
@@ -174,24 +171,41 @@ class VariableManager:
         Returns:
             String with variables substituted
         """
+        from sqlflow.core.variables.parser import StandardVariableParser
 
-        def replace_variable(match):
-            var_expr = match.group(1)
-            var_name, default_value = self._parse_variable_expression(var_expr)
+        parse_result = StandardVariableParser.find_variables(text)
 
-            if var_name in variables:
-                value = variables[var_name]
-                return str(value) if value is not None else ""
-            elif default_value is not None:
-                return default_value
+        if not parse_result.has_variables:
+            return text
+
+        new_parts = []
+        last_end = 0
+        for expr in parse_result.expressions:
+            # Append the text between the last match and this one
+            new_parts.append(text[last_end : expr.span[0]])
+
+            if expr.variable_name in variables:
+                value = variables[expr.variable_name]
+                formatted_value = str(value) if value is not None else ""
+            elif expr.default_value is not None:
+                formatted_value = expr.default_value
             else:
                 # Variable not found and no default - log warning and return placeholder
                 logger.warning(
-                    f"Variable '{var_name}' not found and no default provided"
+                    f"Variable '{expr.variable_name}' not found and no default provided"
                 )
-                return match.group(0)  # Return original placeholder
+                new_parts.append(expr.original_match)
+                last_end = expr.span[1]
+                continue
 
-        return self.VARIABLE_PATTERN.sub(replace_variable, text)
+            # Append the substituted value
+            new_parts.append(formatted_value)
+            last_end = expr.span[1]
+
+        # Append the rest of the string after the last match
+        new_parts.append(text[last_end:])
+
+        return "".join(new_parts)
 
     def _substitute_dict(
         self, data: Dict[str, Any], variables: Dict[str, Any]
@@ -209,32 +223,6 @@ class VariableManager:
         """Substitute variables in a list recursively."""
         return [self.substitute(item) for item in data]
 
-    def _parse_variable_expression(self, var_expr: str) -> tuple[str, Optional[str]]:
-        """Parse variable expression to extract name and default value.
-
-        Supports formats:
-        - ${var_name}
-        - ${var_name|default_value}
-
-        Args:
-            var_expr: Variable expression (without ${ })
-
-        Returns:
-            Tuple of (variable_name, default_value)
-        """
-        if "|" in var_expr:
-            parts = var_expr.split("|", 1)
-            var_name = parts[0].strip()
-            default_value = parts[1].strip()
-            # Remove quotes from default value if present
-            if (default_value.startswith('"') and default_value.endswith('"')) or (
-                default_value.startswith("'") and default_value.endswith("'")
-            ):
-                default_value = default_value[1:-1]
-            return var_name, default_value
-        else:
-            return var_expr.strip(), None
-
     def validate(self, content: str) -> ValidationResult:
         """Validate variable usage in content.
 
@@ -244,15 +232,15 @@ class VariableManager:
         Returns:
             ValidationResult with validation details
         """
+        from sqlflow.core.variables.parser import StandardVariableParser
+
         missing_variables = []
         resolved_vars = self._get_resolved_variables()
 
-        for match in self.VARIABLE_PATTERN.finditer(content):
-            var_expr = match.group(1)
-            var_name, default_value = self._parse_variable_expression(var_expr)
-
-            if var_name not in resolved_vars and default_value is None:
-                missing_variables.append(var_name)
+        parse_result = StandardVariableParser.find_variables(content)
+        for expr in parse_result.expressions:
+            if expr.variable_name not in resolved_vars and expr.default_value is None:
+                missing_variables.append(expr.variable_name)
 
         return ValidationResult(
             is_valid=len(missing_variables) == 0,
