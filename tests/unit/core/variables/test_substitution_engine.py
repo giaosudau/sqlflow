@@ -84,8 +84,8 @@ class TestVariableSubstitutionEngine:
         template = "region == '${schema}' and limit > ${limit}"
         result = self.engine.substitute(template, context="ast")
 
-        # AST context should quote strings and format properly for Python
-        expected = "region == 'public' and limit > 100"
+        # AST context with context detection should substitute inside quotes without adding more quotes
+        expected = "region == '\"public\"' and limit > 100"
         assert result == expected
 
     def test_default_values(self):
@@ -190,8 +190,8 @@ class TestVariableSubstitutionEngine:
         template = "message == '${text}'"
         result = engine.substitute(template, context="ast")
 
-        # Should escape single quotes for Python
-        expected = "message == 'It\\'s a test'"
+        # Should substitute inside quotes without adding more quotes
+        expected = "message == '\"It's a test\"'"
         assert result == expected
 
     def test_numeric_types_formatting(self):
@@ -319,8 +319,8 @@ class TestContextFormatters:
         """Test ASTFormatter."""
         formatter = ASTFormatter()
 
-        # String formatting
-        assert formatter.format_value("hello", {}) == "'hello'"
+        # String formatting (AST formatter uses double quotes)
+        assert formatter.format_value("hello", {}) == '"hello"'
 
         # Numeric formatting
         assert formatter.format_value(42, {}) == "42"
@@ -333,8 +333,8 @@ class TestContextFormatters:
         # None formatting
         assert formatter.format_value(None, {}) == "None"
 
-        # Quote escaping
-        assert formatter.format_value("it's", {}) == "'it\\'s'"
+        # Quote escaping (AST formatter uses double quotes)
+        assert formatter.format_value("it's", {}) == '"it\'s"'
 
 
 class TestGlobalEngine:

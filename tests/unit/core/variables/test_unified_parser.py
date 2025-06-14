@@ -216,7 +216,7 @@ WHERE active = ${status|true}"""
         # Cache should contain the text
         stats = self.parser.get_cache_stats()
         assert stats["cache_size"] == 1
-        assert text in stats["cache_keys"]
+        assert text in stats["sample_keys"]  # Updated cache stats structure
 
     def test_parse_without_caching(self):
         """Test parsing without caching."""
