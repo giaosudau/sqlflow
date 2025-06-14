@@ -8,7 +8,7 @@ with existing validation logic.
 """
 
 import re
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 from sqlflow.logging import get_logger
 
@@ -25,10 +25,6 @@ class VariableValidator:
     - Readability counts: Clear, understandable validation logic
     - There should be one obvious way to do it: One validator interface
     """
-
-    # Pre-compiled patterns for performance
-    VARIABLE_PATTERN = re.compile(r"\$\{([^}]+)\}")
-    DEFAULT_PATTERN = re.compile(r"^([^|]+)\|(.+)$")
 
     def __init__(self, variables: Optional[Dict[str, Any]] = None):
         """Initialize validator with optional pre-resolved variables.
@@ -78,20 +74,26 @@ class VariableValidator:
         warnings = []
         context_locations = {}
 
+        # Use unified parser for variable extraction
+        from sqlflow.core.variables.unified_parser import get_unified_parser
+
+        parser = get_unified_parser()
+        parse_result = parser.parse(content)
+
         # Find all variable references and validate them
-        for match in self.VARIABLE_PATTERN.finditer(content):
-            var_expr = match.group(1)
-            var_name, default = self._parse_variable_expression(var_expr)
+        for expr in parse_result.expressions:
+            var_name = expr.variable_name
+            default = expr.default_value
 
             # Check if variable is missing
             if var_name not in all_vars and default is None:
                 missing_vars.append(var_name)
-                context_locations[var_name] = self._find_context(content, match.start())
+                context_locations[var_name] = self._find_context(content, expr.span[0])
                 logger.debug(f"Missing variable: {var_name}")
 
             # Check if default value is invalid
             elif default and self._is_invalid_default(default):
-                invalid_defaults.append(f"${{{var_expr}}}")
+                invalid_defaults.append(expr.original_match)
                 logger.debug(f"Invalid default for: {var_name}")
 
             # Check for potential warnings
@@ -127,38 +129,21 @@ class VariableValidator:
         if not content:
             return []
 
+        # Use unified parser for variable extraction
+        from sqlflow.core.variables.unified_parser import get_unified_parser
+
+        parser = get_unified_parser()
+        parse_result = parser.parse(content)
+
         missing = []
-        for match in self.VARIABLE_PATTERN.finditer(content):
-            var_expr = match.group(1)
-            var_name, default = self._parse_variable_expression(var_expr)
+        for expr in parse_result.expressions:
+            var_name = expr.variable_name
+            default = expr.default_value
 
             if var_name not in variables and default is None:
                 missing.append(var_name)
 
         return list(set(missing))  # Remove duplicates
-
-    def _parse_variable_expression(self, var_expr: str) -> Tuple[str, Optional[str]]:
-        """Parse variable expression to extract name and default value.
-
-        Args:
-            var_expr: Variable expression like 'name' or 'name|default'
-
-        Returns:
-            Tuple of (variable_name, default_value_or_none)
-        """
-        var_expr = var_expr.strip()
-
-        # Check for default value pattern: var|default
-        default_match = self.DEFAULT_PATTERN.match(var_expr)
-        if default_match:
-            var_name = default_match.group(1).strip()
-            default_value = default_match.group(2).strip()
-
-            # Remove quotes from default value if present
-            default_value = self._unquote_value(default_value)
-            return var_name, default_value
-        else:
-            return var_expr, None
 
     def _unquote_value(self, value: str) -> str:
         """Remove quotes from a value if present.
@@ -321,11 +306,15 @@ class VariableValidator:
         Returns:
             List of unique variable names found
         """
+        # Use unified parser for variable extraction
+        from sqlflow.core.variables.unified_parser import get_unified_parser
+
+        parser = get_unified_parser()
+        parse_result = parser.parse(content)
+
         variables = []
-        for match in self.VARIABLE_PATTERN.finditer(content):
-            var_expr = match.group(1)
-            var_name, _ = self._parse_variable_expression(var_expr)
-            variables.append(var_name)
+        for expr in parse_result.expressions:
+            variables.append(expr.variable_name)
 
         return list(set(variables))  # Remove duplicates
 
@@ -338,10 +327,15 @@ class VariableValidator:
         Returns:
             Dictionary mapping variable names to reference counts
         """
+        # Use unified parser for variable extraction
+        from sqlflow.core.variables.unified_parser import get_unified_parser
+
+        parser = get_unified_parser()
+        parse_result = parser.parse(content)
+
         counts = {}
-        for match in self.VARIABLE_PATTERN.finditer(content):
-            var_expr = match.group(1)
-            var_name, _ = self._parse_variable_expression(var_expr)
+        for expr in parse_result.expressions:
+            var_name = expr.variable_name
             counts[var_name] = counts.get(var_name, 0) + 1
 
         return counts

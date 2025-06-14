@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional, Pattern, Tuple
 # Regex patterns for JSON parsing
 WHITESPACE = re.compile(r"[ \t\n\r]+")
 JSON_STRING = re.compile(r'"(?:\\.|[^"\\])*"')
-VARIABLE_PATTERN = re.compile(r"\${[^}]+}")
+# Phase 2 Cleanup: Use unified parser instead of local pattern
 
 
 def replace_variables_for_validation(
@@ -26,7 +26,12 @@ def replace_variables_for_validation(
         return f'"{dummy_values.get(var, "dummy")}"'
 
     # First, replace variables with dummy values
-    text_with_vars_replaced = VARIABLE_PATTERN.sub(replace_var, text)
+    from sqlflow.core.variables.unified_parser import get_unified_parser
+
+    # Use unified parser instead of local pattern
+    parser = get_unified_parser()
+    pattern = parser.get_pattern()
+    text_with_vars_replaced = pattern.sub(replace_var, text)
 
     # Remove trailing commas in JSON objects and arrays which are invalid in standard JSON
     # but common in code - handle both objects/arrays and multi-line formats

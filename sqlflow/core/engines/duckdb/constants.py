@@ -94,8 +94,7 @@ WHERE {where_clause};"""
 class RegexPatterns:
     """Regular expression patterns used in the engine."""
 
-    # Variable substitution
-    VARIABLE_SUBSTITUTION = r"\$\{([^}]+)\}"
+    # Phase 2 Cleanup: Removed VARIABLE_SUBSTITUTION - now using unified parser
 
     # UDF detection
     UDF_PYTHON_FUNC = r"PYTHON_FUNC\s*\(\s*[\'\"]([a-zA-Z0-9_\.]+)[\'\"]\s*,\s*(.*?)\)"

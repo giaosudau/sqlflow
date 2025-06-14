@@ -1,7 +1,6 @@
 """Main DuckDB engine implementation."""
 
 import os
-import re
 import time
 from typing import Any, Callable, Dict, List, Optional
 
@@ -12,7 +11,7 @@ import pyarrow as pa
 from sqlflow.core.engines.base import SQLEngine
 from sqlflow.logging import get_logger
 
-from .constants import DuckDBConstants, RegexPatterns, SQLTemplates
+from .constants import DuckDBConstants, SQLTemplates
 from .exceptions import DuckDBConnectionError, UDFError, UDFRegistrationError
 from .load.handlers import LoadModeHandlerFactory
 from .transaction_manager import TransactionManager
@@ -677,12 +676,12 @@ class DuckDBEngine(SQLEngine):
         handler = LoadModeHandlerFactory.create(internal_load_step.mode, self)
         return handler.generate_sql(internal_load_step)
 
-    # Simplified methods that delegate to other components
+    # Phase 2: Use unified VariableSubstitutionEngine
     def substitute_variables(self, template: str) -> str:
         """Substitute variables in a template with SQL-appropriate formatting.
 
-        Following Zen of Python: Explicit is better than implicit.
-        This method handles SQL-specific variable substitution with proper SQL value formatting.
+        Phase 2 Architectural Cleanup: Now uses the unified VariableSubstitutionEngine
+        with SQL context for consistent behavior across the system.
 
         Args:
         ----
@@ -693,135 +692,13 @@ class DuckDBEngine(SQLEngine):
             Template with variables substituted and formatted for SQL
 
         """
-        from sqlflow.core.variables.parser import StandardVariableParser
-
-        parse_result = StandardVariableParser.find_variables(template)
-
-        if not parse_result.has_variables:
-            return template
-
-        # Pre-compile the template analysis for better performance
-        new_parts = []
-        last_end = 0
-
-        for expr in parse_result.expressions:
-            # Append the text between the last match and this one
-            new_parts.append(template[last_end : expr.span[0]])
-
-            # Enhanced context detection - check if we're inside a larger quoted string
-            inside_quotes = self._is_inside_quoted_string(
-                template, expr.span[0], expr.span[1]
-            )
-
-            if expr.variable_name in self.variables:
-                value = self.variables[expr.variable_name]
-                formatted_value = self._format_sql_value_with_context(
-                    value, inside_quotes
-                )
-            elif expr.default_value is not None:
-                formatted_value = self._format_sql_value_with_context(
-                    expr.default_value, inside_quotes
-                )
-            else:
-                logger.warning(f"Variable '{expr.variable_name}' not found")
-                formatted_value = "NULL"
-
-            # Append the substituted value
-            new_parts.append(formatted_value)
-            last_end = expr.span[1]
-
-        # Append the rest of the string after the last match
-        new_parts.append(template[last_end:])
-
-        return "".join(new_parts)
-
-    def _is_inside_quoted_string(
-        self, template: str, start_pos: int, end_pos: int
-    ) -> bool:
-        """Check if a variable is inside a quoted string context."""
-        # Optimized quote detection - only scan a reasonable window around the variable
-        # to avoid expensive string operations on large templates
-
-        # Define a reasonable search window (100 chars before/after should be enough)
-        window_size = 100
-        search_start = max(0, start_pos - window_size)
-        search_end = min(len(template), end_pos + window_size)
-
-        # Extract the window for analysis
-        window = template[search_start:search_end]
-
-        # Adjust positions relative to the window
-        rel_start = start_pos - search_start
-        rel_end = end_pos - search_start
-
-        # Simple but effective: check if we're inside quotes by counting quote pairs
-        # Check for single quotes
-        single_quotes_before = window[:rel_start].count("'")
-        if single_quotes_before > 0 and single_quotes_before % 2 == 1:
-            # Odd number of quotes before means we're inside single quotes
-            # Verify there's a closing quote after
-            if window[rel_end:].count("'") > 0:
-                return True
-
-        # Check for double quotes
-        double_quotes_before = window[:rel_start].count('"')
-        if double_quotes_before > 0 and double_quotes_before % 2 == 1:
-            # Odd number of quotes before means we're inside double quotes
-            # Verify there's a closing quote after
-            if window[rel_end:].count('"') > 0:
-                return True
-
-        return False
-
-    def _substitute_variables_legacy(self, template: str) -> str:
-        """Legacy variable substitution implementation.
-
-        Maintains exact original behavior for backward compatibility.
-        """
-        # Replace variables
-        result = re.sub(
-            RegexPatterns.VARIABLE_SUBSTITUTION, self._replace_variable_match, template
+        from sqlflow.core.variables.substitution_engine import (
+            VariableSubstitutionEngine,
         )
-        logger.debug("Substitution result: %s", result)
-        return result
 
-    def _replace_variable_match(self, match: re.Match) -> str:
-        """Replace a variable match with its formatted value."""
-        var_expr = match.group(1)
-
-        if "|" in var_expr:
-            return self._handle_variable_with_default(var_expr)
-        else:
-            return self._handle_simple_variable(var_expr)
-
-    def _handle_variable_with_default(self, var_expr: str) -> str:
-        """Handle variable substitution with default value."""
-        var_name, default = var_expr.split("|", 1)
-        var_name = var_name.strip()
-        default = default.strip()
-
-        if var_name in self.variables:
-            return self._format_sql_value(self.variables[var_name])
-
-        # Handle quoted default values
-        if self._is_quoted_string(default):
-            return default.strip("\"'")
-        return self._format_sql_value(default)
-
-    def _handle_simple_variable(self, var_expr: str) -> str:
-        """Handle simple variable substitution without default."""
-        var_name = var_expr.strip()
-        if var_name in self.variables:
-            return self._format_sql_value(self.variables[var_name])
-
-        logger.warning(f"Variable {var_name} not found and no default provided")
-        return "NULL"
-
-    def _is_quoted_string(self, value: str) -> bool:
-        """Check if a string is quoted."""
-        return (value.startswith("'") and value.endswith("'")) or (
-            value.startswith('"') and value.endswith('"')
-        )
+        # Create engine with current variables and use SQL context
+        engine = VariableSubstitutionEngine(self.variables)
+        return engine.substitute(template, context="sql")
 
     def _format_sql_value(self, value: Any) -> str:
         """Format a value for SQL based on its type."""

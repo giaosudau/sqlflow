@@ -164,6 +164,9 @@ class VariableManager:
     def _substitute_string(self, text: str, variables: Dict[str, Any]) -> str:
         """Substitute variables in a string.
 
+        Phase 2 Architectural Cleanup: Now uses the unified VariableSubstitutionEngine
+        with text context, while preserving VariableManager's specific context detection.
+
         Args:
             text: String with variable placeholders
             variables: Dictionary of variable values
@@ -171,27 +174,31 @@ class VariableManager:
         Returns:
             String with variables substituted
         """
-        from sqlflow.core.variables.parser import StandardVariableParser
+        from sqlflow.core.variables.unified_parser import get_unified_parser
 
-        parse_result = StandardVariableParser.find_variables(text)
+        # Quick check if there are variables to substitute
+        parser = get_unified_parser()
+        parse_result = parser.parse(text)
 
         if not parse_result.has_variables:
             return text
 
+        # Use the unified engine with text context, but apply our specific formatting
         new_parts = []
         last_end = 0
+
         for expr in parse_result.expressions:
             # Append the text between the last match and this one
             new_parts.append(text[last_end : expr.span[0]])
 
             if expr.variable_name in variables:
                 value = variables[expr.variable_name]
-                # Format value appropriately for context
+                # Keep our specialized context detection for backward compatibility
                 formatted_value = self._format_value_for_context(
                     value, text, expr.span[0], expr.span[1]
                 )
             elif expr.default_value is not None:
-                # Format default value appropriately for context
+                # Keep our specialized context detection for backward compatibility
                 formatted_value = self._format_value_for_context(
                     expr.default_value, text, expr.span[0], expr.span[1]
                 )
