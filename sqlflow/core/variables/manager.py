@@ -186,9 +186,15 @@ class VariableManager:
 
             if expr.variable_name in variables:
                 value = variables[expr.variable_name]
-                formatted_value = str(value) if value is not None else ""
+                # Format value appropriately for context
+                formatted_value = self._format_value_for_context(
+                    value, text, expr.span[0], expr.span[1]
+                )
             elif expr.default_value is not None:
-                formatted_value = expr.default_value
+                # Format default value appropriately for context
+                formatted_value = self._format_value_for_context(
+                    expr.default_value, text, expr.span[0], expr.span[1]
+                )
             else:
                 # Variable not found and no default - log warning and return placeholder
                 logger.warning(
@@ -207,6 +213,65 @@ class VariableManager:
 
         return "".join(new_parts)
 
+    def _format_value_for_context(
+        self, value: Any, text: str, start_pos: int, end_pos: int
+    ) -> str:
+        """Format a value appropriately based on the surrounding context.
+
+        This method detects conditional contexts and applies appropriate formatting
+        to ensure valid syntax in conditional expressions.
+
+        Args:
+            value: The value to format
+            text: The full text containing the variable
+            start_pos: Start position of the variable in the text
+            end_pos: End position of the variable in the text
+
+        Returns:
+            Appropriately formatted value
+        """
+        # Convert value to string first
+        str_value = str(value) if value is not None else ""
+
+        # Only apply special formatting for conditional expressions in IF statements
+        # Check for very specific IF statement conditional patterns that need quoting
+        import re
+
+        # Look for IF statement context first - this is the key distinction
+        # The original issue was: IF ${target_region|global} == 'us-east' THEN
+        # We should NOT quote in SQL WHERE clauses like: WHERE ${column} >= '${value}'
+        context_before = text[:start_pos].strip()
+        context_after = text[end_pos:].strip()
+
+        # Check if we're in an IF statement conditional (not SQL WHERE clause)
+        is_if_statement = re.search(r"\bIF\b.*$", context_before, re.IGNORECASE)
+
+        # Look for conditional comparison operators only in IF context
+        conditional_comparison_pattern = (
+            r"\s*(==|!=)\s"  # Only equality operators, not SQL comparison
+        )
+
+        is_conditional_comparison = is_if_statement and re.match(
+            conditional_comparison_pattern, context_after
+        )
+
+        # Only quote if we're in an IF conditional comparison context AND it's a string value
+        if is_conditional_comparison and isinstance(value, str):
+            # Check if it's already quoted
+            if (str_value.startswith('"') and str_value.endswith('"')) or (
+                str_value.startswith("'") and str_value.endswith("'")
+            ):
+                return str_value
+
+            # Check if it's a number or boolean
+            if str_value.lower() in ("true", "false") or str_value.isdigit():
+                return str_value
+
+            # For string identifiers in conditional context, add quotes
+            return f"'{str_value}'"
+
+        return str_value
+
     def _substitute_dict(
         self, data: Dict[str, Any], variables: Dict[str, Any]
     ) -> Dict[str, Any]:
@@ -222,6 +287,18 @@ class VariableManager:
     def _substitute_list(self, data: List[Any], variables: Dict[str, Any]) -> List[Any]:
         """Substitute variables in a list recursively."""
         return [self.substitute(item) for item in data]
+
+    def has_variable(self, variable_name: str) -> bool:
+        """Check if a variable exists in any of the variable sources.
+
+        Args:
+            variable_name: Name of the variable to check
+
+        Returns:
+            True if the variable exists in any source, False otherwise
+        """
+        resolved_vars = self._get_resolved_variables()
+        return variable_name in resolved_vars
 
     def validate(self, content: str) -> ValidationResult:
         """Validate variable usage in content.

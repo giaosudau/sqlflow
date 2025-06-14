@@ -266,6 +266,7 @@ class ConditionEvaluator:
             return value
         else:
             # Quote string values for AST evaluation unless already inside quotes
+            # This is critical for identifiers like 'global', 'us-east', etc.
             if inside_quotes:
                 return value
             return f"'{value}'"
@@ -349,7 +350,8 @@ class ConditionEvaluator:
 
         def quote_word_before_comparison(match):
             word = match.group(1)
-            # Don't quote Python keywords or boolean values
+            # Don't quote Python keywords or boolean values that should remain as identifiers
+            # Note: 'global' is intentionally excluded here because in our context it should be quoted as a string
             python_keywords = {"True", "False", "None", "and", "or", "not", "in", "is"}
             if word in python_keywords:
                 return match.group(0)  # Return unchanged
@@ -596,6 +598,7 @@ class ConditionEvaluator:
             # Treat unknown identifiers as string literals
             # This handles cases where unquoted strings are parsed as identifiers
             # including Python reserved keywords like 'global'
+            # This is the critical fix for the conditional pipelines 'global' issue
             logger.debug(f"Treating unknown identifier '{node.id}' as string literal")
             return node.id
 
