@@ -118,8 +118,8 @@ class ConditionEvaluator:
     def substitute_variables(self, condition: str) -> str:
         """Substitute variables in a condition string for condition evaluation.
 
-        Uses the new unified variable management system for consistent variable handling,
-        then applies condition-specific formatting for AST evaluation.
+        Phase 2 Architectural Cleanup: Now uses the unified VariableSubstitutionEngine
+        with AST context for consistent behavior across the system.
 
         Args:
         ----
@@ -130,45 +130,13 @@ class ConditionEvaluator:
             Condition with variables substituted and formatted for AST evaluation
 
         """
-        from sqlflow.core.variables.parser import StandardVariableParser
+        from sqlflow.core.variables.substitution_engine import (
+            VariableSubstitutionEngine,
+        )
 
-        parse_result = StandardVariableParser.find_variables(condition)
-
-        if not parse_result.has_variables:
-            return condition
-
-        new_parts = []
-        last_end = 0
-
-        for expr in parse_result.expressions:
-            # Append the text between the last match and this one
-            new_parts.append(condition[last_end : expr.span[0]])
-
-            # Check if variable is inside quotes using proper context detection
-            start_pos = expr.span[0]
-            end_pos = expr.span[1]
-            inside_quotes = self._is_inside_quoted_string(condition, start_pos, end_pos)
-
-            formatted_value = None
-            if expr.variable_name in self.variables:
-                value = self.variables[expr.variable_name]
-                formatted_value = self._format_value_for_ast(value, inside_quotes)
-            elif expr.default_value is not None:
-                formatted_value = self._format_value_for_ast(
-                    expr.default_value, inside_quotes
-                )
-            else:
-                # For AST evaluation, missing variables become None
-                formatted_value = "None"
-
-            # Append the substituted value
-            new_parts.append(formatted_value)
-            last_end = expr.span[1]
-
-        # Append the rest of the string after the last match
-        new_parts.append(condition[last_end:])
-
-        return "".join(new_parts)
+        # Create engine with current variables and use AST context
+        engine = VariableSubstitutionEngine(self.variables)
+        return engine.substitute(condition, context="ast")
 
     def _is_inside_quotes(self, condition: str, start_pos: int, end_pos: int) -> bool:
         """Check if a variable is inside quotes."""

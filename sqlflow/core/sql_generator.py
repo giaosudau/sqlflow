@@ -376,7 +376,10 @@ COPY (
     def _substitute_variables(
         self, sql: str, variables: Dict[str, Any]
     ) -> tuple[str, int]:
-        """Substitute variables in SQL with standardized parsing.
+        """Substitute variables in SQL with unified engine.
+
+        Phase 2 Architectural Cleanup: Now uses the unified VariableSubstitutionEngine
+        with SQL context for consistent behavior across the system.
 
         Args:
         ----
@@ -393,128 +396,27 @@ COPY (
         if not sql:
             return "", 0
 
-        from sqlflow.core.variables.parser import StandardVariableParser
+        from sqlflow.core.variables.substitution_engine import (
+            VariableSubstitutionEngine,
+        )
+        from sqlflow.core.variables.unified_parser import get_unified_parser
 
-        parse_result = StandardVariableParser.find_variables(sql)
+        # Use unified engine for substitution
+        engine = VariableSubstitutionEngine(variables)
+        substituted_sql = engine.substitute(sql, context="sql")
 
-        if not parse_result.has_variables:
-            return sql, 0
-
-        logger.debug(
-            f"Substituting variables in SQL with {len(parse_result.expressions)} expressions"
+        # Count replacements for compatibility
+        parser = get_unified_parser()
+        parse_result = parser.parse(sql)
+        total_replacements = (
+            len(parse_result.expressions) if parse_result.has_variables else 0
         )
 
-        new_parts = []
-        last_end = 0
-        total_replacements = 0
+        logger.debug(
+            f"Variable substitution complete using unified engine. Replacements: {total_replacements}"
+        )
 
-        for expr in parse_result.expressions:
-            # Append the text between the last match and this one
-            new_parts.append(sql[last_end : expr.span[0]])
+        return substituted_sql, total_replacements
 
-            # Check if variable is inside quotes using proper context detection
-            start_pos = expr.span[0]
-            end_pos = expr.span[1]
-            inside_quotes = self._is_inside_quoted_string(sql, start_pos, end_pos)
 
-            formatted_value = None
-            if expr.variable_name in variables:
-                value = variables[expr.variable_name]
-                formatted_value = self._format_sql_value_for_context(
-                    value, inside_quotes
-                )
-                total_replacements += 1
-            elif expr.default_value is not None:
-                formatted_value = self._format_sql_value_for_context(
-                    expr.default_value, inside_quotes
-                )
-                total_replacements += 1
-            else:
-                logger.warning(f"Variable '{expr.variable_name}' not found")
-                formatted_value = "NULL"
-                total_replacements += 1
-
-            # Append the substituted value
-            new_parts.append(formatted_value)
-            last_end = expr.span[1]
-
-        # Append the rest of the string after the last match
-        new_parts.append(sql[last_end:])
-
-        # Log summary of replacements
-        if total_replacements > 0:
-            logger.debug(
-                f"Completed variable substitution: {total_replacements} total replacements"
-            )
-
-        return "".join(new_parts), total_replacements
-
-    def _format_sql_value_for_context(
-        self, value: Any, inside_quotes: bool = False
-    ) -> str:
-        """Format a value for SQL context based on its type and position."""
-        if value is None:
-            return "NULL"
-        elif isinstance(value, bool):
-            return str(value).lower()
-        elif isinstance(value, (int, float)):
-            return str(value)
-        elif isinstance(value, str):
-            # If already inside quotes, return the raw value
-            if inside_quotes:
-                return value
-
-            # Check if the value is already quoted
-            if (value.startswith("'") and value.endswith("'")) or (
-                value.startswith('"') and value.endswith('"')
-            ):
-                return value
-            # Check if it's a plain numeric string
-            if (
-                value.replace(".", "")
-                .replace("-", "")
-                .replace("+", "")
-                .replace("e", "")
-                .replace("E", "")
-                .isdigit()
-            ):
-                return value
-            # Check if it's a boolean string
-            if value.lower() in ("true", "false"):
-                return value.lower()
-            # Escape single quotes and wrap in quotes
-            escaped_value = value.replace("'", "''")
-            return "'" + escaped_value + "'"
-        else:
-            # For any other type, convert to string and quote
-            if inside_quotes:
-                return str(value)
-            return "'" + str(value) + "'"
-
-    def _is_inside_quoted_string(self, sql: str, start_pos: int, end_pos: int) -> bool:
-        """Check if a position is inside a quoted string."""
-        # Track quote state by scanning from beginning
-        in_single_quotes = False
-        in_double_quotes = False
-        i = 0
-
-        while i < start_pos:
-            char = sql[i]
-
-            if char == "'" and not in_double_quotes:
-                # Check for escaped quote
-                if i > 0 and sql[i - 1] == "\\":
-                    i += 1
-                    continue
-                in_single_quotes = not in_single_quotes
-            elif char == '"' and not in_single_quotes:
-                # Check for escaped quote
-                if i > 0 and sql[i - 1] == "\\":
-                    i += 1
-                    continue
-                in_double_quotes = not in_double_quotes
-
-            i += 1
-
-        # Variable is inside quotes if we're currently in a quoted section
-        return in_single_quotes or in_double_quotes
+# Phase 2 Cleanup: Removed legacy formatting methods - now using unified VariableSubstitutionEngine

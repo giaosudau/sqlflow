@@ -26,11 +26,6 @@ class VariableHandler:
         self._manager = VariableManager(config)
         logger.debug("VariableHandler initialized with VariableManager system")
 
-        # Keep var_pattern for backward compatibility with existing tests
-        import re
-
-        self.var_pattern = re.compile(r"\$\{([^}|]+)(?:\|([^}]+))?\}")
-
     @property
     def variables(self) -> Dict[str, Any]:
         """Get the variables dictionary for backward compatibility."""
@@ -53,36 +48,6 @@ class VariableHandler:
 
         # Use new VariableManager system
         return self._manager.substitute(text)
-
-    def _substitute_variables_legacy(self, text: str) -> str:
-        """Legacy variable substitution implementation.
-
-        Maintains exact original behavior for backward compatibility.
-        """
-        # Use custom implementation to maintain exact logging behavior expected by tests
-        import re
-
-        var_pattern = re.compile(r"\$\{([^}|]+)(?:\|([^}]+))?\}")
-
-        def replace(match: re.Match) -> str:
-            var_name, default = self._parse_variable_expr(match.group(0))
-            value = self._variables.get(var_name)
-
-            if value is None and default is None:
-                logger.warning(
-                    f"Variable '{var_name}' not found and no default provided"
-                )
-                return match.group(0)  # Keep original text
-
-            if value is None:
-                logger.debug(
-                    f"Using default value '{default}' for variable '{var_name}'"
-                )
-                return str(default)
-
-            return str(value)
-
-        return var_pattern.sub(replace, text)
 
     def validate_variable_usage(self, text: str) -> bool:
         """Validate that all required variables are provided.

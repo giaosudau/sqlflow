@@ -201,6 +201,10 @@ class UnifiedVariableParser:
 
         inner_value = value[1:-1]
 
+        # Check for comma-separated values (like 'active','pending')
+        if "','" in value:
+            return False
+
         # Consider it complex if it contains SQL-like patterns or special characters
         complex_patterns = [
             r"\bSELECT\b",
