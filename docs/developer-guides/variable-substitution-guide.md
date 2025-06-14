@@ -157,4 +157,10 @@ def test_variable_substitution():
     assert "test_users" in result
 ```
 
-For more examples, see the `examples/` directory in the SQLFlow repository. 
+For more examples, see the `examples/` directory in the SQLFlow repository.
+
+## Related Documentation
+
+- **Architecture Deep Dive**: [Variable Substitution Architecture](variable-substitution-architecture.md)
+- **Migration Guide**: [Variable Parsing Migration](../migration/variable-parsing-migration.md)
+- **Building Connectors**: [Building Connectors Guide](building-connectors.md) 
