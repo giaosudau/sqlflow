@@ -8,9 +8,10 @@ This implements the Task 2.1 objectives:
 - Resolve technical issues preventing CLI functionality
 """
 
+import json
 import os
 import sys
-from typing import List
+from typing import Any, Dict, List, Optional, Tuple
 
 import typer
 
@@ -138,8 +139,130 @@ def _handle_pipeline_command(cmd: str, args: List[str]) -> None:
     )
 
 
+def parse_pipeline_args(
+    args: List[str],
+) -> Tuple[str, Optional[str], Optional[Dict[str, Any]]]:
+    """Parse pipeline command arguments.
+
+    Returns:
+        Tuple of (pipeline_name, profile, variables)
+    """
+    pipeline_name = args[0]
+    profile = None
+    variables = None
+
+    # Parse additional arguments
+    i = 1
+    while i < len(args):
+        if args[i] == "--profile" and i + 1 < len(args):
+            profile = args[i + 1]
+            i += 2
+        elif args[i] == "--variables" and i + 1 < len(args):
+            try:
+                variables = json.loads(args[i + 1])
+            except json.JSONDecodeError:
+                print(f"Error: Invalid JSON in variables: {args[i + 1]}")
+                sys.exit(1)
+            i += 2
+        else:
+            i += 1
+
+    return pipeline_name, profile, variables
+
+
+def parse_profile_from_args(args: List[str]) -> Optional[str]:
+    """Parse profile from command arguments."""
+    for i, arg in enumerate(args):
+        if arg == "--profile" and i + 1 < len(args):
+            return args[i + 1]
+    return None
+
+
+def _handle_pipeline_list_command(args: List[str]) -> None:
+    """Handle pipeline list command."""
+    from sqlflow.cli.business_operations import list_pipelines_operation
+    from sqlflow.cli.display import display_pipelines_list
+
+    profile = parse_profile_from_args(args[1:])
+    pipelines = list_pipelines_operation(profile)
+    display_pipelines_list(pipelines)
+
+
+def _handle_pipeline_compile_command(args: List[str]) -> None:
+    """Handle pipeline compile command."""
+    from sqlflow.cli.business_operations import compile_pipeline_operation
+    from sqlflow.cli.display import display_compilation_success
+
+    if len(args) < 2:
+        print("Error: Pipeline name required")
+        return
+
+    pipeline_name, profile, variables = parse_pipeline_args(args[1:])
+    operations, output_path = compile_pipeline_operation(
+        pipeline_name, profile, variables
+    )
+    display_compilation_success(
+        pipeline_name, profile or "dev", len(operations), output_path
+    )
+
+
+def _handle_pipeline_run_command(args: List[str]) -> None:
+    """Handle pipeline run command."""
+    from sqlflow.cli.business_operations import run_pipeline_operation
+    from sqlflow.cli.display import display_execution_success
+
+    if len(args) < 2:
+        print("Error: Pipeline name required")
+        return
+
+    pipeline_name, profile, variables = parse_pipeline_args(args[1:])
+    results = run_pipeline_operation(pipeline_name, profile, variables)
+    display_execution_success(pipeline_name, profile or "dev", results)
+
+
+def _handle_pipeline_validate_command(args: List[str]) -> None:
+    """Handle pipeline validate command."""
+    from sqlflow.cli.business_operations import validate_pipeline_operation
+    from sqlflow.cli.display import display_validation_result
+
+    if len(args) < 2:
+        print("Error: Pipeline name required")
+        return
+
+    pipeline_name = args[1]
+    profile = parse_profile_from_args(args[2:])
+    is_valid, errors = validate_pipeline_operation(pipeline_name, profile)
+    display_validation_result(pipeline_name, is_valid, errors)
+
+
+def _route_pipeline_command(cmd: str, args: List[str]) -> None:
+    """Route pipeline command to appropriate handler."""
+    if cmd == "list":
+        _handle_pipeline_list_command(args)
+    elif cmd == "compile":
+        _handle_pipeline_compile_command(args)
+    elif cmd == "run":
+        _handle_pipeline_run_command(args)
+    elif cmd == "validate":
+        _handle_pipeline_validate_command(args)
+    else:
+        print(f"Unknown pipeline command: {cmd}")
+        print("Use 'pipeline --help' for available commands")
+
+
 def run_pipeline_commands(args: List[str], verbose: bool = False) -> None:
-    """Run pipeline commands - integrates with existing pipeline module."""
+    """Run pipeline commands using business operations and factory functions."""
+    from sqlflow.cli.errors import (
+        PipelineNotFoundError,
+        PipelineValidationError,
+        ProfileNotFoundError,
+    )
+    from sqlflow.cli.display import (
+        display_pipeline_not_found_error,
+        display_profile_not_found_error,
+        display_validation_error,
+    )
+
     setup_environment(verbose)
 
     if not args or args[0] in ["--help", "-h", "help"]:
@@ -150,16 +273,20 @@ def run_pipeline_commands(args: List[str], verbose: bool = False) -> None:
         cmd = args[0]
         print(f"🔧 Executing pipeline {cmd}...")
 
-        if cmd == "list":
-            _list_pipelines()
-        elif cmd in ["compile", "run", "validate"]:
-            _handle_pipeline_command(cmd, args)
-        else:
-            print(f"Unknown pipeline command: {cmd}")
-            print("Use 'pipeline --help' for available commands")
+        _route_pipeline_command(cmd, args)
 
+    except PipelineNotFoundError as e:
+        display_pipeline_not_found_error(e)
+        sys.exit(1)
+    except ProfileNotFoundError as e:
+        display_profile_not_found_error(e)
+        sys.exit(1)
+    except PipelineValidationError as e:
+        display_validation_error(e)
+        sys.exit(1)
     except Exception as e:
         print(f"Error running pipeline command: {e}")
+        sys.exit(1)
 
 
 def run_connect_commands(args: List[str], verbose: bool = False) -> None:
