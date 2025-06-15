@@ -7,6 +7,7 @@ following the technical design's approach for professional UX.
 from typing import Any, Dict, List
 
 from rich.console import Console
+from rich.panel import Panel
 from rich.table import Table
 
 from sqlflow.cli.errors import (
@@ -58,6 +59,18 @@ def display_variable_parsing_error(error: VariableParsingError) -> None:
 
     for suggestion in error.suggestions:
         console.print(f"💡 [yellow]{suggestion}[/yellow]")
+
+
+def display_json_error() -> None:
+    """Display JSON parsing error with example.
+
+    This function provides a simple JSON error display as specified
+    in the technical design document.
+    """
+    console.print("❌ [bold red]Invalid JSON in variables parameter[/bold red]")
+    console.print(
+        '💡 [yellow]Example:[/yellow] --variables \'{"env": "prod", "debug": true}\''
+    )
 
 
 def display_pipeline_validation_error(error: PipelineValidationError) -> None:
@@ -176,3 +189,21 @@ def display_success(message: str) -> None:
 def display_error(message: str) -> None:
     """Display a generic error message."""
     console.print(f"❌ [red]{message}[/red]")
+
+
+def display_error_with_panel(
+    title: str, message: str, suggestions: List[str] = None
+) -> None:
+    """Display error in a Rich panel with optional suggestions.
+
+    This provides a more structured error display format for complex errors.
+    """
+    content = f"[red]{message}[/red]"
+
+    if suggestions:
+        content += "\n\n[yellow]💡 Suggestions:[/yellow]"
+        for suggestion in suggestions:
+            content += f"\n  • {suggestion}"
+
+    panel = Panel(content, title=f"❌ {title}", border_style="red", expand=False)
+    console.print(panel)
