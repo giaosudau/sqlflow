@@ -8,7 +8,11 @@ from rich.table import Table
 
 from sqlflow.utils.env import find_project_root, get_env_var, list_env_vars
 
-app = typer.Typer(help="Manage environment variables")
+env_app = typer.Typer(
+    help="Manage environment variables",
+    rich_markup_mode=None,
+    pretty_exceptions_enable=False,
+)
 console = Console()
 
 
@@ -59,7 +63,7 @@ def _format_rich_output(
         )
 
 
-@app.command("list")
+@env_app.command("list")
 def list_env_variables(
     prefix: Optional[str] = typer.Option(
         None, "--prefix", "-p", help="Filter variables by prefix (e.g., 'SQLFLOW_')"
@@ -93,7 +97,7 @@ def list_env_variables(
         _format_rich_output(env_vars, show_values, prefix)
 
 
-@app.command("get")
+@env_app.command("get")
 def get_env_variable(
     name: str = typer.Argument(..., help="Environment variable name"),
     default: Optional[str] = typer.Option(
@@ -110,7 +114,7 @@ def get_env_variable(
         typer.echo(value)
 
 
-@app.command("check")
+@env_app.command("check")
 def check_env_file():
     """Check if a .env file exists in the SQLFlow project and show its status."""
     project_root = find_project_root()
@@ -160,7 +164,7 @@ def check_env_file():
         typer.echo("   echo 'API_KEY=your_api_key' >> .env")
 
 
-@app.command("template")
+@env_app.command("template")
 def create_env_template():
     """Create a sample .env file template in the current SQLFlow project."""
     project_root = find_project_root()
