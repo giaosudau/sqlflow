@@ -182,7 +182,7 @@ class ServiceHealthChecker(ServiceHealthInterface):
                 "-T",
                 "sqlflow",
                 "sqlflow",
-                "--version",
+                "version",
             ]
             result = subprocess.run(cmd, capture_output=True, timeout=10)
             return result.returncode == 0

@@ -10,6 +10,7 @@ variables:
   date: ${DATE}
   API_TOKEN: ${API_TOKEN}
   DB_CONN: "postgresql://sqlflow:sqlflow123@postgres:5432/ecommerce"
+  env: "development"
 
 connectors:
   postgres:

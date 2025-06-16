@@ -143,6 +143,8 @@ class PipelineRunner:
 
         try:
             # Run SQLFlow pipeline inside Docker container where services are accessible
+            # Extract pipeline name without .sf extension
+            pipeline_name = Path(test.pipeline_file).stem
             cmd = [
                 "docker",
                 "compose",
@@ -152,7 +154,7 @@ class PipelineRunner:
                 "sqlflow",
                 "pipeline",
                 "run",
-                test.pipeline_path,
+                pipeline_name,
                 "--profile",
                 "docker",
             ]

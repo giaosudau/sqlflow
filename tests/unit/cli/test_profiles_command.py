@@ -6,7 +6,7 @@ covering list, validate, and show profile commands.
 
 import os
 import tempfile
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import pytest
 from typer.testing import CliRunner
@@ -19,7 +19,7 @@ class TestProfilesListCommand:
 
     def setup_method(self):
         """Set up test fixtures."""
-        self.runner = CliRunner()
+        self.runner = CliRunner(env={"NO_COLOR": "1"})
 
     def test_list_profiles_success(self):
         """Test successful profile listing."""
@@ -151,7 +151,7 @@ class TestProfilesValidateCommand:
 
     def setup_method(self):
         """Set up test fixtures."""
-        self.runner = CliRunner()
+        self.runner = CliRunner(env={"NO_COLOR": "1"})
 
     def test_validate_single_profile_success(self):
         """Test successful validation of a single profile."""
@@ -298,7 +298,7 @@ class TestProfilesShowCommand:
 
     def setup_method(self):
         """Set up test fixtures."""
-        self.runner = CliRunner()
+        self.runner = CliRunner(env={"NO_COLOR": "1"})
 
     def test_show_complete_profile(self):
         """Test showing complete profile configuration."""
@@ -454,7 +454,7 @@ class TestProfilesIntegration:
 
     def setup_method(self):
         """Set up test fixtures."""
-        self.runner = CliRunner()
+        self.runner = CliRunner(env={"NO_COLOR": "1"})
 
     def test_profiles_help(self):
         """Test that profiles help shows available commands."""
@@ -466,13 +466,11 @@ class TestProfilesIntegration:
         # Skip help test due to typer version compatibility issues
         # The functionality is tested in the actual command tests
 
-    @patch("sqlflow.cli.commands.profiles.ProfileManager")
-    def test_error_handling_with_mock(self, mock_profile_manager):
+    @patch("sqlflow.cli.commands.profiles._validate_single_profile_detailed")
+    def test_error_handling_with_mock(self, mock_validate):
         """Test error handling with mocked dependencies."""
         # Setup mock to raise exception
-        mock_instance = Mock()
-        mock_instance.validate_profile.side_effect = Exception("Test error")
-        mock_profile_manager.return_value = mock_instance
+        mock_validate.side_effect = Exception("Test error")
 
         with tempfile.TemporaryDirectory() as temp_dir:
             profiles_dir = os.path.join(temp_dir, "profiles")
@@ -486,7 +484,7 @@ class TestProfilesIntegration:
             )
 
             assert result.exit_code == 1
-            assert "Error" in result.stdout
+            assert "Validation failed" in result.stdout
 
     def test_real_world_scenario(self):
         """Test a realistic scenario with multiple profiles and operations."""

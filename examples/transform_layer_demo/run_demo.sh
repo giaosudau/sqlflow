@@ -41,7 +41,9 @@ run_pipeline() {
     
     # Capture both output and exit code
     local exit_code=0
-    sqlflow pipeline run "pipelines/${pipeline_file}" --profile dev || exit_code=$?
+    # Extract pipeline name without .sf extension
+    local pipeline_base_name="${pipeline_file%.sf}"
+    sqlflow pipeline run "${pipeline_base_name}" --profile dev || exit_code=$?
     
     if [ $exit_code -eq 0 ]; then
         echo -e "${GREEN}   ✅ SUCCESS: ${pipeline_name} completed${NC}"

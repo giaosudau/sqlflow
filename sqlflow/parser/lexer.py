@@ -23,7 +23,8 @@ def replace_variables_for_validation(
         var = match.group(0)[2:-1]  # Strip ${ and }
         if "|" in var:
             var = var.split("|")[0]
-        return f'"{dummy_values.get(var, "dummy")}"'
+        # Don't add quotes - let the context determine if quotes are needed
+        return dummy_values.get(var, "dummy")
 
     # First, replace variables with dummy values
     from sqlflow.core.variables.unified_parser import get_unified_parser
@@ -85,6 +86,7 @@ class TokenType(Enum):
     VARIABLE_DEFAULT = auto()  # For default values in ${var|default}
 
     SEMICOLON = auto()
+    COLON = auto()  # NEW: For JSON key-value pairs
     EQUALS = auto()  # For assignment operations
     PIPE = auto()  # For variable default values
     CONCAT = auto()  # For SQL string concatenation operator ||
@@ -210,6 +212,7 @@ class Lexer:
             (TokenType.RIGHT_PAREN, re.compile(r"\)")),
             (TokenType.COMMA, re.compile(r",")),
             (TokenType.SEMICOLON, re.compile(r";")),
+            (TokenType.COLON, re.compile(r":")),  # NEW: For JSON key-value pairs
             (TokenType.DOT, re.compile(r"\.")),
             (
                 TokenType.STRING,
@@ -372,11 +375,105 @@ class Lexer:
         except json.JSONDecodeError:
             return False
 
+    def _detect_variable_syntax(
+        self,
+        char: str,
+        next_char: str,
+        in_string: bool,
+        escape_next: bool,
+        in_variable: bool,
+    ) -> bool:
+        """Detect variable syntax transitions within strings.
+
+        Args:
+            char: Current character
+            next_char: Next character (or empty string if at end)
+            in_string: Whether we're currently inside a string
+            escape_next: Whether the next character should be escaped
+            in_variable: Whether we're currently inside ${...} variable syntax
+
+        Returns:
+            New in_variable status
+        """
+        if not in_string or escape_next:
+            return in_variable
+
+        # Check for start of variable syntax ${
+        if char == "$" and next_char == "{":
+            return True
+        # Check for end of variable syntax }
+        elif in_variable and char == "}":
+            return False
+
+        return in_variable
+
+    def _process_json_character(
+        self,
+        char: str,
+        next_char: str,
+        i: int,
+        in_string: bool,
+        escape_next: bool,
+        in_variable: bool,
+        depth: int,
+        start_pos: int,
+    ) -> Tuple[bool, bool, bool, int, str, bool]:
+        """Process a single character in JSON extraction.
+
+        Args:
+            char: Current character
+            next_char: Next character (or empty string if at end)
+            i: Current position
+            in_string: Whether we're inside a string
+            escape_next: Whether next character should be escaped
+            in_variable: Whether we're inside ${...} variable syntax
+            depth: Current JSON nesting depth
+            start_pos: Starting position of JSON text
+
+        Returns:
+            Tuple of (new_in_string, new_escape_next, new_in_variable, new_depth, json_text_or_empty, found_end)
+        """
+        # Track string state and handle escape sequences
+        in_string, escape_next = self._is_character_in_string(
+            in_string, escape_next, char
+        )
+
+        # Enhanced variable detection inside strings
+        in_variable = self._detect_variable_syntax(
+            char, next_char, in_string, escape_next, in_variable
+        )
+
+        # Track JSON structure depth, but ignore braces inside variable syntax
+        if not in_string:
+            if char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+        elif in_string and not in_variable:
+            # Inside string but not in variable - normal string content
+            pass
+        # If we're inside a variable (in_string and in_variable), ignore braces for depth
+
+        # Check if we've reached the end of the JSON object
+        if not in_string and char == "}" and depth == 0:
+            # Found the end of the JSON object
+            json_text = self.text[start_pos : i + 1]
+
+            # Validate JSON structure
+            if self._check_json_validity(json_text):
+                # Don't update position here - that will be done in _tokenize_next
+                return in_string, escape_next, in_variable, depth, json_text, True
+            else:
+                # Keep searching if invalid to find potential multi-line JSON
+                depth = 1
+
+        return in_string, escape_next, in_variable, depth, "", False
+
     def _extract_json_object(self) -> Tuple[str, bool]:
         """Extract a JSON object from the input text.
 
         Handles both single-line and multi-line JSON objects, preserving formatting.
-        Properly handles nested objects, arrays, and quoted strings.
+        Properly handles nested objects, arrays, quoted strings, and variable syntax.
 
         Returns
         -------
@@ -389,6 +486,7 @@ class Lexer:
         depth = 0
         in_string = False
         escape_next = False
+        in_variable = False  # Track if we're inside ${...} variable syntax
         start_pos = self.pos
         start_line = self.line
         start_col = self.column
@@ -399,27 +497,24 @@ class Lexer:
         i = start_pos
         while i < len(self.text):
             char = self.text[i]
+            next_char = self.text[i + 1] if i + 1 < len(self.text) else ""
 
-            # Track string state and handle escape sequences
-            in_string, escape_next = self._is_character_in_string(
-                in_string, escape_next, char
+            # Process character and check for JSON end
+            in_string, escape_next, in_variable, depth, json_text, found_end = (
+                self._process_json_character(
+                    char,
+                    next_char,
+                    i,
+                    in_string,
+                    escape_next,
+                    in_variable,
+                    depth,
+                    start_pos,
+                )
             )
 
-            # Track JSON structure depth
-            depth = self._update_json_depth(char, in_string, depth)
-
-            # Check if we've reached the end of the JSON object
-            if not in_string and char == "}" and depth == 0:
-                # Found the end of the JSON object
-                json_text = self.text[start_pos : i + 1]
-
-                # Validate JSON structure
-                if self._check_json_validity(json_text):
-                    # Don't update position here - that will be done in _tokenize_next
-                    return json_text, True
-                else:
-                    # Keep searching if invalid to find potential multi-line JSON
-                    depth = 1
+            if found_end:
+                return json_text, True
 
             # Track line numbers
             if char == "\n":

@@ -215,8 +215,11 @@ def validate_pipeline_operation(
 
 
 # Profile Operations
-def list_profiles_operation() -> List[Dict[str, Any]]:
+def list_profiles_operation(project_dir: Optional[str] = None) -> List[Dict[str, Any]]:
     """List available profiles.
+
+    Args:
+        project_dir: Optional project directory (defaults to current directory)
 
     Returns:
         List of profile dictionaries
@@ -224,14 +227,16 @@ def list_profiles_operation() -> List[Dict[str, Any]]:
     Raises:
         ProfileNotFoundError: If no project found
     """
-    project = load_project_for_command()
-    if not project:
-        raise ProfileNotFoundError(
-            "dev", ["No SQLFlow project found in current directory"]
-        )
-
-    profiles_dir = os.path.join(project.project_dir, "profiles")
+    # Use specified project directory or current directory
+    current_dir = project_dir or os.getcwd()
+    profiles_dir = os.path.join(current_dir, "profiles")
     profiles = []
+
+    # Check if profiles directory exists
+    if not os.path.exists(profiles_dir):
+        raise ProfileNotFoundError(
+            "profiles", [f"Profiles directory not found: {profiles_dir}"]
+        )
 
     if os.path.exists(profiles_dir):
         for filename in os.listdir(profiles_dir):
@@ -240,10 +245,12 @@ def list_profiles_operation() -> List[Dict[str, Any]]:
                 profile_path = os.path.join(profiles_dir, filename)
 
                 # Try to determine if profile is valid
+                # Use simpler validation - just check if YAML is parseable
                 try:
-                    from sqlflow.project import Project
+                    import yaml
 
-                    Project(project.project_dir, profile_name)
+                    with open(profile_path, "r") as f:
+                        yaml.safe_load(f)
                     status = "valid"
                     description = "Profile loaded successfully"
                 except Exception as e:
@@ -258,6 +265,12 @@ def list_profiles_operation() -> List[Dict[str, Any]]:
                         "description": description,
                     }
                 )
+
+    # Check if no profiles were found
+    if not profiles:
+        raise ProfileNotFoundError(
+            "profiles", [f"No profile files found in: {profiles_dir}"]
+        )
 
     # Sort by name for consistent output
     profiles.sort(key=lambda p: p["name"])
@@ -325,24 +338,33 @@ def init_project_operation(project_dir: str, project_name: str) -> str:
 
 # Helper Functions
 def save_compilation_result(
-    operations: List[Dict[str, Any]], pipeline_name: str, output_dir: str
+    operations: List[Dict[str, Any]], pipeline_name: str, output_dir: str = "target"
 ) -> str:
     """Save compilation result to file.
 
     Args:
         operations: List of compiled operations
         pipeline_name: Name of the pipeline
-        output_dir: Directory to save output
+        output_dir: Directory to save output, or complete file path if ends with .json
 
     Returns:
         Path to saved file
     """
-    # Ensure output directory exists
-    os.makedirs(output_dir, exist_ok=True)
+    # Check if output_dir is actually a complete file path
+    if output_dir.endswith(".json"):
+        output_path = output_dir
+        # Ensure directory exists
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    else:
+        # Create compiled subdirectory in output directory
+        compiled_dir = os.path.join(output_dir, "compiled")
 
-    # Create output filename
-    output_filename = f"{pipeline_name}_compiled.json"
-    output_path = os.path.join(output_dir, output_filename)
+        # Ensure output directory exists
+        os.makedirs(compiled_dir, exist_ok=True)
+
+        # Create output filename
+        output_filename = f"{pipeline_name}.json"
+        output_path = os.path.join(compiled_dir, output_filename)
 
     # Save compilation result
     with open(output_path, "w") as f:

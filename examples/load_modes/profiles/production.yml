@@ -1,0 +1,9 @@
+engines:
+  duckdb:
+    mode: persistent
+    database_path: "load_modes_production.db"
+    memory_limit: 2GB
+
+variables:
+  output_dir: "output"
+  data_dir: "data" 

@@ -1,0 +1,8 @@
+engines:
+  duckdb:
+    mode: memory
+    memory_limit: 1GB
+
+variables:
+  output_dir: "output"
+  data_dir: "data" 

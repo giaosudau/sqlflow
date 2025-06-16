@@ -22,7 +22,7 @@ SOURCE customers_updates TYPE CSV PARAMS {
     "path": "${data_dir}/customer_updates.csv",
     "has_header": true,
     "sync_mode": "incremental",
-    "primary_key": "id", 
+    "primary_key": "id",
     "cursor_field": "updated_at"
 };
 
