@@ -10,15 +10,18 @@ from typing import Any, Dict, List, Optional, Tuple
 import typer
 from rich.console import Console
 
+from sqlflow.cli.advanced_display import (
+    display_execution_summary_with_metrics,
+    display_interactive_pipeline_selection,
+    display_pipeline_execution_progress,
+)
 from sqlflow.cli.business_operations import (
     compile_pipeline_operation,
     list_pipelines_operation,
-    run_pipeline_operation,
     validate_pipeline_operation,
 )
 from sqlflow.cli.display import (
     display_compilation_success,
-    display_execution_success,
     display_pipeline_not_found_error,
     display_pipeline_validation_error,
     display_pipelines_list,
@@ -42,6 +45,98 @@ pipeline_app = typer.Typer(
     name="pipeline",
     help="Pipeline management commands - compile, run, list, and validate pipelines",
 )
+
+
+def _get_pipeline_interactively(profile: str) -> str:
+    """Get pipeline name through interactive selection.
+
+    Args:
+        profile: Profile to use for listing pipelines
+
+    Returns:
+        Selected pipeline name
+
+    Raises:
+        typer.Exit: If no pipelines found or selection cancelled
+    """
+    pipelines = list_pipelines_operation(profile_name=profile)
+    if not pipelines:
+        console.print("📋 [yellow]No pipelines found[/yellow]")
+        console.print(
+            "💡 [dim]Create a pipeline file with .sf extension in pipelines/[/dim]"
+        )
+        raise typer.Exit(1)
+
+    return display_interactive_pipeline_selection(profile_name=profile)
+
+
+def _execute_pipeline_with_progress(
+    operations: List[Dict[str, Any]],
+    pipeline_name: str,
+    profile: str,
+    variables: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Execute pipeline operations with Rich progress display.
+
+    Args:
+        operations: List of operations to execute
+        pipeline_name: Name of the pipeline
+        profile: Profile to use
+        variables: Variables for execution
+
+    Returns:
+        Execution results dictionary
+    """
+    from sqlflow.cli.factories import create_executor_for_command
+
+    def executor_callback(operation):
+        """Callback function to execute a single operation."""
+        executor = create_executor_for_command(profile, variables)
+        try:
+            result = executor.execute([operation], variables)
+            return {"status": "success", "result": result}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+
+    return display_pipeline_execution_progress(
+        operations=operations,
+        executor_callback=executor_callback,
+        pipeline_name=pipeline_name,
+    )
+
+
+def _display_execution_results(
+    results: Dict[str, Any],
+    pipeline_name: str,
+    summary: bool,
+    variables: Optional[Dict[str, Any]],
+) -> None:
+    """Display execution results with optional summary.
+
+    Args:
+        results: Execution results dictionary
+        pipeline_name: Name of the pipeline
+        summary: Whether to show detailed summary
+        variables: Variables used in execution
+    """
+    if summary:
+        display_execution_summary_with_metrics(
+            results=results, pipeline_name=pipeline_name, show_detailed_metrics=True
+        )
+    else:
+        # Show simple success message
+        if results.get("status") == "success":
+            duration = results.get("duration", 0.0)
+            steps_count = results.get("total_steps", 0)
+            console.print(
+                f"✅ [bold green]Pipeline '{pipeline_name}' completed successfully![/bold green]"
+            )
+            console.print(
+                f"📊 [dim]Executed {steps_count} steps in {duration:.2f}s[/dim]"
+            )
+            # Show variables if provided
+            if variables:
+                console.print(f"🔧 [dim]Variables: {variables}[/dim]")
 
 
 def _parse_variables_safely(variables: Optional[str]) -> Optional[Dict[str, Any]]:
@@ -91,7 +186,9 @@ def _parse_variables_safely(variables: Optional[str]) -> Optional[Dict[str, Any]
 
 @pipeline_app.command("compile")
 def compile_pipeline(
-    pipeline_name: str = typer.Argument(..., help="Pipeline name to compile"),
+    pipeline_name: Optional[str] = typer.Argument(
+        None, help="Pipeline name to compile (shows selection if omitted)"
+    ),
     profile: str = typer.Option("dev", "--profile", "-p", help="Profile to use"),
     variables: Optional[str] = typer.Option(
         None, "--variables", "--vars", help="Variables as JSON string"
@@ -100,18 +197,23 @@ def compile_pipeline(
         None, "--output-dir", help="Output directory for compilation results"
     ),
 ) -> None:
-    """Compile a pipeline to execution plan.
+    """Compile a pipeline to execution plan with Rich display. Shows interactive selection if no pipeline specified.
 
     Parses the pipeline file, validates syntax, creates an execution plan,
     and saves the result to the target directory.
 
     Args:
-        pipeline_name: Name of the pipeline to compile (without .sf extension)
+        pipeline_name: Name of the pipeline to compile (without .sf extension). If not provided, shows interactive selection.
         profile: Profile configuration to use (default: dev)
         variables: Optional variables as JSON string for substitution
         output_dir: Directory to save compilation output (default: target)
     """
     try:
+        # Auto-interactive when no pipeline name provided
+        if not pipeline_name:
+            pipeline_name = _get_pipeline_interactively(profile)
+            console.print(f"⚙️ Compiling: [cyan]{pipeline_name}[/cyan]")
+
         # Parse variables with type validation
         vars_dict = _parse_variables_safely(variables)
 
@@ -152,47 +254,49 @@ def compile_pipeline(
 
 @pipeline_app.command("run")
 def run_pipeline(
-    pipeline_name: str = typer.Argument(..., help="Pipeline name to run"),
+    pipeline_name: Optional[str] = typer.Argument(
+        None, help="Pipeline name to run (shows selection if omitted)"
+    ),
     profile: str = typer.Option("dev", "--profile", "-p", help="Profile to use"),
     variables: Optional[str] = typer.Option(
         None, "--variables", "--vars", help="Variables as JSON string"
     ),
+    summary: bool = typer.Option(False, "--summary", help="Show execution summary"),
 ) -> None:
-    """Execute a pipeline.
+    """Execute a pipeline with Rich progress. Shows interactive selection if no pipeline specified.
 
     Compiles and executes the pipeline using the specified profile and variables.
     Displays execution results with timing and status information.
 
     Args:
-        pipeline_name: Name of the pipeline to run (without .sf extension)
+        pipeline_name: Name of the pipeline to run (without .sf extension). If not provided, shows interactive selection.
         profile: Profile configuration to use (default: dev)
         variables: Optional variables as JSON string for substitution
+        summary: Show detailed execution summary after completion
     """
     try:
-        # Parse variables with type validation
+        # Auto-interactive when no pipeline name provided
+        if not pipeline_name:
+            pipeline_name = _get_pipeline_interactively(profile)
+            console.print(f"🚀 Running: [cyan]{pipeline_name}[/cyan]")
+
+        # Parse variables and compile pipeline
         vars_dict = _parse_variables_safely(variables)
-
-        # Execute business operation
-        results = run_pipeline_operation(
-            pipeline_name=pipeline_name,
-            profile_name=profile,
-            variables=vars_dict,
+        operations, _ = compile_pipeline_operation(
+            pipeline_name=pipeline_name, profile_name=profile, variables=vars_dict
         )
 
-        # Display success with Rich formatting
-        duration = results.get("execution_time", 0.0)
-        operation_count = results.get(
-            "operations_count", len(results.get("executed_steps", []))
+        # Execute with Rich progress display
+        results = _execute_pipeline_with_progress(
+            operations, pipeline_name, profile, vars_dict
         )
-        executed_steps = results.get("executed_steps", [])
-        display_execution_success(
-            pipeline_name=pipeline_name,
-            profile=profile,
-            duration=duration,
-            operation_count=operation_count,
-            executed_steps=executed_steps,
-            variables=vars_dict,
-        )
+
+        # Display results
+        _display_execution_results(results, pipeline_name, summary, vars_dict)
+
+        # Exit with error code if execution failed
+        if results.get("status") != "success":
+            raise typer.Exit(1)
 
         logger.info(f"Pipeline '{pipeline_name}' executed successfully")
 
