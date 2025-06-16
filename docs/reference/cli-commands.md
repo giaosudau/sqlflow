@@ -15,9 +15,8 @@ sqlflow [command] --help          # Show help for specific command
 
 | Option | Alias | Description |
 |--------|-------|-------------|
-| `--verbose` | `-v` | Enable detailed output with technical information |
-| `--quiet` | `-q` | Reduce output to essential information only |
-| `--version` | | Show SQLFlow version |
+| `--version` | | Show SQLFlow version and exit |
+| `--verbose` | `-v` | Enable verbose output |
 
 ## Project Management
 
@@ -26,19 +25,19 @@ sqlflow [command] --help          # Show help for specific command
 Initialize a new SQLFlow project with sample data and working pipelines.
 
 ```bash
-# Create project with sample data (recommended)
+# Create project (recommended)
 sqlflow init my_project
+
+# Create in specific directory
+sqlflow init my_project --directory /path/to/projects
 
 # Create minimal project structure
 sqlflow init my_project --minimal
-
-# Initialize and run demo pipeline immediately
-sqlflow init my_project --demo
 ```
 
 **Options:**
-- `--minimal`: Create minimal project structure without sample data
-- `--demo`: Initialize project and run a demo pipeline immediately
+- `--directory`, `-d`: Directory to create project in (default: project_name)
+- `--minimal`: Create minimal project structure without examples
 
 **Generated Structure:**
 ```
@@ -61,6 +60,26 @@ my_project/
 └── README.md
 ```
 
+### `sqlflow status`
+
+Show SQLFlow project status and configuration.
+
+```bash
+sqlflow status
+```
+
+Displays information about the current project, profiles, pipelines, and environment configuration.
+
+### `sqlflow version`
+
+Show SQLFlow version information.
+
+```bash
+sqlflow version
+```
+
+Shows version details including SQLFlow, Python, and dependency versions.
+
 ## Pipeline Commands
 
 ### `sqlflow pipeline list`
@@ -70,12 +89,12 @@ List all available pipelines in the current project.
 ```bash
 sqlflow pipeline list
 sqlflow pipeline list --profile prod
+sqlflow pipeline list --format json
 ```
 
 **Options:**
 - `--profile`, `-p`: Profile to use (default: dev)
-- `--quiet`, `-q`: Reduce output to essential information only
-- `--verbose`, `-v`: Enable verbose output with technical details
+- `--format`: Output format: table or json (default: table)
 
 **Output Example:**
 ```
@@ -96,7 +115,7 @@ sqlflow pipeline validate customer_analytics
 # Validate all pipelines
 sqlflow pipeline validate
 
-# Validate with profile (affects variable resolution)
+# Validate with profile
 sqlflow pipeline validate customer_analytics --profile prod
 
 # Validate with detailed output
@@ -129,43 +148,31 @@ sqlflow pipeline validate customer_analytics --quiet
 
 ### `sqlflow pipeline compile`
 
-Parse and compile pipeline to execution plan without running.
+Parse and compile pipeline to execution plan without running. Shows interactive selection if no pipeline specified.
 
 ```bash
 # Compile specific pipeline
 sqlflow pipeline compile customer_analytics
 
-# Compile with custom output location
-sqlflow pipeline compile customer_analytics --output my_plan.json
-
-# Compile all pipelines
+# Auto-interactive selection (no pipeline name)
 sqlflow pipeline compile
 
-# Skip validation for CI/CD performance
-sqlflow pipeline compile customer_analytics --skip-validation
+# Compile with custom output directory
+sqlflow pipeline compile customer_analytics --output-dir target/my_plans
 
 # Compile with profile
 sqlflow pipeline compile customer_analytics --profile prod
 ```
 
 **Options:**
-- `--output`: Custom output file for the execution plan (only applies when a single pipeline is provided)
-- `--vars`: Pipeline variables as JSON or key=value pairs
+- `--output-dir`: Output directory for compilation results (default: target)
+- `--variables`, `--vars`: Pipeline variables as JSON string
 - `--profile`, `-p`: Profile to use (default: dev)
-- `--skip-validation`: Skip validation before compilation (for CI/CD performance)
-- `--quiet`, `-q`: Reduce output to essential information only
-- `--verbose`, `-v`: Enable verbose output with technical details
 
 **With Variables:**
 ```bash
 # JSON format
 sqlflow pipeline compile customer_analytics --vars '{"date": "2023-10-25", "region": "us-east"}'
-
-# Key=value format
-sqlflow pipeline compile customer_analytics --vars 'date=2023-10-25,region=us-east'
-
-# Complex nested variables
-sqlflow pipeline compile customer_analytics --vars '{"config": {"batch_size": 1000, "debug": true}}'
 ```
 
 **Compilation Output:**
@@ -194,11 +201,14 @@ Pipeline: pipelines/customer_analytics.sf
 
 ### `sqlflow pipeline run`
 
-Execute a complete pipeline from source to output.
+Execute a complete pipeline from source to output. Shows interactive selection if no pipeline specified.
 
 ```bash
-# Run pipeline with default profile
+# Run specific pipeline with default profile
 sqlflow pipeline run customer_analytics
+
+# Auto-interactive selection (no pipeline name)
+sqlflow pipeline run
 
 # Run with specific profile
 sqlflow pipeline run customer_analytics --profile prod
@@ -206,22 +216,14 @@ sqlflow pipeline run customer_analytics --profile prod
 # Run with variables
 sqlflow pipeline run customer_analytics --vars '{"date": "2023-10-25"}'
 
-# Use pre-compiled plan (faster)
-sqlflow pipeline run customer_analytics --from-compiled
-
-# Quiet execution
-sqlflow pipeline run customer_analytics --quiet
-
-# Verbose execution with debug info
-sqlflow pipeline run customer_analytics --verbose
+# Show detailed execution summary
+sqlflow pipeline run customer_analytics --summary
 ```
 
 **Options:**
-- `--vars`: Pipeline variables as JSON or key=value pairs
+- `--variables`, `--vars`: Pipeline variables as JSON string
 - `--profile`, `-p`: Profile to use (default: dev)
-- `--from-compiled`: Use existing compilation in target/compiled/ instead of recompiling
-- `--quiet`, `-q`: Reduce output to essential information only
-- `--verbose`, `-v`: Enable verbose output with technical details
+- `--summary`: Show detailed execution summary after completion
 
 **Automatic .env File Loading:**
 SQLFlow automatically loads environment variables from a `.env` file in your project root, eliminating the need for `--vars` in most cases:
@@ -305,6 +307,51 @@ Running pipeline: pipelines/customer_analytics.sf
 ⏱️  Execution completed in 2.3 seconds
 ```
 
+## Profile Management
+
+### `sqlflow profiles list`
+
+List all available profiles in the project.
+
+```bash
+sqlflow profiles list
+sqlflow profiles list --format json
+```
+
+**Options:**
+- `--project-dir`: Project directory (default: current directory)
+- `--format`: Output format: table or json (default: table)
+- `--quiet`, `-q`: Reduce output to essential information only
+
+### `sqlflow profiles validate`
+
+Validate profile configuration.
+
+```bash
+# Validate specific profile
+sqlflow profiles validate dev
+
+# Validate all profiles
+sqlflow profiles validate
+```
+
+**Options:**
+- `--project-dir`: Project directory (default: current directory)
+- `--verbose`, `-v`: Show detailed validation information
+
+### `sqlflow profiles show`
+
+Show detailed profile configuration.
+
+```bash
+sqlflow profiles show dev
+sqlflow profiles show dev --section connectors
+```
+
+**Options:**
+- `--project-dir`: Project directory (default: current directory)
+- `--section`: Show only specific section (connectors, variables, engines)
+
 ## Connection Management
 
 ### `sqlflow connect list`
@@ -380,13 +427,13 @@ List all available Python UDFs in the project.
 
 ```bash
 sqlflow udf list
-sqlflow udf list --verbose
-sqlflow udf list --project-dir /path/to/project
+sqlflow udf list --format json
+sqlflow udf list --plain
 ```
 
 **Options:**
-- `--project-dir`, `-p`: Project directory
-- `--verbose`, `-v`: Show detailed information
+- `--profile`, `-p`: Profile to use (default: dev)
+- `--format`: Output format: table or json (default: table)
 - `--plain`: Use plain text output (for testing)
 
 **Output Example:**
@@ -409,15 +456,15 @@ Show detailed information about a specific Python UDF.
 # Show detailed UDF information
 sqlflow udf info calculate_metrics
 
-# Show info with verbose output
-sqlflow udf info process_orders --verbose
+# Show info with plain text output
+sqlflow udf info process_orders --plain
 
-# Use specific project directory
-sqlflow udf info calculate_metrics --project-dir /path/to/project
+# Use specific profile
+sqlflow udf info calculate_metrics --profile prod
 ```
 
 **Options:**
-- `--project-dir`, `-p`: Project directory
+- `--profile`, `-p`: Profile to use (default: dev)
 - `--plain`: Use plain text output (for testing)
 
 **Output Example:**
@@ -451,16 +498,15 @@ Validate all Python UDFs in the project.
 # Validate all UDFs
 sqlflow udf validate
 
-# Validate with verbose output
-sqlflow udf validate --verbose
+# Validate specific UDF
+sqlflow udf validate my_udf_function
 
-# Use specific project directory
-sqlflow udf validate --project-dir /path/to/project
+# Use specific profile
+sqlflow udf validate --profile prod
 ```
 
 **Options:**
-- `--project-dir`, `-p`: Project directory
-- `--plain`: Use plain text output (for testing)
+- `--profile`, `-p`: Profile to use (default: dev)
 
 **Output Example:**
 ```
@@ -569,6 +615,55 @@ sqlflow env template
 📝 Edit the file to set your environment variables
 💡 Variables will be automatically available in SQLFlow pipelines using ${VARIABLE_NAME}
 ```
+
+## Migration & Modernization
+
+### `sqlflow migrate to-profiles`
+
+Convert a pipeline from inline syntax to profile-based configuration.
+
+```bash
+# Basic migration
+sqlflow migrate to-profiles customer_analytics.sf
+
+# Custom profile directory and name
+sqlflow migrate to-profiles customer_analytics.sf --profile-dir profiles --profile-name production
+
+# Preview changes without writing files
+sqlflow migrate to-profiles customer_analytics.sf --dry-run
+
+# Force overwrite existing profiles
+sqlflow migrate to-profiles customer_analytics.sf --force
+```
+
+**Options:**
+- `--profile-dir`: Directory to store generated profiles (default: profiles)
+- `--profile-name`: Name for the generated profile (default: auto-generated)
+- `--dry-run`: Preview changes without writing files
+- `--force`: Overwrite existing profile files
+
+### `sqlflow migrate extract-profiles`
+
+Extract profiles from multiple pipeline files into a unified configuration.
+
+```bash
+# Extract from directory
+sqlflow migrate extract-profiles pipelines/
+
+# Custom output file
+sqlflow migrate extract-profiles pipelines/ --output profiles/extracted.yml
+
+# Don't merge similar configurations
+sqlflow migrate extract-profiles pipelines/ --merge-similar=false
+
+# Preview extraction
+sqlflow migrate extract-profiles pipelines/ --dry-run
+```
+
+**Options:**
+- `--output`: Output profile file path (default: profiles/extracted.yml)
+- `--merge-similar`: Merge similar connector configurations (default: true)
+- `--dry-run`: Preview extracted profiles without writing
 
 ## Development & Debugging
 
