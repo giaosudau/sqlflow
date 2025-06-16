@@ -144,19 +144,23 @@ class TestDuckDBEngine(unittest.TestCase):
         self.assertEqual(self.engine.variables, {})
         self.assertEqual(self.engine.registered_udfs, {})
 
-    @patch("sqlflow.core.engines.duckdb.engine.duckdb")
-    def test_initialization_file_database(self, mock_duckdb):
-        """Test engine initialization with file database."""
-        mock_connection = MagicMock()
-        mock_duckdb.connect.return_value = mock_connection
-
-        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+    def test_initialization_file_database(self):
+        """Test engine initialization with file database using real DuckDB connection."""
+        # Create a temporary file path without creating the file
+        # This allows DuckDB to create a proper database file
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=True) as f:
             db_path = f.name
+        # File is now deleted, leaving just the path
 
         try:
             engine = DuckDBEngine(db_path)
             self.assertEqual(engine.database_path, db_path)
             self.assertTrue(engine.is_persistent)
+
+            # Test that we can actually execute a query on the real connection
+            result = engine.execute_query("SELECT 1 as test_col")
+            self.assertIsNotNone(result)
+
             engine.close()
         finally:
             try:
@@ -164,36 +168,51 @@ class TestDuckDBEngine(unittest.TestCase):
             except (OSError, PermissionError):
                 pass
 
-    @patch("sqlflow.core.engines.duckdb.engine.duckdb")
-    @patch("sqlflow.core.engines.duckdb.engine.os.makedirs")
-    @patch("sqlflow.core.engines.duckdb.engine.os.getcwd")
-    def test_initialization_default_database(
-        self, mock_getcwd, mock_makedirs, mock_duckdb
-    ):
-        """Test engine initialization with default database path."""
-        mock_connection = MagicMock()
-        mock_duckdb.connect.return_value = mock_connection
-        mock_getcwd.return_value = "/test/dir"  # Mock a valid working directory
-        mock_makedirs.return_value = None  # Mock successful directory creation
-
+    def test_initialization_default_database(self):
+        """Test engine initialization with default database path using real DuckDB connection."""
+        # Test with None to trigger default path logic
         engine = DuckDBEngine(None)
-        self.assertEqual(engine.database_path, DuckDBConstants.DEFAULT_DATABASE_PATH)
-        self.assertTrue(engine.is_persistent)
-        engine.close()
 
-    @patch("sqlflow.core.engines.duckdb.engine.duckdb")
-    def test_connection_fallback_to_memory(self, mock_duckdb):
+        try:
+            self.assertEqual(
+                engine.database_path, DuckDBConstants.DEFAULT_DATABASE_PATH
+            )
+            self.assertTrue(engine.is_persistent)
+
+            # Test that we can actually execute a query on the real connection
+            result = engine.execute_query("SELECT 1 as default_test")
+            self.assertIsNotNone(result)
+
+        finally:
+            engine.close()
+            # Clean up the created database file
+            try:
+                if os.path.exists(DuckDBConstants.DEFAULT_DATABASE_PATH):
+                    os.unlink(DuckDBConstants.DEFAULT_DATABASE_PATH)
+                # Also clean up the directory if it was created
+                db_dir = os.path.dirname(DuckDBConstants.DEFAULT_DATABASE_PATH)
+                if os.path.exists(db_dir) and not os.listdir(db_dir):
+                    os.rmdir(db_dir)
+            except (OSError, PermissionError):
+                pass
+
+    def test_connection_fallback_to_memory(self):
         """Test fallback to in-memory database when file connection fails."""
-        # First connection attempt fails
-        mock_duckdb.connect.side_effect = [
-            Exception("Database file error"),
-            MagicMock(),  # Fallback succeeds
-        ]
+        # Create a path that should cause connection to fail (e.g., invalid directory)
+        invalid_path = "/invalid/path/that/does/not/exist/test.db"
 
-        with tempfile.NamedTemporaryFile(suffix=".db") as f:
-            engine = DuckDBEngine(f.name)
+        engine = DuckDBEngine(invalid_path)
+
+        try:
+            # After fallback, it should be using in-memory database
             self.assertEqual(engine.database_path, ":memory:")
             self.assertFalse(engine.is_persistent)
+
+            # Test that we can actually execute a query on the real in-memory connection
+            result = engine.execute_query("SELECT 1 as fallback_test")
+            self.assertIsNotNone(result)
+
+        finally:
             engine.close()
 
     def test_execute_query(self):

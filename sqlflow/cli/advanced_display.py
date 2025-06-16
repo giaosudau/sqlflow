@@ -198,20 +198,157 @@ def display_pipeline_execution_progress(
             }
 
         except Exception as e:
-            # Handle unexpected errors during progress display
+            # Handle unexpected pipeline-level exception
             total_duration = time.time() - total_start_time
-            error_msg = f"Unexpected error during pipeline execution: {str(e)}"
 
-            logger.error(f"Unexpected error in pipeline execution: {e}", exc_info=True)
+            progress.update(
+                pipeline_task,
+                description=f"💥 {pipeline_name} failed - {str(e)}",
+            )
+
+            logger.error(f"Pipeline {pipeline_name} failed: {e}", exc_info=True)
 
             return {
                 "status": "failed",
-                "error": error_msg,
+                "error": f"Pipeline exception: {str(e)}",
                 "executed_steps": executed_steps,
                 "total_steps": len(operations),
                 "duration": total_duration,
                 "exception": str(e),
             }
+
+
+def _format_pipeline_size(pipeline: Dict[str, Any]) -> str:
+    """Format file size for display in pipeline tables."""
+    try:
+        size_bytes = int(pipeline["size"])
+        if size_bytes < 1024:
+            return f"{size_bytes:,} bytes"
+        return f"{size_bytes/1024:.1f} KB"
+    except (ValueError, KeyError):
+        return "Unknown"
+
+
+def _format_modification_time(pipeline: Dict[str, Any]) -> str:
+    """Format modification time for display in pipeline tables."""
+    try:
+        import datetime
+
+        mod_time = float(pipeline["modified"])
+        return datetime.datetime.fromtimestamp(mod_time).strftime("%Y-%m-%d %H:%M")
+    except (ValueError, KeyError):
+        return "Unknown"
+
+
+def _create_pipeline_table(
+    pipelines: List[Dict[str, Any]], show_details: bool = True
+) -> Table:
+    """Create a Rich table for pipeline display."""
+    table = Table(show_header=True, header_style="bold blue")
+    table.add_column("#", style="cyan", width=3)
+    table.add_column("Pipeline Name", style="cyan")
+
+    if show_details:
+        table.add_column("Size", style="white", justify="right")
+        table.add_column("Modified", style="dim")
+
+    # Populate table with pipeline data
+    for i, pipeline in enumerate(pipelines, 1):
+        if show_details:
+            size_str = _format_pipeline_size(pipeline)
+            mod_str = _format_modification_time(pipeline)
+            table.add_row(str(i), pipeline["name"], size_str, mod_str)
+        else:
+            table.add_row(str(i), pipeline["name"])
+
+    return table
+
+
+def _handle_quit_command(choice: str) -> bool:
+    """Check if user wants to quit and handle gracefully."""
+    if choice.lower() in ("q", "quit", "exit"):
+        console.print("👋 [yellow]Selection cancelled[/yellow]")
+        raise typer.Exit(0)
+    return False
+
+
+def _handle_pipeline_selection(
+    choice: str, pipelines: List[Dict[str, Any]]
+) -> Optional[str]:
+    """Handle pipeline selection and validation."""
+    try:
+        index = int(choice) - 1
+        if 0 <= index < len(pipelines):
+            selected_pipeline = pipelines[index]["name"]
+            console.print(
+                f"✅ [bold green]Selected pipeline: {selected_pipeline}[/bold green]"
+            )
+            logger.debug(f"User selected pipeline: {selected_pipeline}")
+            return selected_pipeline
+        else:
+            console.print(f"❌ [red]Invalid selection: {choice}[/red]")
+            console.print(
+                f"💡 [yellow]Please enter a number between 1 and {len(pipelines)}[/yellow]"
+            )
+            return None
+    except ValueError:
+        console.print(f"❌ [red]Invalid input: '{choice}'[/red]")
+        console.print("💡 [yellow]Please enter a number, or 'q' to quit[/yellow]")
+        return None
+
+
+def _handle_user_input_errors() -> None:
+    """Handle keyboard interrupt and EOF errors consistently."""
+    console.print("\n👋 [yellow]Selection cancelled[/yellow]")
+    raise typer.Exit(0)
+
+
+def _get_and_validate_pipelines(profile_name: Optional[str]) -> List[Dict[str, Any]]:
+    """Get and validate pipelines list, handling no pipelines case."""
+    pipelines = list_pipelines_operation(profile_name)
+
+    if not pipelines:
+        console.print("📋 [yellow]No pipelines found[/yellow]")
+        console.print(
+            "💡 [dim]Create a pipeline file with .sf extension in the "
+            "pipelines/ directory[/dim]"
+        )
+        raise typer.Exit(1)
+
+    return pipelines
+
+
+def _display_pipeline_table_with_header(
+    pipelines: List[Dict[str, Any]], show_details: bool = True
+) -> None:
+    """Display pipeline table with header."""
+    console.print(f"\n📋 [bold blue]Available Pipelines ({len(pipelines)})[/bold blue]")
+    table = _create_pipeline_table(pipelines, show_details)
+    console.print(table)
+
+
+def _run_interactive_selection_loop(pipelines: List[Dict[str, Any]]) -> str:
+    """Run the interactive selection loop."""
+    console.print(
+        "\n💡 [dim]Enter the number of the pipeline you want to select, or 'q' to quit[/dim]"
+    )
+
+    while True:
+        try:
+            choice = typer.prompt("Select pipeline")
+
+            # Handle quit command
+            _handle_quit_command(choice)
+
+            # Handle pipeline selection
+            selected_pipeline = _handle_pipeline_selection(choice, pipelines)
+            if selected_pipeline:
+                return selected_pipeline
+
+        except KeyboardInterrupt:
+            _handle_user_input_errors()
+        except EOFError:
+            _handle_user_input_errors()
 
 
 def display_interactive_pipeline_selection(
@@ -239,103 +376,14 @@ def display_interactive_pipeline_selection(
     logger.debug(f"Starting interactive pipeline selection for profile: {profile_name}")
 
     try:
-        # Get available pipelines using existing business logic
-        pipelines = list_pipelines_operation(profile_name)
+        # Get and validate pipelines
+        pipelines = _get_and_validate_pipelines(profile_name)
 
-        if not pipelines:
-            console.print("📋 [yellow]No pipelines found[/yellow]")
-            console.print(
-                "💡 [dim]Create a pipeline file with .sf extension in the "
-                "pipelines/ directory[/dim]"
-            )
-            raise typer.Exit(1)
+        # Display pipelines table
+        _display_pipeline_table_with_header(pipelines, show_details)
 
-        # Display header with Rich formatting
-        console.print(
-            f"\n📋 [bold blue]Available Pipelines ({len(pipelines)})[/bold blue]"
-        )
-
-        # Create beautiful table for pipeline selection
-        table = Table(show_header=True, header_style="bold blue")
-        table.add_column("#", style="cyan", width=3)
-        table.add_column("Pipeline Name", style="cyan")
-
-        if show_details:
-            table.add_column("Size", style="white", justify="right")
-            table.add_column("Modified", style="dim")
-
-        # Populate table with pipeline data
-        for i, pipeline in enumerate(pipelines, 1):
-            if show_details:
-                # Format file size
-                try:
-                    size_bytes = int(pipeline["size"])
-                    size_str = (
-                        f"{size_bytes:,} bytes"
-                        if size_bytes < 1024
-                        else f"{size_bytes/1024:.1f} KB"
-                    )
-                except (ValueError, KeyError):
-                    size_str = "Unknown"
-
-                # Format modification time
-                try:
-                    import datetime
-
-                    mod_time = float(pipeline["modified"])
-                    mod_str = datetime.datetime.fromtimestamp(mod_time).strftime(
-                        "%Y-%m-%d %H:%M"
-                    )
-                except (ValueError, KeyError):
-                    mod_str = "Unknown"
-
-                table.add_row(str(i), pipeline["name"], size_str, mod_str)
-            else:
-                table.add_row(str(i), pipeline["name"])
-
-        console.print(table)
-
-        # Interactive selection loop with beautiful error handling
-        console.print(
-            "\n💡 [dim]Enter the number of the pipeline you want to select, or 'q' to quit[/dim]"
-        )
-
-        while True:
-            try:
-                choice = typer.prompt("Select pipeline")
-
-                # Handle quit command
-                if choice.lower() in ("q", "quit", "exit"):
-                    console.print("👋 [yellow]Selection cancelled[/yellow]")
-                    raise typer.Exit(0)
-
-                # Try to parse as integer
-                index = int(choice) - 1
-
-                if 0 <= index < len(pipelines):
-                    selected_pipeline = pipelines[index]["name"]
-                    console.print(
-                        f"✅ [bold green]Selected pipeline: {selected_pipeline}[/bold green]"
-                    )
-                    logger.debug(f"User selected pipeline: {selected_pipeline}")
-                    return selected_pipeline
-                else:
-                    console.print(f"❌ [red]Invalid selection: {choice}[/red]")
-                    console.print(
-                        f"💡 [yellow]Please enter a number between 1 and {len(pipelines)}[/yellow]"
-                    )
-
-            except ValueError:
-                console.print(f"❌ [red]Invalid input: '{choice}'[/red]")
-                console.print(
-                    "💡 [yellow]Please enter a number, or 'q' to quit[/yellow]"
-                )
-            except KeyboardInterrupt:
-                console.print("\n👋 [yellow]Selection cancelled[/yellow]")
-                raise typer.Exit(0)
-            except EOFError:
-                console.print("\n👋 [yellow]Selection cancelled[/yellow]")
-                raise typer.Exit(0)
+        # Run interactive selection
+        return _run_interactive_selection_loop(pipelines)
 
     except ProfileNotFoundError as e:
         console.print(f"❌ [bold red]Profile Error:[/bold red] {e.message}")
@@ -351,6 +399,137 @@ def display_interactive_pipeline_selection(
         console.print(f"❌ [bold red]Unexpected error:[/bold red] {str(e)}")
         logger.error(f"Unexpected error in interactive selection: {e}", exc_info=True)
         raise typer.Exit(1)
+
+
+def _create_preview_table(pipelines: List[Dict[str, Any]]) -> Table:
+    """Create a Rich table for pipeline preview display."""
+    pipeline_table = Table(show_header=True, header_style="bold blue")
+    pipeline_table.add_column("#", style="cyan", width=3)
+    pipeline_table.add_column("Pipeline Name", style="cyan")
+    pipeline_table.add_column("Size", style="white", justify="right")
+
+    for i, pipeline in enumerate(pipelines, 1):
+        try:
+            size_bytes = int(pipeline["size"])
+            size_str = (
+                f"{size_bytes/1024:.1f} KB"
+                if size_bytes >= 1024
+                else f"{size_bytes} bytes"
+            )
+        except (ValueError, KeyError):
+            size_str = "Unknown"
+
+        pipeline_table.add_row(str(i), pipeline["name"], size_str)
+
+    return pipeline_table
+
+
+def _handle_preview_command(choice: str, pipelines: List[Dict[str, Any]]) -> bool:
+    """Handle preview command and display pipeline content."""
+    if not choice.endswith("p") or len(choice) <= 1:
+        return False
+
+    try:
+        index = int(choice[:-1]) - 1
+        if 0 <= index < len(pipelines):
+            pipeline_name = pipelines[index]["name"]
+            pipeline_path = pipelines[index]["path"]
+
+            # Read and display pipeline preview
+            try:
+                with open(pipeline_path, "r") as f:
+                    content = f.read()
+
+                # Show first 20 lines as preview
+                lines = content.split("\n")
+                preview_lines = lines[:20]
+                if len(lines) > 20:
+                    preview_lines.append(f"... ({len(lines) - 20} more lines)")
+
+                preview_content = "\n".join(preview_lines)
+                preview_panel = Panel(
+                    preview_content,
+                    title=f"📄 Preview: {pipeline_name}",
+                    border_style="green",
+                )
+                console.print(preview_panel)
+                return True
+
+            except IOError as e:
+                console.print(f"❌ [red]Cannot read pipeline file: {e}[/red]")
+                return True
+        else:
+            console.print(f"❌ [red]Invalid pipeline number: {choice[:-1]}[/red]")
+            return True
+    except ValueError:
+        console.print(f"❌ [red]Invalid preview command: {choice}[/red]")
+        return True
+
+
+def _handle_regular_selection(
+    choice: str, pipelines: List[Dict[str, Any]]
+) -> Optional[str]:
+    """Handle regular pipeline selection."""
+    try:
+        index = int(choice) - 1
+        if 0 <= index < len(pipelines):
+            selected_pipeline = pipelines[index]["name"]
+            console.print(
+                f"✅ [bold green]Selected pipeline: {selected_pipeline}[/bold green]"
+            )
+            return selected_pipeline
+        else:
+            console.print(f"❌ [red]Invalid selection: {choice}[/red]")
+            console.print(
+                f"💡 [yellow]Please enter a number between 1 and {len(pipelines)}[/yellow]"
+            )
+            return None
+    except ValueError:
+        console.print(f"❌ [red]Invalid input: '{choice}'[/red]")
+        console.print(
+            "💡 [yellow]Enter a number, [number]p to preview, or 'q' to quit[/yellow]"
+        )
+        return None
+
+
+def _display_pipeline_preview_panel(pipelines: List[Dict[str, Any]]) -> None:
+    """Display pipeline table in a panel for preview mode."""
+    pipeline_table = _create_preview_table(pipelines)
+    panel = Panel(
+        pipeline_table,
+        title="📋 Available Pipelines",
+        border_style="blue",
+    )
+    console.print(panel)
+    console.print(
+        "\n💡 [dim]Commands: [number] to select, [number]p to preview, 'q' to quit[/dim]"
+    )
+
+
+def _run_preview_selection_loop(
+    pipelines: List[Dict[str, Any]],
+) -> Tuple[str, Optional[str]]:
+    """Run the preview-enabled selection loop."""
+    while True:
+        try:
+            choice = typer.prompt("Select pipeline").strip()
+
+            # Handle quit command
+            _handle_quit_command(choice)
+
+            # Check for preview command
+            if _handle_preview_command(choice, pipelines):
+                continue
+
+            # Handle regular selection
+            selected_pipeline = _handle_regular_selection(choice, pipelines)
+            if selected_pipeline:
+                return selected_pipeline, None
+
+        except KeyboardInterrupt:
+            _handle_user_input_errors()
+        except EOFError:
+            _handle_user_input_errors()
 
 
 def display_pipeline_selection_with_preview(
@@ -373,123 +552,14 @@ def display_pipeline_selection_with_preview(
     logger.debug("Starting interactive pipeline selection with preview")
 
     try:
-        pipelines = list_pipelines_operation(profile_name)
+        # Get and validate pipelines
+        pipelines = _get_and_validate_pipelines(profile_name)
 
-        if not pipelines:
-            console.print("📋 [yellow]No pipelines found[/yellow]")
-            raise typer.Exit(1)
+        # Display preview panel
+        _display_pipeline_preview_panel(pipelines)
 
-        # Display pipelines in a panel for better visual separation
-        pipeline_table = Table(show_header=True, header_style="bold blue")
-        pipeline_table.add_column("#", style="cyan", width=3)
-        pipeline_table.add_column("Pipeline Name", style="cyan")
-        pipeline_table.add_column("Size", style="white", justify="right")
-
-        for i, pipeline in enumerate(pipelines, 1):
-            try:
-                size_bytes = int(pipeline["size"])
-                size_str = (
-                    f"{size_bytes/1024:.1f} KB"
-                    if size_bytes >= 1024
-                    else f"{size_bytes} bytes"
-                )
-            except (ValueError, KeyError):
-                size_str = "Unknown"
-
-            pipeline_table.add_row(str(i), pipeline["name"], size_str)
-
-        panel = Panel(
-            pipeline_table,
-            title="📋 Available Pipelines",
-            border_style="blue",
-        )
-        console.print(panel)
-
-        console.print(
-            "\n💡 [dim]Commands: [number] to select, [number]p to preview, 'q' to quit[/dim]"
-        )
-
-        while True:
-            try:
-                choice = typer.prompt("Select pipeline").strip()
-
-                if choice.lower() in ("q", "quit", "exit"):
-                    console.print("👋 [yellow]Selection cancelled[/yellow]")
-                    raise typer.Exit(0)
-
-                # Check for preview command (number followed by 'p')
-                if choice.endswith("p") and len(choice) > 1:
-                    try:
-                        index = int(choice[:-1]) - 1
-                        if 0 <= index < len(pipelines):
-                            pipeline_name = pipelines[index]["name"]
-                            pipeline_path = pipelines[index]["path"]
-
-                            # Read and display pipeline preview
-                            try:
-                                with open(pipeline_path, "r") as f:
-                                    content = f.read()
-
-                                # Show first 20 lines as preview
-                                lines = content.split("\n")
-                                preview_lines = lines[:20]
-                                if len(lines) > 20:
-                                    preview_lines.append(
-                                        f"... ({len(lines) - 20} more lines)"
-                                    )
-
-                                preview_content = "\n".join(preview_lines)
-
-                                preview_panel = Panel(
-                                    preview_content,
-                                    title=f"📄 Preview: {pipeline_name}",
-                                    border_style="green",
-                                )
-                                console.print(preview_panel)
-                                continue
-
-                            except IOError as e:
-                                console.print(
-                                    f"❌ [red]Cannot read pipeline file: {e}[/red]"
-                                )
-                                continue
-                        else:
-                            console.print(
-                                f"❌ [red]Invalid pipeline number: {choice[:-1]}[/red]"
-                            )
-                            continue
-                    except ValueError:
-                        console.print(
-                            f"❌ [red]Invalid preview command: {choice}[/red]"
-                        )
-                        continue
-
-                # Regular selection
-                try:
-                    index = int(choice) - 1
-                    if 0 <= index < len(pipelines):
-                        selected_pipeline = pipelines[index]["name"]
-                        console.print(
-                            f"✅ [bold green]Selected pipeline: {selected_pipeline}[/bold green]"
-                        )
-                        return selected_pipeline, None
-                    else:
-                        console.print(f"❌ [red]Invalid selection: {choice}[/red]")
-                        console.print(
-                            f"💡 [yellow]Please enter a number between 1 and {len(pipelines)}[/yellow]"
-                        )
-                except ValueError:
-                    console.print(f"❌ [red]Invalid input: '{choice}'[/red]")
-                    console.print(
-                        "💡 [yellow]Enter a number, [number]p to preview, or 'q' to quit[/yellow]"
-                    )
-
-            except KeyboardInterrupt:
-                console.print("\n👋 [yellow]Selection cancelled[/yellow]")
-                raise typer.Exit(0)
-            except EOFError:
-                console.print("\n👋 [yellow]Selection cancelled[/yellow]")
-                raise typer.Exit(0)
+        # Run preview selection loop
+        return _run_preview_selection_loop(pipelines)
 
     except typer.Exit:
         # Re-raise typer exits (user cancellation, no pipelines, etc.)

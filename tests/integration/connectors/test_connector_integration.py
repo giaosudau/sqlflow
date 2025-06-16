@@ -1,6 +1,7 @@
 """Integration tests for connector framework."""
 
 import os
+import tempfile
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
@@ -25,6 +26,228 @@ from sqlflow.connectors.postgres.source import PostgresSource
 from sqlflow.connectors.rest.source import RestSource
 
 
+# **CSV Source File I/O Integration Tests**
+def test_csv_source_configure_with_init(temp_dir):
+    """Test CSV source configuration through constructor with real file."""
+    test_csv_content = "id,name,value\n1,Alice,100\n2,Bob,200\n3,Charlie,300\n"
+
+    with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".csv") as f:
+        f.write(test_csv_content)
+        file_path = f.name
+
+    try:
+        connector = CSVSource(config={"path": file_path})
+        assert connector.state.name == "CONFIGURED"
+        assert connector.path == file_path
+    finally:
+        os.remove(file_path)
+
+
+def test_csv_source_test_connection_success():
+    """Test successful connection test with real file."""
+    test_csv_content = "id,name,value\n1,Alice,100\n2,Bob,200\n3,Charlie,300\n"
+
+    with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".csv") as f:
+        f.write(test_csv_content)
+        file_path = f.name
+
+    try:
+        connector = CSVSource()
+        connector.configure({"path": file_path})
+
+        result = connector.test_connection()
+
+        assert result.success
+        assert "accessible" in result.message
+    finally:
+        os.remove(file_path)
+
+
+def test_csv_source_discover_files():
+    """Test discovery of CSV files."""
+    test_csv_content = "id,name,value\n1,Alice,100\n2,Bob,200\n3,Charlie,300\n"
+
+    with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".csv") as f:
+        f.write(test_csv_content)
+        file_path = f.name
+
+    try:
+        connector = CSVSource()
+        connector.configure({"path": file_path})
+
+        discovered = connector.discover()
+
+        assert len(discovered) == 1
+        assert discovered[0] == file_path
+    finally:
+        os.remove(file_path)
+
+
+def test_csv_source_get_schema():
+    """Test schema retrieval from real CSV file."""
+    test_csv_content = "id,name,value\n1,Alice,100\n2,Bob,200\n3,Charlie,300\n"
+
+    with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".csv") as f:
+        f.write(test_csv_content)
+        file_path = f.name
+
+    try:
+        connector = CSVSource()
+        connector.configure({"path": file_path})
+
+        schema = connector.get_schema(file_path)
+
+        assert schema is not None
+        # Schema should have the expected columns
+        field_names = [field.name for field in schema.arrow_schema]
+        assert "id" in field_names
+        assert "name" in field_names
+        assert "value" in field_names
+    finally:
+        os.remove(file_path)
+
+
+def test_csv_source_read_success():
+    """Test successful read from a CSV file."""
+    test_csv_content = "id,name,value\n1,Alice,100\n2,Bob,200\n3,Charlie,300\n"
+
+    with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".csv") as f:
+        f.write(test_csv_content)
+        file_path = f.name
+
+    try:
+        connector = CSVSource(config={"path": file_path})
+        df = connector.read()
+
+        assert isinstance(df, pd.DataFrame)
+        assert df.shape == (3, 3)  # 3 rows, 3 columns
+        assert list(df.columns) == ["id", "name", "value"]
+
+        # Check data content
+        assert df.iloc[0]["name"] == "Alice"
+        assert df.iloc[1]["name"] == "Bob"
+        assert df.iloc[2]["name"] == "Charlie"
+    finally:
+        os.remove(file_path)
+
+
+def test_csv_source_read_with_object_name():
+    """Test read with explicit object name."""
+    test_csv_content = "id,name,value\n1,Alice,100\n2,Bob,200\n3,Charlie,300\n"
+
+    with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".csv") as f:
+        f.write(test_csv_content)
+        file_path = f.name
+
+    try:
+        connector = CSVSource()
+        connector.configure({"path": "dummy.csv"})  # Configure with dummy path
+
+        # Read with explicit object name
+        df = connector.read(object_name=file_path)
+
+        assert len(df) == 3
+        assert list(df.columns) == ["id", "name", "value"]
+    finally:
+        os.remove(file_path)
+
+
+def test_csv_source_read_with_column_filtering():
+    """Test reading with column filtering."""
+    test_csv_content = "id,name,value\n1,Alice,100\n2,Bob,200\n3,Charlie,300\n"
+
+    with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".csv") as f:
+        f.write(test_csv_content)
+        file_path = f.name
+
+    try:
+        connector = CSVSource(config={"path": file_path})
+        df = connector.read(columns=["id", "name"])
+
+        assert df.shape == (3, 2)  # 3 rows, 2 columns
+        assert list(df.columns) == ["id", "name"]
+        assert "value" not in df.columns
+    finally:
+        os.remove(file_path)
+
+
+def test_csv_source_read_with_custom_delimiter():
+    """Test reading with custom pandas options."""
+    csv_content = "id;name;value\n1;Alice;100\n2;Bob;200\n"
+
+    with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".csv") as f:
+        f.write(csv_content)
+        file_path = f.name
+
+    try:
+        connector = CSVSource()
+        connector.configure({"path": file_path, "delimiter": ";"})
+
+        df = connector.read()
+
+        assert len(df) == 2
+        assert list(df.columns) == ["id", "name", "value"]
+    finally:
+        os.remove(file_path)
+
+
+def test_csv_source_chunked_reading():
+    """Test chunked reading from a CSV file."""
+    test_csv_content = "id,name,value\n1,Alice,100\n2,Bob,200\n3,Charlie,300\n"
+
+    with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".csv") as f:
+        f.write(test_csv_content)
+        file_path = f.name
+
+    try:
+        connector = CSVSource(config={"path": file_path})
+        # Use small batch size to force chunking
+        chunk_iter = connector.read(batch_size=2, as_iterator=True)
+        chunks = list(chunk_iter)
+        assert len(chunks) == 2
+        assert chunks[0].shape == (2, 3)
+        assert chunks[1].shape == (1, 3)
+    finally:
+        os.remove(file_path)
+
+
+def test_csv_source_column_selection_at_read_time():
+    """Test column selection at read time (usecols)."""
+    test_csv_content = "id,name,value\n1,Alice,100\n2,Bob,200\n3,Charlie,300\n"
+
+    with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".csv") as f:
+        f.write(test_csv_content)
+        file_path = f.name
+
+    try:
+        connector = CSVSource(config={"path": file_path})
+        df = connector.read(columns=["id", "value"])
+        assert list(df.columns) == ["id", "value"]
+        assert "name" not in df.columns
+    finally:
+        os.remove(file_path)
+
+
+def test_csv_source_pyarrow_engine_reading():
+    """Test reading CSV with PyArrow engine if available."""
+    test_csv_content = "id,name,value\n1,Alice,100\n2,Bob,200\n3,Charlie,300\n"
+
+    with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".csv") as f:
+        f.write(test_csv_content)
+        file_path = f.name
+    try:
+        connector = CSVSource(config={"path": file_path, "engine": "pyarrow"})
+        df = connector.read()
+        assert isinstance(df, pd.DataFrame)
+        assert df.shape == (3, 3)
+        assert list(df.columns) == ["id", "name", "value"]
+    except ImportError:
+        pytest.skip("pyarrow is not installed")
+    finally:
+        os.remove(file_path)
+
+
+# **Existing Integration Tests**
 def test_csv_to_parquet_conversion(sample_csv_file, temp_dir):
     """Test converting data from CSV to Parquet via connectors."""
     # Use new architecture - configure after instantiation

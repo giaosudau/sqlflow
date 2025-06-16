@@ -10,7 +10,6 @@ from sqlflow.parser.ast import (
     ExportStep,
     LoadStep,
     Pipeline,
-    SourceDefinitionStep,
     SQLBlockStep,
 )
 
@@ -45,13 +44,6 @@ def test_duplicate_table_detection_integration():
     assert "users" in error_msg
     assert "line 10" in error_msg
     assert "line 20" in error_msg
-
-
-def test_circular_dependency_detection_integration():
-    """Test that circular dependencies are detected in full pipeline."""
-    # Skip this test until the circular dependency detection is fully implemented
-    # The unit tests confirm the behavior of cycle detection
-    pytest.skip("Circular dependency detection is covered by unit tests")
 
 
 def test_undefined_variable_detection_integration():
@@ -178,28 +170,3 @@ def test_undefined_table_warning_integration():
                 break
 
         assert undefined_table_warning, "Should have warned about undefined tables"
-
-
-def test_json_parsing_error_integration():
-    """Test that JSON parsing errors are handled with helpful messages."""
-    # Create a pipeline with invalid JSON
-    pipeline = Pipeline()
-
-    # We need to test the code that actually parses JSON, not just any random input
-    # Create a source step with JSON that will be processed by the planner
-    source_step = SourceDefinitionStep(
-        name="db_source",
-        connector_type="postgres",
-        # Use a string with an invalid JSON format - missing comma between properties
-        params={"broken_json": '{"name": "value" "port": 5432}'},
-        line_number=10,
-    )
-    pipeline.add_step(source_step)
-
-    # Create a planner and try to create a plan
-    Planner()
-
-    # This tests the actual parsing of JSON in the execution plan creation
-    # The test is skipped because it's not clear exactly how the planner handles
-    # invalid JSON inside params, but the unit tests confirm the behavior
-    pytest.skip("JSON error detection is covered by unit tests")

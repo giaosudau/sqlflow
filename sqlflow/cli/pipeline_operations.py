@@ -135,7 +135,7 @@ def substitute_variables(template: str, variables: dict) -> str:
 
     # Create variable configuration
     config = VariableConfig(
-        pipeline_variables=variables or {}, profile_variables={}, env_variables={}
+        cli_variables=variables or {}, profile_variables={}, env_variables={}
     )
 
     # Create variable manager

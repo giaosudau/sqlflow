@@ -1,9 +1,12 @@
 """Pytest configuration for SQLFlow tests."""
 
 import tempfile
-from typing import Generator
+from typing import Any, Dict, Generator
 
 import pytest
+
+from sqlflow.core.engines.duckdb.engine import DuckDBEngine
+from sqlflow.core.variables import VariableConfig
 
 
 @pytest.fixture
@@ -51,3 +54,174 @@ def sample_pipeline() -> str:
         "path": "data/sales.csv",
         "has_header": true
     };"""
+
+
+@pytest.fixture
+def sample_csv_data() -> str:
+    """Return sample CSV data for testing.
+
+    Returns
+    -------
+        Sample CSV data as string
+
+    """
+    return "id,name,value\n1,Alice,100\n2,Bob,200\n3,Charlie,300\n"
+
+
+@pytest.fixture
+def sample_csv_data_with_headers() -> str:
+    """Return sample CSV data with headers for testing.
+
+    Returns
+    -------
+        Sample CSV data with headers as string
+
+    """
+    return "user_id,full_name,email,age\n1,John Doe,john@email.com,25\n2,Jane Smith,jane@email.com,30\n"
+
+
+@pytest.fixture
+def test_variable_config() -> VariableConfig:
+    """Return a test variable configuration.
+
+    Returns
+    -------
+        VariableConfig instance for testing
+
+    """
+    return VariableConfig(
+        cli_variables={"env": "test", "table": "users", "debug": "true"},
+        profile_variables={"db_host": "localhost", "db_port": "5432"},
+    )
+
+
+@pytest.fixture
+def test_variables_dict() -> Dict[str, Any]:
+    """Return a simple variables dictionary for testing.
+
+    Returns
+    -------
+        Dictionary of test variables
+
+    """
+    return {
+        "env": "test",
+        "table": "test_table",
+        "debug": True,
+        "count": 42,
+        "database_url": "postgresql://user:pass@localhost:5432/testdb",
+    }
+
+
+@pytest.fixture
+def in_memory_engine() -> DuckDBEngine:
+    """Return an in-memory DuckDB engine for testing.
+
+    Returns
+    -------
+        DuckDBEngine instance configured for in-memory usage
+
+    """
+    return DuckDBEngine(":memory:")
+
+
+@pytest.fixture
+def sample_json_variables() -> str:
+    """Return sample JSON variables string for testing.
+
+    Returns
+    -------
+        JSON string containing test variables
+
+    """
+    return '{"env": "prod", "debug": true, "count": 42, "table": "users"}'
+
+
+@pytest.fixture
+def sample_key_value_variables() -> str:
+    """Return sample key=value variables string for testing.
+
+    Returns
+    -------
+        Key=value string containing test variables
+
+    """
+    return "env=prod,debug=true,count=42,table=users"
+
+
+@pytest.fixture
+def sample_sql_template() -> str:
+    """Return a sample SQL template with variables for testing.
+
+    Returns
+    -------
+        SQL template string with variable placeholders
+
+    """
+    return "SELECT * FROM {{table}} WHERE env = '{{env}}' AND debug = {{debug}}"
+
+
+@pytest.fixture
+def sample_pipeline_operations() -> list:
+    """Return sample pipeline operations for testing.
+
+    Returns
+    -------
+        List of pipeline operation dictionaries
+
+    """
+    return [
+        {
+            "type": "source",
+            "name": "users",
+            "connector": "postgres",
+            "params": {
+                "connection": "postgresql://user:pass@localhost:5432/db",
+                "table": "users",
+            },
+        },
+        {
+            "type": "source",
+            "name": "sales",
+            "connector": "csv",
+            "params": {"path": "data/sales.csv", "has_header": True},
+        },
+        {
+            "type": "transform",
+            "name": "user_sales",
+            "sql": "SELECT u.name, s.amount FROM users u JOIN sales s ON u.id = s.user_id",
+        },
+    ]
+
+
+@pytest.fixture
+def sample_csv_config() -> Dict[str, Any]:
+    """Return sample CSV connector configuration for testing.
+
+    Returns
+    -------
+        Dictionary containing CSV connector configuration
+
+    """
+    return {
+        "path": "test.csv",
+        "has_header": True,
+        "delimiter": ",",
+        "encoding": "utf-8",
+    }
+
+
+@pytest.fixture
+def sample_postgres_config() -> Dict[str, Any]:
+    """Return sample PostgreSQL connector configuration for testing.
+
+    Returns
+    -------
+        Dictionary containing PostgreSQL connector configuration
+
+    """
+    return {
+        "connection": "postgresql://user:pass@localhost:5432/testdb",
+        "table": "test_table",
+        "schema": "public",
+    }

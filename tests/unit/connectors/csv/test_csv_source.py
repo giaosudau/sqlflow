@@ -1,22 +1,15 @@
-import os
-import tempfile
 import unittest
 
-import pandas as pd
+import pytest
 
-from sqlflow.connectors.base.connection_test_result import ConnectionTestResult
 from sqlflow.connectors.base.connector import ConnectorState
 from sqlflow.connectors.csv.source import CSVSource
 
 
 class TestCSVSource(unittest.TestCase):
-    """Test the CSVSource connector with new architecture."""
+    """Test the CSVSource connector with new architecture - unit tests only."""
 
-    def setUp(self):
-        """Set up test fixtures."""
-        self.test_csv_content = "id,name,value\n1,Alice,100\n2,Bob,200\n3,Charlie,300\n"
-
-    def test_configure_success(self):
+    def test_connector_configured_successfully_when_valid_parameters_provided(self):
         """Test successful configuration of CSV source."""
         connector = CSVSource()
         params = {"path": "test.csv", "has_header": True, "delimiter": ","}
@@ -28,7 +21,7 @@ class TestCSVSource(unittest.TestCase):
         self.assertTrue(connector.has_header)
         self.assertEqual(connector.delimiter, ",")
 
-    def test_configure_missing_path(self):
+    def test_configuration_fails_when_required_path_missing(self):
         """Test configuration fails when path is missing."""
         connector = CSVSource()
 
@@ -37,38 +30,7 @@ class TestCSVSource(unittest.TestCase):
 
         self.assertIn("path", str(context.exception))
 
-    def test_configure_with_init(self):
-        """Test configuration through constructor."""
-        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".csv") as f:
-            f.write(self.test_csv_content)
-            file_path = f.name
-
-        try:
-            connector = CSVSource(config={"path": file_path})
-            self.assertEqual(connector.state, ConnectorState.CONFIGURED)
-            self.assertEqual(connector.path, file_path)
-        finally:
-            os.remove(file_path)
-
-    def test_test_connection_success(self):
-        """Test successful connection test."""
-        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".csv") as f:
-            f.write(self.test_csv_content)
-            file_path = f.name
-
-        try:
-            connector = CSVSource()
-            connector.configure({"path": file_path})
-
-            result = connector.test_connection()
-
-            self.assertIsInstance(result, ConnectionTestResult)
-            self.assertTrue(result.success)
-            self.assertIn("accessible", result.message)
-        finally:
-            os.remove(file_path)
-
-    def test_test_connection_file_not_found(self):
+    def test_connection_test_fails_when_file_not_found(self):
         """Test connection test with non-existent file."""
         connector = CSVSource()
         connector.configure({"path": "nonexistent.csv"})
@@ -78,124 +40,14 @@ class TestCSVSource(unittest.TestCase):
         self.assertFalse(result.success)
         self.assertIn("not found", result.message)
 
-    def test_discover(self):
-        """Test discovery of CSV files."""
-        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".csv") as f:
-            f.write(self.test_csv_content)
-            file_path = f.name
-
-        try:
-            connector = CSVSource()
-            connector.configure({"path": file_path})
-
-            discovered = connector.discover()
-
-            self.assertEqual(len(discovered), 1)
-            self.assertEqual(discovered[0], file_path)
-        finally:
-            os.remove(file_path)
-
-    def test_get_schema(self):
-        """Test schema retrieval."""
-        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".csv") as f:
-            f.write(self.test_csv_content)
-            file_path = f.name
-
-        try:
-            connector = CSVSource()
-            connector.configure({"path": file_path})
-
-            schema = connector.get_schema(file_path)
-
-            self.assertIsNotNone(schema)
-            # Schema should have the expected columns
-            field_names = [field.name for field in schema.arrow_schema]
-            self.assertIn("id", field_names)
-            self.assertIn("name", field_names)
-            self.assertIn("value", field_names)
-        finally:
-            os.remove(file_path)
-
-    def test_read_success(self):
-        """Test successful read from a CSV file."""
-        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".csv") as f:
-            f.write(self.test_csv_content)
-            file_path = f.name
-
-        try:
-            connector = CSVSource(config={"path": file_path})
-            df = connector.read()
-
-            self.assertIsInstance(df, pd.DataFrame)
-            self.assertEqual(df.shape, (3, 3))  # 3 rows, 3 columns
-            self.assertEqual(list(df.columns), ["id", "name", "value"])
-
-            # Check data content
-            self.assertEqual(df.iloc[0]["name"], "Alice")
-            self.assertEqual(df.iloc[1]["name"], "Bob")
-            self.assertEqual(df.iloc[2]["name"], "Charlie")
-        finally:
-            os.remove(file_path)
-
-    def test_read_with_object_name(self):
-        """Test read with explicit object name."""
-        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".csv") as f:
-            f.write(self.test_csv_content)
-            file_path = f.name
-
-        try:
-            connector = CSVSource()
-            connector.configure({"path": "dummy.csv"})  # Configure with dummy path
-
-            # Read with explicit object name
-            df = connector.read(object_name=file_path)
-
-            self.assertEqual(len(df), 3)
-            self.assertEqual(list(df.columns), ["id", "name", "value"])
-        finally:
-            os.remove(file_path)
-
-    def test_read_with_columns_filter(self):
-        """Test reading with column filtering."""
-        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".csv") as f:
-            f.write(self.test_csv_content)
-            file_path = f.name
-
-        try:
-            connector = CSVSource(config={"path": file_path})
-            df = connector.read(columns=["id", "name"])
-
-            self.assertEqual(df.shape, (3, 2))  # 3 rows, 2 columns
-            self.assertEqual(list(df.columns), ["id", "name"])
-            self.assertNotIn("value", df.columns)
-        finally:
-            os.remove(file_path)
-
-    def test_read_with_custom_options(self):
-        """Test reading with custom pandas options."""
-        csv_content = "id;name;value\n1;Alice;100\n2;Bob;200\n"
-
-        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".csv") as f:
-            f.write(csv_content)
-            file_path = f.name
-
-        try:
-            connector = CSVSource()
-            connector.configure({"path": file_path, "delimiter": ";"})
-
-            df = connector.read()
-
-            self.assertEqual(len(df), 2)
-            self.assertEqual(list(df.columns), ["id", "name", "value"])
-        finally:
-            os.remove(file_path)
-
-    def test_supports_incremental(self):
+    def test_incremental_loading_supported_when_queried(self):
         """Test incremental loading support."""
         connector = CSVSource()
         self.assertTrue(connector.supports_incremental())
 
-    def test_backward_compatibility_config_property(self):
+    def test_config_property_returns_parameters_when_configured_for_backward_compatibility(
+        self,
+    ):
         """Test backward compatibility with config property."""
         connector = CSVSource()
         params = {"path": "test.csv", "has_header": True}
@@ -204,71 +56,48 @@ class TestCSVSource(unittest.TestCase):
         # The config property should return the connection params
         self.assertEqual(connector.config, params)
 
-    def test_empty_config_error(self):
+    def test_configuration_fails_when_empty_config_dict_provided(self):
         """Test that empty config dict raises error."""
         with self.assertRaises(ValueError):
             CSVSource(config={})
 
-    def test_none_config_no_error(self):
+    def test_connector_created_successfully_when_none_config_provided(self):
         """Test that None config doesn't raise error."""
         connector = CSVSource(config=None)
         self.assertEqual(connector.state, ConnectorState.CREATED)
 
-    def test_read_without_configure_fails(self):
+    def test_read_operation_fails_when_connector_not_configured(self):
         """Test that read fails when connector is not configured."""
         connector = CSVSource()
 
         with self.assertRaises(AttributeError):
             connector.read()
 
-    def test_chunked_reading(self):
-        """Test chunked reading from a CSV file."""
-        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".csv") as f:
-            f.write(self.test_csv_content)
-            file_path = f.name
 
-        try:
-            connector = CSVSource(config={"path": file_path})
-            # Use small batch size to force chunking
-            chunk_iter = connector.read(batch_size=2, as_iterator=True)
-            chunks = list(chunk_iter)
-            self.assertEqual(len(chunks), 2)
-            self.assertEqual(chunks[0].shape, (2, 3))
-            self.assertEqual(chunks[1].shape, (1, 3))
-        finally:
-            os.remove(file_path)
+@pytest.mark.usefixtures("sample_csv_config")
+class TestCSVSourceWithFixtures:
+    """Test CSV source using shared fixtures."""
 
-    def test_column_selection_at_read_time(self):
-        """Test column selection at read time (usecols)."""
-        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".csv") as f:
-            f.write(self.test_csv_content)
-            file_path = f.name
+    def test_connector_configured_with_shared_csv_config(self, sample_csv_config):
+        """Test configuration using shared CSV config fixture."""
+        connector = CSVSource()
+        connector.configure(sample_csv_config)
 
-        try:
-            connector = CSVSource(config={"path": file_path})
-            df = connector.read(columns=["id", "value"])
-            self.assertEqual(list(df.columns), ["id", "value"])
-            self.assertNotIn("name", df.columns)
-        finally:
-            os.remove(file_path)
+        assert connector.state == ConnectorState.CONFIGURED
+        assert connector.path == sample_csv_config["path"]
+        assert connector.has_header == sample_csv_config["has_header"]
+        assert connector.delimiter == sample_csv_config["delimiter"]
 
-    def test_pyarrow_engine_reading(self):
-        """Test reading CSV with PyArrow engine if available."""
-        try:
-            pass
-        except ImportError:
-            self.skipTest("pyarrow is not installed")
-        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".csv") as f:
-            f.write(self.test_csv_content)
-            file_path = f.name
-        try:
-            connector = CSVSource(config={"path": file_path, "engine": "pyarrow"})
-            df = connector.read()
-            self.assertIsInstance(df, pd.DataFrame)
-            self.assertEqual(df.shape, (3, 3))
-            self.assertEqual(list(df.columns), ["id", "name", "value"])
-        finally:
-            os.remove(file_path)
+    def test_connector_supports_standard_csv_operations(self, sample_csv_config):
+        """Test standard CSV operations with shared config."""
+        connector = CSVSource()
+        connector.configure(sample_csv_config)
+
+        # Test incremental support
+        assert connector.supports_incremental()
+
+        # Test config property
+        assert connector.config == sample_csv_config
 
 
 if __name__ == "__main__":
