@@ -9,6 +9,7 @@ Following Zen of Python principles:
 - Don't repeat yourself
 """
 
+import logging
 import os
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
@@ -61,29 +62,45 @@ class VariableConfig:
 
 
 class VariableManager:
-    """Unified variable manager for SQLFlow.
+    """Variable manager with priority-based resolution and efficient substitution.
 
-    This class provides the single source of truth for variable substitution
-    across the entire codebase, eliminating duplication and ensuring consistent
-    behavior.
+    Manages variable resolution from multiple sources with defined priority order.
+    Provides context-aware variable substitution with comprehensive error handling.
 
-    Following Zen of Python principles:
-    - Simple is better than complex
-    - There should be one obvious way to do it
-    - Explicit is better than implicit
+    Priority order (highest to lowest):
+    1. CLI variables (--vars command line arguments)
+    2. Profile variables (profile.yml files)
+    3. SET variables (SET statements in pipelines)
+    4. Environment variables (os.environ)
     """
 
-    def __init__(self, config: Optional[VariableConfig] = None):
-        """Initialize the variable manager with configuration.
+    # Cache for compiled regex patterns to improve performance
+    _REGEX_CACHE = {}
 
-        Following Zen of Python: Simple is better than complex.
-        Lightweight initialization with lazy resolution.
+    def __init__(self, config: Optional[VariableConfig] = None):
+        """Initialize VariableManager with configuration.
 
         Args:
-            config: Variable configuration with priority-ordered variables
+            config: Variable configuration with sources and priorities
+
+        Raises:
+            TypeError: If config is not VariableConfig instance when provided
         """
+        if config is not None and not isinstance(config, VariableConfig):
+            raise TypeError("config must be a VariableConfig instance")
+
         self._config = config or VariableConfig()
-        self._resolved_variables = None  # Lazy initialization for performance
+        self._resolved_cache = None  # Cache for resolved variables
+
+        # Initialize error handler
+        from sqlflow.core.variables.error_handling import (
+            ErrorHandler,
+            ErrorStrategy,
+        )
+
+        self._error_handler = ErrorHandler(ErrorStrategy.WARN_CONTINUE)
+        self._error_handler.set_total_variables(self._count_total_variables())
+        self._error_handler.set_context("VariableManager")
 
         # Performance optimization: pre-calculate total count for logging
         total_vars = self._count_total_variables()
@@ -107,7 +124,7 @@ class VariableManager:
         Returns:
             Dictionary of all variables resolved according to priority
         """
-        if self._resolved_variables is None:
+        if self._resolved_cache is None:
             resolved_from_config = self._config.resolve_priority()
             # Add environment variables automatically (lowest priority)
             env_vars = dict(os.environ)
@@ -115,13 +132,13 @@ class VariableManager:
             combined = {}
             combined.update(env_vars)
             combined.update(resolved_from_config)
-            self._resolved_variables = combined
+            self._resolved_cache = combined
 
             logger.debug(
-                f"Cached resolved variables: {len(self._resolved_variables)} total"
+                f"Cached resolved variables: {len(self._resolved_cache)} total"
             )
 
-        return self._resolved_variables
+        return self._resolved_cache
 
     def get_resolved_variables(self) -> Dict[str, Any]:
         """Get all resolved variables.
@@ -203,10 +220,12 @@ class VariableManager:
                     expr.default_value, text, expr.span[0], expr.span[1]
                 )
             else:
-                # Variable not found and no default - log warning and return placeholder
-                logger.warning(
-                    f"Variable '{expr.variable_name}' not found and no default provided"
-                )
+                # Variable not found and no default - reduce logging overhead for performance
+                # Only log in debug mode to avoid hot path logging overhead
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        f"Variable '{expr.variable_name}' not found and no default provided"
+                    )
                 new_parts.append(expr.original_match)
                 last_end = expr.span[1]
                 continue
@@ -240,27 +259,25 @@ class VariableManager:
         # Convert value to string first
         str_value = str(value) if value is not None else ""
 
+        # Performance optimization: Use cached regex patterns
+        if "if_statement" not in self._REGEX_CACHE:
+            import re
+
+            self._REGEX_CACHE["if_statement"] = re.compile(r"\bIF\b.*$", re.IGNORECASE)
+            self._REGEX_CACHE["conditional_comparison"] = re.compile(r"\s*(==|!=)\s")
+
         # Only apply special formatting for conditional expressions in IF statements
         # Check for very specific IF statement conditional patterns that need quoting
-        import re
-
-        # Look for IF statement context first - this is the key distinction
-        # The original issue was: IF ${target_region|global} == 'us-east' THEN
-        # We should NOT quote in SQL WHERE clauses like: WHERE ${column} >= '${value}'
         context_before = text[:start_pos].strip()
         context_after = text[end_pos:].strip()
 
         # Check if we're in an IF statement conditional (not SQL WHERE clause)
-        is_if_statement = re.search(r"\bIF\b.*$", context_before, re.IGNORECASE)
+        is_if_statement = self._REGEX_CACHE["if_statement"].search(context_before)
 
         # Look for conditional comparison operators only in IF context
-        conditional_comparison_pattern = (
-            r"\s*(==|!=)\s"  # Only equality operators, not SQL comparison
-        )
-
-        is_conditional_comparison = is_if_statement and re.match(
-            conditional_comparison_pattern, context_after
-        )
+        is_conditional_comparison = is_if_statement and self._REGEX_CACHE[
+            "conditional_comparison"
+        ].match(context_after)
 
         # Only quote if we're in an IF conditional comparison context AND it's a string value
         if is_conditional_comparison and isinstance(value, str):

@@ -4,7 +4,6 @@ This module provides configuration resolution with priority-based merging
 and variable substitution for connector configurations.
 """
 
-import copy
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
@@ -52,6 +51,9 @@ class ConfigurationResolver:
         """
         self.profile_manager = profile_manager
         self.variable_manager = variable_manager or VariableManager(VariableConfig())
+
+        # Performance optimization: cache resolved configurations
+        self._resolution_cache = {}
 
         logger.debug("Initialized ConfigurationResolver")
 
@@ -112,6 +114,13 @@ class ConfigurationResolver:
         """Internal method to resolve configuration with ResolutionConfig."""
         logger.debug(f"Resolving configuration for profile '{config.profile_name}'")
 
+        # Simple cache key using JSON-serializable approach
+        cache_key = self._build_cache_key(config)
+
+        if cache_key in self._resolution_cache:
+            logger.debug(f"Cache hit for profile '{config.profile_name}'")
+            return self._resolution_cache[cache_key].copy()
+
         # 1. Get connector configuration from raw profile (no substitution yet)
         try:
             connector_profile = self.profile_manager.get_connector_profile_raw(
@@ -135,30 +144,57 @@ class ConfigurationResolver:
         }  # variables override profile vars
 
         # 4. Build configuration with priority merging
-        # Start with defaults (lowest priority)
-        resolved_config = copy.deepcopy(config.defaults)
+        resolved_config = dict(config.defaults)  # Start with defaults (lowest priority)
 
         # Add connector type information
         resolved_config["type"] = connector_profile.connector_type
 
         # Apply profile params (medium priority)
-        profile_params = copy.deepcopy(connector_profile.params)
-        self._deep_merge(resolved_config, profile_params)
+        self._merge_config(resolved_config, connector_profile.params)
 
         # Apply options (highest priority)
-        self._deep_merge(resolved_config, config.options)
+        self._merge_config(resolved_config, config.options)
 
         logger.debug(f"Pre-substitution config: {resolved_config}")
 
         # 5. Apply variable substitution to the final configuration
-        # ZEN OF PYTHON: Simple is better than complex
-        # Use utility function - one obvious way to do it
         resolved_config = substitute_variables(resolved_config, merged_variables)
+
+        # Cache the result
+        self._resolution_cache[cache_key] = resolved_config.copy()
 
         logger.debug(
             f"Final resolved config for '{config.profile_name}': {resolved_config}"
         )
         return resolved_config
+
+    def _build_cache_key(self, config: ResolutionConfig) -> str:
+        """Build a hashable cache key using string representation."""
+        import json
+
+        # Create a simple, deterministic cache key
+        key_dict = {
+            "profile": config.profile_name,
+            "env": config.environment,
+            "options": config.options,
+            "variables": config.variables,
+            "defaults": config.defaults,
+        }
+
+        # Use JSON for deterministic string representation
+        return json.dumps(key_dict, sort_keys=True, default=str)
+
+    def _merge_config(self, target: Dict[str, Any], source: Dict[str, Any]) -> None:
+        """Simple recursive merge - Zen of Python: Simple is better than complex."""
+        for key, value in source.items():
+            if (
+                key in target
+                and isinstance(target[key], dict)
+                and isinstance(value, dict)
+            ):
+                self._merge_config(target[key], value)
+            else:
+                target[key] = value
 
     def substitute_variables(
         self, config: Dict[str, Any], variables: Dict[str, Any]
@@ -328,7 +364,7 @@ class ConfigurationResolver:
     def _deep_merge(self, target: Dict[str, Any], source: Dict[str, Any]) -> None:
         """Deep merge source dictionary into target dictionary.
 
-        Recursively merges nested dictionaries instead of replacing them.
+        Simple recursive merge following Zen of Python: Simple is better than complex.
 
         Args:
             target: Target dictionary to merge into (modified in place)
@@ -343,5 +379,5 @@ class ConfigurationResolver:
                 # Both are dicts, merge recursively
                 self._deep_merge(target[key], value)
             else:
-                # Replace value (non-dict or key doesn't exist in target)
-                target[key] = copy.deepcopy(value)
+                # Replace value
+                target[key] = value

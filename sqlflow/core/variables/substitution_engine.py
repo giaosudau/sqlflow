@@ -16,6 +16,7 @@ Zen of Python:
 - Explicit is better than implicit
 """
 
+import logging
 import re
 import time
 from typing import Any, Dict, Optional, Protocol
@@ -235,87 +236,66 @@ class VariableSubstitutionEngine:
         if not template:
             return template
 
-        # Phase 3: Check result cache for performance
-        cache_key = (
-            template,
-            context,
-            context_detection,
-            tuple(sorted(self.variables.items())),
-        )
+        # Simple cache check
+        cache_key = (template, context, context_detection, id(self.variables))
         if cache_key in self._substitution_cache:
             logger.debug("Cache hit for substitution result")
             return self._substitution_cache[cache_key]
 
         start_time = time.perf_counter()
-
         parse_result = self.parser.parse(template)
 
         if not parse_result.has_variables:
-            result = template
-            self._substitution_cache[cache_key] = result
-            return result
+            self._substitution_cache[cache_key] = template
+            return template
 
         logger.debug(
             f"Substituting {len(parse_result.expressions)} variables in {context} context"
         )
 
-        # Get appropriate formatter (pre-compiled)
+        # Get formatter
         formatter = self.formatters.get(context, self.formatters["text"])
 
-        # Phase 3: Optimize string building with pre-allocated list
-        parts_count = len(parse_result.expressions) * 2 + 1
-        new_parts = [None] * parts_count  # Pre-allocate list for better performance
-        part_index = 0
-
+        # Build result string
+        parts = []
         last_end = 0
 
         for expr in parse_result.expressions:
             # Add text between variables
-            new_parts[part_index] = template[last_end : expr.span[0]]
-            part_index += 1
+            parts.append(template[last_end : expr.span[0]])
 
-            # Phase 3: Lazy context detection - only when needed
-            var_context = {}
-            if context_detection and context == "sql":
-                # Only do expensive context detection for SQL and when needed
-                var_context = self._build_context_lazy(template, expr)
-
-            # Get variable value
+            # Resolve variable value
             if expr.variable_name in self.variables:
                 value = self.variables[expr.variable_name]
-                formatted_value = formatter.format_value(value, var_context)
-            elif expr.default_value is not None:
-                formatted_value = formatter.format_value(
-                    expr.default_value, var_context
+                var_context = self._get_context(
+                    template, expr, context, context_detection
                 )
+                parts.append(formatter.format_value(value, var_context))
+            elif expr.default_value is not None:
+                var_context = self._get_context(
+                    template, expr, context, context_detection
+                )
+                parts.append(formatter.format_value(expr.default_value, var_context))
             else:
                 # Handle missing variables based on context
                 if context == "sql":
-                    formatted_value = "NULL"
+                    parts.append("NULL")
                 elif context == "ast":
-                    formatted_value = "None"
+                    parts.append("None")
                 else:
-                    logger.warning(
-                        f"Variable '{expr.variable_name}' not found and no default provided"
-                    )
-                    # For missing variables in text context, keep original placeholder
-                    new_parts[part_index] = expr.original_match
-                    part_index += 1
-                    last_end = expr.span[1]
-                    continue
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            f"Variable '{expr.variable_name}' not found and no default provided"
+                        )
+                    parts.append(expr.original_match)
 
-            new_parts[part_index] = formatted_value
-            part_index += 1
             last_end = expr.span[1]
 
         # Add remaining text
-        new_parts[part_index] = template[last_end:]
-        part_index += 1
+        parts.append(template[last_end:])
+        result = "".join(parts)
 
-        # Join only the filled parts of the pre-allocated list
-        result = "".join(new_parts[:part_index])
-
-        # Phase 3: Cache the result and log performance
+        # Cache result
         substitution_time = (time.perf_counter() - start_time) * 1000
         self._substitution_cache[cache_key] = result
 
@@ -324,6 +304,14 @@ class VariableSubstitutionEngine:
         )
 
         return result
+
+    def _get_context(
+        self, template: str, expr, context: str, context_detection: bool
+    ) -> Dict[str, Any]:
+        """Get context for variable formatting - simple and focused."""
+        if context_detection and context == "sql":
+            return self._build_context_lazy(template, expr)
+        return {}
 
     def _build_context_lazy(self, template: str, expr) -> Dict[str, Any]:
         """Build context information with lazy evaluation for performance.
