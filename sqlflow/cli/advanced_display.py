@@ -17,13 +17,12 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import typer
 from rich.console import Console
-from rich.live import Live
 from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 from rich.table import Table
 
 from sqlflow.cli.business_operations import list_pipelines_operation
-from sqlflow.cli.errors import PipelineNotFoundError, ProfileNotFoundError
+from sqlflow.cli.errors import ProfileNotFoundError
 from sqlflow.logging import get_logger
 
 console = Console()
@@ -53,10 +52,10 @@ def display_pipeline_execution_progress(
         Exception: Re-raises any execution exceptions after display cleanup
     """
     logger.debug(f"Starting advanced progress display for {len(operations)} operations")
-    
+
     executed_steps = []
     total_start_time = time.time()
-    
+
     # Create Rich progress display with custom columns
     with Progress(
         SpinnerColumn(),
@@ -65,59 +64,60 @@ def display_pipeline_execution_progress(
         transient=False,  # Keep progress visible after completion
         console=console,
     ) as progress:
-        
+
         # Add main pipeline task
         pipeline_task = progress.add_task(
-            f"🚀 Executing {pipeline_name}", 
-            total=len(operations)
+            f"🚀 Executing {pipeline_name}", total=len(operations)
         )
-        
+
         try:
             for i, operation in enumerate(operations):
                 operation_id = operation.get("id", f"operation_{i}")
                 operation_type = operation.get("type", "unknown")
                 operation_name = operation.get("name", operation_id)
-                
+
                 # Create task for this specific operation
                 operation_task = progress.add_task(
                     f"⚙️  {operation_type}: {operation_name}...",
-                    total=None  # Indeterminate progress
+                    total=None,  # Indeterminate progress
                 )
-                
+
                 step_start_time = time.time()
-                
+
                 try:
                     # Execute the operation using the provided callback
                     result = executor_callback(operation)
                     step_duration = time.time() - step_start_time
-                    
+
                     # Check execution status
                     status = result.get("status", "unknown")
-                    
+
                     if status == "success":
                         # Update operation task to show completion
                         progress.update(
                             operation_task,
-                            description=f"✅ {operation_type}: {operation_name} ({step_duration:.1f}s)"
+                            description=f"✅ {operation_type}: {operation_name} ({step_duration:.1f}s)",
                         )
                         executed_steps.append(operation_id)
-                        
+
                         # Update pipeline progress
                         progress.update(pipeline_task, advance=1)
-                        
-                        logger.debug(f"Operation {operation_id} completed in {step_duration:.1f}s")
-                        
+
+                        logger.debug(
+                            f"Operation {operation_id} completed in {step_duration:.1f}s"
+                        )
+
                     elif status == "error":
                         # Handle operation failure
                         error_msg = result.get("message", "Unknown error")
                         progress.update(
                             operation_task,
-                            description=f"❌ {operation_type}: {operation_name} - {error_msg}"
+                            description=f"❌ {operation_type}: {operation_name} - {error_msg}",
                         )
-                        
+
                         # Calculate metrics for failure response
                         total_duration = time.time() - total_start_time
-                        
+
                         return {
                             "status": "failed",
                             "error": error_msg,
@@ -132,11 +132,11 @@ def display_pipeline_execution_progress(
                         # Handle unexpected status
                         progress.update(
                             operation_task,
-                            description=f"⚠️  {operation_type}: {operation_name} - Unexpected status: {status}"
+                            description=f"⚠️  {operation_type}: {operation_name} - Unexpected status: {status}",
                         )
-                        
+
                         total_duration = time.time() - total_start_time
-                        
+
                         return {
                             "status": "failed",
                             "error": f"Unexpected status: {status}",
@@ -147,21 +147,23 @@ def display_pipeline_execution_progress(
                             "failed_at_step": i + 1,
                             "duration": total_duration,
                         }
-                
+
                 except Exception as e:
                     # Handle execution exception
                     step_duration = time.time() - step_start_time
                     error_msg = f"Exception in {operation_type}: {str(e)}"
-                    
+
                     progress.update(
                         operation_task,
-                        description=f"💥 {operation_type}: {operation_name} - Exception ({step_duration:.1f}s)"
+                        description=f"💥 {operation_type}: {operation_name} - Exception ({step_duration:.1f}s)",
                     )
-                    
-                    logger.error(f"Exception in operation {operation_id}: {e}", exc_info=True)
-                    
+
+                    logger.error(
+                        f"Exception in operation {operation_id}: {e}", exc_info=True
+                    )
+
                     total_duration = time.time() - total_start_time
-                    
+
                     return {
                         "status": "failed",
                         "error": error_msg,
@@ -173,35 +175,35 @@ def display_pipeline_execution_progress(
                         "duration": total_duration,
                         "exception": str(e),
                     }
-                
+
                 finally:
                     # Remove the operation-specific task to keep display clean
                     progress.remove_task(operation_task)
-            
+
             # All operations completed successfully
             total_duration = time.time() - total_start_time
-            
+
             progress.update(
                 pipeline_task,
-                description=f"🎉 {pipeline_name} completed successfully! ({total_duration:.1f}s)"
+                description=f"🎉 {pipeline_name} completed successfully! ({total_duration:.1f}s)",
             )
-            
+
             logger.info(f"Pipeline {pipeline_name} completed in {total_duration:.1f}s")
-            
+
             return {
                 "status": "success",
                 "executed_steps": executed_steps,
                 "total_steps": len(operations),
                 "duration": total_duration,
             }
-            
+
         except Exception as e:
             # Handle unexpected errors during progress display
             total_duration = time.time() - total_start_time
             error_msg = f"Unexpected error during pipeline execution: {str(e)}"
-            
+
             logger.error(f"Unexpected error in pipeline execution: {e}", exc_info=True)
-            
+
             return {
                 "status": "failed",
                 "error": error_msg,
@@ -223,7 +225,7 @@ def display_interactive_pipeline_selection(
     and suggestions for invalid selections.
 
     Args:
-        profile_name: Profile to use for pipeline listing 
+        profile_name: Profile to use for pipeline listing
         show_details: Whether to show detailed pipeline information
 
     Returns:
@@ -235,11 +237,11 @@ def display_interactive_pipeline_selection(
         PipelineNotFoundError: When no pipelines are found
     """
     logger.debug(f"Starting interactive pipeline selection for profile: {profile_name}")
-    
+
     try:
         # Get available pipelines using existing business logic
         pipelines = list_pipelines_operation(profile_name)
-        
+
         if not pipelines:
             console.print("📋 [yellow]No pipelines found[/yellow]")
             console.print(
@@ -247,19 +249,21 @@ def display_interactive_pipeline_selection(
                 "pipelines/ directory[/dim]"
             )
             raise typer.Exit(1)
-        
+
         # Display header with Rich formatting
-        console.print(f"\n📋 [bold blue]Available Pipelines ({len(pipelines)})[/bold blue]")
-        
+        console.print(
+            f"\n📋 [bold blue]Available Pipelines ({len(pipelines)})[/bold blue]"
+        )
+
         # Create beautiful table for pipeline selection
         table = Table(show_header=True, header_style="bold blue")
         table.add_column("#", style="cyan", width=3)
         table.add_column("Pipeline Name", style="cyan")
-        
+
         if show_details:
             table.add_column("Size", style="white", justify="right")
             table.add_column("Modified", style="dim")
-        
+
         # Populate table with pipeline data
         for i, pipeline in enumerate(pipelines, 1):
             if show_details:
@@ -273,62 +277,73 @@ def display_interactive_pipeline_selection(
                     )
                 except (ValueError, KeyError):
                     size_str = "Unknown"
-                
+
                 # Format modification time
                 try:
                     import datetime
+
                     mod_time = float(pipeline["modified"])
-                    mod_str = datetime.datetime.fromtimestamp(mod_time).strftime("%Y-%m-%d %H:%M")
+                    mod_str = datetime.datetime.fromtimestamp(mod_time).strftime(
+                        "%Y-%m-%d %H:%M"
+                    )
                 except (ValueError, KeyError):
                     mod_str = "Unknown"
-                
+
                 table.add_row(str(i), pipeline["name"], size_str, mod_str)
             else:
                 table.add_row(str(i), pipeline["name"])
-        
+
         console.print(table)
-        
+
         # Interactive selection loop with beautiful error handling
-        console.print("\n💡 [dim]Enter the number of the pipeline you want to select, or 'q' to quit[/dim]")
-        
+        console.print(
+            "\n💡 [dim]Enter the number of the pipeline you want to select, or 'q' to quit[/dim]"
+        )
+
         while True:
             try:
                 choice = typer.prompt("Select pipeline")
-                
+
                 # Handle quit command
-                if choice.lower() in ('q', 'quit', 'exit'):
+                if choice.lower() in ("q", "quit", "exit"):
                     console.print("👋 [yellow]Selection cancelled[/yellow]")
                     raise typer.Exit(0)
-                
+
                 # Try to parse as integer
                 index = int(choice) - 1
-                
+
                 if 0 <= index < len(pipelines):
                     selected_pipeline = pipelines[index]["name"]
-                    console.print(f"✅ [bold green]Selected pipeline: {selected_pipeline}[/bold green]")
+                    console.print(
+                        f"✅ [bold green]Selected pipeline: {selected_pipeline}[/bold green]"
+                    )
                     logger.debug(f"User selected pipeline: {selected_pipeline}")
                     return selected_pipeline
                 else:
                     console.print(f"❌ [red]Invalid selection: {choice}[/red]")
-                    console.print(f"💡 [yellow]Please enter a number between 1 and {len(pipelines)}[/yellow]")
-                    
+                    console.print(
+                        f"💡 [yellow]Please enter a number between 1 and {len(pipelines)}[/yellow]"
+                    )
+
             except ValueError:
                 console.print(f"❌ [red]Invalid input: '{choice}'[/red]")
-                console.print("💡 [yellow]Please enter a number, or 'q' to quit[/yellow]")
+                console.print(
+                    "💡 [yellow]Please enter a number, or 'q' to quit[/yellow]"
+                )
             except KeyboardInterrupt:
                 console.print("\n👋 [yellow]Selection cancelled[/yellow]")
                 raise typer.Exit(0)
             except EOFError:
                 console.print("\n👋 [yellow]Selection cancelled[/yellow]")
                 raise typer.Exit(0)
-    
+
     except ProfileNotFoundError as e:
         console.print(f"❌ [bold red]Profile Error:[/bold red] {e.message}")
         if e.suggestions:
             for suggestion in e.suggestions:
                 console.print(f"💡 [yellow]{suggestion}[/yellow]")
         raise typer.Exit(1)
-    
+
     except typer.Exit:
         # Re-raise typer exits (user cancellation, no pipelines, etc.)
         raise
@@ -356,67 +371,75 @@ def display_pipeline_selection_with_preview(
         typer.Exit: When no pipelines are available or user cancels
     """
     logger.debug("Starting interactive pipeline selection with preview")
-    
+
     try:
         pipelines = list_pipelines_operation(profile_name)
-        
+
         if not pipelines:
             console.print("📋 [yellow]No pipelines found[/yellow]")
             raise typer.Exit(1)
-        
+
         # Display pipelines in a panel for better visual separation
         pipeline_table = Table(show_header=True, header_style="bold blue")
         pipeline_table.add_column("#", style="cyan", width=3)
         pipeline_table.add_column("Pipeline Name", style="cyan")
         pipeline_table.add_column("Size", style="white", justify="right")
-        
+
         for i, pipeline in enumerate(pipelines, 1):
             try:
                 size_bytes = int(pipeline["size"])
-                size_str = f"{size_bytes/1024:.1f} KB" if size_bytes >= 1024 else f"{size_bytes} bytes"
+                size_str = (
+                    f"{size_bytes/1024:.1f} KB"
+                    if size_bytes >= 1024
+                    else f"{size_bytes} bytes"
+                )
             except (ValueError, KeyError):
                 size_str = "Unknown"
-            
+
             pipeline_table.add_row(str(i), pipeline["name"], size_str)
-        
+
         panel = Panel(
             pipeline_table,
             title="📋 Available Pipelines",
             border_style="blue",
         )
         console.print(panel)
-        
-        console.print("\n💡 [dim]Commands: [number] to select, [number]p to preview, 'q' to quit[/dim]")
-        
+
+        console.print(
+            "\n💡 [dim]Commands: [number] to select, [number]p to preview, 'q' to quit[/dim]"
+        )
+
         while True:
             try:
                 choice = typer.prompt("Select pipeline").strip()
-                
-                if choice.lower() in ('q', 'quit', 'exit'):
+
+                if choice.lower() in ("q", "quit", "exit"):
                     console.print("👋 [yellow]Selection cancelled[/yellow]")
                     raise typer.Exit(0)
-                
+
                 # Check for preview command (number followed by 'p')
-                if choice.endswith('p') and len(choice) > 1:
+                if choice.endswith("p") and len(choice) > 1:
                     try:
                         index = int(choice[:-1]) - 1
                         if 0 <= index < len(pipelines):
-                            pipeline_name = pipelines[index]["name"]  
+                            pipeline_name = pipelines[index]["name"]
                             pipeline_path = pipelines[index]["path"]
-                            
+
                             # Read and display pipeline preview
                             try:
-                                with open(pipeline_path, 'r') as f:
+                                with open(pipeline_path, "r") as f:
                                     content = f.read()
-                                
+
                                 # Show first 20 lines as preview
-                                lines = content.split('\n')
+                                lines = content.split("\n")
                                 preview_lines = lines[:20]
                                 if len(lines) > 20:
-                                    preview_lines.append(f"... ({len(lines) - 20} more lines)")
-                                
-                                preview_content = '\n'.join(preview_lines)
-                                
+                                    preview_lines.append(
+                                        f"... ({len(lines) - 20} more lines)"
+                                    )
+
+                                preview_content = "\n".join(preview_lines)
+
                                 preview_panel = Panel(
                                     preview_content,
                                     title=f"📄 Preview: {pipeline_name}",
@@ -424,38 +447,50 @@ def display_pipeline_selection_with_preview(
                                 )
                                 console.print(preview_panel)
                                 continue
-                                
+
                             except IOError as e:
-                                console.print(f"❌ [red]Cannot read pipeline file: {e}[/red]")
+                                console.print(
+                                    f"❌ [red]Cannot read pipeline file: {e}[/red]"
+                                )
                                 continue
                         else:
-                            console.print(f"❌ [red]Invalid pipeline number: {choice[:-1]}[/red]")
+                            console.print(
+                                f"❌ [red]Invalid pipeline number: {choice[:-1]}[/red]"
+                            )
                             continue
                     except ValueError:
-                        console.print(f"❌ [red]Invalid preview command: {choice}[/red]")
+                        console.print(
+                            f"❌ [red]Invalid preview command: {choice}[/red]"
+                        )
                         continue
-                
+
                 # Regular selection
                 try:
                     index = int(choice) - 1
                     if 0 <= index < len(pipelines):
                         selected_pipeline = pipelines[index]["name"]
-                        console.print(f"✅ [bold green]Selected pipeline: {selected_pipeline}[/bold green]")
+                        console.print(
+                            f"✅ [bold green]Selected pipeline: {selected_pipeline}[/bold green]"
+                        )
                         return selected_pipeline, None
                     else:
                         console.print(f"❌ [red]Invalid selection: {choice}[/red]")
-                        console.print(f"💡 [yellow]Please enter a number between 1 and {len(pipelines)}[/yellow]")
+                        console.print(
+                            f"💡 [yellow]Please enter a number between 1 and {len(pipelines)}[/yellow]"
+                        )
                 except ValueError:
                     console.print(f"❌ [red]Invalid input: '{choice}'[/red]")
-                    console.print("💡 [yellow]Enter a number, [number]p to preview, or 'q' to quit[/yellow]")
-                    
+                    console.print(
+                        "💡 [yellow]Enter a number, [number]p to preview, or 'q' to quit[/yellow]"
+                    )
+
             except KeyboardInterrupt:
                 console.print("\n👋 [yellow]Selection cancelled[/yellow]")
                 raise typer.Exit(0)
             except EOFError:
                 console.print("\n👋 [yellow]Selection cancelled[/yellow]")
                 raise typer.Exit(0)
-    
+
     except typer.Exit:
         # Re-raise typer exits (user cancellation, no pipelines, etc.)
         raise
@@ -477,76 +512,90 @@ def display_execution_summary_with_metrics(
 
     Args:
         results: Execution results dictionary
-        pipeline_name: Name of the executed pipeline  
+        pipeline_name: Name of the executed pipeline
         show_detailed_metrics: Whether to show detailed performance metrics
     """
     status = results.get("status", "unknown")
-    
+
     if status == "success":
         # Success summary with metrics
-        console.print(f"\n🎉 [bold green]Pipeline '{pipeline_name}' executed successfully![/bold green]")
-        
+        console.print(
+            f"\n🎉 [bold green]Pipeline '{pipeline_name}' executed successfully![/bold green]"
+        )
+
         # Create metrics table
         metrics_table = Table(show_header=True, header_style="bold blue")
         metrics_table.add_column("Metric", style="cyan")
         metrics_table.add_column("Value", style="white")
-        
+
         # Basic metrics
         total_steps = results.get("total_steps", 0)
         executed_steps = results.get("executed_steps", [])
         duration = results.get("duration", 0)
-        
+
         metrics_table.add_row("Total Steps", str(total_steps))
         metrics_table.add_row("Executed Steps", str(len(executed_steps)))
         metrics_table.add_row("Duration", f"{duration:.2f}s")
-        
+
         if show_detailed_metrics and duration > 0:
             avg_step_time = duration / max(len(executed_steps), 1)
             metrics_table.add_row("Avg Step Time", f"{avg_step_time:.2f}s")
             metrics_table.add_row("Steps/Second", f"{len(executed_steps)/duration:.2f}")
-        
+
         console.print(metrics_table)
-        
+
         # Show executed steps if available
         if executed_steps and show_detailed_metrics:
-            console.print(f"\n✅ [bold blue]Executed Steps ({len(executed_steps)}):[/bold blue]")
+            console.print(
+                f"\n✅ [bold blue]Executed Steps ({len(executed_steps)}):[/bold blue]"
+            )
             for i, step in enumerate(executed_steps[:10], 1):  # Show first 10 steps
                 console.print(f"  {i}. [cyan]{step}[/cyan]")
-            
+
             if len(executed_steps) > 10:
                 console.print(f"  ... and {len(executed_steps) - 10} more steps")
-    
+
     elif status == "failed":
         # Failure summary with error details
-        console.print(f"\n💥 [bold red]Pipeline '{pipeline_name}' execution failed![/bold red]")
-        
+        console.print(
+            f"\n💥 [bold red]Pipeline '{pipeline_name}' execution failed![/bold red]"
+        )
+
         error_msg = results.get("error", "Unknown error")
         failed_step = results.get("failed_step", "unknown")
         failed_at_step = results.get("failed_at_step", 0)
         total_steps = results.get("total_steps", 0)
-        
+
         # Create error details table
         error_table = Table(show_header=True, header_style="bold red")
         error_table.add_column("Property", style="red")
         error_table.add_column("Value", style="white")
-        
+
         error_table.add_row("Error", error_msg)
         error_table.add_row("Failed Step", failed_step)
         error_table.add_row("Failed At", f"Step {failed_at_step} of {total_steps}")
-        
+
         if "duration" in results:
-            error_table.add_row("Duration Before Failure", f"{results['duration']:.2f}s")
-        
+            error_table.add_row(
+                "Duration Before Failure", f"{results['duration']:.2f}s"
+            )
+
         console.print(error_table)
-        
+
         # Show executed steps before failure
         executed_steps = results.get("executed_steps", [])
         if executed_steps:
-            console.print(f"\n✅ [dim]Successfully completed before failure ({len(executed_steps)} steps):[/dim]")
-            for i, step in enumerate(executed_steps[-5:], 1):  # Show last 5 successful steps
+            console.print(
+                f"\n✅ [dim]Successfully completed before failure ({len(executed_steps)} steps):[/dim]"
+            )
+            for i, step in enumerate(
+                executed_steps[-5:], 1
+            ):  # Show last 5 successful steps
                 console.print(f"  {i}. [dim cyan]{step}[/dim cyan]")
-    
+
     else:
         # Unknown status
-        console.print(f"\n❓ [yellow]Pipeline '{pipeline_name}' finished with unknown status: {status}[/yellow]")
-        console.print(f"Results: {results}") 
+        console.print(
+            f"\n❓ [yellow]Pipeline '{pipeline_name}' finished with unknown status: {status}[/yellow]"
+        )
+        console.print(f"Results: {results}")

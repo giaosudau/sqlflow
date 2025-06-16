@@ -25,7 +25,6 @@ from sqlflow.cli.business_operations import (
 )
 from sqlflow.cli.display import (
     display_compilation_success,
-    display_execution_success,
 )
 from sqlflow.cli.factories import create_executor_for_command
 from sqlflow.logging import get_logger
@@ -59,18 +58,20 @@ def run_pipeline_with_advanced_progress(
     Raises:
         Same exceptions as run_pipeline_operation
     """
-    logger.debug(f"Running pipeline {pipeline_name} with advanced_progress={use_advanced_progress}")
-    
+    logger.debug(
+        f"Running pipeline {pipeline_name} with advanced_progress={use_advanced_progress}"
+    )
+
     if not use_advanced_progress:
         # Fall back to standard operation for backward compatibility
         return run_pipeline_operation(pipeline_name, profile_name, variables)
-    
+
     # Compile pipeline to get operations list
     operations, _ = compile_pipeline_operation(pipeline_name, profile_name, variables)
-    
+
     # Create executor for step-by-step execution
     executor = create_executor_for_command(profile_name, variables)
-    
+
     # Define callback for executing individual operations
     def execute_operation_callback(operation: Dict[str, Any]) -> Dict[str, Any]:
         """Execute a single operation using the executor."""
@@ -78,18 +79,15 @@ def run_pipeline_with_advanced_progress(
             return executor._execute_step(operation)
         except Exception as e:
             logger.error(f"Operation execution failed: {e}")
-            return {
-                "status": "error", 
-                "message": str(e)
-            }
-    
+            return {"status": "error", "message": str(e)}
+
     # Execute with advanced progress display
     results = display_pipeline_execution_progress(
         operations=operations,
         executor_callback=execute_operation_callback,
         pipeline_name=pipeline_name,
     )
-    
+
     # Show detailed summary if requested
     if show_summary and results:
         display_execution_summary_with_metrics(
@@ -97,8 +95,10 @@ def run_pipeline_with_advanced_progress(
             pipeline_name=pipeline_name,
             show_detailed_metrics=True,
         )
-    
-    logger.info(f"Advanced pipeline execution completed: {results.get('status', 'unknown')}")
+
+    logger.info(
+        f"Advanced pipeline execution completed: {results.get('status', 'unknown')}"
+    )
     return results
 
 
@@ -127,13 +127,15 @@ def compile_pipeline_with_enhanced_display(
     Raises:
         Same exceptions as compile_pipeline_operation
     """
-    logger.debug(f"Compiling pipeline {pipeline_name} with enhanced_display={use_enhanced_display}")
-    
+    logger.debug(
+        f"Compiling pipeline {pipeline_name} with enhanced_display={use_enhanced_display}"
+    )
+
     # Use standard business operation for actual compilation
     operations, output_path = compile_pipeline_operation(
         pipeline_name, profile_name, variables, output_dir
     )
-    
+
     if use_enhanced_display:
         # Use enhanced display with more details
         display_compilation_success(
@@ -142,17 +144,17 @@ def compile_pipeline_with_enhanced_display(
             operation_count=len(operations),
             output_path=output_path,
             operations=operations,  # Pass operations for detailed display
-            variables=variables,    # Pass variables for detailed display
+            variables=variables,  # Pass variables for detailed display
         )
     else:
         # Fall back to basic display
         display_compilation_success(
             pipeline_name=pipeline_name,
-            profile=profile_name or "default", 
+            profile=profile_name or "default",
             operation_count=len(operations),
             output_path=output_path,
         )
-    
+
     logger.info(f"Pipeline compilation completed: {len(operations)} operations")
     return operations, output_path
 
@@ -178,8 +180,10 @@ def interactive_pipeline_selection(
     Raises:
         typer.Exit: When selection is cancelled or no pipelines available
     """
-    logger.debug(f"Starting interactive pipeline selection with preview={enable_preview}")
-    
+    logger.debug(
+        f"Starting interactive pipeline selection with preview={enable_preview}"
+    )
+
     if enable_preview:
         selected_pipeline, _ = display_pipeline_selection_with_preview(profile_name)
         return selected_pipeline
@@ -209,7 +213,7 @@ def run_pipeline_interactively(
         typer.Exit: When selection is cancelled
     """
     logger.debug("Starting interactive pipeline execution")
-    
+
     # Interactive pipeline selection
     if use_advanced_features:
         pipeline_name = display_interactive_pipeline_selection(
@@ -222,7 +226,7 @@ def run_pipeline_interactively(
             profile_name=profile_name,
             show_details=False,
         )
-    
+
     # Run with advanced progress
     return run_pipeline_with_advanced_progress(
         pipeline_name=pipeline_name,
@@ -241,21 +245,18 @@ def get_advanced_features_status() -> Dict[str, bool]:
     """
     try:
         # Test Rich imports
-        from rich.console import Console
-        from rich.progress import Progress
-        from rich.table import Table
-        
+        pass
+
         rich_available = True
     except ImportError:
         rich_available = False
-    
+
     try:
-        # Test typer imports  
-        import typer
+        # Test typer imports
         typer_available = True
     except ImportError:
         typer_available = False
-    
+
     return {
         "rich_progress": rich_available,
         "interactive_selection": rich_available and typer_available,
@@ -283,14 +284,16 @@ def get_feature_recommendations() -> List[str]:
     """
     status = get_advanced_features_status()
     recommendations = []
-    
+
     if not status["rich_progress"]:
         recommendations.append("Install 'rich' package for enhanced progress display")
-    
+
     if not status["interactive_selection"]:
-        recommendations.append("Install 'typer' package for interactive pipeline selection")
-    
+        recommendations.append(
+            "Install 'typer' package for interactive pipeline selection"
+        )
+
     if not recommendations:
         recommendations.append("All advanced features are available!")
-    
-    return recommendations 
+
+    return recommendations
