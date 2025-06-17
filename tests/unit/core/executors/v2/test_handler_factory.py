@@ -4,34 +4,30 @@ This test suite validates the factory pattern implementation for step handlers,
 ensuring proper registration, creation, and error handling of step handlers.
 """
 
+from datetime import datetime
+
 import pytest
 
 from sqlflow.core.executors.v2.handlers.base import StepHandler
 from sqlflow.core.executors.v2.handlers.factory import StepHandlerFactory
-from sqlflow.core.executors.v2.handlers.load_handler import LoadStepHandler
-from sqlflow.core.executors.v2.steps import BaseStep
-from sqlflow.core.executors.v2.context import ExecutionContext
 from sqlflow.core.executors.v2.results import StepExecutionResult
-from datetime import datetime
 
 
 class MockStepHandler(StepHandler):
     """Mock step handler for testing."""
-    
+
     STEP_TYPE = "mock"
-    
+
     def execute(self, step, context):
         """Simple mock execution."""
         return StepExecutionResult.success(
-            step_id=step.id,
-            step_type=step.type,
-            start_time=datetime.utcnow()
+            step_id=step.id, step_type=step.type, start_time=datetime.utcnow()
         )
 
 
 class MockStep:
     """Mock step for testing."""
-    
+
     def __init__(self, step_id="test_step", step_type="mock"):
         self.id = step_id
         self.type = step_type
@@ -44,13 +40,13 @@ class TestStepHandlerFactory:
         """Test that handlers can be registered and retrieved."""
         # Clear any existing registrations
         StepHandlerFactory._handlers = {}
-        
+
         # Register a handler
         StepHandlerFactory.register_handler("mock", MockStepHandler)
-        
+
         # Test registration
         assert StepHandlerFactory.is_step_type_supported("mock")
-        
+
         # Test handler creation
         handler = StepHandlerFactory.create_handler("mock")
         assert isinstance(handler, MockStepHandler)
@@ -64,11 +60,11 @@ class TestStepHandlerFactory:
         """Test that duplicate registrations are handled appropriately."""
         # Clear any existing registrations
         StepHandlerFactory._handlers = {}
-        
+
         # Register handler twice
         StepHandlerFactory.register_handler("duplicate", MockStepHandler)
         StepHandlerFactory.register_handler("duplicate", MockStepHandler)
-        
+
         # Should still work
         assert StepHandlerFactory.is_step_type_supported("duplicate")
 
@@ -76,12 +72,12 @@ class TestStepHandlerFactory:
         """Test that factory returns new instances each time."""
         # Clear any existing registrations
         StepHandlerFactory._handlers = {}
-        
+
         StepHandlerFactory.register_handler("instance_test", MockStepHandler)
-        
+
         handler1 = StepHandlerFactory.create_handler("instance_test")
         handler2 = StepHandlerFactory.create_handler("instance_test")
-        
+
         assert handler1 is not handler2
         assert isinstance(handler1, MockStepHandler)
         assert isinstance(handler2, MockStepHandler)
@@ -90,9 +86,9 @@ class TestStepHandlerFactory:
         """Test handler information retrieval."""
         # Clear any existing registrations
         StepHandlerFactory._handlers = {}
-        
+
         StepHandlerFactory.register_handler("mock", MockStepHandler)
-        
+
         # Get all handler info
         all_info = StepHandlerFactory.get_handler_info()
         assert "mock" in all_info
@@ -102,11 +98,11 @@ class TestStepHandlerFactory:
         """Test that only valid handler classes can be registered."""
         # Clear any existing registrations
         StepHandlerFactory._handlers = {}
-        
+
         # Test invalid handler class
         class InvalidHandler:
             pass
-        
+
         with pytest.raises(TypeError, match="must be a subclass of StepHandler"):
             StepHandlerFactory.register_handler("invalid", InvalidHandler)
 
@@ -119,15 +115,15 @@ class TestStepHandlerFactory:
         """Test that handlers created by factory can execute steps."""
         # Clear any existing registrations
         StepHandlerFactory._handlers = {}
-        
+
         StepHandlerFactory.register_handler("executable", MockStepHandler)
-        
+
         handler = StepHandlerFactory.create_handler("executable")
         step = MockStep()
         context = None  # MockStepHandler doesn't use context
-        
+
         result = handler.execute(step, context)
-        
+
         assert result.is_successful()
         assert result.step_id == "test_step"
 
@@ -135,12 +131,12 @@ class TestStepHandlerFactory:
         """Test getting list of available step types."""
         # Clear any existing registrations
         StepHandlerFactory._handlers = {}
-        
+
         StepHandlerFactory.register_handler("mock1", MockStepHandler)
         StepHandlerFactory.register_handler("mock2", MockStepHandler)
-        
+
         available_types = StepHandlerFactory.get_available_step_types()
-        
+
         assert "mock1" in available_types
         assert "mock2" in available_types
 
@@ -148,9 +144,9 @@ class TestStepHandlerFactory:
         """Test that registered handlers maintain their step type."""
         # Clear any existing registrations
         StepHandlerFactory._handlers = {}
-        
+
         StepHandlerFactory.register_handler("preserve_test", MockStepHandler)
-        
+
         handler = StepHandlerFactory.create_handler("preserve_test")
         assert handler.STEP_TYPE == "mock"
 
@@ -158,9 +154,9 @@ class TestStepHandlerFactory:
         """Test checking if step types are supported."""
         # Clear any existing registrations
         StepHandlerFactory._handlers = {}
-        
+
         StepHandlerFactory.register_handler("supported", MockStepHandler)
-        
+
         assert StepHandlerFactory.is_step_type_supported("supported")
         assert not StepHandlerFactory.is_step_type_supported("unsupported")
 
@@ -168,13 +164,13 @@ class TestStepHandlerFactory:
         """Test that factory state is properly isolated between tests."""
         # Clear any existing registrations
         StepHandlerFactory._handlers = {}
-        
+
         # Register handlers
         StepHandlerFactory.register_handler("isolated1", MockStepHandler)
-        
+
         # Check state
         assert len(StepHandlerFactory.get_available_step_types()) == 1
-        
+
         # Clear and verify
         StepHandlerFactory._handlers = {}
-        assert len(StepHandlerFactory.get_available_step_types()) == 0 
+        assert len(StepHandlerFactory.get_available_step_types()) == 0
