@@ -124,16 +124,9 @@ class VariableSubstitutionMixin:
         return variable_manager.substitute(plan)
 
 
+# Import the implemented Phase 4 parallel strategy
+
 # Future Strategy implementations can be added here:
-#
-# class ParallelOrchestrationStrategy(OrchestrationStrategy):
-#     """Parallel execution strategy for independent steps."""
-#
-#     def execute_pipeline(self, plan, context, db_session):
-#         # Build dependency graph
-#         # Execute independent steps in parallel
-#         # Handle synchronization points
-#         pass
 #
 # class DistributedOrchestrationStrategy(OrchestrationStrategy):
 #     """Distributed execution strategy using Celery/Dask."""

@@ -35,6 +35,7 @@ from .orchestration_strategy import (
     SequentialOrchestrationStrategy,
     VariableSubstitutionMixin,
 )
+from .parallel_strategy import ParallelOrchestrationStrategy
 from .result_builder import ExecutionResultBuilder
 
 # Initialize logger first (Zen: Simple is better than complex)
@@ -72,21 +73,44 @@ class LocalOrchestrator(BaseExecutor, VariableSubstitutionMixin):
         context_factory: type = ExecutionContextFactory,
         result_builder: type = ExecutionResultBuilder,
         strategy: Optional[OrchestrationStrategy] = None,
+        use_parallel_execution: bool = False,
+        max_workers: Optional[int] = None,
         **kwargs,
     ):
         """Initialize orchestrator with injectable dependencies.
 
         Following Kent Beck's testing principle:
         Dependencies should be injectable for easy testing.
+
+        Args:
+            use_parallel_execution: Enable Phase 4 parallel execution
+            max_workers: Maximum concurrent workers for parallel execution
         """
         super().__init__()
         self._session_factory = session_factory
         self._context_factory = context_factory
         self._result_builder = result_builder
-        self._strategy = strategy or SequentialOrchestrationStrategy()
+
+        # Phase 4: Support parallel execution strategy
+        if strategy:
+            self._strategy = strategy
+        elif use_parallel_execution:
+            self._strategy = ParallelOrchestrationStrategy(
+                max_workers=max_workers, max_retries=kwargs.get("max_retries", 3)
+            )
+            logger.info(
+                "🚀 Phase 4 Parallel Orchestration enabled with %s workers",
+                max_workers or "default",
+            )
+        else:
+            self._strategy = SequentialOrchestrationStrategy()
+
         self._config = kwargs
 
-        logger.info("V2 Orchestrator initialized with clean architecture")
+        logger.info(
+            "V2 Orchestrator initialized with %s strategy",
+            type(self._strategy).__name__,
+        )
 
     def execute(
         self,
