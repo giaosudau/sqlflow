@@ -25,10 +25,12 @@ Example Usage:
 from sqlflow.core.executors.v2.handlers.base import StepHandler, observed_execution
 from sqlflow.core.executors.v2.handlers.factory import StepHandlerFactory
 from sqlflow.core.executors.v2.handlers.load_handler import LoadStepHandler
+from sqlflow.core.executors.v2.handlers.transform_handler import TransformStepHandler
 
 __all__ = [
     "StepHandler",
     "StepHandlerFactory",
     "LoadStepHandler",
+    "TransformStepHandler",
     "observed_execution",
 ]

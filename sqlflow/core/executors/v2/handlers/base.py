@@ -72,38 +72,46 @@ class StepHandler(ABC):
             return step.type == expected_type
         return True
 
+    def _handle_execution_error(
+        self, step: BaseStep, start_time: datetime, exception: Exception
+    ) -> StepExecutionResult:
+        """
+        Common error handling for all handlers - DRY principle.
 
-def observed_execution(
-    step_type: str,
-    *,
-    record_schema: bool = True,
-    record_performance: bool = True,
-    record_resources: bool = False,
-) -> Callable[[F], F]:
+        Args:
+            step: The step that failed
+            start_time: When execution started
+            exception: The exception that occurred
+
+        Returns:
+            StepExecutionResult with failure details
+        """
+        from datetime import datetime
+
+        operation_name = (
+            self.__class__.__name__.replace("StepHandler", "")
+            .replace("Handler", "")
+            .lower()
+        )
+        error_message = f"{operation_name} operation failed: {str(exception)}"
+        logger.error(f"{step.type.title()}Step {step.id} failed: {error_message}")
+
+        return StepExecutionResult.failure(
+            step_id=step.id,
+            step_type=step.type,
+            start_time=start_time,
+            end_time=datetime.utcnow(),
+            error_message=error_message,
+            error_code=f"{step.type.upper()}_EXECUTION_ERROR",
+        )
+
+
+def observed_execution(step_type: str) -> Callable[[F], F]:
     """
-    Decorator that adds comprehensive observability to step handlers.
+    Decorator that adds observability to step handlers.
 
-    This decorator automatically:
-    - Records execution timing and status
-    - Captures performance metrics
-    - Handles exceptions with proper logging
-    - Integrates with the ObservabilityManager
-    - Provides failure recovery insights
-
-    Args:
-        step_type: Type of step being executed (for categorization)
-        record_schema: Whether to capture schema information
-        record_performance: Whether to record performance metrics
-        record_resources: Whether to monitor resource usage
-
-    Returns:
-        Decorated function with observability integration
-
-    Example:
-        @observed_execution("load", record_schema=True)
-        def execute(self, step: LoadStep, context: ExecutionContext) -> StepExecutionResult:
-            # Step execution logic here
-            return StepExecutionResult.success(...)
+    Simplified design following "Simple is better than complex".
+    All observability features are enabled by default.
     """
 
     def decorator(func: F) -> F:
@@ -114,31 +122,21 @@ def observed_execution(
             start_time = datetime.utcnow()
             step_id = step.id
 
-            # Record step start
+            # Start observability tracking
             _record_step_start(context, step_id, step_type)
 
             try:
                 # Execute the actual step logic
                 result = func(handler_self, step, context)
 
-                # Enhance and record success
-                return _handle_successful_execution(
-                    result,
-                    step,
-                    context,
-                    start_time,
-                    step_id,
-                    step_type,
-                    record_schema,
-                    record_performance,
-                    record_resources,
-                )
+                # Record successful completion
+                _record_step_success(context, step_id, result)
+
+                return result
 
             except Exception as e:
-                # Handle failure
-                return _handle_failed_execution(
-                    e, step_id, step_type, context, start_time
-                )
+                # Handle execution failure
+                return _handle_step_failure(context, step_id, step_type, start_time, e)
 
         return wrapper  # type: ignore
 
@@ -146,128 +144,52 @@ def observed_execution(
 
 
 def _record_step_start(context: ExecutionContext, step_id: str, step_type: str) -> None:
-    """Record step start with observability manager."""
+    """Record step start with graceful failure handling."""
     try:
         context.observability_manager.record_step_start(step_id, step_type)
-        logger.debug(f"Started executing {step_type} step: {step_id}")
-    except Exception as obs_error:
-        logger.warning(f"Observability recording failed for step start: {obs_error}")
+        logger.debug(f"Started {step_type} step: {step_id}")
+    except Exception as e:
+        logger.warning(f"Observability recording failed: {e}")
 
 
-def _handle_successful_execution(
-    result: StepExecutionResult,
-    step: BaseStep,
-    context: ExecutionContext,
-    start_time: datetime,
-    step_id: str,
-    step_type: str,
-    record_schema: bool,
-    record_performance: bool,
-    record_resources: bool,
-) -> StepExecutionResult:
-    """Handle successful step execution with observability."""
-    # Enhance result with observability data
-    enriched_result = _enrich_result_with_observability(
-        result, step, start_time, record_schema, record_performance, record_resources
-    )
-
-    # Record success with observability manager
+def _record_step_success(
+    context: ExecutionContext, step_id: str, result: StepExecutionResult
+) -> None:
+    """Record step success with graceful failure handling."""
     try:
         context.observability_manager.record_step_success(
-            step_id, enriched_result.to_observability_event()
+            step_id, result.to_observability_event()
         )
-        logger.debug(f"Successfully completed {step_type} step: {step_id}")
-    except Exception as obs_error:
-        logger.warning(f"Observability recording failed for step success: {obs_error}")
-
-    return enriched_result
+        logger.debug(f"Completed {result.step_type} step: {step_id}")
+    except Exception as e:
+        logger.warning(f"Observability recording failed: {e}")
 
 
-def _handle_failed_execution(
-    exception: Exception,
+def _handle_step_failure(
+    context: ExecutionContext,
     step_id: str,
     step_type: str,
-    context: ExecutionContext,
     start_time: datetime,
+    exception: Exception,
 ) -> StepExecutionResult:
-    """Handle failed step execution with observability."""
+    """Handle step execution failure with observability recording."""
     end_time = datetime.utcnow()
     execution_time_ms = (end_time - start_time).total_seconds() * 1000
 
-    # Record failure with observability manager
+    # Record failure (with graceful handling)
     try:
         context.observability_manager.record_step_failure(
             step_id, step_type, str(exception), execution_time_ms
         )
-    except Exception as obs_error:
-        logger.warning(f"Observability recording failed for step failure: {obs_error}")
+    except Exception:
+        pass  # Ignore observability failures during error handling
 
-    # Create failure result
-    failure_result = StepExecutionResult.failure(
+    # Return structured failure result
+    return StepExecutionResult.failure(
         step_id=step_id,
         step_type=step_type,
         start_time=start_time,
-        error_message=str(exception),
         end_time=end_time,
+        error_message=str(exception),
+        error_code=f"{step_type.upper()}_EXECUTION_ERROR",
     )
-
-    logger.error(f"Failed to execute {step_type} step {step_id}: {exception}")
-    return failure_result
-
-
-def _enrich_result_with_observability(
-    result: StepExecutionResult,
-    step: BaseStep,
-    start_time: datetime,
-    record_schema: bool,
-    record_performance: bool,
-    record_resources: bool,
-) -> StepExecutionResult:
-    """
-    Enrich a StepExecutionResult with additional observability data.
-
-    This function adds performance metrics, schema information, and other
-    observability data to the base result returned by step handlers.
-
-    Args:
-        result: Original result from step handler
-        step: The executed step
-        start_time: When execution started
-        record_schema: Whether to capture schema information
-        record_performance: Whether to record performance metrics
-        record_resources: Whether to monitor resource usage
-
-    Returns:
-        Enhanced StepExecutionResult with observability data
-    """
-    # The result already contains the basic observability data
-    # This function can be extended to add more sophisticated metrics
-
-    # Add step metadata to performance metrics
-    if record_performance and hasattr(result, "performance_metrics"):
-        performance_metrics = dict(result.performance_metrics)
-        performance_metrics.update(
-            {
-                "step_criticality": step.criticality,
-                "expected_duration_ms": step.expected_duration_ms,
-                "actual_vs_expected_ratio": (
-                    result.execution_duration_ms / step.expected_duration_ms
-                    if step.expected_duration_ms and step.expected_duration_ms > 0
-                    else None
-                ),
-            }
-        )
-
-        # Use dataclass replace if available, otherwise return original result
-        try:
-            from dataclasses import replace
-
-            result = replace(result, performance_metrics=performance_metrics)
-        except (ImportError, TypeError):
-            # Fallback: modify the result's performance_metrics if it's mutable
-            if hasattr(result, "performance_metrics") and hasattr(
-                result.performance_metrics, "update"
-            ):
-                result.performance_metrics.update(performance_metrics)
-
-    return result

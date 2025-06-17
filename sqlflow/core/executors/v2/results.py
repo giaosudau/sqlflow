@@ -199,7 +199,7 @@ class StepExecutionResult:
 
         # Add performance metrics
         if self.performance_metrics:
-            event["performance"] = self.performance_metrics
+            event["performance_metrics"] = self.performance_metrics
 
         # Add resource usage
         if self.resource_usage:

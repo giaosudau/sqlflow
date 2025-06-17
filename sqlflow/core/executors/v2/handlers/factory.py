@@ -1,8 +1,7 @@
 """Step Handler Factory for V2 Executor.
 
-This module implements the Factory pattern to create the appropriate StepHandler
-for a given step type. This centralized factory makes it easy to add new handlers
-and ensures consistent handler creation across the system.
+This module implements a simplified Factory pattern using a module-level registry
+to create the appropriate StepHandler for a given step type.
 """
 
 from typing import Dict, Optional, Type
@@ -13,194 +12,138 @@ from sqlflow.logging import get_logger
 logger = get_logger(__name__)
 
 
-class StepHandlerFactory:
+# Simple module-level registry - Pythonic and direct
+_HANDLERS: Dict[str, Type[StepHandler]] = {}
+
+
+def register_handler(step_type: str, handler_class: Type[StepHandler]) -> None:
     """
-    Factory class that provides the correct StepHandler for a given step type.
+    Register a handler class for a specific step type.
 
-    This factory encapsulates the logic of mapping step types to their corresponding
-    handlers, making it easy to add new step types without modifying the orchestrator.
+    Args:
+        step_type: The step type this handler manages (e.g., "load", "transform")
+        handler_class: The handler class to instantiate for this step type
 
-    The factory follows the Registry pattern - handlers are registered with their
-    corresponding step types, and the factory looks them up dynamically.
+    Raises:
+        TypeError: If step_type is not a string or handler_class is not a StepHandler subclass
+
+    Example:
+        register_handler("load", LoadStepHandler)
     """
+    if not isinstance(step_type, str):
+        raise TypeError("Step type must be a string")
 
-    # Registry of step type -> handler class mappings
-    _handlers: Dict[str, Type[StepHandler]] = {}
-    # Singleton instances for stateless handlers (performance optimization)
-    _handler_instances: Dict[str, StepHandler] = {}
+    if not (isinstance(handler_class, type) and issubclass(handler_class, StepHandler)):
+        raise TypeError("Handler class must be a subclass of StepHandler")
+
+    _HANDLERS[step_type] = handler_class
+    logger.debug(
+        f"Registered handler {handler_class.__name__} for step type '{step_type}'"
+    )
+
+
+def get_handler(step_type: str) -> StepHandler:
+    """
+    Get handler for step type. Simple and direct.
+
+    Args:
+        step_type: The type of step to handle (e.g., "load", "transform")
+
+    Returns:
+        StepHandler instance capable of executing the step type
+
+    Raises:
+        ValueError: If no handler is registered for the step type
+
+    Example:
+        handler = get_handler("load")
+        result = handler.execute(load_step, context)
+    """
+    # Ensure handlers are registered (lazy initialization)
+    _ensure_handlers_registered()
+
+    handler_class = _HANDLERS.get(step_type)
+    if not handler_class:
+        available_types = ", ".join(_HANDLERS.keys()) if _HANDLERS else "None"
+        raise ValueError(
+            f"Unsupported step type: '{step_type}'. Available types: {available_types}"
+        )
+
+    return handler_class()
+
+
+def get_available_step_types() -> list[str]:
+    """Get list of all registered step types."""
+    return list(_HANDLERS.keys())
+
+
+def is_step_type_supported(step_type: str) -> bool:
+    """Check if a step type is supported."""
+    return step_type in _HANDLERS
+
+
+def clear_registry() -> None:
+    """Clear all registered handlers (primarily for testing)."""
+    _HANDLERS.clear()
+    logger.debug("Cleared all handler registrations")
+
+
+# Maintain backwards compatibility with existing StepHandlerFactory class
+class StepHandlerFactoryMeta(type):
+    """Metaclass to handle legacy _handlers attribute assignment."""
+
+    def __setattr__(cls, name, value):
+        if name == "_handlers":
+            _HANDLERS.clear()
+            _HANDLERS.update(value)
+        else:
+            super().__setattr__(name, value)
+
+    @property
+    def _handlers(cls):
+        """Legacy property for backward compatibility."""
+        return _HANDLERS
+
+
+class StepHandlerFactory(metaclass=StepHandlerFactoryMeta):
+    """Legacy wrapper for backwards compatibility."""
 
     @classmethod
     def register_handler(cls, step_type: str, handler_class: Type[StepHandler]) -> None:
-        """
-        Register a handler class for a specific step type.
-
-        Args:
-            step_type: The step type this handler manages (e.g., "load", "transform")
-            handler_class: The handler class to instantiate for this step type
-
-        Raises:
-            TypeError: If step_type is not a string or handler_class is not a StepHandler subclass
-
-        Example:
-            StepHandlerFactory.register_handler("load", LoadStepHandler)
-        """
-        # Validate input parameters
-        if not isinstance(step_type, str):
-            raise TypeError("Step type must be a string")
-
-        if not (
-            isinstance(handler_class, type) and issubclass(handler_class, StepHandler)
-        ):
-            raise TypeError("Handler class must be a subclass of StepHandler")
-
-        cls._handlers[step_type] = handler_class
-        # Clear cached instance to force recreation with new handler
-        cls._handler_instances.pop(step_type, None)
-        logger.debug(
-            f"Registered handler {handler_class.__name__} for step type '{step_type}'"
-        )
+        register_handler(step_type, handler_class)
 
     @classmethod
     def get_handler(cls, step_type: str) -> StepHandler:
-        """
-        Get the appropriate handler for a given step type.
-
-        Args:
-            step_type: The type of step to handle (e.g., "load", "transform")
-
-        Returns:
-            StepHandler instance capable of executing the step type
-
-        Raises:
-            ValueError: If no handler is registered for the step type
-
-        Example:
-            handler = StepHandlerFactory.get_handler("load")
-            result = handler.execute(load_step, context)
-        """
-        # Check if we have a cached instance (handlers are stateless)
-        if step_type in cls._handler_instances:
-            return cls._handler_instances[step_type]
-
-        # Look up handler class
-        handler_class = cls._handlers.get(step_type)
-        if not handler_class:
-            available_types = (
-                ", ".join(cls._handlers.keys()) if cls._handlers else "None"
-            )
-            raise ValueError(
-                f"No handler registered for step type: '{step_type}'. "
-                f"Available types: {available_types}"
-            )
-
-        # Create and cache handler instance
-        try:
-            handler_instance = handler_class()
-            cls._handler_instances[step_type] = handler_instance
-            logger.debug(f"Created handler instance for step type '{step_type}'")
-            return handler_instance
-        except Exception as e:
-            raise ValueError(
-                f"Failed to create handler for step type '{step_type}': {e}"
-            ) from e
+        return get_handler(step_type)
 
     @classmethod
     def create_handler(cls, step_type: str) -> StepHandler:
-        """
-        Create a new handler instance for a given step type.
-
-        This is an alias for get_handler() but always returns a new instance
-        rather than using cached instances (for testing purposes).
-
-        Args:
-            step_type: The type of step to handle (e.g., "load", "transform")
-
-        Returns:
-            New StepHandler instance capable of executing the step type
-
-        Raises:
-            ValueError: If no handler is registered for the step type or creation fails
-
-        Example:
-            handler = StepHandlerFactory.create_handler("load")
-            result = handler.execute(load_step, context)
-        """
-        # Look up handler class
-        handler_class = cls._handlers.get(step_type)
-        if not handler_class:
-            available_types = (
-                ", ".join(cls._handlers.keys()) if cls._handlers else "None"
-            )
-            raise ValueError(
-                f"Unsupported step type: '{step_type}'. "
-                f"Available types: {available_types}"
-            )
-
-        # Create new handler instance (don't use cache)
-        try:
-            handler_instance = handler_class()
-            logger.debug(f"Created new handler instance for step type '{step_type}'")
-            return handler_instance
-        except Exception as e:
-            raise ValueError(
-                f"Failed to create handler for step type '{step_type}': {e}"
-            ) from e
+        return get_handler(step_type)
 
     @classmethod
     def get_available_step_types(cls) -> list[str]:
-        """
-        Get list of all registered step types.
-
-        Returns:
-            List of step type strings that have registered handlers
-        """
-        return list(cls._handlers.keys())
+        return get_available_step_types()
 
     @classmethod
     def is_step_type_supported(cls, step_type: str) -> bool:
-        """
-        Check if a step type is supported by the factory.
-
-        Args:
-            step_type: Step type to check
-
-        Returns:
-            True if the step type has a registered handler
-        """
-        return step_type in cls._handlers
+        return is_step_type_supported(step_type)
 
     @classmethod
     def clear_registry(cls) -> None:
-        """
-        Clear all registered handlers (primarily for testing).
-
-        This method removes all handler registrations and cached instances.
-        Use with caution in production code.
-        """
-        cls._handlers.clear()
-        cls._handler_instances.clear()
-        logger.debug("Cleared all handler registrations")
+        clear_registry()
 
     @classmethod
     def get_handler_info(cls, step_type: Optional[str] = None) -> Dict[str, str]:
-        """
-        Get information about registered handlers.
-
-        Args:
-            step_type: Optional specific step type to get info for
-
-        Returns:
-            Dictionary mapping step types to handler class names
-        """
+        """Legacy method for backward compatibility."""
         if step_type:
-            handler_class = cls._handlers.get(step_type)
+            handler_class = _HANDLERS.get(step_type)
             if handler_class:
                 return {step_type: handler_class.__name__}
             return {}
 
         return {
             step_type: handler_class.__name__
-            for step_type, handler_class in cls._handlers.items()
+            for step_type, handler_class in _HANDLERS.items()
         }
 
 
@@ -217,16 +160,48 @@ def _auto_register_handlers():
         # Import and register LoadStepHandler
         from sqlflow.core.executors.v2.handlers.load_handler import LoadStepHandler
 
-        StepHandlerFactory.register_handler("load", LoadStepHandler)
+        register_handler("load", LoadStepHandler)
+        logger.debug("Auto-registered LoadStepHandler")
     except ImportError as e:
         logger.debug(f"Could not auto-register LoadStepHandler: {e}")
 
-    # Future handlers will be added here as they're implemented
-    # try:
-    #     from sqlflow.core.executors.v2.handlers.transform_handler import TransformStepHandler
-    #     StepHandlerFactory.register_handler("transform", TransformStepHandler)
-    # except ImportError as e:
-    #     logger.debug(f"Could not auto-register TransformStepHandler: {e}")
+    # Register TransformStepHandler
+    try:
+        from sqlflow.core.executors.v2.handlers.transform_handler import (
+            TransformStepHandler,
+        )
+
+        register_handler("transform", TransformStepHandler)
+        logger.debug("Auto-registered TransformStepHandler")
+    except ImportError as e:
+        logger.debug(f"Could not auto-register TransformStepHandler: {e}")
+
+    # Register ExportStepHandler
+    try:
+        from sqlflow.core.executors.v2.handlers.export_handler import ExportStepHandler
+
+        register_handler("export", ExportStepHandler)
+        logger.debug("Auto-registered ExportStepHandler")
+    except ImportError as e:
+        logger.debug(f"Could not auto-register ExportStepHandler: {e}")
+
+    # Register SourceDefinitionHandler
+    try:
+        from sqlflow.core.executors.v2.handlers.source_handler import (
+            SourceDefinitionHandler,
+        )
+
+        register_handler("source_definition", SourceDefinitionHandler)
+        logger.debug("Auto-registered SourceDefinitionHandler")
+    except ImportError as e:
+        logger.debug(f"Could not auto-register SourceDefinitionHandler: {e}")
+
+
+# Lazy registration: ensure handlers are registered when get_handler is called
+def _ensure_handlers_registered():
+    """Ensure handlers are registered before use (failsafe)."""
+    if not _HANDLERS:
+        _auto_register_handlers()
 
 
 # Perform auto-registration when module is imported
