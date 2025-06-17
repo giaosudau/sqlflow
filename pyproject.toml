@@ -127,7 +127,7 @@ sqlflow = ["py.typed"]
 
 [tool.black]
 line-length = 88
-target-version = ["py38"]
+target-version = ["py310"]
 include = '\.pyi?$'
 
 [tool.isort]
@@ -145,7 +145,7 @@ ignore = "E501,E221,E222,E223,E224,E303,E301,E302,E402,F401,F841,E741,W291,W293,
 max-complexity = 10
 
 [tool.mypy]
-python_version = "3.8"
+python_version = "3.10"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
