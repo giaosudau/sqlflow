@@ -72,7 +72,7 @@ class StepMetrics:
         """Add execution data to metrics."""
         self.calls += 1
         self.total_time_ms += duration_ms
-        self.total_rows += rows
+        self.total_rows += rows if rows is not None else 0
         self.recent_durations.append(duration_ms)
 
         if not success:

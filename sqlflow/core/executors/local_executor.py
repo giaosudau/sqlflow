@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+import time
+import uuid
 from typing import Any, Dict, List, Optional, Protocol, Tuple
 
 import pandas as pd
@@ -19,6 +21,20 @@ from sqlflow.core.state.backends import DuckDBStateBackend
 from sqlflow.core.state.watermark_manager import WatermarkManager
 from sqlflow.logging import get_logger
 from sqlflow.project import Project
+
+# V2 Executor imports for compatibility bridge
+try:
+    from sqlflow.connectors.registry import EnhancedConnectorRegistry
+    from sqlflow.core.executors.v2.context import ExecutionContext
+    from sqlflow.core.executors.v2.handlers import LoadStepHandler
+    from sqlflow.core.executors.v2.observability import ObservabilityManager
+    from sqlflow.core.variables.manager import VariableManager
+
+    enhanced_registry = EnhancedConnectorRegistry
+    V2_AVAILABLE = True
+except ImportError:
+    V2_AVAILABLE = False
+    # Don't log this during import to avoid noise during testing
 
 # Configure logger
 logger = get_logger(__name__)
@@ -557,6 +573,8 @@ class LocalExecutor(BaseExecutor):
         project: Optional[Project] = None,
         profile_name: Optional[str] = None,
         project_dir: Optional[str] = None,
+        use_v2_load: bool = False,  # Feature flag for V2 load handler
+        use_v2_observability: bool = False,  # Feature flag for V2 observability
     ):
         """Initialize a LocalExecutor.
 
@@ -565,9 +583,21 @@ class LocalExecutor(BaseExecutor):
             project: Project object containing profiles and configurations
             profile_name: Name of profile to use from the project
             project_dir: Directory path for the project (used for UDF discovery)
+            use_v2_load: Enable V2 LoadStepHandler for load operations
+            use_v2_observability: Enable V2 observability features
 
         """
         super().__init__()
+
+        # V2 feature flags
+        self._use_v2_load = use_v2_load and V2_AVAILABLE
+        self._use_v2_observability = use_v2_observability and V2_AVAILABLE
+
+        if use_v2_load and not V2_AVAILABLE:
+            logger.warning("V2 load handler requested but V2 components not available")
+
+        if use_v2_observability and not V2_AVAILABLE:
+            logger.warning("V2 observability requested but V2 components not available")
 
         # Initialize core state
         self.source_definitions: Dict[str, Dict[str, Any]] = {}
@@ -596,6 +626,14 @@ class LocalExecutor(BaseExecutor):
         # Initialize watermark management
         self._init_watermark_manager()
 
+        # Initialize V2 components if enabled
+        self._v2_context: Optional[ExecutionContext] = None
+        self._v2_load_handler: Optional[LoadStepHandler] = None
+        self._v2_observability_manager: Optional[ObservabilityManager] = None
+
+        if self._use_v2_load or self._use_v2_observability:
+            self._init_v2_components()
+
         # Discover UDFs if project directory is provided
         if project_dir:
             try:
@@ -605,6 +643,111 @@ class LocalExecutor(BaseExecutor):
                 # UDF discovery is optional - don't fail initialization if it fails
                 logger.debug(f"UDF discovery failed: {e}")
                 self.discovered_udfs = {}
+
+    def _init_v2_components(self) -> None:
+        """Initialize V2 Executor components for compatibility bridge."""
+        if not V2_AVAILABLE:
+            return
+
+        try:
+            # Create observability manager if enabled
+            if self._use_v2_observability:
+                run_id = f"v1_compat_{uuid.uuid4().hex[:8]}"
+                self._v2_observability_manager = ObservabilityManager(run_id=run_id)
+                logger.debug("Initialized V2 observability manager")
+
+            # Create V2 execution context if any V2 features are enabled
+            if self._use_v2_load or self._use_v2_observability:
+                self._v2_context = ExecutionContext.create(
+                    sql_engine=self.duckdb_engine,
+                    connector_registry=enhanced_registry,
+                    variable_manager=VariableManager(self.variables),
+                    watermark_manager=self.watermark_manager,
+                    observability_manager=self._v2_observability_manager
+                    or ObservabilityManager(run_id="dummy"),
+                    variables=self.variables,
+                    config=self.profile or {},
+                )
+                logger.debug("Initialized V2 execution context")
+
+            # Create V2 load handler if enabled
+            if self._use_v2_load:
+                self._v2_load_handler = LoadStepHandler()
+                logger.debug("Initialized V2 load handler")
+
+        except Exception as e:
+            logger.warning(f"Failed to initialize V2 components: {e}")
+            # Disable V2 features on initialization failure
+            self._use_v2_load = False
+            self._use_v2_observability = False
+
+    def _convert_v1_to_v2_load_step(self, v1_load_step):
+        """Convert V1 LoadStep to V2 LoadStep format."""
+        from sqlflow.core.executors.v2.steps import LoadStep
+
+        # Extract attributes from V1 LoadStep (which may be from AST)
+        source_name = getattr(v1_load_step, "source_name", "")
+        table_name = getattr(v1_load_step, "table_name", "")
+        mode = getattr(v1_load_step, "mode", "REPLACE").lower()
+        upsert_keys = getattr(v1_load_step, "upsert_keys", [])
+
+        # Generate step ID
+        step_id = f"load_{table_name}_{int(time.time())}"
+
+        # Prepare incremental config for UPSERT mode
+        incremental_config = None
+        if mode == "upsert" and upsert_keys:
+            incremental_config = {"upsert_keys": upsert_keys}
+
+        return LoadStep(
+            id=step_id,
+            source=source_name,
+            target_table=table_name,
+            load_mode=mode,
+            options={},  # V1 doesn't have options in the same way
+            incremental_config=incremental_config,
+            metadata={"v1_compatibility": True},
+        )
+
+    def _convert_v2_to_v1_result(self, v2_result) -> Dict[str, Any]:
+        """Convert V2 StepExecutionResult to V1 result format."""
+        if v2_result.status == "SUCCESS":
+            return {
+                "status": "success",
+                "message": f"Loaded {v2_result.rows_affected or 0} rows",
+                "rows_loaded": v2_result.rows_affected or 0,
+                "target_table": (
+                    v2_result.data_lineage.get("target_table")
+                    if v2_result.data_lineage
+                    else None
+                ),
+                "table": (
+                    v2_result.data_lineage.get("target_table")
+                    if v2_result.data_lineage
+                    else None
+                ),
+                "mode": (
+                    v2_result.data_lineage.get("load_mode")
+                    if v2_result.data_lineage
+                    else None
+                ),
+                # V2 specific metrics for debugging
+                "v2_metrics": v2_result.performance_metrics,
+                "v2_duration_ms": v2_result.execution_duration_ms,
+            }
+        else:
+            return {
+                "status": "error",
+                "message": v2_result.error_message or "Load operation failed",
+                "error_code": v2_result.error_code,
+                "v2_execution": True,
+            }
+
+    def get_v2_performance_summary(self) -> Optional[Dict[str, Any]]:
+        """Get V2 performance summary if observability is enabled."""
+        if self._v2_observability_manager:
+            return self._v2_observability_manager.get_performance_summary()
+        return None
 
     def _create_project(
         self, project_dir: Optional[str], profile_name: Optional[str]
@@ -1241,41 +1384,44 @@ class LocalExecutor(BaseExecutor):
             Dict containing execution results
 
         """
+        # Try V2 compatibility bridge first
+        v2_result = self._try_v2_load_execution(load_step)
+        if v2_result is not None:
+            return v2_result
+
+        # Execute with V1 implementation
+        return self._execute_v1_load_step(load_step)
+
+    def _try_v2_load_execution(self, load_step) -> Optional[Dict[str, Any]]:
+        """Try to execute using V2 handler if enabled.
+
+        Returns:
+            Dict result if V2 execution succeeded, None if should fall back to V1
+        """
+        if not (self._use_v2_load and self._v2_load_handler and self._v2_context):
+            return None
+
+        try:
+            # Convert V1 LoadStep to V2 LoadStep
+            v2_step = self._convert_v1_to_v2_load_step(load_step)
+
+            # Execute using V2 handler
+            result = self._v2_load_handler.execute(v2_step, self._v2_context)
+
+            # Convert V2 result back to V1 format
+            return self._convert_v2_to_v1_result(result)
+
+        except Exception as e:
+            logger.warning(f"V2 load handler failed, falling back to V1: {e}")
+            return None
+
+    def _execute_v1_load_step(self, load_step) -> Dict[str, Any]:
+        """Execute load step using V1 implementation."""
         try:
             source_name = getattr(load_step, "source_name", "unknown")
 
-            # Check if data is already loaded from an incremental source step
-            if hasattr(self, "table_data") and source_name in self.table_data:
-                # Use pre-loaded data
-                data_chunk = self.table_data[source_name]
-                if self.duckdb_engine:
-                    self.duckdb_engine.register_table(source_name, data_chunk.pandas_df)
-                rows_loaded = len(data_chunk)
-
-                # For incremental sources, update watermark during load step
-                source_definition = self._get_source_definition(source_name)
-                if (
-                    source_definition
-                    and source_definition.get("sync_mode") == "incremental"
-                ):
-                    cursor_field = source_definition.get("cursor_field")
-                    if cursor_field:
-                        pipeline_name = getattr(load_step, "pipeline_name", "default")
-                        # Get the last watermark value to compare
-                        last_cursor_value = self._get_last_watermark_value(
-                            pipeline_name, load_step, cursor_field
-                        )
-                        # Update watermark with the new data
-                        self._update_watermark_if_needed(
-                            pipeline_name,
-                            load_step,
-                            cursor_field,
-                            data_chunk.pandas_df,
-                            last_cursor_value,
-                        )
-            else:
-                # Load data if not already loaded
-                rows_loaded = self._load_and_prepare_source_data(load_step)
+            # Handle pre-loaded data or load new data
+            rows_loaded = self._handle_preloaded_or_load_data(load_step, source_name)
 
             mode = getattr(load_step, "mode", "REPLACE")
             logger.debug(
@@ -1300,6 +1446,49 @@ class LocalExecutor(BaseExecutor):
             error_msg = str(e)
             logger.error(f"Error executing LoadStep: {error_msg}")
             return {"status": "error", "message": error_msg}
+
+    def _handle_preloaded_or_load_data(self, load_step, source_name: str) -> int:
+        """Handle pre-loaded data or load new data, returning rows loaded."""
+        # Check if data is already loaded from an incremental source step
+        if hasattr(self, "table_data") and source_name in self.table_data:
+            return self._use_preloaded_data(load_step, source_name)
+        else:
+            # Load data if not already loaded
+            return self._load_and_prepare_source_data(load_step)
+
+    def _use_preloaded_data(self, load_step, source_name: str) -> int:
+        """Use pre-loaded data and handle incremental watermarks."""
+        data_chunk = self.table_data[source_name]
+        if self.duckdb_engine:
+            self.duckdb_engine.register_table(source_name, data_chunk.pandas_df)
+        rows_loaded = len(data_chunk)
+
+        # For incremental sources, update watermark during load step
+        self._handle_incremental_watermark_update(load_step, source_name, data_chunk)
+
+        return rows_loaded
+
+    def _handle_incremental_watermark_update(
+        self, load_step, source_name: str, data_chunk
+    ):
+        """Handle watermark updates for incremental sources."""
+        source_definition = self._get_source_definition(source_name)
+        if source_definition and source_definition.get("sync_mode") == "incremental":
+            cursor_field = source_definition.get("cursor_field")
+            if cursor_field:
+                pipeline_name = getattr(load_step, "pipeline_name", "default")
+                # Get the last watermark value to compare
+                last_cursor_value = self._get_last_watermark_value(
+                    pipeline_name, load_step, cursor_field
+                )
+                # Update watermark with the new data
+                self._update_watermark_if_needed(
+                    pipeline_name,
+                    load_step,
+                    cursor_field,
+                    data_chunk.pandas_df,
+                    last_cursor_value,
+                )
 
     def _load_and_prepare_source_data(self, load_step) -> int:
         """Load and prepare source data, returning the number of rows loaded.
