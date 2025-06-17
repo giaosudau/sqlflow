@@ -118,6 +118,20 @@ class TransformStep(BaseStep):
         super().__post_init__()
         if not self.sql.strip():
             raise ValueError("Transform step SQL cannot be empty")
+
+        # Auto-infer operation_type when target_table is provided
+        if (
+            self.target_table
+            and self.operation_type == "select"
+            and not self.sql.strip()
+            .upper()
+            .startswith(("CREATE", "INSERT", "UPDATE", "DELETE"))
+        ):
+            # When target_table is specified but operation_type is default "select",
+            # and SQL doesn't already start with DDL/DML keywords,
+            # automatically infer this should be a CREATE TABLE AS operation
+            object.__setattr__(self, "operation_type", "create_table")
+
         if (
             self.operation_type
             in ["create_table", "insert", "update", "delete", "merge"]

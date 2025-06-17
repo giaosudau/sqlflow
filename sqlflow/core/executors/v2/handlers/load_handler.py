@@ -43,7 +43,7 @@ class LoadStepHandler(StepHandler):
 
     STEP_TYPE = "load"
 
-    @observed_execution("load", record_schema=True, record_performance=True)
+    @observed_execution("load")
     def execute(self, step: LoadStep, context: ExecutionContext) -> StepExecutionResult:
         """
         Execute a load operation with comprehensive observability.
@@ -163,50 +163,11 @@ class LoadStepHandler(StepHandler):
 
         Returns:
             Configured source connector instance
-
-        Raises:
-            ValueError: If connector cannot be created or configured
         """
         try:
-            # For V2, we use the enhanced connector registry
-            # The source could be a connector type or a configured source name
-
-            # First, try to resolve as a configured source from profile
-            if hasattr(context, "profile_manager") and context.profile_manager:
-                try:
-                    source_config = context.profile_manager.get_source_config(
-                        step.source
-                    )
-                    if source_config:
-                        # Use profile-based configuration
-                        resolution_result = (
-                            context.connector_registry.resolve_configuration(
-                                connector_type=source_config.connector_type,
-                                is_source=True,
-                                profile_params=source_config.params,
-                                override_options=step.options,
-                            )
-                        )
-                        return context.connector_registry.create_source_connector(
-                            source_config.connector_type,
-                            resolution_result.resolved_config,
-                        )
-                except Exception as e:
-                    logger.debug(f"Could not resolve {step.source} from profile: {e}")
-
-            # Fallback: treat source as connector type with direct options
-            # Determine connector type from options or source name
-            connector_type = step.options.get("connector_type", "csv")  # Default to CSV
-
-            # For file paths, auto-detect connector type
-            if step.source.endswith(".csv"):
-                connector_type = "csv"
-            elif step.source.endswith(".parquet"):
-                connector_type = "parquet"
-
-            # Add source path to options
-            connector_options = dict(step.options)
-            connector_options["path"] = step.source
+            # Determine connector type and options
+            connector_type = self._detect_connector_type(step)
+            connector_options = self._prepare_connector_options(step)
 
             return context.connector_registry.create_source_connector(
                 connector_type, connector_options
@@ -216,6 +177,27 @@ class LoadStepHandler(StepHandler):
             raise ValueError(
                 f"Failed to create connector for source '{step.source}': {e}"
             ) from e
+
+    def _detect_connector_type(self, step: LoadStep) -> str:
+        """Detect connector type from step configuration."""
+        # Explicit connector type in options
+        if "connector_type" in step.options:
+            return step.options["connector_type"]
+
+        # Auto-detect from file extension
+        if step.source.endswith(".csv"):
+            return "csv"
+        elif step.source.endswith(".parquet"):
+            return "parquet"
+
+        # Default fallback
+        return "csv"
+
+    def _prepare_connector_options(self, step: LoadStep) -> Dict[str, Any]:
+        """Prepare connector options with source path."""
+        connector_options = dict(step.options)
+        connector_options["path"] = step.source
+        return connector_options
 
     def _load_data_from_source(
         self, connector, step: LoadStep, context: ExecutionContext
@@ -258,50 +240,42 @@ class LoadStepHandler(StepHandler):
         elif hasattr(connector, "read"):
             # Traditional interface - convert to chunks
             data_result = connector.read()
-            return self._convert_data_result_to_chunks(data_result)
+            return self._normalize_to_chunks(data_result)
         else:
             raise ValueError(
                 f"Connector {type(connector)} does not support data reading"
             )
 
-    def _convert_data_result_to_chunks(self, data_result):
-        """Convert data result from traditional interface to chunks."""
-        data_chunks = []
+    def _normalize_to_chunks(self, data_result):
+        """
+        Normalize any data result to DataChunk objects.
 
+        Follows "Simple is better than complex" - one clear conversion path.
+        """
         # Handle different return types from connectors
         if isinstance(data_result, DataChunk):
-            # Single DataChunk
-            data_chunks.append(data_result)
-        elif isinstance(data_result, pd.DataFrame):
-            # Single DataFrame - convert to DataChunk
-            data_chunks.append(DataChunk(data_result))
-        elif self._is_iterable_data(data_result):
-            # Iterator/generator of chunks
-            data_chunks.extend(self._convert_iterable_to_chunks(data_result))
-        else:
-            # Try to convert directly to DataChunk
-            data_chunks.append(DataChunk(data_result))
+            return [data_result]
 
-        return data_chunks
+        if isinstance(data_result, pd.DataFrame):
+            return [DataChunk(data_result)]
 
-    def _is_iterable_data(self, data_result):
-        """Check if data result is iterable but not string/bytes."""
-        return hasattr(data_result, "__iter__") and not isinstance(
+        # Handle iterables (generators, lists of data)
+        if hasattr(data_result, "__iter__") and not isinstance(
             data_result, (str, bytes)
-        )
+        ):
+            chunks = []
+            for item in data_result:
+                if isinstance(item, DataChunk):
+                    chunks.append(item)
+                elif isinstance(item, pd.DataFrame):
+                    chunks.append(DataChunk(item))
+                else:
+                    # Fallback: let DataChunk handle it
+                    chunks.append(DataChunk(item))
+            return chunks
 
-    def _convert_iterable_to_chunks(self, data_result):
-        """Convert iterable data to DataChunk objects."""
-        chunks = []
-        for data_item in data_result:
-            if isinstance(data_item, DataChunk):
-                chunks.append(data_item)
-            elif isinstance(data_item, pd.DataFrame):
-                chunks.append(DataChunk(data_item))
-            else:
-                # Try to convert to DataChunk
-                chunks.append(DataChunk(data_item))
-        return chunks
+        # Default: wrap in DataChunk
+        return [DataChunk(data_result)]
 
     def _process_load_mode(
         self,
