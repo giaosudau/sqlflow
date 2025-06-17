@@ -12,11 +12,11 @@ Key Components:
 
 Example Usage:
     from sqlflow.core.executors.v2.handlers import StepHandlerFactory, LoadStepHandler
-    
+
     # Get handler through factory
     handler = StepHandlerFactory.get_handler("load")
     result = handler.execute(load_step, context)
-    
+
     # Or create handler directly
     load_handler = LoadStepHandler()
     result = load_handler.execute(load_step, context)
@@ -28,7 +28,7 @@ from sqlflow.core.executors.v2.handlers.load_handler import LoadStepHandler
 
 __all__ = [
     "StepHandler",
-    "StepHandlerFactory", 
+    "StepHandlerFactory",
     "LoadStepHandler",
     "observed_execution",
-] 
+]

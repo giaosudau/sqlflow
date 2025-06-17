@@ -658,10 +658,24 @@ class LocalExecutor(BaseExecutor):
 
             # Create V2 execution context if any V2 features are enabled
             if self._use_v2_load or self._use_v2_observability:
+                # Create proper VariableManager with VariableConfig
+                from sqlflow.core.variables.manager import VariableConfig
+
+                variable_config = VariableConfig(
+                    profile_variables=self.variables or {},
+                    env_variables=dict(os.environ),
+                )
+                variable_manager = VariableManager(variable_config)
+
+                # Import the global enhanced_registry instance
+                from sqlflow.connectors.registry.enhanced_registry import (
+                    enhanced_registry,
+                )
+
                 self._v2_context = ExecutionContext.create(
                     sql_engine=self.duckdb_engine,
                     connector_registry=enhanced_registry,
-                    variable_manager=VariableManager(self.variables),
+                    variable_manager=variable_manager,
                     watermark_manager=self.watermark_manager,
                     observability_manager=self._v2_observability_manager
                     or ObservabilityManager(run_id="dummy"),
