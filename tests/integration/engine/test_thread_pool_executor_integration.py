@@ -16,6 +16,11 @@ class TestThreadPoolExecutorIntegration:
 
     def test_concurrent_execution(self, caplog):
         """Test that tasks are executed concurrently when possible."""
+        # Configure logging to use caplog's handler
+        logger = logging.getLogger("sqlflow.core.executors.thread_pool_executor")
+        logger.handlers = []  # Remove any existing handlers
+        logger.addHandler(caplog.handler)
+        logger.propagate = True
         caplog.set_level(logging.INFO)
 
         plan = [
@@ -38,26 +43,62 @@ class TestThreadPoolExecutorIntegration:
         assert len(results) == 6
         assert all(f"task{i}" in results for i in range(1, 7))
 
+        # Collect all transitions
         transitions = {}
         for record in caplog.records:
-            if "task_state_transition" in record.message:
-                data = json.loads(record.message)
-                if data["new_state"] == "RUNNING":
-                    task_id = data["task_id"]
-                    timestamp = data["timestamp"]
-                    transitions[task_id] = timestamp
+            if (
+                record.name == "sqlflow.core.executors.thread_pool_executor"
+                and record.levelname == "INFO"
+            ):
+                try:
+                    data = json.loads(record.message)
+                    if (
+                        data.get("event") == "task_state_transition"
+                        and data.get("new_state") == "RUNNING"
+                    ):
+                        task_id = data["task_id"]
+                        timestamp = data["timestamp"]
+                        transitions[task_id] = timestamp
+                except json.JSONDecodeError:
+                    continue  # Skip non-JSON log messages
 
-        assert abs(transitions["task1"] - transitions["task2"]) < 0.05
-        assert abs(transitions["task1"] - transitions["task3"]) < 0.05
-        assert abs(transitions["task2"] - transitions["task3"]) < 0.05
+        # Verify we have all the transitions we need
+        assert (
+            len(transitions) >= 6
+        ), f"Expected transitions for all 6 tasks, but got {len(transitions)}: {transitions}"
+        assert all(
+            f"task{i}" in transitions for i in range(1, 7)
+        ), f"Missing transitions for some tasks. Got: {transitions}"
 
-        assert transitions["task4"] > transitions["task1"]
-        assert transitions["task4"] > transitions["task2"]
+        # Verify concurrent execution of independent tasks
+        assert (
+            abs(transitions["task1"] - transitions["task2"]) < 0.05
+        ), "task1 and task2 should start at similar times"
+        assert (
+            abs(transitions["task1"] - transitions["task3"]) < 0.05
+        ), "task1 and task3 should start at similar times"
+        assert (
+            abs(transitions["task2"] - transitions["task3"]) < 0.05
+        ), "task2 and task3 should start at similar times"
 
-        assert transitions["task5"] > transitions["task3"]
+        # Verify dependent tasks start after their dependencies
+        assert (
+            transitions["task4"] > transitions["task1"]
+        ), "task4 should start after task1"
+        assert (
+            transitions["task4"] > transitions["task2"]
+        ), "task4 should start after task2"
 
-        assert transitions["task6"] > transitions["task4"]
-        assert transitions["task6"] > transitions["task5"]
+        assert (
+            transitions["task5"] > transitions["task3"]
+        ), "task5 should start after task3"
+
+        assert (
+            transitions["task6"] > transitions["task4"]
+        ), "task6 should start after task4"
+        assert (
+            transitions["task6"] > transitions["task5"]
+        ), "task6 should start after task5"
 
     def test_execution_order_with_dependencies(self):
         """Test that execution order respects dependencies."""

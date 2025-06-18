@@ -13,7 +13,7 @@ from sqlflow.core.dependencies import DependencyResolver
 from sqlflow.core.executors.base_executor import BaseExecutor
 from sqlflow.core.executors.task_status import TaskState, TaskStatus
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("sqlflow.core.executors.thread_pool_executor")
 
 
 class ThreadPoolTaskExecutor(BaseExecutor):

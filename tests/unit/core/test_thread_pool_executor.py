@@ -292,6 +292,11 @@ class TestThreadPoolTaskExecutor:
 
     def test_log_state_transition(self, caplog):
         """Test logging state transitions."""
+        # Configure logging to use caplog's handler
+        logger = logging.getLogger("sqlflow.core.executors.thread_pool_executor")
+        logger.handlers = []  # Remove any existing handlers
+        logger.addHandler(caplog.handler)
+        logger.propagate = True
         caplog.set_level(logging.INFO)
 
         executor = ThreadPoolTaskExecutor()
