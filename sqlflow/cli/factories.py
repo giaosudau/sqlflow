@@ -15,6 +15,14 @@ from sqlflow.core.planner_main import Planner
 from sqlflow.logging import get_logger
 from sqlflow.project import Project
 
+# V2 Executor integration - graceful handling when V2 is not available
+try:
+    from sqlflow.core.executors import get_executor
+
+    V2_AVAILABLE = True
+except ImportError:
+    V2_AVAILABLE = False
+
 logger = get_logger(__name__)
 
 
@@ -46,8 +54,9 @@ class ExecutorProtocol(Protocol):
 
     def execute(
         self,
-        operations: List[Dict[str, Any]],
+        plan: List[Dict[str, Any]],
         variables: Optional[Dict[str, Any]] = None,
+        dependency_resolver: Optional[Any] = None,
     ) -> Dict[str, Any]:
         """Execute a list of operations."""
         ...
@@ -127,15 +136,19 @@ def load_project_for_command(
 
 def create_executor_for_command(
     profile_name: Optional[str] = None, variables: Optional[Dict[str, Any]] = None
-) -> ExecutorProtocol:
+) -> Any:
     """Create executor instance for CLI commands.
+
+    Uses V2 executor system when available with automatic fallback to V1.
+    This provides seamless transition to the new architecture while maintaining
+    complete backward compatibility.
 
     Args:
         profile_name: Optional profile name for configuration
         variables: Optional variables for execution context
 
     Returns:
-        ExecutorProtocol: Configured executor instance
+        ExecutorProtocol: Configured executor instance (V2 if available, V1 fallback)
 
     Raises:
         ProfileNotFoundError: If profile cannot be found
@@ -147,13 +160,29 @@ def create_executor_for_command(
         if not project:
             raise ProjectNotFoundError(os.getcwd())
 
-        # Create executor with project configuration
+        # Create executor with V2/V1 automatic selection
+        if V2_AVAILABLE:
+            try:
+                # Use V2 executor system with feature flag integration
+                executor = get_executor(
+                    project_dir=project.project_dir,
+                    profile_name=profile_name or "dev",
+                )
+                logger.debug(
+                    f"Created V2 executor for profile '{profile_name or 'dev'}'"
+                )
+                return executor
+            except Exception as e:
+                logger.warning(f"V2 executor creation failed, falling back to V1: {e}")
+                # Fall through to V1 creation
+
+        # Create V1 executor (fallback or when V2 not available)
         executor = LocalExecutor(
             project_dir=project.project_dir,
             profile_name=profile_name or "dev",
         )
 
-        logger.debug(f"Created executor for profile '{profile_name or 'dev'}'")
+        logger.debug(f"Created V1 executor for profile '{profile_name or 'dev'}'")
         return executor
 
     except Exception as e:
