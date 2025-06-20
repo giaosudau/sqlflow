@@ -11,7 +11,8 @@ import pyarrow.csv as csv_arrow
 import pyarrow.parquet as pq
 import pytest
 
-from sqlflow.core.executors.local_executor import LocalExecutor
+from sqlflow.core.executors import get_executor
+from sqlflow.core.executors.base_executor import BaseExecutor
 
 # Load test fixtures
 TEST_FIXTURES_PATH = (
@@ -46,7 +47,7 @@ def temp_connector_project() -> Generator[Dict[str, Any], None, None]:
 
 
 @pytest.fixture(scope="function")
-def connector_executor(temp_connector_project: Dict[str, Any]) -> LocalExecutor:
+def connector_executor(temp_connector_project: Dict[str, Any]) -> BaseExecutor:
     """Create a LocalExecutor configured for connector testing.
 
     Args:
@@ -59,7 +60,7 @@ def connector_executor(temp_connector_project: Dict[str, Any]) -> LocalExecutor:
     """
     # Use project_dir parameter in constructor for UDF discovery
     # This avoids issues with os.getcwd() during parallel test execution
-    executor = LocalExecutor(project_dir=temp_connector_project["project_dir"])
+    executor = get_executor(project_dir=temp_connector_project["project_dir"])
     return executor
 
 

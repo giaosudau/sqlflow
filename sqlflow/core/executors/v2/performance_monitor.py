@@ -16,10 +16,12 @@ import time
 try:
     import psutil
 
-    PSUTIL_AVAILABLE = True
+    psutil_available = True
 except ImportError:
-    PSUTIL_AVAILABLE = False
     psutil = None
+    psutil_available = False
+
+PSUTIL_AVAILABLE = psutil_available
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -27,7 +29,7 @@ from typing import Any, Dict, List, Optional
 
 from sqlflow.logging import get_logger
 
-from .feature_flags import FeatureFlag, is_v2_enabled
+# Removed feature flags - using clean factory pattern instead
 
 logger = get_logger(__name__)
 
@@ -139,7 +141,9 @@ class PerformanceOptimizer:
     """Performance optimization recommendations - Simple and actionable."""
 
     def __init__(self):
-        self._recent_metrics: deque = deque(maxlen=100)  # Last 100 executions
+        self._recent_metrics: deque[PerformanceMetrics] = deque(
+            maxlen=100
+        )  # Last 100 executions
 
     def add_metrics(self, metrics: PerformanceMetrics) -> None:
         """Add metrics for analysis."""
@@ -232,7 +236,9 @@ class PerformanceMonitor:
         self._db_metrics = {"query_count": 0, "total_query_time": 0.0}
 
         # Threading for non-blocking monitoring
-        self._monitoring_enabled = is_v2_enabled(FeatureFlag.V2_PERFORMANCE_MONITORING)
+        self._monitoring_enabled = (
+            True  # Always enabled - simple is better than complex
+        )
         self._stop_monitoring = threading.Event()
         self._monitor_thread: Optional[threading.Thread] = None
 
@@ -341,7 +347,7 @@ class PerformanceMonitor:
             memory_peak_mb=resource_metrics["memory_peak_mb"],
             cpu_usage_percent=resource_metrics["cpu_percent"],
             db_connections_active=1,  # Simple assumption for now
-            db_query_count=self._db_metrics["query_count"],
+            db_query_count=int(self._db_metrics["query_count"]),
             db_avg_query_time_ms=avg_query_time,
             total_steps=len(self._step_metrics),
             successful_steps=successful_steps,

@@ -12,7 +12,7 @@ import tempfile
 import pytest
 import yaml
 
-from sqlflow.core.executors.local_executor import LocalExecutor
+from sqlflow.core.executors import get_executor
 from sqlflow.project import Project
 
 
@@ -60,7 +60,7 @@ def temp_project_dir():
 def executor_with_profiles(temp_project_dir):
     """Create LocalExecutor with profile support."""
     project = Project(temp_project_dir, "test")
-    executor = LocalExecutor(project=project, profile_name="test")
+    executor = get_executor(project=project, profile_name="test")
     return executor
 
 
@@ -182,7 +182,7 @@ class TestUnifiedConnectorCreation:
         """Test that source definition storage always succeeds even without profile."""
         # Create executor without profile
         project = Project(temp_project_dir, "nonexistent")
-        executor = LocalExecutor(project=project, profile_name="nonexistent")
+        executor = get_executor(project=project, profile_name="nonexistent")
 
         step = {
             "id": "test_step",

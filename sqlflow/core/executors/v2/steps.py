@@ -85,6 +85,24 @@ class LoadStep(BaseStep):
         if not self.target_table:
             raise ValueError("Load step target_table cannot be empty")
 
+        # Validate UPSERT mode requirements
+        if self.load_mode == "upsert":
+            upsert_keys = []
+            if self.incremental_config:
+                upsert_keys = self.incremental_config.get("upsert_keys", [])
+
+            if not upsert_keys:
+                raise ValueError(
+                    "UPSERT mode requires upsert_keys in incremental_config"
+                )
+
+        # Validate load_mode is valid
+        valid_modes = ["replace", "append", "upsert"]
+        if self.load_mode not in valid_modes:
+            raise ValueError(
+                f"invalid load_mode '{self.load_mode}', must be one of: {valid_modes}"
+            )
+
 
 @dataclass(frozen=True)
 class TransformStep(BaseStep):

@@ -11,7 +11,7 @@ from typing import Any, Dict
 from sqlflow.core.executors.v2.context import ExecutionContext
 from sqlflow.core.executors.v2.handlers.base import StepHandler, observed_execution
 from sqlflow.core.executors.v2.results import StepExecutionResult
-from sqlflow.core.executors.v2.steps import SourceDefinitionStep
+from sqlflow.core.executors.v2.steps import BaseStep, SourceDefinitionStep
 from sqlflow.logging import get_logger
 
 logger = get_logger(__name__)
@@ -37,9 +37,7 @@ class SourceDefinitionHandler(StepHandler):
     STEP_TYPE = "source_definition"
 
     @observed_execution("source_definition")
-    def execute(
-        self, step: SourceDefinitionStep, context: ExecutionContext
-    ) -> StepExecutionResult:
+    def execute(self, step: BaseStep, context: ExecutionContext) -> StepExecutionResult:
         """
         Execute a source definition operation with comprehensive observability.
 
@@ -50,15 +48,24 @@ class SourceDefinitionHandler(StepHandler):
         Returns:
             StepExecutionResult with detailed execution metrics
         """
+        # Type check and cast to SourceDefinitionStep
+        if not isinstance(step, SourceDefinitionStep):
+            raise ValueError(
+                f"SourceDefinitionHandler can only handle SourceDefinitionStep, got {type(step)}"
+            )
+
+        source_step = step  # Now we know it's a SourceDefinitionStep
         start_time = datetime.utcnow()
-        logger.debug(f"Executing SourceDefinitionStep {step.id}: {step.source_name}")
+        logger.debug(
+            f"Executing SourceDefinitionStep {source_step.id}: {source_step.source_name}"
+        )
 
         try:
             # Step 1: Validate step configuration
-            self._validate_source_step(step)
+            self._validate_source_step(source_step)
 
             # Step 2: Resolve configuration with profile if specified
-            resolved_config = self._resolve_source_configuration(step, context)
+            resolved_config = self._resolve_source_configuration(source_step, context)
 
             # Step 3: Create and validate source connector
             validation_metrics = self._validate_source_connector(
@@ -66,15 +73,15 @@ class SourceDefinitionHandler(StepHandler):
             )
 
             # Step 4: Execute setup SQL if provided
-            setup_metrics = self._execute_setup_sql(step, context)
+            setup_metrics = self._execute_setup_sql(source_step, context)
 
             # Step 5: Run validation rules if specified
             validation_results = self._run_validation_rules(
-                step, resolved_config, context
+                source_step, resolved_config, context
             )
 
             # Step 6: Provide user feedback
-            self._provide_user_feedback(step, validation_results)
+            self._provide_user_feedback(source_step, validation_results)
 
             end_time = datetime.utcnow()
 
@@ -86,22 +93,22 @@ class SourceDefinitionHandler(StepHandler):
             }
 
             return StepExecutionResult.success(
-                step_id=step.id,
+                step_id=source_step.id,
                 step_type="source_definition",
                 start_time=start_time,
                 end_time=end_time,
                 performance_metrics=combined_metrics,
                 data_lineage={
-                    "source_name": step.source_name,
+                    "source_name": source_step.source_name,
                     "source_type": resolved_config.get("type", "unknown"),
-                    "profile_name": step.profile_name,
+                    "profile_name": source_step.profile_name,
                     "validation_passed": validation_results.get("all_passed", True),
                 },
             )
 
         except Exception as e:
             # Use common error handling pattern
-            return self._handle_execution_error(step, start_time, e)
+            return self._handle_execution_error(source_step, start_time, e)
 
     def _validate_source_step(self, step: SourceDefinitionStep) -> None:
         """
@@ -195,9 +202,7 @@ class SourceDefinitionHandler(StepHandler):
                 "connector_validation_time_ms": validation_time,
                 "connector_type": config.get("type", "unknown"),
                 "connection_test_passed": (
-                    connection_test_result.is_successful
-                    if connection_test_result
-                    else None
+                    connection_test_result.success if connection_test_result else None
                 ),
                 "connection_test_message": (
                     connection_test_result.message if connection_test_result else None

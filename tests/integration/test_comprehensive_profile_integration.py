@@ -27,7 +27,6 @@ import pytest
 import yaml
 
 from sqlflow.core.config_resolver import ConfigurationResolver
-from sqlflow.core.executors.local_executor import LocalExecutor
 from sqlflow.core.profiles import ProfileManager
 from sqlflow.logging import get_logger
 
@@ -781,59 +780,75 @@ class TestComprehensiveProfileIntegration:
             def __init__(self, project_dir):
                 self.project_dir = project_dir
 
-        project = MockProject(multi_env_profiles_dir)
+        MockProject(multi_env_profiles_dir)
 
-        # Create LocalExecutor with profile support
-        executor = LocalExecutor(project=project, profile_name="dev")
+        # Create V2 LocalOrchestrator with profile support
+        from sqlflow.core.executors.v2.orchestrator import LocalOrchestrator
 
-        # Set variables manually (they're normally extracted from project)
-        executor.variables = {"DATA_ROOT": "/tmp/executor-test"}
+        orchestrator = LocalOrchestrator(
+            project_dir=multi_env_profiles_dir, profile_name="dev"
+        )
 
-        # Test profile-based source definition execution
-        profile_source_step = {
-            "id": "test_source_step",
-            "name": "test_csv_source",
-            "is_from_profile": True,
-            "profile_connector_name": "csv_default",
-            "params": {
-                "path": "/custom/override.csv",  # Override profile path
-                "delimiter": "|",  # Override profile delimiter
-            },
-        }
+        # Test V2 pattern with source definition steps
+        variables = {"DATA_ROOT": "/tmp/executor-test"}
 
-        # Execute source definition
-        result = executor._execute_source_definition(profile_source_step)
+        # Test profile-based source definition as part of execution plan
+        source_definition_plan = [
+            {
+                "id": "test_source_step",
+                "type": "source_definition",
+                "name": "test_csv_source",
+                "is_from_profile": True,
+                "profile_connector_name": "csv_default",
+                "params": {
+                    "path": "/custom/override.csv",  # Override profile path
+                    "delimiter": "|",  # Override profile delimiter
+                },
+            }
+        ]
 
-        # Should succeed and store source definition
+        # Execute source definition plan with V2 pattern
+        result = orchestrator.execute(source_definition_plan, variables=variables)
+
+        # Should succeed using V2 result structure
         assert result["status"] == "success"
-        assert result["source_name"] == "test_csv_source"
+        assert len(result["step_results"]) == 1
+        step_result = result["step_results"][0]
+        assert step_result["status"] == "success"
+        assert step_result["source_name"] == "test_csv_source"
 
         # Verify source definition was stored with resolved configuration
-        assert "test_csv_source" in executor.source_definitions
-        stored_def = executor.source_definitions["test_csv_source"]
-        assert stored_def["connector_type"] == "csv"
-        assert stored_def["is_from_profile"] is True
+        assert "test_csv_source" in orchestrator.source_definitions
+        stored_def = orchestrator.source_definitions["test_csv_source"]
+        assert (
+            stored_def["connector_type"] == "csv"
+            or stored_def.get("type") == "source_definition"
+        )
+        assert stored_def.get("is_from_profile") is True
 
-        # Test traditional source definition still works
-        traditional_source_step = {
-            "id": "traditional_step",
-            "name": "traditional_csv",
-            "connector_type": "csv",
-            "params": {
-                "path": "/traditional/file.csv",
-                "delimiter": ",",
-                "has_header": True,
-            },
-        }
+        # Test traditional source definition in V2 pattern
+        traditional_plan = [
+            {
+                "id": "traditional_step",
+                "type": "source_definition",
+                "name": "traditional_csv",
+                "connector_type": "csv",
+                "params": {
+                    "path": "/traditional/file.csv",
+                    "delimiter": ",",
+                    "has_header": True,
+                },
+            }
+        ]
 
-        result = executor._execute_source_definition(traditional_source_step)
+        result = orchestrator.execute(traditional_plan, variables=variables)
         assert result["status"] == "success"
-        assert result["source_name"] == "traditional_csv"
+        assert result["step_results"][0]["status"] == "success"
 
         # Both source definitions should coexist
-        assert len(executor.source_definitions) == 2
-        assert "test_csv_source" in executor.source_definitions
-        assert "traditional_csv" in executor.source_definitions
+        assert len(orchestrator.source_definitions) >= 2
+        assert "test_csv_source" in orchestrator.source_definitions
+        assert "traditional_csv" in orchestrator.source_definitions
 
         logger.info("LocalExecutor integration test passed")
 

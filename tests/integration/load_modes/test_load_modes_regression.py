@@ -11,7 +11,7 @@ import tempfile
 import pandas as pd
 import pytest
 
-from sqlflow.core.executors.local_executor import LocalExecutor
+from sqlflow.core.executors import get_executor
 from sqlflow.core.planner_main import Planner
 from sqlflow.parser import SQLFlowParser
 
@@ -127,7 +127,7 @@ class TestLoadModesRegression:
         planner = Planner()
         execution_plan = planner.create_plan(pipeline)
 
-        executor = LocalExecutor()
+        executor = get_executor()
         result = executor.execute(execution_plan)
 
         # Verify execution succeeded
@@ -222,7 +222,7 @@ class TestLoadModesRegression:
         planner = Planner()
         execution_plan = planner.create_plan(pipeline)
 
-        executor = LocalExecutor()
+        executor = get_executor()
         result = executor.execute(execution_plan)
 
         # Verify execution succeeded
@@ -306,7 +306,7 @@ class TestLoadModesRegression:
         planner = Planner()
         execution_plan = planner.create_plan(pipeline)
 
-        executor = LocalExecutor()
+        executor = get_executor()
         result = executor.execute(execution_plan)
 
         # Verify execution succeeded
@@ -436,7 +436,7 @@ class TestLoadModesRegression:
         planner = Planner()
         execution_plan = planner.create_plan(pipeline)
 
-        executor = LocalExecutor()
+        executor = get_executor()
         result = executor.execute(execution_plan)
 
         # This is the key regression test - comprehensive pipeline should work

@@ -168,6 +168,7 @@ class LoadStep(PipelineStep):
     mode: str = "REPLACE"  # Default mode is REPLACE
     upsert_keys: List[str] = field(default_factory=list)  # For UPSERT mode
     line_number: Optional[int] = None
+    id: Optional[str] = None  # Step ID for tracking and results
 
     def validate(self) -> List[str]:
         """Validate the LOAD directive.

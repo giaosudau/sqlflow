@@ -8,7 +8,7 @@ import yaml
 
 from sqlflow.core.dependencies import DependencyResolver
 from sqlflow.core.errors import CircularDependencyError
-from sqlflow.core.executors.local_executor import LocalExecutor
+from sqlflow.core.executors import get_executor
 
 
 class TestDependencyResolver:
@@ -143,7 +143,7 @@ def test_local_executor_duckdb_path_config(tmp_path):
         os.chdir(str(tmp_path / "temp_project"))
 
     try:
-        executor = LocalExecutor()
+        executor = get_executor()
 
         # Clean up the temp db file
         try:
@@ -182,7 +182,7 @@ def test_local_executor_duckdb_path_default(tmp_path):
         os.chdir(str(tmp_path / "temp_project"))
 
     try:
-        executor = LocalExecutor()
+        executor = get_executor()
         # Should use memory mode as specified in the profile
         assert executor.duckdb_engine.database_path == ":memory:"
     finally:

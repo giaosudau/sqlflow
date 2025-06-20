@@ -10,7 +10,8 @@ import typer
 
 from sqlflow.cli.utils import parse_vars, resolve_pipeline_name
 from sqlflow.core.dependencies import DependencyResolver
-from sqlflow.core.executors.local_executor import LocalExecutor
+from sqlflow.core.executors import get_executor
+from sqlflow.core.executors.base_executor import BaseExecutor
 from sqlflow.core.planner_main import Planner
 from sqlflow.core.storage.artifact_manager import ArtifactManager
 from sqlflow.logging import configure_logging, get_logger
@@ -228,8 +229,8 @@ def _compile_pipeline_to_plan(
 
         # Use new VariableManager with priority-based resolution
         config = VariableConfig(
-            cli_variables=variables,
-            profile_variables=profile_variables,
+            cli_variables=variables or {},
+            profile_variables=profile_variables or {},
             set_variables={},  # SET variables will be extracted during parsing
         )
         manager = VariableManager(config)
@@ -1327,8 +1328,8 @@ def _get_execution_operations(
 
             # Use new VariableManager with priority-based resolution
             config = VariableConfig(
-                cli_variables=variables,
-                profile_variables=profile_variables,
+                cli_variables=variables or {},
+                profile_variables=profile_variables or {},
                 set_variables={},  # SET variables will be extracted during parsing
             )
             manager = VariableManager(config)
@@ -1784,7 +1785,7 @@ def _initialize_executor(
     artifact_manager: ArtifactManager,
     operations: List[Dict[str, Any]],
     variables: Optional[Dict[str, Any]],
-) -> LocalExecutor:
+) -> BaseExecutor:
     """Initialize the executor with proper configuration.
 
     Args:
@@ -1802,15 +1803,20 @@ def _initialize_executor(
     """
     # Initialize executor with project directory for UDF discovery
     project_dir = os.getcwd()
-    executor = LocalExecutor(profile_name=profile_name, project_dir=project_dir)
+    executor = get_executor(profile_name=profile_name, project_dir=project_dir)
     # Note: execution_id and artifact_manager are passed as parameters where needed
     # rather than assigned as attributes since they're not part of the LocalExecutor interface
 
     # Extract variables from different sources and build effective set
     set_variables = _extract_set_variables_from_operations(operations)
-    executor.variables = _build_effective_variables(
-        set_variables, executor.profile, variables
+
+    # Build effective variables for execution
+    effective_variables = _build_effective_variables(
+        set_variables, getattr(executor, "profile", {}), variables
     )
+
+    # Pass variables to executor through execute method instead of setting attributes
+    # This is cleaner V2 pattern and avoids attribute access issues
 
     # Check DuckDB engine initialization
     _check_duckdb_engine(executor)

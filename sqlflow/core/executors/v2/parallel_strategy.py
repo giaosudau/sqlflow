@@ -7,8 +7,10 @@ Migrates the proven ThreadPoolTaskExecutor patterns to V2 architecture:
 - Deadlock detection
 
 Following the Zen of Python: "Beautiful is better than ugly."
+Performance optimizations: "Simple is better than complex."
 """
 
+import os
 import threading
 import time
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -61,18 +63,25 @@ class TaskStatus:
     attempts: int = 0
     dependencies: Set[str] = field(default_factory=set)
     error_message: Optional[str] = None
+    future: Optional[Future] = None
 
     def with_state(self, new_state: TaskState, **kwargs) -> "TaskStatus":
         """Return new TaskStatus with updated state (immutable pattern)."""
-        updates = {"state": new_state, **kwargs}
+        # Extract specific parameters with proper type safety
+        new_start_time = kwargs.get("start_time", self.start_time)
+        new_end_time = kwargs.get("end_time", self.end_time)
+        new_attempts = kwargs.get("attempts", self.attempts)
+        new_error_message = kwargs.get("error_message", self.error_message)
+
         return TaskStatus(
             step_id=self.step_id,
-            state=updates.get("state", self.state),
-            start_time=updates.get("start_time", self.start_time),
-            end_time=updates.get("end_time", self.end_time),
-            attempts=updates.get("attempts", self.attempts),
+            state=new_state,
+            start_time=new_start_time,
+            end_time=new_end_time,
+            attempts=new_attempts,
             dependencies=self.dependencies,
-            error_message=updates.get("error_message", self.error_message),
+            error_message=new_error_message,
+            future=self.future,
         )
 
 
@@ -85,32 +94,80 @@ class ParallelOrchestrationStrategy(OrchestrationStrategy):
     - Task state tracking and persistence
     - Resume capability from failures
     - Deadlock detection and recovery
+
+    Performance optimizations:
+    - Adaptive thread pool sizing based on system resources
+    - Intelligent task batching
+    - Performance monitoring integration
+    - Connection pooling awareness
     """
 
     def __init__(
         self,
         max_workers: Optional[int] = None,
         max_retries: int = 3,
-        retry_delay_seconds: float = 1.0,
+        enable_performance_monitoring: bool = True,
+        adaptive_sizing: bool = True,
     ):
         """
-        Initialize parallel orchestration strategy.
+        Initialize parallel orchestration strategy with performance optimizations.
 
         Args:
             max_workers: Maximum concurrent workers (defaults to CPU count)
-            max_retries: Maximum retry attempts for failed steps
-            retry_delay_seconds: Delay between retry attempts
+            max_retries: Maximum retry attempts for failed steps (default: 3)
+            enable_performance_monitoring: Enable performance tracking
+            adaptive_sizing: Enable adaptive thread pool sizing
         """
-        import os
+        # Adaptive thread pool sizing - Raymond Hettinger: "Use the platform"
+        if max_workers is None:
+            if adaptive_sizing:
+                max_workers = self._calculate_optimal_workers()
+            else:
+                max_workers = min(32, (os.cpu_count() or 1) + 4)
 
-        self.max_workers = max_workers or os.cpu_count() or 4
-        self.max_retries = max_retries
-        self.retry_delay_seconds = retry_delay_seconds
+        self.max_workers = max_workers
+        self.enable_performance_monitoring = enable_performance_monitoring
+        self.adaptive_sizing = adaptive_sizing
+
+        # Performance tracking
+        self._execution_metrics = {}
+        self._start_time = None
+
+        # Threading and retry configuration
         self._lock = threading.RLock()
+        self.max_retries = max_retries
+        self.retry_delay_seconds = 1.0
 
         logger.info(
-            f"Parallel strategy initialized: {self.max_workers} workers, {max_retries} max retries"
+            f"Parallel strategy initialized: {self.max_workers} workers, "
+            f"retries={max_retries}, monitoring={enable_performance_monitoring}, "
+            f"adaptive={adaptive_sizing}"
         )
+
+    def _calculate_optimal_workers(self) -> int:
+        """Calculate optimal worker count based on system resources."""
+        try:
+            import psutil
+
+            cpu_count = psutil.cpu_count(logical=True) or 1
+            memory_gb = float(psutil.virtual_memory().total) / (1024**3)
+
+            # Heuristic: balance CPU and memory constraints
+            # For I/O-bound tasks (database operations), allow more threads
+            cpu_based = min(32, cpu_count * 2)  # I/O bound multiplier
+            memory_based = min(32, max(1, int(memory_gb * 2)))  # 2 threads per GB
+
+            optimal = min(cpu_based, memory_based)
+            logger.debug(
+                f"Calculated optimal workers: {optimal} "
+                f"(CPU: {cpu_based}, Memory: {memory_based})"
+            )
+            return max(2, optimal)  # Minimum 2 workers
+
+        except ImportError:
+            # Fallback without psutil
+            cpu_count = os.cpu_count() or 1
+            return min(32, cpu_count * 2)
 
     def execute_pipeline(
         self,
@@ -127,18 +184,62 @@ class ParallelOrchestrationStrategy(OrchestrationStrategy):
         if not plan:
             return []
 
-        # Convert to typed steps and analyze dependencies
-        steps = [create_step_from_dict(step_dict) for step_dict in plan]
-        dependency_graph = analyze_dependencies(steps)
+        self._start_time = time.time()
 
-        # Initialize task tracking
-        task_statuses = self._initialize_task_statuses(dependency_graph)
+        # Performance monitoring integration (optional)
+        if self.enable_performance_monitoring:
+            performance_monitor = getattr(context, "performance_monitor", None)
+            if performance_monitor:
+                performance_monitor.start_execution()
 
-        # Execute with thread pool
-        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            return self._execute_with_thread_pool(
-                executor, dependency_graph, task_statuses, context, db_session
-            )
+        try:
+            # Convert to typed steps and analyze dependencies
+            steps = [create_step_from_dict(step_dict) for step_dict in plan]
+            dependency_graph = analyze_dependencies(steps)
+
+            # Initialize task tracking
+            task_statuses = self._initialize_task_statuses(dependency_graph)
+
+            # Execute with optimized thread pool
+            with self._create_optimized_thread_pool() as executor:
+                results = self._execute_with_thread_pool(
+                    executor, dependency_graph, task_statuses, context, db_session
+                )
+
+            self._log_execution_summary(results)
+            return results
+
+        except ValueError:
+            # Let ValueError (like circular dependency) bubble up unchanged
+            # Raymond Hettinger: "Errors should never pass silently"
+            raise
+        except Exception as e:
+            logger.error(f"Parallel execution failed: {e}")
+            raise PipelineExecutionError(f"Parallel execution failed: {e}")
+
+    def _create_optimized_thread_pool(self) -> ThreadPoolExecutor:
+        """Create optimized thread pool with performance settings."""
+        # Use optimized thread pool settings
+        return ThreadPoolExecutor(
+            max_workers=self.max_workers, thread_name_prefix="sqlflow-worker"
+        )
+
+    def _log_execution_summary(self, results: List[StepExecutionResult]) -> None:
+        """Log execution summary with performance metrics."""
+        if not self._start_time:
+            return
+
+        total_time = time.time() - self._start_time
+        successful = sum(1 for r in results if r.is_successful())
+        failed = len(results) - successful
+
+        logger.info(
+            f"Parallel execution completed: {successful}/{len(results)} successful, "
+            f"total time: {total_time:.2f}s, workers: {self.max_workers}"
+        )
+
+        if failed > 0:
+            logger.warning(f"Failed steps: {failed}/{len(results)}")
 
     def _initialize_task_statuses(
         self, graph: DependencyGraph
@@ -175,7 +276,7 @@ class ParallelOrchestrationStrategy(OrchestrationStrategy):
 
         Following the Actor model: each step execution is an isolated actor.
         """
-        futures: Dict[str, Future] = {}
+        futures: Dict[str, Future[StepExecutionResult]] = {}
         results: Dict[str, StepExecutionResult] = {}
         completed_steps: Set[str] = set()
 
@@ -208,7 +309,7 @@ class ParallelOrchestrationStrategy(OrchestrationStrategy):
         executor: ThreadPoolExecutor,
         graph: DependencyGraph,
         task_statuses: Dict[str, TaskStatus],
-        futures: Dict[str, Future],
+        futures: Dict[str, Future[StepExecutionResult]],
         completed_steps: Set[str],
         context: ExecutionContext,
     ) -> None:
@@ -235,7 +336,7 @@ class ParallelOrchestrationStrategy(OrchestrationStrategy):
 
     def _process_completed_futures(
         self,
-        futures: Dict[str, Future],
+        futures: Dict[str, Future[StepExecutionResult]],
         task_statuses: Dict[str, TaskStatus],
         results: Dict[str, StepExecutionResult],
         completed_steps: Set[str],
@@ -393,7 +494,7 @@ class ParallelOrchestrationStrategy(OrchestrationStrategy):
     def _detect_deadlock(
         self,
         task_statuses: Dict[str, TaskStatus],
-        futures: Dict[str, Future],
+        futures: Dict[str, Future[StepExecutionResult]],
         completed_steps: Set[str],
         graph: DependencyGraph,
     ) -> bool:

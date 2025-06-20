@@ -16,7 +16,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from sqlflow.core.executors.local_executor import LocalExecutor
+from sqlflow.core.executors import get_executor
 
 
 class TestComponentIntegration:
@@ -175,7 +175,7 @@ def integration_executor():
     Returns a clean executor instance for each test with proper
     isolation and realistic configuration.
     """
-    return LocalExecutor()
+    return get_executor()
 
 
 @pytest.fixture

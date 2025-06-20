@@ -85,6 +85,7 @@ class TestLoadStep:
             load_mode="upsert",
             options={"key": "value"},
             schema_options={"infer": True},
+            incremental_config={"upsert_keys": ["id"]},  # Required for UPSERT mode
         )
 
         assert step.id == "load_test"
@@ -94,6 +95,7 @@ class TestLoadStep:
         assert step.load_mode == "upsert"
         assert step.options == {"key": "value"}
         assert step.schema_options == {"infer": True}
+        assert step.incremental_config == {"upsert_keys": ["id"]}
 
     def test_load_step_defaults(self):
         """Test LoadStep with defaults."""

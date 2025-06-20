@@ -31,6 +31,7 @@ __all__ = [
     "StepHandler",
     "StepHandlerFactory",
     "LoadStepHandler",
+    "LoadStepHandler",  # Backward compatibility
     "TransformStepHandler",
     "observed_execution",
 ]

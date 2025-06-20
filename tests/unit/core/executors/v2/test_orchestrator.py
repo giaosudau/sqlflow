@@ -52,24 +52,34 @@ class TestLocalOrchestratorBehavior:
         assert result["total_steps"] == 0
 
     def test_single_step_pipeline_real_execution(self, temp_csv_file):
-        """Test single step pipeline with real CSV loading."""
+        """Test single step pipeline with real CSV loading using V2 architecture."""
         orchestrator = LocalOrchestrator()
 
+        # V2 Architecture: First define the source, then load it
         plan = [
+            # Step 1: Define the source
+            {
+                "type": "source_definition",
+                "id": "define_customers_source",
+                "name": "customers_source",
+                "source_connector_type": "csv",
+                "query": {"path": str(temp_csv_file), "has_header": True},
+            },
+            # Step 2: Load from the defined source
             {
                 "type": "load",
                 "id": "load_customers",
-                "source": str(temp_csv_file),
+                "source_name": "customers_source",
                 "target_table": "customers",
                 "load_mode": "replace",
-            }
+            },
         ]
 
         result = orchestrator.execute(plan)
 
         assert result["status"] == "success"
-        assert result["executed_steps"] == ["load_customers"]
-        assert result["total_steps"] == 1
+        assert "load_customers" in result["executed_steps"]
+        assert result["total_steps"] == 2
         assert "performance_summary" in result
 
     def test_multi_step_pipeline_real_flow(self, temp_csv_file, temp_output_dir):

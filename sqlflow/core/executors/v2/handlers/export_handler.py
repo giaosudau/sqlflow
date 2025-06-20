@@ -12,7 +12,7 @@ from typing import Any, Dict
 from sqlflow.core.executors.v2.context import ExecutionContext
 from sqlflow.core.executors.v2.handlers.base import StepHandler, observed_execution
 from sqlflow.core.executors.v2.results import StepExecutionResult
-from sqlflow.core.executors.v2.steps import ExportStep
+from sqlflow.core.executors.v2.steps import BaseStep, ExportStep
 from sqlflow.logging import get_logger
 
 logger = get_logger(__name__)
@@ -38,9 +38,7 @@ class ExportStepHandler(StepHandler):
     STEP_TYPE = "export"
 
     @observed_execution("export")
-    def execute(
-        self, step: ExportStep, context: ExecutionContext
-    ) -> StepExecutionResult:
+    def execute(self, step: BaseStep, context: ExecutionContext) -> StepExecutionResult:
         """
         Execute a data export operation with comprehensive observability.
 
@@ -51,20 +49,27 @@ class ExportStepHandler(StepHandler):
         Returns:
             StepExecutionResult with detailed execution metrics
         """
+        # Type check and cast to ExportStep
+        if not isinstance(step, ExportStep):
+            raise ValueError(
+                f"ExportStepHandler can only handle ExportStep, got {type(step)}"
+            )
+
+        export_step = step  # Now we know it's an ExportStep
         start_time = datetime.utcnow()
         logger.debug(
-            f"Executing ExportStep {step.id}: {step.source_table} -> {step.target}"
+            f"Executing ExportStep {export_step.id}: {export_step.source_table} -> {export_step.target}"
         )
 
         try:
             # Step 1: Validate step configuration
-            self._validate_export_step(step)
+            self._validate_export_step(export_step)
 
             # Step 2: Resolve source data (table or SQL query)
-            source_sql = self._resolve_source_data(step, context)
+            source_sql = self._resolve_source_data(export_step, context)
 
             # Step 3: Prepare destination configuration with variable substitution
-            destination_config = self._prepare_destination_config(step, context)
+            destination_config = self._prepare_destination_config(export_step, context)
 
             # Step 4: Extract data from source
             extraction_metrics = self._extract_data_with_metrics(source_sql, context)
@@ -75,7 +80,7 @@ class ExportStepHandler(StepHandler):
             )
 
             # Step 6: Provide user feedback
-            self._provide_user_feedback(step, destination_config["target"])
+            self._provide_user_feedback(export_step, destination_config["target"])
 
             end_time = datetime.utcnow()
 
@@ -83,23 +88,23 @@ class ExportStepHandler(StepHandler):
             combined_metrics = {**extraction_metrics, **export_metrics}
 
             return StepExecutionResult.success(
-                step_id=step.id,
+                step_id=export_step.id,
                 step_type="export",
                 start_time=start_time,
                 end_time=end_time,
                 rows_affected=combined_metrics.get("rows_exported"),
                 performance_metrics=combined_metrics,
                 data_lineage={
-                    "source_table": step.source_table,
+                    "source_table": export_step.source_table,
                     "target": destination_config["target"],
-                    "export_format": step.export_format,
-                    "compression": step.compression,
+                    "export_format": export_step.export_format,
+                    "compression": export_step.compression,
                 },
             )
 
         except Exception as e:
             # Use common error handling pattern
-            return self._handle_execution_error(step, start_time, e)
+            return self._handle_execution_error(export_step, start_time, e)
 
     def _validate_export_step(self, step: ExportStep) -> None:
         """
@@ -291,18 +296,18 @@ class ExportStepHandler(StepHandler):
 
             # Write data to destination - use proper connector interface
             # Most destination connectors expect (data, options) not (data, format)
-            write_options = connector_options.copy()
-            if "format" in destination_config:
+            write_options = (
+                connector_options.copy() if isinstance(connector_options, dict) else {}
+            )
+            if "format" in destination_config and isinstance(write_options, dict):
                 write_options["format"] = destination_config["format"]
 
             # Remove path from write_options since connectors handle path separately
             # and pandas methods don't accept path as a parameter
-            if "path" in write_options:
-                del write_options["path"]
-
-            # Remove format from write_options since pandas to_csv doesn't accept it
-            if "format" in write_options:
-                del write_options["format"]
+            if isinstance(write_options, dict):
+                write_options.pop("path", None)
+                # Remove format from write_options since pandas to_csv doesn't accept it
+                write_options.pop("format", None)
 
             # Data should already be a DataFrame from extraction
             rows_exported = self._write_data_to_connector(

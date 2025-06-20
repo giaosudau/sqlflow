@@ -12,7 +12,7 @@ import pytest
 
 from sqlflow.core.debug import DebugLogger, OperationTracer, QueryTracer
 from sqlflow.core.engines.duckdb import DuckDBEngine
-from sqlflow.core.executors.local_executor import LocalExecutor
+from sqlflow.core.executors import get_executor
 
 
 class TestDebuggingInfrastructure:
@@ -356,7 +356,7 @@ class TestDebuggingInfrastructure:
         """Test integrated debugging with LocalExecutor."""
         # Use a temporary directory to avoid os.getcwd() issues during parallel tests
         with tempfile.TemporaryDirectory() as temp_dir:
-            executor = LocalExecutor(project_dir=temp_dir)
+            executor = get_executor(project_dir=temp_dir)
 
             # Create debugging infrastructure
             debug_logger = DebugLogger("executor_test", debug_mode=True)

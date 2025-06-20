@@ -4,6 +4,7 @@ This module implements a simplified Factory pattern using a module-level registr
 to create the appropriate StepHandler for a given step type.
 """
 
+from functools import lru_cache
 from typing import Dict, Optional, Type
 
 from sqlflow.core.executors.v2.handlers.base import StepHandler
@@ -42,6 +43,7 @@ def register_handler(step_type: str, handler_class: Type[StepHandler]) -> None:
     )
 
 
+@lru_cache(maxsize=32)  # Raymond Hettinger: Built-in, tested, optimized
 def get_handler(step_type: str) -> StepHandler:
     """
     Get handler for step type. Simple and direct.
@@ -85,7 +87,9 @@ def is_step_type_supported(step_type: str) -> bool:
 def clear_registry() -> None:
     """Clear all registered handlers (primarily for testing)."""
     _HANDLERS.clear()
-    logger.debug("Cleared all handler registrations")
+    # Clear the LRU cache when registry is cleared
+    get_handler.cache_clear()
+    logger.debug("Cleared all handler registrations and cache")
 
 
 # Maintain backwards compatibility with existing StepHandlerFactory class
@@ -157,7 +161,7 @@ def _auto_register_handlers():
     if handlers are not yet available (e.g., during development or testing).
     """
     try:
-        # Import and register LoadStepHandler
+        # Import and register LoadStepHandler (with backward compatibility alias)
         from sqlflow.core.executors.v2.handlers.load_handler import LoadStepHandler
 
         register_handler("load", LoadStepHandler)
