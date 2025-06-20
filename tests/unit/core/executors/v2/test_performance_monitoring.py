@@ -13,10 +13,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from sqlflow.core.executors.v2.feature_flags import (
-    disable_v2_for_testing,
-    enable_v2_for_testing,
-)
+# Removed feature flag imports - using clean factory pattern
 from sqlflow.core.executors.v2.performance_monitor import (
     PerformanceMetrics,
     PerformanceMonitor,
@@ -259,7 +256,7 @@ class TestPerformanceMonitor:
 
     def setup_method(self):
         """Set up test environment."""
-        enable_v2_for_testing()
+        # No feature flags needed - V2 is default
 
     def test_creates_monitor_with_run_id(self):
         """Should create monitor with run ID."""
@@ -433,23 +430,17 @@ class TestPerformanceMonitoringIntegration:
         metrics_dict = final_metrics.to_dict()
         assert abs(metrics_dict["pipeline"]["success_rate"] - (2 / 3)) < 0.01
 
-    def test_integrates_with_feature_flags(self):
-        """Should integrate properly with feature flag system."""
-        # Disable V2 features
-        disable_v2_for_testing()
-
-        # Monitor should still work but with reduced functionality
-        monitor = PerformanceMonitor("feature-flag-test")
+    def test_integrates_without_configuration(self):
+        """Should work without any configuration - simple is better than complex."""
+        # Monitor should work out of the box
+        monitor = PerformanceMonitor("no-config-test")
 
         # Should not raise exceptions
         monitor.start_execution()
         monitor.finish_execution()
 
-        # Enable V2 features
-        enable_v2_for_testing()
-
-        # Should work with full functionality
-        monitor2 = PerformanceMonitor("feature-flag-test-2")
+        # Should work with full functionality by default
+        monitor2 = PerformanceMonitor("no-config-test-2")
         monitor2.start_execution()
         metrics = monitor2.get_current_metrics()
         assert isinstance(metrics, PerformanceMetrics)
@@ -513,10 +504,9 @@ def test_performance_optimizer_recommendations():
     assert "Slow execution" in perf_rec["message"]
 
 
-@patch("sqlflow.core.executors.v2.feature_flags.is_v2_enabled")
-def test_performance_monitor_lifecycle(mock_is_v2_enabled):
+def test_performance_monitor_lifecycle():
     """Test performance monitor lifecycle and data collection."""
-    mock_is_v2_enabled.return_value = True
+    # V2 is always enabled with clean factory pattern
     monitor = PerformanceMonitor(run_id="test_run_1")
 
     # Start monitoring

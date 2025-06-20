@@ -327,7 +327,7 @@ class LoadModeHandler(ABC):
         )
 
 
-class ReplaceLoadHandler(LoadModeHandler):
+class ReplaceLoadStepHandler(LoadModeHandler):
     """Handler for REPLACE load mode."""
 
     def generate_sql(self, load_step: LoadStep) -> str:
@@ -350,7 +350,7 @@ class ReplaceLoadHandler(LoadModeHandler):
             return self._generate_create_table_sql(load_step, replace=False)
 
 
-class AppendLoadHandler(LoadModeHandler):
+class AppendLoadStepHandler(LoadModeHandler):
     """Handler for APPEND load mode."""
 
     def generate_sql(self, load_step: LoadStep) -> str:
@@ -378,7 +378,7 @@ class AppendLoadHandler(LoadModeHandler):
             return self._generate_create_table_sql(load_step)
 
 
-class UpsertLoadHandler(LoadModeHandler):
+class UpsertLoadStepHandler(LoadModeHandler):
     """Handler for UPSERT load mode with enhanced DuckDB integration."""
 
     def generate_sql(self, load_step: LoadStep) -> str:
@@ -515,11 +515,11 @@ class LoadModeHandlerFactory:
         mode = mode.upper()
 
         if mode == DuckDBConstants.LOAD_MODE_REPLACE:
-            return ReplaceLoadHandler(engine)
+            return ReplaceLoadStepHandler(engine)
         elif mode == DuckDBConstants.LOAD_MODE_APPEND:
-            return AppendLoadHandler(engine)
+            return AppendLoadStepHandler(engine)
         elif mode == DuckDBConstants.LOAD_MODE_UPSERT:
-            return UpsertLoadHandler(engine)
+            return UpsertLoadStepHandler(engine)
         else:
             valid_modes = [
                 DuckDBConstants.LOAD_MODE_REPLACE,

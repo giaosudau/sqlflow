@@ -15,7 +15,6 @@ import pytest
 import yaml
 
 from sqlflow.core.config_resolver import ConfigurationResolver
-from sqlflow.core.executors.local_executor import LocalExecutor
 from sqlflow.core.profiles import ProfileManager
 
 
@@ -206,26 +205,37 @@ EXPORT customer_summary TO output_csv;
             output_config = resolver.resolve_config(profile_name="output_csv")
             assert output_config["path"] == "output/customer_summary.csv"
 
-            # Test LocalExecutor initialization (verify it can access profiles)
-            executor = LocalExecutor(
+            # Test V2 LocalOrchestrator with profile support
+            from sqlflow.core.executors.v2.orchestrator import LocalOrchestrator
+
+            orchestrator = LocalOrchestrator(
                 project_dir=temp_project_dir,
                 profile_name="test",
             )
 
-            # Verify that the executor has access to profile components
-            assert executor.profile_manager is not None
-            assert executor.config_resolver is not None
+            # Test that the V2 orchestrator can execute basic operations with variables
+            test_variables = {"csv_delimiter": "|", "env": "test"}
 
-            # Test that the executor can resolve connector configurations
-            if executor.config_resolver:
-                customers_config_via_executor = executor.config_resolver.resolve_config(
-                    profile_name="customers_csv"
-                )
-                assert customers_config_via_executor["path"] == "data/customers.csv"
-                assert customers_config_via_executor["delimiter"] == ","
+            # Create a simple test plan to verify orchestrator functionality
+            integration_plan = [
+                {
+                    "id": "profile_integration_test",
+                    "type": "transform",
+                    "sql": "SELECT '${env}' as environment, '${csv_delimiter}' as delimiter",
+                    "target_table": "profile_test_result",
+                }
+            ]
 
-            # Verify the DuckDB engine is working
-            engine = executor.duckdb_engine
+            # Execute with variables to test V2 pattern
+            result = orchestrator.execute(integration_plan, variables=test_variables)
+
+            # Verify V2 execution succeeded
+            assert result["status"] == "success"
+            assert len(result["step_results"]) == 1
+            assert result["step_results"][0]["status"] == "success"
+
+            # Verify the DuckDB engine is working in V2 pattern
+            engine = orchestrator.duckdb_engine
             assert engine is not None
 
             # Test basic engine functionality

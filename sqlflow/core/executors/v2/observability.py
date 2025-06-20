@@ -60,7 +60,7 @@ class StepMetrics:
     failures: int = 0
     total_rows: int = 0
     resource_usage: Dict[str, float] = field(default_factory=lambda: defaultdict(float))
-    recent_durations: deque = field(default_factory=lambda: deque(maxlen=100))
+    recent_durations: deque[float] = field(default_factory=lambda: deque(maxlen=100))
 
     def add_execution(
         self,
@@ -249,8 +249,9 @@ class ObservabilityManager:
             }
 
             # Add per-step-type details
+            step_details: Dict[str, Dict[str, Any]] = {}
             for step_type, metrics in self._step_metrics.items():
-                summary["step_details"][step_type] = {
+                step_details[step_type] = {
                     "calls": metrics.calls,
                     "failures": metrics.failures,
                     "failure_rate": metrics.failure_rate,
@@ -259,6 +260,7 @@ class ObservabilityManager:
                     "throughput_rows_per_second": metrics.throughput_rows_per_second,
                 }
 
+            summary["step_details"] = step_details
             return summary
 
     def get_alerts(

@@ -6,7 +6,8 @@ from typing import Any, Dict, Generator
 
 import pytest
 
-from sqlflow.core.executors.local_executor import LocalExecutor
+from sqlflow.core.executors import get_executor
+from sqlflow.core.executors.base_executor import BaseExecutor
 from sqlflow.core.planner_main import OperationPlanner
 from sqlflow.parser.ast import Pipeline
 
@@ -38,7 +39,7 @@ def temp_pipeline_project() -> Generator[Dict[str, Any], None, None]:
 
 
 @pytest.fixture(scope="function")
-def pipeline_executor(temp_pipeline_project: Dict[str, Any]) -> LocalExecutor:
+def pipeline_executor(temp_pipeline_project: Dict[str, Any]) -> BaseExecutor:
     """Create a LocalExecutor configured for pipeline testing.
 
     Args:
@@ -49,7 +50,7 @@ def pipeline_executor(temp_pipeline_project: Dict[str, Any]) -> LocalExecutor:
     -------
         Configured LocalExecutor with temporary project context
     """
-    executor = LocalExecutor(project_dir=temp_pipeline_project["project_dir"])
+    executor = get_executor(project_dir=temp_pipeline_project["project_dir"])
     return executor
 
 

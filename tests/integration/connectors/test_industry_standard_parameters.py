@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from sqlflow.core.executors.local_executor import LocalExecutor
+from sqlflow.core.executors import get_executor
 from sqlflow.core.planner_main import Planner
 from sqlflow.parser.ast import LoadStep, SourceDefinitionStep
 from sqlflow.parser.parser import Parser
@@ -196,7 +196,7 @@ variables:
         # Execute the pipeline
         parser = Parser()
         planner = Planner()
-        executor = LocalExecutor(project=Project(temp_project_dir, profile_name="dev"))
+        executor = get_executor(project=Project(temp_project_dir, profile_name="dev"))
 
         pipeline = parser.parse(pipeline_content)
         operations = planner.create_plan(pipeline)
@@ -292,7 +292,7 @@ variables:
         # Execute the pipeline
         parser = Parser()
         planner = Planner()
-        executor = LocalExecutor(project=Project(temp_project_dir, profile_name="dev"))
+        executor = get_executor(project=Project(temp_project_dir, profile_name="dev"))
 
         pipeline = parser.parse(pipeline_content)
         operations = planner.create_plan(pipeline)
@@ -523,7 +523,7 @@ variables:
         # Execute initial load
         parser = Parser()
         planner = Planner()
-        executor = LocalExecutor(project=Project(temp_project_dir, profile_name="dev"))
+        executor = get_executor(project=Project(temp_project_dir, profile_name="dev"))
 
         pipeline = parser.parse(initial_pipeline)
         operations = planner.create_plan(pipeline)

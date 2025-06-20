@@ -1,100 +1,42 @@
 """Simple factory functions for CLI dependencies.
 
-This module implements the simple factory pattern from Task 2.3, replacing
-complex DI with type-safe factory functions that are easier to understand
-and maintain.
+Raymond Hettinger: Replace complex protocols with simple cached functions.
+Functions are first-class citizens in Python.
 """
 
 import os
 from functools import lru_cache
-from typing import Any, Dict, List, Optional, Protocol
+from typing import Any, Dict, Optional
 
 from sqlflow.cli.errors import ProfileNotFoundError, ProjectNotFoundError
-from sqlflow.core.executors.local_executor import LocalExecutor
+from sqlflow.core.executors import get_executor
 from sqlflow.core.planner_main import Planner
 from sqlflow.logging import get_logger
 from sqlflow.project import Project
 
-# V2 Executor integration - graceful handling when V2 is not available
-try:
-    from sqlflow.core.executors import get_executor
-
-    V2_AVAILABLE = True
-except ImportError:
-    V2_AVAILABLE = False
-
 logger = get_logger(__name__)
 
 
-# Type-safe protocols for dependency injection
-class ProjectProtocol(Protocol):
-    """Protocol for project objects used in CLI operations."""
-
-    def get_pipeline_path(self, pipeline_name: str) -> str:
-        """Get the path to a pipeline file."""
-        ...
-
-    def get_path(self, path_type: str) -> Optional[str]:
-        """Get a configured path by type."""
-        ...
-
-    @property
-    def project_dir(self) -> str:
-        """Get the project directory."""
-        ...
-
-    @property
-    def profile(self) -> Dict[str, Any]:
-        """Get the profile configuration."""
-        ...
-
-
-class ExecutorProtocol(Protocol):
-    """Protocol for executor objects used in CLI operations."""
-
-    def execute(
-        self,
-        plan: List[Dict[str, Any]],
-        variables: Optional[Dict[str, Any]] = None,
-        dependency_resolver: Optional[Any] = None,
-    ) -> Dict[str, Any]:
-        """Execute a list of operations."""
-        ...
-
-
-class PlannerProtocol(Protocol):
-    """Protocol for planner objects used in CLI operations."""
-
-    def create_plan(
-        self,
-        pipeline: Any,
-        variables: Optional[Dict[str, Any]] = None,
-        profile_variables: Optional[Dict[str, Any]] = None,
-    ) -> List[Dict[str, Any]]:
-        """Create an execution plan from a pipeline."""
-        ...
-
-
+# Raymond Hettinger: Simple cached factory functions
 @lru_cache(maxsize=None)
-def get_planner() -> PlannerProtocol:
+def get_planner() -> Planner:
     """Get planner instance - cached for performance.
 
-    Returns:
-        PlannerProtocol: Planner instance for creating execution plans
+    Raymond Hettinger: Built-in, tested, optimized.
     """
     return Planner()
 
 
 def load_project_for_command(
     profile_name: Optional[str] = None,
-) -> Optional[ProjectProtocol]:
+) -> Optional[Project]:
     """Load project configuration for CLI commands.
 
     Args:
         profile_name: Optional profile name to load (defaults to 'dev')
 
     Returns:
-        ProjectProtocol: Loaded project configuration or None if not found
+        Project: Loaded project configuration or None if not found
 
     Raises:
         ProfileNotFoundError: If profile cannot be found
@@ -115,15 +57,7 @@ def load_project_for_command(
             logger.debug(f"Loaded project with profile '{profile}' from {current_dir}")
             return project
         except FileNotFoundError:
-            # Profile not found, list available profiles for helpful error
-            available_profiles = []
-            if os.path.exists(profiles_dir):
-                available_profiles = [
-                    f[:-4]
-                    for f in os.listdir(profiles_dir)
-                    if f.endswith((".yml", ".yaml"))
-                ]
-
+            # Profile not found
             raise ProfileNotFoundError(profile, [profiles_dir])
 
     except (ProfileNotFoundError, ProjectNotFoundError):
@@ -148,7 +82,7 @@ def create_executor_for_command(
         variables: Optional variables for execution context
 
     Returns:
-        ExecutorProtocol: Configured executor instance (V2 if available, V1 fallback)
+        Any: Configured executor instance
 
     Raises:
         ProfileNotFoundError: If profile cannot be found
@@ -160,29 +94,12 @@ def create_executor_for_command(
         if not project:
             raise ProjectNotFoundError(os.getcwd())
 
-        # Create executor with V2/V1 automatic selection
-        if V2_AVAILABLE:
-            try:
-                # Use V2 executor system with feature flag integration
-                executor = get_executor(
-                    project_dir=project.project_dir,
-                    profile_name=profile_name or "dev",
-                )
-                logger.debug(
-                    f"Created V2 executor for profile '{profile_name or 'dev'}'"
-                )
-                return executor
-            except Exception as e:
-                logger.warning(f"V2 executor creation failed, falling back to V1: {e}")
-                # Fall through to V1 creation
-
-        # Create V1 executor (fallback or when V2 not available)
-        executor = LocalExecutor(
+        # Raymond Hettinger: Simple, direct approach
+        executor = get_executor(
             project_dir=project.project_dir,
             profile_name=profile_name or "dev",
         )
-
-        logger.debug(f"Created V1 executor for profile '{profile_name or 'dev'}'")
+        logger.debug(f"Created executor for profile '{profile_name or 'dev'}'")
         return executor
 
     except Exception as e:
@@ -190,7 +107,7 @@ def create_executor_for_command(
         raise
 
 
-def get_available_pipelines(project: Optional[ProjectProtocol] = None) -> list:
+def get_available_pipelines(project: Optional[Project] = None) -> list:
     """Get list of available pipelines in the project.
 
     Args:

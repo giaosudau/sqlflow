@@ -10,7 +10,7 @@ import pandas as pd
 import pytest
 
 from sqlflow.connectors.data_chunk import DataChunk
-from sqlflow.core.executors.local_executor import LocalExecutor
+from sqlflow.core.executors import get_executor
 from sqlflow.core.state.watermark_manager import WatermarkManager
 
 
@@ -28,7 +28,7 @@ class TestIncrementalSourceExecution:
     @pytest.fixture
     def executor_with_watermarks(self, mock_watermark_manager):
         """Create executor with watermark manager."""
-        executor = LocalExecutor()
+        executor = get_executor()
         executor.watermark_manager = mock_watermark_manager
         setattr(executor, "pipeline_name", "test_pipeline")
         return executor

@@ -13,7 +13,7 @@ import tempfile
 import pandas as pd
 import pytest
 
-from sqlflow.core.executors.local_executor import LocalExecutor
+from sqlflow.core.executors import get_executor
 from sqlflow.core.planner_main import Planner
 from sqlflow.parser import SQLFlowParser
 
@@ -89,7 +89,7 @@ class TestUpsertOperationRegression:
         execution_plan = planner.create_plan(pipeline)
 
         # Execute
-        executor = LocalExecutor()
+        executor = get_executor()
         result = executor.execute(execution_plan)
 
         # Verify execution succeeded
@@ -171,7 +171,7 @@ class TestUpsertOperationRegression:
         planner = Planner()
         execution_plan = planner.create_plan(pipeline)
 
-        executor = LocalExecutor()
+        executor = get_executor()
         result = executor.execute(execution_plan)
 
         # Verify execution succeeded
@@ -260,7 +260,7 @@ class TestUpsertOperationRegression:
         execution_plan = planner.create_plan(pipeline)
 
         # Execute - should fail with proper error message
-        executor = LocalExecutor()
+        executor = get_executor()
         result = executor.execute(execution_plan)
 
         # Should fail but not with "missing upsert key" error from executor
@@ -331,7 +331,7 @@ class TestUpsertOperationRegression:
         execution_plan = planner.create_plan(pipeline)
 
         # Execute - this should work now
-        executor = LocalExecutor()
+        executor = get_executor()
         result = executor.execute(execution_plan)
 
         # The key assertion: execution should succeed

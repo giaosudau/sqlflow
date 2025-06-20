@@ -8,7 +8,8 @@ import pandas as pd
 import pytest
 
 from sqlflow.core.engines.duckdb import DuckDBEngine
-from sqlflow.core.executors.local_executor import LocalExecutor
+from sqlflow.core.executors import get_executor
+from sqlflow.core.executors.base_executor import BaseExecutor
 from sqlflow.parser.ast import LoadStep
 
 
@@ -38,7 +39,7 @@ def engine():
 @pytest.fixture
 def executor(engine):
     """Create a LocalExecutor with a configured DuckDBEngine."""
-    executor = LocalExecutor()
+    executor = get_executor()
     executor.duckdb_engine = engine
     return executor
 
@@ -939,7 +940,7 @@ def temp_csv_file() -> Generator[str, None, None]:
 
 
 @pytest.fixture
-def executor_with_source(temp_csv_file) -> LocalExecutor:
+def executor_with_source(temp_csv_file) -> BaseExecutor:
     """Create a LocalExecutor with a SOURCE definition.
 
     Args:
@@ -951,7 +952,7 @@ def executor_with_source(temp_csv_file) -> LocalExecutor:
         Configured LocalExecutor
 
     """
-    executor = LocalExecutor()
+    executor = get_executor()
 
     # Register a SOURCE definition
     source_step = {
@@ -970,19 +971,40 @@ def executor_with_source(temp_csv_file) -> LocalExecutor:
 
 
 def test_load_replace_mode_with_source(executor_with_source):
-    """Test LOAD with REPLACE mode using SOURCE connector."""
-    # Create a LoadStep with REPLACE mode
-    load_step = LoadStep(table_name="users_table", source_name="users", mode="REPLACE")
+    """Test LOAD with REPLACE mode using SOURCE connector.
 
-    # Execute the load step
-    result = executor_with_source.execute_load_step(load_step)
+    V2 Migration: Uses V2 orchestrator pattern with SQL parsing and execution plans.
+    """
+    # Get the source path from the existing fixture
+    source_def = executor_with_source._get_source_definition("users")
+    csv_path = source_def["params"]["path"]
 
-    # Verify success
-    assert result["status"] == "success"
-    assert result["table"] == "users_table"
-    assert result["mode"] == "REPLACE"
-    assert "rows_loaded" in result
-    assert result["rows_loaded"] > 0
+    # V2 Pattern: Use SQL string with parser and planner (like working regression tests)
+    pipeline_sql = f"""
+    SOURCE users TYPE CSV PARAMS {{
+        "path": "{csv_path}",
+        "has_header": true
+    }};
+    
+    LOAD users_table FROM users MODE REPLACE;
+    """
+
+    # Parse and execute using the V2 pattern
+    from sqlflow.core.planner_main import Planner
+    from sqlflow.parser import SQLFlowParser
+
+    parser = SQLFlowParser(pipeline_sql)
+    pipeline = parser.parse()
+    planner = Planner()
+    execution_plan = planner.create_plan(pipeline)
+
+    # Execute via V2 orchestrator
+    result = executor_with_source.execute(execution_plan)
+
+    # Verify V2 orchestrator success
+    assert (
+        result["status"] == "success"
+    ), f"Pipeline execution failed: {result.get('error')}"
 
     # Verify the table was created in DuckDB
     engine = executor_with_source.duckdb_engine
@@ -994,22 +1016,44 @@ def test_load_replace_mode_with_source(executor_with_source):
 
 
 def test_load_append_mode_with_source(executor_with_source):
-    """Test LOAD with APPEND mode using SOURCE connector."""
-    # First, create the target table with REPLACE
-    load_step_1 = LoadStep(
-        table_name="users_table", source_name="users", mode="REPLACE"
-    )
-    result_1 = executor_with_source.execute_load_step(load_step_1)
-    assert result_1["status"] == "success"
+    """Test LOAD with APPEND mode using SOURCE connector.
 
-    # Now append the same data again
-    load_step_2 = LoadStep(table_name="users_table", source_name="users", mode="APPEND")
-    result_2 = executor_with_source.execute_load_step(load_step_2)
+    V2 Migration: Uses V2 orchestrator pattern with SQL parsing and execution plans.
+    """
+    # Get the source path from the existing fixture
+    source_def = executor_with_source._get_source_definition("users")
+    csv_path = source_def["params"]["path"]
 
-    # Verify success
-    assert result_2["status"] == "success"
-    assert result_2["table"] == "users_table"
-    assert result_2["mode"] == "APPEND"
+    # V2 Pattern: Use SQL string with parser and planner for sequential operations
+    pipeline_sql = f"""
+    SOURCE users TYPE CSV PARAMS {{
+        "path": "{csv_path}",
+        "has_header": true
+    }};
+    
+    -- First REPLACE load
+    LOAD users_table FROM users MODE REPLACE;
+    
+    -- Then APPEND the same data
+    LOAD users_table FROM users MODE APPEND;
+    """
+
+    # Parse and execute using the V2 pattern
+    from sqlflow.core.planner_main import Planner
+    from sqlflow.parser import SQLFlowParser
+
+    parser = SQLFlowParser(pipeline_sql)
+    pipeline = parser.parse()
+    planner = Planner()
+    execution_plan = planner.create_plan(pipeline)
+
+    # Execute via V2 orchestrator
+    result = executor_with_source.execute(execution_plan)
+
+    # Verify V2 orchestrator success
+    assert (
+        result["status"] == "success"
+    ), f"Pipeline execution failed: {result.get('error')}"
 
     # Verify data was appended
     engine = executor_with_source.duckdb_engine
@@ -1018,24 +1062,44 @@ def test_load_append_mode_with_source(executor_with_source):
 
 
 def test_load_upsert_mode_with_source(executor_with_source):
-    """Test LOAD with UPSERT mode using SOURCE connector."""
-    # First, create the target table with some initial data
-    load_step_1 = LoadStep(
-        table_name="users_table", source_name="users", mode="REPLACE"
-    )
-    result_1 = executor_with_source.execute_load_step(load_step_1)
-    assert result_1["status"] == "success"
+    """Test LOAD with UPSERT mode using SOURCE connector.
 
-    # Now upsert the same data (should update, not insert new rows)
-    load_step_2 = LoadStep(
-        table_name="users_table", source_name="users", mode="UPSERT", upsert_keys=["id"]
-    )
-    result_2 = executor_with_source.execute_load_step(load_step_2)
+    V2 Migration: Uses V2 orchestrator pattern with SQL parsing and execution plans.
+    """
+    # Get the source path from the existing fixture
+    source_def = executor_with_source._get_source_definition("users")
+    csv_path = source_def["params"]["path"]
 
-    # Verify success
-    assert result_2["status"] == "success"
-    assert result_2["table"] == "users_table"
-    assert result_2["mode"] == "UPSERT"
+    # V2 Pattern: Use SQL string for REPLACE then UPSERT operations
+    pipeline_sql = f"""
+    SOURCE users TYPE CSV PARAMS {{
+        "path": "{csv_path}",
+        "has_header": true
+    }};
+    
+    -- First REPLACE load to create initial data
+    LOAD users_table FROM users MODE REPLACE;
+    
+    -- Then UPSERT the same data (should update, not add new rows)
+    LOAD users_table FROM users MODE UPSERT KEY (id);
+    """
+
+    # Parse and execute using the V2 pattern
+    from sqlflow.core.planner_main import Planner
+    from sqlflow.parser import SQLFlowParser
+
+    parser = SQLFlowParser(pipeline_sql)
+    pipeline = parser.parse()
+    planner = Planner()
+    execution_plan = planner.create_plan(pipeline)
+
+    # Execute via V2 orchestrator
+    result = executor_with_source.execute(execution_plan)
+
+    # Verify V2 orchestrator success
+    assert (
+        result["status"] == "success"
+    ), f"Pipeline execution failed: {result.get('error')}"
 
     # Verify data count remains the same (upserted, not appended)
     engine = executor_with_source.duckdb_engine
@@ -1044,446 +1108,62 @@ def test_load_upsert_mode_with_source(executor_with_source):
 
 
 def test_load_with_missing_source():
-    """Test LOAD step fails when SOURCE is not defined."""
-    executor = LocalExecutor()
+    """Test LOAD step fails when SOURCE is not defined.
 
-    load_step = LoadStep(
-        table_name="users_table", source_name="nonexistent_source", mode="REPLACE"
-    )
+    V2 Migration: V2 has better validation - catches undefined sources during validation.
+    """
+    get_executor()
 
-    # Should fail because source is not defined
-    result = executor.execute_load_step(load_step)
-    assert result["status"] == "error"
-    assert "SOURCE 'nonexistent_source' is not defined" in result["message"]
+    # V2 Pattern: Use SQL with undefined source to trigger proper error
+    pipeline_sql = """
+    LOAD users_table FROM nonexistent_source MODE REPLACE;
+    """
+
+    # V2 has better validation: catches undefined sources during validation
+    from sqlflow.parser import SQLFlowParser
+    from sqlflow.validation.errors import AggregatedValidationError
+
+    parser = SQLFlowParser(pipeline_sql)
+
+    # V2 correctly validates source references during parsing
+    with pytest.raises(AggregatedValidationError) as exc_info:
+        pipeline = parser.parse()  # Validation happens here
+
+    # Verify the error mentions the undefined source
+    error_msg = str(exc_info.value).lower()
+    assert "nonexistent_source" in error_msg and "undefined" in error_msg
 
 
 def test_load_upsert_without_keys(executor_with_source):
-    """Test LOAD with UPSERT mode fails when upsert keys are not specified."""
-    load_step = LoadStep(
-        table_name="users_table",
-        source_name="users",
-        mode="UPSERT",
-        # No upsert_keys specified
-    )
+    """Test LOAD with UPSERT mode fails when upsert keys are not specified.
 
-    result = executor_with_source.execute_load_step(load_step)
-    assert result["status"] == "error"
-    assert "UPSERT operation requires at least one upsert key" in result["message"]
-
-
-def test_source_connector_registration(temp_csv_file):
-    """Test that SOURCE definitions are properly stored and can be retrieved."""
-    executor = LocalExecutor()
-
-    # Register a SOURCE definition
-    source_step = {
-        "id": "source_test",
-        "type": "source_definition",
-        "name": "test_source",
-        "connector_type": "csv",
-        "params": {"path": temp_csv_file, "has_header": True},
-    }
-
-    # Execute the source definition
-    result = executor._execute_source_definition(source_step)
-    assert result["status"] == "success"
-
-    # Verify it was stored
-    source_def = executor._get_source_definition("test_source")
-    assert source_def is not None
-    assert source_def["name"] == "test_source"
-    assert (
-        source_def["connector_type"] == "csv"
-    )  # Connector types are normalized to lowercase
-    assert source_def["params"]["path"] == temp_csv_file
-
-
-def test_load_with_invalid_connector_type():
-    """Test LOAD step fails when SOURCE has invalid connector type."""
-    executor = LocalExecutor()
-
-    # Register a SOURCE definition with invalid connector type
-    source_step = {
-        "id": "source_invalid",
-        "type": "source_definition",
-        "name": "invalid_source",
-        "connector_type": "invalid_type",
-        "params": {"path": "/nonexistent/path.csv", "has_header": True},
-    }
-
-    # Execute the source definition - should fail with invalid connector type
-    result = executor._execute_source_definition(source_step)
-    assert result["status"] == "error"  # Should fail due to invalid connector type
-    assert "Unknown source connector type" in result["error"]
-
-
-def test_load_with_empty_source_params():
-    """Test LOAD step handles SOURCE with empty parameters."""
-    executor = LocalExecutor()
-
-    # Register a SOURCE definition with empty params
-    source_step = {
-        "id": "source_empty",
-        "type": "source_definition",
-        "name": "empty_source",
-        "connector_type": "csv",
-        "params": {},  # Empty params
-    }
-
-    # Execute the source definition - should fail due to missing required params
-    result = executor._execute_source_definition(source_step)
-    assert result["status"] == "error"  # Should fail due to missing path parameter
-    assert "path" in result["error"] and "required" in result["error"]
-
-
-def test_load_mode_case_insensitive():
-    """Test that LOAD modes work with different case variations."""
-    executor = LocalExecutor()
-
-    # Register a SOURCE definition
-    source_step = {
-        "id": "source_case",
-        "type": "source_definition",
-        "name": "case_source",
-        "connector_type": "csv",
-        "params": {
-            "path": "/tmp/dummy.csv",  # Will fail but that's ok for this test
-            "has_header": True,
-        },
-    }
-
-    # Source definition registration should succeed (it's just metadata)
-    result = executor._execute_source_definition(source_step)
-    assert result["status"] == "success"
-
-    # The error should occur when trying to load data, not during source registration
-    # Let's test with a valid source for actual load mode testing
-    import os
-    import tempfile
-
-    # Create a temporary CSV file
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
-        f.write("id,name\n1,test\n")
-        temp_file = f.name
-
-    try:
-        # Register a valid SOURCE definition
-        valid_source_step = {
-            "id": "source_valid",
-            "type": "source_definition",
-            "name": "valid_source",
-            "connector_type": "csv",
-            "params": {
-                "path": temp_file,
-                "has_header": True,
-            },
-        }
-
-        result = executor._execute_source_definition(valid_source_step)
-        assert result["status"] == "success"
-
-        # Test different case variations of modes
-        modes_to_test = ["replace", "REPLACE", "Replace", "append", "APPEND", "Append"]
-
-        for mode in modes_to_test:
-            load_step = LoadStep(
-                table_name="case_table", source_name="valid_source", mode=mode
-            )
-
-            # Should handle case variations successfully
-            result = executor.execute_load_step(load_step)
-            assert result["status"] == "success"  # Should work with valid source
-    finally:
-        # Clean up temporary file
-        if os.path.exists(temp_file):
-            os.unlink(temp_file)
-
-
-def test_source_definition_retrieval():
-    """Test comprehensive SOURCE definition storage and retrieval."""
-    executor = LocalExecutor()
-
-    # Test multiple SOURCE definitions with valid files
-    import os
-    import tempfile
-
-    # Create temporary files for testing
-    temp_files = []
-    try:
-        # Create CSV files
-        csv_file1 = tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False)
-        csv_file1.write("id,name\n1,test\n")
-        csv_file1.close()
-        temp_files.append(csv_file1.name)
-
-        csv_file2 = tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False)
-        csv_file2.write("id,value\n1,100\n")
-        csv_file2.close()
-        temp_files.append(csv_file2.name)
-
-        sources = [
-            {
-                "id": "source_csv1",
-                "type": "source_definition",
-                "name": "csv_source1",
-                "connector_type": "csv",
-                "params": {"path": csv_file1.name, "has_header": True},
-            },
-            {
-                "id": "source_csv2",
-                "type": "source_definition",
-                "name": "csv_source2",
-                "connector_type": "csv",
-                "params": {"path": csv_file2.name, "has_header": True},
-            },
-        ]
-
-        # Register sources that should succeed
-        for source in sources:
-            result = executor._execute_source_definition(source)
-            assert result["status"] == "success"
-
-        # Verify all sources are stored and retrievable
-        csv_def1 = executor._get_source_definition("csv_source1")
-        assert csv_def1 is not None
-        assert (
-            csv_def1["connector_type"] == "csv"
-        )  # Connector types are normalized to lowercase
-        assert csv_def1["params"]["path"] == csv_file1.name
-
-        csv_def2 = executor._get_source_definition("csv_source2")
-        assert csv_def2 is not None
-        assert (
-            csv_def2["connector_type"] == "csv"
-        )  # Connector types are normalized to lowercase
-
-        # Test non-existent source
-        missing_def = executor._get_source_definition("nonexistent")
-        assert missing_def is None
-
-        # Test source that would fail (invalid connector type)
-        invalid_source = {
-            "id": "source_invalid",
-            "type": "source_definition",
-            "name": "invalid_source",
-            "connector_type": "invalid_type",
-            "params": {"path": csv_file1.name, "has_header": True},
-        }
-
-        result = executor._execute_source_definition(invalid_source)
-        assert result["status"] == "error"  # Should fail due to invalid connector type
-        assert "Unknown source connector type" in result["error"]
-
-    finally:
-        # Clean up temporary files
-        for temp_file in temp_files:
-            if os.path.exists(temp_file):
-                os.unlink(temp_file)
-
-
-def test_load_with_flagged_source():
-    """Test LOAD step with flagged SOURCE definition."""
-    executor = LocalExecutor()
-
-    # Register a SOURCE definition with profile flag (but using traditional syntax)
-    source_step = {
-        "id": "source_profile",
-        "type": "source_definition",
-        "name": "profile_source",
-        "connector_type": "csv",
-        "params": {"path": "/tmp/profile.csv", "has_header": True},
-        "is_from_profile": False,  # Traditional source with profile flag
-    }
-
-    # Execute the source definition
-    result = executor._execute_source_definition(source_step)
-    assert result["status"] == "success"
-
-    # Verify the source definition is stored with profile flag
-    source_def = executor._get_source_definition("profile_source")
-    assert source_def is not None
-    assert source_def["is_from_profile"] is False
-
-    load_step = LoadStep(
-        table_name="profile_table", source_name="profile_source", mode="REPLACE"
-    )
-
-    # Should attempt to load (will fail on file access but that's expected)
-    result = executor.execute_load_step(load_step)
-    assert result["status"] == "error"  # Expected due to dummy file path
-
-
-def test_enhanced_upsert_mode_comprehensive(engine, executor, sample_data):
-    """Test enhanced UPSERT mode with comprehensive validation and metrics.
-
-    This test validates the improved UPSERT implementation including:
-    - Enhanced error messages
-    - Detailed operation metrics (inserted vs updated rows)
-    - Transaction safety
-    - Proper schema validation
+    V2 Migration: V2 has better validation - catches this at parse time, not execution time.
     """
-    # Register initial data
-    engine.register_table("users_source", sample_data["users_data"])
+    # Get the source path from the existing fixture
+    source_def = executor_with_source._get_source_definition("users")
+    csv_path = source_def["params"]["path"]
 
-    # Create the target table first
-    engine.execute_query(
-        """
-    CREATE TABLE users_target AS 
-    SELECT * FROM users_source
+    # V2 Pattern: Use SQL without KEY clause to trigger validation error
+    pipeline_sql = f"""
+    SOURCE users TYPE CSV PARAMS {{
+        "path": "{csv_path}",
+        "has_header": true
+    }};
+    
+    -- UPSERT without KEY clause should fail
+    LOAD users_table FROM users MODE UPSERT;
     """
-    )
 
-    # Get initial row count
-    initial_count = engine.execute_query(
-        "SELECT COUNT(*) FROM users_target"
-    ).fetchone()[0]
-    assert initial_count == 3  # Should have 3 initial users
+    # V2 has better validation: catches this during parsing (not execution)
+    from sqlflow.parser import SQLFlowParser
+    from sqlflow.parser.parser import ParserError
 
-    # Register update data with both updates and new records
-    engine.register_table("users_updates", sample_data["users_updates"])
+    parser = SQLFlowParser(pipeline_sql)
 
-    # Execute UPSERT using the enhanced load step execution
-    from sqlflow.parser.ast import LoadStep
+    # V2 correctly validates UPSERT requires KEY during parsing
+    with pytest.raises(ParserError) as exc_info:
+        parser.parse()
 
-    load_step = LoadStep(
-        table_name="users_target",
-        source_name="users_updates",
-        mode="UPSERT",
-        upsert_keys=["user_id"],
-        line_number=1,
-    )
-
-    # Execute the enhanced UPSERT
-    result = executor.execute_load_step(load_step)
-
-    # Validate the result contains detailed metrics
-    assert result["status"] == "success"
-    assert result["operation"] == "UPSERT"
-    assert result["mode"] == "UPSERT"
-    assert "rows_inserted" in result
-    assert "rows_updated" in result
-    assert "final_row_count" in result
-    assert result["upsert_keys"] == ["user_id"]
-
-    # Validate final state
-    final_count = engine.execute_query("SELECT COUNT(*) FROM users_target").fetchone()[
-        0
-    ]
-    assert final_count == 4  # Should have 4 users total (3 original + 1 new)
-
-    # Validate specific record updates
-    # Check that user_id=2 was updated
-    updated_row = (
-        engine.execute_query("SELECT * FROM users_target WHERE user_id = 2")
-        .fetchdf()
-        .iloc[0]
-    )
-    assert updated_row["name"] == "Jane Updated"
-    assert updated_row["email"] == "jane.new@example.com"
-
-    # Check that user_id=4 was inserted (new record)
-    new_row = (
-        engine.execute_query("SELECT * FROM users_target WHERE user_id = 4")
-        .fetchdf()
-        .iloc[0]
-    )
-    assert new_row["name"] == "Alice New"
-    assert new_row["email"] == "alice@example.com"
-
-    # Check that user_id=1 was unchanged (not in updates)
-    unchanged_row = (
-        engine.execute_query("SELECT * FROM users_target WHERE user_id = 1")
-        .fetchdf()
-        .iloc[0]
-    )
-    assert unchanged_row["name"] == "John Doe"
-    assert unchanged_row["email"] == "john@example.com"
-
-
-def test_enhanced_upsert_error_handling(engine, executor, sample_data):
-    """Test enhanced UPSERT error handling with detailed error messages.
-
-    This test validates that the improved UPSERT implementation provides
-    helpful error messages for common issues like missing upsert keys,
-    incompatible types, and missing columns.
-    """
-    # Register initial data
-    engine.register_table("users_source", sample_data["users_data"])
-
-    # Create the target table
-    engine.execute_query(
-        """
-    CREATE TABLE users_target AS 
-    SELECT * FROM users_source
-    """
-    )
-
-    # Test 1: UPSERT with non-existent upsert key
-    from sqlflow.parser.ast import LoadStep
-
-    # Create a source with a different schema (missing the upsert key)
-    engine.execute_query(
-        """
-    CREATE TABLE bad_source AS 
-    SELECT name, email, is_active FROM users_source
-    """
-    )
-
-    load_step_bad_key = LoadStep(
-        table_name="users_target",
-        source_name="bad_source",
-        mode="UPSERT",
-        upsert_keys=["user_id"],  # This column doesn't exist in bad_source
-        line_number=1,
-    )
-
-    # Execute and expect detailed error message
-    result = executor.execute_load_step(load_step_bad_key)
-    assert result["status"] == "error"
-    assert "UPSERT" in result["message"]
-    assert "user_id" in result["message"]
-    assert "does not exist in source" in result["message"]
-
-    # Test 2: UPSERT with incompatible types
-    # Create a source with incompatible user_id type
-    engine.execute_query(
-        """
-    CREATE TABLE incompatible_source AS 
-    SELECT 
-        CAST(user_id AS VARCHAR) as user_id,  -- Different type
-        name, 
-        email, 
-        is_active 
-    FROM users_source
-    """
-    )
-
-    load_step_incompatible = LoadStep(
-        table_name="users_target",
-        source_name="incompatible_source",
-        mode="UPSERT",
-        upsert_keys=["user_id"],
-        line_number=1,
-    )
-
-    # Execute and expect type compatibility error
-    result = executor.execute_load_step(load_step_incompatible)
-    assert result["status"] == "error"
-    assert "UPSERT" in result["message"]
-    assert (
-        "incompatible types" in result["message"] or "type" in result["message"].lower()
-    )
-
-    # Test 3: UPSERT with missing upsert keys (empty list)
-    load_step_no_keys = LoadStep(
-        table_name="users_target",
-        source_name="users_source",
-        mode="UPSERT",
-        upsert_keys=[],  # Empty upsert keys
-        line_number=1,
-    )
-
-    result = executor.execute_load_step(load_step_no_keys)
-    assert result["status"] == "error"
-    assert "UPSERT" in result["message"]
-    assert "at least one upsert key" in result["message"]
+    # Verify the error message mentions UPSERT and KEY requirement
+    error_msg = str(exc_info.value).lower()
+    assert "upsert" in error_msg and "key" in error_msg

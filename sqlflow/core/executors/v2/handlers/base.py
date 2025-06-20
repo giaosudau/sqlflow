@@ -5,9 +5,10 @@ following the Strategy pattern and providing automatic observability integration
 """
 
 import functools
+import time
 from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import Callable, TypeVar
+from typing import Any, Callable, Dict, Optional, TypeVar
 
 from sqlflow.core.executors.v2.context import ExecutionContext
 from sqlflow.core.executors.v2.results import StepExecutionResult
@@ -18,6 +19,110 @@ logger = get_logger(__name__)
 
 # Type variable for methods that return StepExecutionResult
 F = TypeVar("F", bound=Callable[..., StepExecutionResult])
+
+
+# Raymond Hettinger: Functional solutions for DRY elimination
+def sql_operation(operation_name: str):
+    """Decorator for common SQL operations with observability.
+
+    Raymond Hettinger: Decorators and higher-order functions are more Pythonic
+    than service classes. Functions are first-class citizens in Python.
+    """
+
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(self, *args, **kwargs):
+            # Zen: Simple is better than complex - extract helper functions
+            context = _extract_context_from_args(args)
+            start_time = time.time()
+
+            try:
+                result = func(self, *args, **kwargs)
+                _record_operation_success(context, operation_name, start_time)
+                return result
+            except Exception as e:
+                _record_operation_failure(context, operation_name, start_time, e)
+                raise
+
+        return wrapper
+
+    return decorator
+
+
+def _extract_context_from_args(args) -> Optional[ExecutionContext]:
+    """Extract ExecutionContext from arguments - Zen: Explicit is better than implicit."""
+    for arg in args:
+        if isinstance(arg, ExecutionContext):
+            return arg
+    return None
+
+
+def _record_operation_success(
+    context: Optional[ExecutionContext], operation_name: str, start_time: float
+) -> None:
+    """Record successful operation - Zen: Errors should never pass silently."""
+    if not context or not hasattr(context, "observability_manager"):
+        return
+
+    duration = time.time() - start_time
+    try:
+        context.observability_manager.record_step_success(
+            operation_name,
+            {
+                "duration_ms": duration * 1000,
+                "operation": operation_name,
+            },
+        )
+    except Exception:
+        # Zen: Unless explicitly silenced - observability failures are non-critical
+        pass
+
+
+def _record_operation_failure(
+    context: Optional[ExecutionContext],
+    operation_name: str,
+    start_time: float,
+    exception: Exception,
+) -> None:
+    """Record failed operation - Zen: Errors should never pass silently."""
+    duration = time.time() - start_time
+    logger.error(f"{operation_name} failed after {duration:.3f}s: {exception}")
+
+    if not context or not hasattr(context, "observability_manager"):
+        return
+
+    try:
+        context.observability_manager.record_step_failure(
+            operation_name, "sql_operation", str(exception), duration * 1000
+        )
+    except Exception:
+        # Zen: Unless explicitly silenced - observability failures are non-critical
+        pass
+
+
+def timed_operation(operation_name: str):
+    """Decorator for operations that need timing but not SQL-specific features.
+
+    Raymond Hettinger: Simple patterns extracted into reusable decorators.
+    """
+
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            start_time = time.time()
+            try:
+                result = func(*args, **kwargs)
+                duration = time.time() - start_time
+                logger.debug(f"{operation_name} completed in {duration:.3f}s")
+                return result
+            except Exception as e:
+                duration = time.time() - start_time
+                logger.error(f"{operation_name} failed after {duration:.3f}s: {e}")
+                raise
+
+        return wrapper
+
+    return decorator
 
 
 class StepHandler(ABC):
@@ -104,6 +209,45 @@ class StepHandler(ABC):
             error_message=error_message,
             error_code=f"{step.type.upper()}_EXECUTION_ERROR",
         )
+
+    # Raymond Hettinger: Common SQL execution patterns with decorators
+    @sql_operation("sql_execution")
+    def _execute_sql_with_metrics(
+        self, sql: str, context: ExecutionContext
+    ) -> Dict[str, Any]:
+        """
+        Common SQL execution pattern with metrics collection.
+
+        Raymond Hettinger: Extract common patterns, avoid code duplication.
+        """
+        sql_start_time = time.monotonic()
+
+        try:
+            # Execute the SQL
+            result = context.sql_engine.execute_query(sql)
+
+            sql_execution_time = (time.monotonic() - sql_start_time) * 1000
+
+            # Collect metrics
+            metrics = {
+                "sql_execution_time_ms": sql_execution_time,
+                "sql_query": sql,
+                "sql_length": len(sql),
+            }
+
+            # Try to get row count if available
+            if hasattr(result, "rowcount") and result.rowcount >= 0:
+                metrics["rows_affected"] = result.rowcount
+            else:
+                metrics["rows_affected"] = 0
+
+            logger.debug(f"SQL executed successfully in {sql_execution_time:.2f}ms")
+            return metrics
+
+        except Exception as e:
+            sql_execution_time = (time.monotonic() - sql_start_time) * 1000
+            logger.error(f"SQL execution failed after {sql_execution_time:.2f}ms: {e}")
+            raise
 
 
 def observed_execution(step_type: str) -> Callable[[F], F]:

@@ -10,12 +10,12 @@ from sqlflow.core.engines.duckdb.exceptions import (
     UpsertKeyValidationError,
 )
 from sqlflow.core.engines.duckdb.load.handlers import (
-    AppendLoadHandler,
+    AppendLoadStepHandler,
     LoadModeHandlerFactory,
     LoadStep,
-    ReplaceLoadHandler,
+    ReplaceLoadStepHandler,
     TableInfo,
-    UpsertLoadHandler,
+    UpsertLoadStepHandler,
     ValidationHelper,
 )
 
@@ -200,13 +200,13 @@ class TestValidationHelper:
         assert exc_info.value.upsert_keys == ["invalid_key"]
 
 
-class TestLoadHandlerOptimizations:
+class TestLoadStepHandlerOptimizations:
     """Test cases for load handler performance optimizations."""
 
     def test_replace_handler_optimized_table_existence_check(self):
-        """Test that ReplaceLoadHandler uses optimized table existence check."""
+        """Test that ReplaceLoadStepHandler uses optimized table existence check."""
         mock_engine = Mock()
-        handler = ReplaceLoadHandler(mock_engine)
+        handler = ReplaceLoadStepHandler(mock_engine)
         load_step = LoadStep("target_table", "source_table", "REPLACE")
 
         # Mock the validation helper's get_table_info method
@@ -220,9 +220,9 @@ class TestLoadHandlerOptimizations:
         assert "CREATE OR REPLACE TABLE" in sql
 
     def test_append_handler_uses_shared_validation(self):
-        """Test that AppendLoadHandler uses shared validation logic."""
+        """Test that AppendLoadStepHandler uses shared validation logic."""
         mock_engine = Mock()
-        handler = AppendLoadHandler(mock_engine)
+        handler = AppendLoadStepHandler(mock_engine)
         load_step = LoadStep("target_table", "source_table", "APPEND")
 
         # Mock the validation helper methods
@@ -241,14 +241,14 @@ class TestLoadHandlerOptimizations:
         assert "INSERT INTO" in sql
 
     def test_upsert_handler_uses_shared_validation(self):
-        """Test that UpsertLoadHandler uses shared validation infrastructure."""
+        """Test that UpsertLoadStepHandler uses shared validation infrastructure."""
         mock_engine = Mock()
         mock_engine.table_exists.return_value = True
         mock_engine.get_table_schema.return_value = {"id": "INTEGER"}
         mock_engine.validate_schema_compatibility.return_value = None
         mock_engine.validate_upsert_keys.return_value = None
 
-        handler = UpsertLoadHandler(mock_engine)
+        handler = UpsertLoadStepHandler(mock_engine)
         load_step = LoadStep("test_table", "test_source", "UPSERT", ["id"])
 
         # This should use the shared validation helper
@@ -293,9 +293,9 @@ class TestLoadModeHandlerFactory:
         append_handler = LoadModeHandlerFactory.create("APPEND", mock_engine)
         upsert_handler = LoadModeHandlerFactory.create("UPSERT", mock_engine)
 
-        assert isinstance(replace_handler, ReplaceLoadHandler)
-        assert isinstance(append_handler, AppendLoadHandler)
-        assert isinstance(upsert_handler, UpsertLoadHandler)
+        assert isinstance(replace_handler, ReplaceLoadStepHandler)
+        assert isinstance(append_handler, AppendLoadStepHandler)
+        assert isinstance(upsert_handler, UpsertLoadStepHandler)
 
     def test_factory_handles_case_insensitive_modes(self):
         """Test that factory handles case insensitive mode names."""
@@ -306,13 +306,13 @@ class TestLoadModeHandlerFactory:
         handler2 = LoadModeHandlerFactory.create("append", mock_engine)
         handler3 = LoadModeHandlerFactory.create("upsert", mock_engine)
 
-        assert isinstance(handler1, ReplaceLoadHandler)
-        assert isinstance(handler2, AppendLoadHandler)
-        assert isinstance(handler3, UpsertLoadHandler)
+        assert isinstance(handler1, ReplaceLoadStepHandler)
+        assert isinstance(handler2, AppendLoadStepHandler)
+        assert isinstance(handler3, UpsertLoadStepHandler)
 
         # Test uppercase
         handler3 = LoadModeHandlerFactory.create("UPSERT", mock_engine)
-        assert isinstance(handler3, UpsertLoadHandler)
+        assert isinstance(handler3, UpsertLoadStepHandler)
 
 
 class TestIntegrationOptimizations:
@@ -325,7 +325,7 @@ class TestIntegrationOptimizations:
         mock_engine.get_table_schema.return_value = {"id": "INTEGER"}
         mock_engine.validate_schema_compatibility.return_value = None
 
-        handler = AppendLoadHandler(mock_engine)
+        handler = AppendLoadStepHandler(mock_engine)
         load_step = LoadStep("target_table", "source_table", "APPEND")
 
         sql = handler.generate_sql(load_step)
@@ -342,7 +342,7 @@ class TestIntegrationOptimizations:
         mock_engine = Mock()
         mock_engine.table_exists.return_value = False
 
-        handler = ReplaceLoadHandler(mock_engine)
+        handler = ReplaceLoadStepHandler(mock_engine)
         load_step = LoadStep("target_table", "source_table", "REPLACE")
 
         sql = handler.generate_sql(load_step)

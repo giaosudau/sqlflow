@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from sqlflow.core.executors.local_executor import LocalExecutor
+from sqlflow.core.executors import get_executor
 from sqlflow.core.planner_main import Planner
 from sqlflow.core.sql_generator import SQLGenerator
 from sqlflow.parser.ast import SQLBlockStep
@@ -270,7 +270,7 @@ variables:
 
         # Execute the pipeline
         project = Project(temp_project_dir, profile_name="dev")
-        executor = LocalExecutor(project=project)
+        executor = get_executor(project=project)
 
         # Parse and plan
         parser = Parser()
@@ -344,7 +344,7 @@ variables:
         # Parse and execute
         parser = Parser()
         planner = Planner()
-        executor = LocalExecutor(project=Project(temp_project_dir, profile_name="dev"))
+        executor = get_executor(project=Project(temp_project_dir, profile_name="dev"))
 
         pipeline = parser.parse(pipeline_content)
         operations = planner.create_plan(pipeline)

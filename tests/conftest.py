@@ -3,6 +3,7 @@
 import tempfile
 from typing import Any, Dict, Generator
 
+import pandas as pd
 import pytest
 
 from sqlflow.core.engines.duckdb.engine import DuckDBEngine
@@ -204,24 +205,80 @@ def sample_csv_config() -> Dict[str, Any]:
 
     """
     return {
+        "type": "csv",
         "path": "test.csv",
-        "has_header": True,
         "delimiter": ",",
+        "has_header": True,
         "encoding": "utf-8",
     }
 
 
 @pytest.fixture
 def sample_postgres_config() -> Dict[str, Any]:
-    """Return sample PostgreSQL connector configuration for testing.
+    """Return sample Postgres connector configuration for testing.
 
     Returns
     -------
-        Dictionary containing PostgreSQL connector configuration
+        Dictionary containing Postgres connector configuration
 
     """
     return {
-        "connection": "postgresql://user:pass@localhost:5432/testdb",
+        "type": "postgres",
+        "host": "localhost",
+        "port": 5432,
+        "database": "testdb",
+        "username": "testuser",
+        "password": "testpass",
         "table": "test_table",
-        "schema": "public",
+    }
+
+
+# Phase 3: Executor Fixtures for V2 Default Testing Infrastructure
+# Following Kent Beck's TDD principles and clean testing standards
+
+
+@pytest.fixture
+def local_executor():
+    """Standard executor fixture for all tests."""
+    from sqlflow.core.executors import get_executor
+
+    return get_executor()
+
+
+@pytest.fixture
+def performance_test_data(tmp_path):
+    """Generates consistent test datasets for performance validation."""
+
+    # Create small dataset (100 rows)
+    small_data = pd.DataFrame(
+        {
+            "id": range(1, 101),
+            "name": [f"user_{i}" for i in range(1, 101)],
+            "value": [i * 2.5 for i in range(1, 101)],
+            "category": [f"cat_{i%5}" for i in range(1, 101)],
+        }
+    )
+
+    # Create medium dataset (10K rows)
+    medium_data = pd.DataFrame(
+        {
+            "id": range(1, 10001),
+            "name": [f"user_{i}" for i in range(1, 10001)],
+            "value": [i * 2.5 for i in range(1, 10001)],
+            "category": [f"cat_{i%10}" for i in range(1, 10001)],
+        }
+    )
+
+    # Save to temporary files
+    small_file = tmp_path / "small_dataset.csv"
+    medium_file = tmp_path / "medium_dataset.csv"
+
+    small_data.to_csv(small_file, index=False)
+    medium_data.to_csv(medium_file, index=False)
+
+    return {
+        "small_file": small_file,
+        "medium_file": medium_file,
+        "small_rows": len(small_data),
+        "medium_rows": len(medium_data),
     }

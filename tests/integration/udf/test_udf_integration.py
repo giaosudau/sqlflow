@@ -21,7 +21,7 @@ import pandas as pd
 import pytest
 
 from sqlflow.core.engines.duckdb import DuckDBEngine
-from sqlflow.core.executors.local_executor import LocalExecutor
+from sqlflow.core.executors import get_executor
 from sqlflow.logging import get_logger
 from sqlflow.udfs.manager import PythonUDFManager
 
@@ -531,7 +531,7 @@ class TestEndToEndPipelineIntegration:
     ) -> None:
         """User executes basic pipeline with scalar UDFs end-to-end."""
         # Execute pipeline directly using LocalExecutor
-        executor = LocalExecutor(project_dir=integration_test_env["project_dir"])
+        executor = get_executor(project_dir=integration_test_env["project_dir"])
 
         # Execute the basic pipeline steps manually
         # Step 1: Load customer data
@@ -612,7 +612,7 @@ class TestEndToEndPipelineIntegration:
     ) -> None:
         """User executes complex pipeline with multiple UDF types."""
         # Execute complex pipeline using LocalExecutor
-        executor = LocalExecutor(project_dir=integration_test_env["project_dir"])
+        executor = get_executor(project_dir=integration_test_env["project_dir"])
 
         # Step 1: Load and standardize customer data
         executor.duckdb_engine.execute_query(
@@ -731,7 +731,7 @@ class TestEndToEndPipelineIntegration:
         self, integration_test_env: Dict[str, Any]
     ) -> None:
         """User handles UDF errors gracefully in pipeline execution."""
-        executor = LocalExecutor(project_dir=integration_test_env["project_dir"])
+        executor = get_executor(project_dir=integration_test_env["project_dir"])
 
         # Create test data with potential error conditions
         executor.duckdb_engine.execute_query(
@@ -782,16 +782,15 @@ class TestWorkflowIntegration:
     ) -> None:
         """User executes multi-step workflow with UDF dependencies."""
         # Create multi-step workflow
-        executor = LocalExecutor(project_dir=integration_test_env["project_dir"])
+        executor = get_executor(project_dir=integration_test_env["project_dir"])
 
-        # Step 1: Load and clean data
-        plan_step1 = [
+        # V2 Pattern: Execute complete multi-step pipeline
+        complete_plan = [
             {
                 "type": "transform",
                 "id": "load_clean",
-                "name": "clean_customers",
-                "query": f"""
-                CREATE TABLE clean_customers AS
+                "target_table": "clean_customers",
+                "sql": f"""
                 SELECT
                     customer_id,
                     standardize_name(name) AS clean_name,
@@ -801,39 +800,23 @@ class TestWorkflowIntegration:
                     calculate_loyalty_score(years_active, total_purchases) AS loyalty_score
                 FROM read_csv('{integration_test_env["customers_csv"]}', header=true, auto_detect=true)
             """,
-            }
-        ]
-
-        result1 = executor.execute(plan_step1)
-        assert result1["status"] == "success"
-
-        # Step 2: Apply segmentation
-        plan_step2 = [
+            },
             {
                 "type": "transform",
                 "id": "segment",
-                "name": "segmented_customers",
-                "query": """
-                CREATE TABLE segmented_customers AS
+                "target_table": "segmented_customers",
+                "sql": """
                 SELECT
                     *,
                     determine_customer_segment(loyalty_score, age) AS segment
                 FROM clean_customers
             """,
-            }
-        ]
-
-        result2 = executor.execute(plan_step2)
-        assert result2["status"] == "success"
-
-        # Step 3: Generate analytics
-        plan_step3 = [
+            },
             {
                 "type": "transform",
                 "id": "analytics",
-                "name": "customer_analytics",
-                "query": """
-                CREATE TABLE customer_analytics AS
+                "target_table": "customer_analytics",
+                "sql": """
                 SELECT
                     segment,
                     COUNT(*) as customer_count,
@@ -842,11 +825,12 @@ class TestWorkflowIntegration:
                 FROM segmented_customers
                 GROUP BY segment
             """,
-            }
+            },
         ]
 
-        result3 = executor.execute(plan_step3)
-        assert result3["status"] == "success"
+        # Execute complete workflow
+        result = executor.execute(complete_plan)
+        assert result["status"] == "success"
 
         # Verify final results
         final_result = executor.duckdb_engine.execute_query(
@@ -863,7 +847,7 @@ class TestWorkflowIntegration:
         self, integration_test_env: Dict[str, Any]
     ) -> None:
         """User runs multiple UDF operations concurrently."""
-        executor = LocalExecutor(project_dir=integration_test_env["project_dir"])
+        executor = get_executor(project_dir=integration_test_env["project_dir"])
 
         # Load base data
         executor.duckdb_engine.execute_query(
@@ -913,7 +897,7 @@ class TestWorkflowIntegration:
         self, integration_test_env: Dict[str, Any]
     ) -> None:
         """User integrates UDFs with complex SQL operations."""
-        executor = LocalExecutor(project_dir=integration_test_env["project_dir"])
+        executor = get_executor(project_dir=integration_test_env["project_dir"])
 
         # Create complex query with UDFs, joins, window functions, and aggregations
         complex_query = f"""
@@ -1005,7 +989,7 @@ class TestProductionIntegrationScenarios:
         large_csv = Path(integration_test_env["data_dir"]) / "large_customers.csv"
         large_data.to_csv(large_csv, index=False)
 
-        executor = LocalExecutor(project_dir=integration_test_env["project_dir"])
+        executor = get_executor(project_dir=integration_test_env["project_dir"])
 
         # Process large dataset with UDFs
         processing_query = f"""
@@ -1044,7 +1028,7 @@ class TestProductionIntegrationScenarios:
         self, integration_test_env: Dict[str, Any]
     ) -> None:
         """User implements batch processing workflow with UDFs."""
-        executor = LocalExecutor(project_dir=integration_test_env["project_dir"])
+        executor = get_executor(project_dir=integration_test_env["project_dir"])
 
         # Load base data
         executor.duckdb_engine.execute_query(
@@ -1102,7 +1086,7 @@ class TestProductionIntegrationScenarios:
         self, integration_test_env: Dict[str, Any]
     ) -> None:
         """User implements error recovery in UDF workflows."""
-        executor = LocalExecutor(project_dir=integration_test_env["project_dir"])
+        executor = get_executor(project_dir=integration_test_env["project_dir"])
 
         # Create data with potential error conditions
         error_prone_data = pd.DataFrame(
@@ -1211,7 +1195,7 @@ class TestRegressionIntegration:
     ) -> None:
         """Regression test for pipeline execution stability."""
         # Run the same pipeline multiple times to ensure stability
-        executor = LocalExecutor(project_dir=integration_test_env["project_dir"])
+        executor = get_executor(project_dir=integration_test_env["project_dir"])
 
         test_query = f"""
             SELECT
@@ -1241,7 +1225,7 @@ class TestRegressionIntegration:
         self, integration_test_env: Dict[str, Any]
     ) -> None:
         """Regression test for memory usage stability in UDF operations."""
-        executor = LocalExecutor(project_dir=integration_test_env["project_dir"])
+        executor = get_executor(project_dir=integration_test_env["project_dir"])
 
         # Load data multiple times and process with UDFs
         for iteration in range(5):

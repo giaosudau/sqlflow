@@ -70,17 +70,26 @@ def list_connections(
             raise typer.Exit(1)
 
         connectors = _get_connectors_from_profile(project)
-        if not connectors:
+
+        # Check if we actually have any valid connectors
+        valid_connectors = {
+            k: v for k, v in connectors.items() if v
+        }  # Filter out empty dicts
+        if not valid_connectors:
             display_error("Profile not found or empty")
             raise typer.Exit(1)
 
         if format == "json":
-            _display_connections_json(connectors)
+            _display_connections_json(valid_connectors)
         else:
-            _display_connections_table(connectors, profile)
+            _display_connections_table(valid_connectors, profile)
 
-        logger.info(f"Listed {len(connectors)} connections for profile '{profile}'")
+        logger.info(
+            f"Listed {len(valid_connectors)} connections for profile '{profile}'"
+        )
 
+    except typer.Exit:
+        raise
     except Exception as e:
         display_error(f"Failed to list connections: {str(e)}")
         raise typer.Exit(1)
@@ -174,14 +183,15 @@ def _validate_connector_params(connector_type, connector_config):
 def _find_connection(connectors, connection_name):
     """Find connection in connectors and validate basic requirements."""
     if connection_name not in connectors:
-        console.print(f"Connection '{connection_name}' not found")
+        print(f"Connection '{connection_name}' not found")
         raise typer.Exit(1)
 
     connector_config = connectors[connection_name]
-    connector_type = connector_config.get("type")
+    connector_type = connector_config.get("type") if connector_config else None
 
+    # Handle missing type field (including empty connector config)
     if not connector_type:
-        console.print(f"Connection '{connection_name}' missing 'type' field")
+        print(f"Connection '{connection_name}' missing 'type' field")
         raise typer.Exit(1)
 
     return connector_config, connector_type
@@ -190,12 +200,12 @@ def _find_connection(connectors, connection_name):
 def _validate_connection(connection_name, connector_type, connector_config):
     """Validate connection type and parameters."""
     if not _validate_connector_type(connector_type):
-        console.print(f"❌ Error: Unsupported connector type: {connector_type}")
+        print(f"❌ Error: Unsupported connector type: {connector_type}")
         raise typer.Exit(2)
 
     validation_error = _validate_connector_params(connector_type, connector_config)
     if validation_error:
-        console.print(f"❌ Error: {validation_error}")
+        print(f"❌ Error: {validation_error}")
         raise typer.Exit(2)
 
 

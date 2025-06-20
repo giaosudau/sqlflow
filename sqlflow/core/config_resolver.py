@@ -2,10 +2,12 @@
 
 This module provides configuration resolution with priority-based merging
 and variable substitution for connector configurations.
+
+Raymond Hettinger: Single source of truth for configuration resolution.
 """
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from sqlflow.core.profiles import ProfileManager
 from sqlflow.core.variables import substitute_variables
@@ -16,6 +18,50 @@ if TYPE_CHECKING:
     pass
 
 logger = get_logger(__name__)
+
+
+@dataclass(frozen=True)
+class ResolvedConfig:
+    """Immutable resolved configuration.
+
+    Raymond Hettinger: Single source of truth with clear precedence.
+    """
+
+    variables: Dict[str, Any]
+    connection_params: Dict[str, Any]
+    execution_options: Dict[str, Any]
+
+    @classmethod
+    def from_sources(
+        cls,
+        *,
+        profile: Optional[Dict[str, Any]] = None,
+        variables: Optional[Dict[str, Any]] = None,
+        step_options: Optional[Dict[str, Any]] = None,
+    ):
+        """Single method to resolve all configuration sources.
+
+        Raymond Hettinger: Clear precedence - variables override profile,
+        step_options override both.
+        """
+        # Merge all sources with clear precedence
+        merged_vars = {}
+        if profile:
+            merged_vars.update(profile.get("variables", {}))
+        if variables:
+            merged_vars.update(variables)
+
+        # Connection params from profile
+        connection_params = profile.get("connections", {}) if profile else {}
+
+        # Execution options from step
+        execution_options = step_options or {}
+
+        return cls(
+            variables=merged_vars,
+            connection_params=connection_params,
+            execution_options=execution_options,
+        )
 
 
 @dataclass
@@ -32,6 +78,7 @@ class ResolutionConfig:
 class ConfigurationResolver:
     """Handles configuration merging and variable substitution.
 
+    Raymond Hettinger: Single source of truth for configuration resolution.
     Merges configuration from multiple sources with priority:
     1. OPTIONS (highest priority - runtime overrides)
     2. Profile PARAMS (medium priority - profile defaults)
@@ -199,59 +246,46 @@ class ConfigurationResolver:
     def substitute_variables(
         self, config: Dict[str, Any], variables: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """Apply variable substitution to configuration values.
+        """Substitute variables in configuration using the variable manager.
 
         Args:
-            config: Configuration dictionary to process
-            variables: Variables available for substitution
+            config: Configuration dictionary with potential variable placeholders
+            variables: Variables to substitute
 
         Returns:
             Configuration with variables substituted
         """
-        logger.debug(f"Applying variable substitution with {len(variables)} variables")
+        return self.variable_manager.substitute(config)
 
-        # Use the variable manager to substitute variables
-        substituted_config = self.variable_manager.substitute(config)
-
-        logger.debug("Variable substitution completed")
-        return substituted_config
+    # Connector defaults - simplified approach
+    # Zen of Python: "There should be one obvious way to do it"
+    _CONNECTOR_DEFAULTS = {
+        "csv": {
+            "delimiter": ",",
+            "encoding": "utf-8",
+            "has_header": True,
+            "quote_char": '"',
+            "escape_char": "\\",
+        },
+        "json": {"encoding": "utf-8"},
+        "parquet": {},
+        "postgres": {"port": 5432, "timeout": 30, "sslmode": "prefer"},
+        "mysql": {"port": 3306, "timeout": 30},
+        "s3": {"region": "us-east-1", "use_ssl": True},
+    }
 
     def get_connector_defaults(self, connector_type: str) -> Dict[str, Any]:
         """Get default configuration for a connector type.
 
-        This method provides a centralized place to define connector defaults.
-        Can be extended to load defaults from configuration files or registry.
+        Raymond Hettinger: Simple dictionary lookup - one obvious way to do it.
 
         Args:
-            connector_type: Type of connector (e.g., 'csv', 'postgres', 's3')
+            connector_type: Type of connector
 
         Returns:
-            Dictionary of default configuration values
+            Default configuration dictionary
         """
-        # Default configurations for common connector types
-        connector_defaults = {
-            "csv": {
-                "has_header": True,
-                "delimiter": ",",
-                "encoding": "utf-8",
-                "quote_char": '"',
-                "escape_char": "\\",
-            },
-            "postgres": {
-                "port": 5432,
-                "sslmode": "prefer",
-                "connect_timeout": 30,
-                "application_name": "sqlflow",
-            },
-            "s3": {"region": "us-east-1", "use_ssl": True, "signature_version": "s3v4"},
-            "rest": {"timeout": 30, "verify_ssl": True, "max_retries": 3},
-        }
-
-        defaults = connector_defaults.get(connector_type, {})
-        logger.debug(
-            f"Retrieved defaults for connector type '{connector_type}': {defaults}"
-        )
-        return defaults
+        return self._CONNECTOR_DEFAULTS.get(connector_type, {}).copy()
 
     def resolve_with_defaults(
         self,
@@ -291,32 +325,51 @@ class ConfigurationResolver:
             environment=environment,
         )
 
+    def clear_cache(self) -> None:
+        """Clear the resolution cache.
+
+        Useful for testing or when profiles have been updated.
+        """
+        self._resolution_cache.clear()
+        logger.debug("Configuration resolution cache cleared")
+
+    def get_cache_stats(self) -> Dict[str, int]:
+        """Get cache statistics for monitoring.
+
+        Returns:
+            Dictionary with cache size and other statistics
+        """
+        return {"cache_size": len(self._resolution_cache)}
+
     def validate_resolved_config(
-        self, config: Dict[str, Any], required_fields: Optional[list] = None
-    ) -> list:
-        """Validate resolved configuration for completeness.
+        self, config: Dict[str, Any], required_fields: Optional[List[str]] = None
+    ) -> List[str]:
+        """Validate resolved configuration and return list of errors.
+
+        Zen of Python: "Explicit is better than implicit"
 
         Args:
             config: Resolved configuration to validate
             required_fields: List of required field names
 
         Returns:
-            List of validation errors (empty if valid)
+            List of validation error messages (empty if valid)
         """
-        required_fields = required_fields or []
         errors = []
+        required_fields = required_fields or []
 
+        # Check for required fields
         for field_name in required_fields:
             if field_name not in config:
-                errors.append(
-                    f"Required field '{field_name}' missing from configuration"
-                )
+                errors.append(f"Missing required field: {field_name}")
             elif config[field_name] is None:
-                errors.append(f"Required field '{field_name}' cannot be null")
-            elif isinstance(config[field_name], str) and not config[field_name].strip():
-                errors.append(f"Required field '{field_name}' cannot be empty")
+                errors.append(f"Field '{field_name}' cannot be null")
+            elif config[field_name] == "":
+                errors.append(f"Field '{field_name}' cannot be empty")
 
-        logger.debug(f"Configuration validation: {len(errors)} errors found")
+        # Only check empty/None values for required fields
+        # Zen: "Explicit is better than implicit" - don't make assumptions
+
         return errors
 
     def get_resolution_info(
@@ -360,24 +413,3 @@ class ConfigurationResolver:
             "runtime_variables": variables,
             "merged_variables": {**profile_variables, **variables},
         }
-
-    def _deep_merge(self, target: Dict[str, Any], source: Dict[str, Any]) -> None:
-        """Deep merge source dictionary into target dictionary.
-
-        Simple recursive merge following Zen of Python: Simple is better than complex.
-
-        Args:
-            target: Target dictionary to merge into (modified in place)
-            source: Source dictionary to merge from
-        """
-        for key, value in source.items():
-            if (
-                key in target
-                and isinstance(target[key], dict)
-                and isinstance(value, dict)
-            ):
-                # Both are dicts, merge recursively
-                self._deep_merge(target[key], value)
-            else:
-                # Replace value
-                target[key] = value

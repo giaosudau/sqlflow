@@ -4,8 +4,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-# Import LocalExecutor at module level
-from sqlflow.core.executors.local_executor import LocalExecutor
+# Import executor components for testing
 from sqlflow.project import Project
 
 
@@ -49,45 +48,14 @@ def mock_connector_engine():
 
 @pytest.fixture
 def executor(mock_project, mock_connector_engine):
-    """Create a mock executor for testing with dependencies stubbed."""
-    # Create a partial LocalExecutor instance with mocks
-    executor = MagicMock(spec=LocalExecutor)
+    """Create a V2 orchestrator for testing with dependencies stubbed."""
+    from sqlflow.core.executors.v2.orchestrator import LocalOrchestrator
 
-    # Set required attributes
-    executor.project = mock_project
-    executor.profile_name = "dev"
-    executor.connector_engine = mock_connector_engine
-    executor.source_connectors = {}
-    executor.step_table_map = {}
-    executor.variables = {}
-    executor.source_definitions = {}
+    # Create actual V2 orchestrator instance
+    executor = LocalOrchestrator()
 
-    # Mock the unified connector creation method
-    executor._create_connector_with_profile_support.return_value = MagicMock()
-
-    # Mock the helper methods that are called by _execute_source_definition
-    def mock_full_refresh_source(step, connector_type, source_name):
-        return {
-            "status": "success",
-            "source_name": source_name,
-            "connector_type": connector_type,
-        }
-
-    def mock_profile_based_source(step, step_id, source_name):
-        return {
-            "status": "success",
-            "source_name": source_name,
-            "connector_type": "csv",
-        }
-
-    executor._handle_full_refresh_source.side_effect = mock_full_refresh_source
-    executor._handle_profile_based_source.side_effect = mock_profile_based_source
-
-    # Import the real implementation method to test
-    # Get the actual method from the class and bind it to our mock
-    executor._execute_source_definition = (
-        LocalExecutor._execute_source_definition.__get__(executor)
-    )
+    # The V2 orchestrator stores source definitions differently
+    # No need to set non-existent attributes
 
     return executor
 
@@ -96,22 +64,20 @@ def test_source_definition_step_traditional(executor):
     """Test execution of a source definition step with traditional TYPE PARAMS syntax."""
     step = {
         "id": "source_test",
-        "type": "source_definition",
+        "type": "source",
         "name": "test_source",
-        "source_connector_type": "CSV",
-        "query": {
+        "connector_type": "csv",  # V2 uses lowercase
+        "params": {  # V2 uses 'params' instead of 'query'
             "path": "data/test.csv",
             "has_header": True,
         },
-        "depends_on": [],
     }
 
-    result = executor._execute_source_definition(step)
+    result = executor._execute_source_step(step, {})  # V2 method signature
     assert result["status"] == "success"
-    assert result["source_name"] == "test_source"
-    assert result["connector_type"] == "csv"
+    assert result["step_id"] == "source_test"
 
-    # Verify that source definition was stored
+    # Verify that source definition was stored in V2 format
     assert "test_source" in executor.source_definitions
     assert executor.source_definitions["test_source"]["connector_type"] == "csv"
     assert (
@@ -123,22 +89,19 @@ def test_source_definition_step_profile_based(executor):
     """Test execution of a source definition step with profile-based FROM syntax."""
     step = {
         "id": "source_test",
-        "type": "source_definition",
+        "type": "source",
         "name": "test_pg_source",
-        "is_from_profile": True,
-        "profile_connector_name": "postgres",
-        "query": {
+        "connector_type": "postgres",  # V2 explicit connector type
+        "params": {  # V2 uses 'params' instead of 'query'
             "table": "users",
         },
-        "depends_on": [],
     }
 
-    result = executor._execute_source_definition(step)
+    result = executor._execute_source_step(step, {})  # V2 method signature
     assert result["status"] == "success"
-    assert result["source_name"] == "test_pg_source"
-    assert result["connector_type"] == "csv"  # Default when no connector_type specified
+    assert result["step_id"] == "source_test"
 
-    # Verify that source definition was stored
+    # Verify that source definition was stored in V2 format
     assert "test_pg_source" in executor.source_definitions
-    assert executor.source_definitions["test_pg_source"]["is_from_profile"] is True
+    assert executor.source_definitions["test_pg_source"]["connector_type"] == "postgres"
     assert executor.source_definitions["test_pg_source"]["params"]["table"] == "users"

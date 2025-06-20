@@ -12,7 +12,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from sqlflow.core.executors.local_executor import LocalExecutor
+from sqlflow.core.executors import get_executor
 
 
 @pytest.fixture
@@ -51,7 +51,7 @@ class TestExecutorUDFRegression:
 
         Regression test for: UDFs not being discovered during initialization
         """
-        executor = LocalExecutor(project_dir=temp_udf_project_simple)
+        executor = get_executor(project_dir=temp_udf_project_simple)
 
         # Must have discovered_udfs attribute
         assert hasattr(executor, "discovered_udfs")
@@ -73,7 +73,7 @@ class TestExecutorUDFRegression:
 
         Regression test for: UDFs discovered but not registered with DuckDB
         """
-        executor = LocalExecutor(project_dir=temp_udf_project_simple)
+        executor = get_executor(project_dir=temp_udf_project_simple)
 
         # register_python_udf should have been called for each discovered UDF
         assert mock_register.call_count > 0
@@ -96,7 +96,7 @@ class TestExecutorUDFRegression:
         )
 
         with tempfile.TemporaryDirectory() as temp_dir:
-            executor = LocalExecutor(project_dir=temp_dir)
+            executor = get_executor(project_dir=temp_dir)
             executor.discovered_udfs = {
                 "python_udfs.simple_udfs.test_func": lambda x: f"processed_{x}"
             }
@@ -126,7 +126,7 @@ class TestExecutorUDFRegression:
         Regression test for: "Unknown connector type: source_definition" errors
         """
         with tempfile.TemporaryDirectory() as temp_dir:
-            executor = LocalExecutor(project_dir=temp_dir)
+            executor = get_executor(project_dir=temp_dir)
 
             # Test step with correct structure that executor expects
             step = {
@@ -155,7 +155,19 @@ class TestExecutorUDFRegression:
         Regression test for: Load steps using wrong execution method
         """
         with tempfile.TemporaryDirectory() as temp_dir:
-            executor = LocalExecutor(project_dir=temp_dir)
+            executor = get_executor(project_dir=temp_dir)
+
+            # First, define the source that will be referenced in the load step
+            source_step = {
+                "id": "source_test",
+                "type": "source",
+                "name": "test_source",
+                "connector_type": "csv",
+                "params": {"path": "data/test.csv", "has_header": True},
+            }
+
+            # Execute the source definition step first
+            executor._execute_source_step(source_step, {})
 
             # Mock the execute_load_step method
             with patch.object(executor, "execute_load_step") as mock_execute_load_step:
@@ -182,7 +194,7 @@ class TestExecutorUDFRegression:
         This ensures backward compatibility while preferring the new method.
         """
         with tempfile.TemporaryDirectory() as temp_dir:
-            executor = LocalExecutor(project_dir=temp_dir)
+            executor = get_executor(project_dir=temp_dir)
 
             # Mock the legacy _execute_load method
             with patch.object(executor, "_execute_load") as mock_execute_load:
@@ -211,7 +223,7 @@ class TestExecutorSourceDefinitionRegression:
         Regression test for: Parameters in wrong field causing lookup failures
         """
         with tempfile.TemporaryDirectory() as temp_dir:
-            executor = LocalExecutor(project_dir=temp_dir)
+            executor = get_executor(project_dir=temp_dir)
 
             # Test with parameters in 'query' field (execution plan format)
             step_with_query = {
@@ -255,7 +267,7 @@ class TestExecutorSourceDefinitionRegression:
         Regression test for: Field name mismatches between planner and executor
         """
         with tempfile.TemporaryDirectory() as temp_dir:
-            executor = LocalExecutor(project_dir=temp_dir)
+            executor = get_executor(project_dir=temp_dir)
 
             # Test with source_connector_type (new format)
             step_new = {

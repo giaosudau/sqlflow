@@ -58,7 +58,7 @@ def test_list_command(runner, sample_project):
     with patch("os.getcwd", return_value=sample_project):
         result = runner.invoke(app, ["pipeline", "list"])
         assert result.exit_code == 0
-        assert "test" in result.stdout
+        assert "test" in result.output
 
 
 def test_compile_command(runner, sample_project):
@@ -66,8 +66,8 @@ def test_compile_command(runner, sample_project):
     with patch("os.getcwd", return_value=sample_project):
         result = runner.invoke(app, ["pipeline", "compile", "test"])
         assert result.exit_code == 0
-        assert "source_sample" in result.stdout
-        assert "load_raw_data" in result.stdout
+        assert "source_sample" in result.output
+        assert "load_raw_data" in result.output
 
 
 def test_run_command(runner, sample_project):
@@ -80,8 +80,8 @@ def test_run_command(runner, sample_project):
             app, ["pipeline", "run", "test", "--vars", '{"date": "2023-10-25"}']
         )
         assert result.exit_code == 0
-        assert "test" in result.stdout or "test" in result.stderr
-        assert "2023-10-25" in result.stdout or "2023-10-25" in result.stderr
+        assert "test" in result.output or "test" in result.stderr
+        assert "2023-10-25" in result.output or "2023-10-25" in result.stderr
     finally:
         os.chdir(original_cwd)
 
@@ -98,20 +98,20 @@ def make_profile(tmp_path, name, mode, path=None):
 
 def test_cli_run_profile_memory_mode(tmp_path, monkeypatch):
     runner = CliRunner()
-    # Patch LocalExecutor to avoid real execution
+    # Patch get_executor to avoid real execution (V2 approach)
     monkeypatch.setattr(
-        "sqlflow.cli.pipeline.LocalExecutor",
-        lambda profile_name, project_dir=None: type(
-            "E",
+        "sqlflow.cli.pipeline.get_executor",
+        lambda profile_name=None, project_dir=None, **kwargs: type(
+            "MockOrchestrator",
             (),
             {
-                "execute": lambda self, plan, variables=None: {
+                "execute": lambda self, plan, variables=None, **kwargs: {
                     "status": "success",
                     "executed_steps": [],
                     "total_steps": len(plan) if plan else 0,
                 },
                 "duckdb_engine": type(
-                    "D", (), {"path": ":memory:", "database_path": ":memory:"}
+                    "MockEngine", (), {"path": ":memory:", "database_path": ":memory:"}
                 )(),
                 "results": {},
                 "_generate_step_summary": lambda self, ops: None,
@@ -139,18 +139,20 @@ def test_cli_run_profile_persistent_mode(tmp_path, monkeypatch):
     runner = CliRunner()
     db_path = tmp_path / "prod.db"
     monkeypatch.setattr(
-        "sqlflow.cli.pipeline.LocalExecutor",
-        lambda profile_name, project_dir=None: type(
-            "E",
+        "sqlflow.cli.pipeline.get_executor",
+        lambda profile_name=None, project_dir=None, **kwargs: type(
+            "MockOrchestrator",
             (),
             {
-                "execute": lambda self, plan, variables=None: {
+                "execute": lambda self, plan, variables=None, **kwargs: {
                     "status": "success",
                     "executed_steps": [],
                     "total_steps": len(plan) if plan else 0,
                 },
                 "duckdb_engine": type(
-                    "D", (), {"path": str(db_path), "database_path": str(db_path)}
+                    "MockEngine",
+                    (),
+                    {"path": str(db_path), "database_path": str(db_path)},
                 )(),
                 "results": {},
                 "_generate_step_summary": lambda self, ops: None,

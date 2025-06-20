@@ -4,7 +4,7 @@ import tempfile
 
 import pytest
 
-from sqlflow.core.executors.local_executor import LocalExecutor
+from sqlflow.core.executors import get_executor
 
 
 class TestPipelineFailureHandling:
@@ -15,7 +15,7 @@ class TestPipelineFailureHandling:
         """Create a LocalExecutor with real DuckDB engine."""
         # Use a temporary directory for the test database
         with tempfile.TemporaryDirectory() as temp_dir:
-            executor = LocalExecutor(project_dir=temp_dir)
+            executor = get_executor(project_dir=temp_dir)
             yield executor
 
     def test_sql_execution_failure_propagates_correctly(self, local_executor):
@@ -209,11 +209,26 @@ class TestPipelineFailureHandling:
 class TestRealWorldFailureScenarios:
     """Test real-world failure scenarios that users commonly encounter."""
 
-    @pytest.fixture
+    @pytest.fixture(scope="function")
     def executor(self):
         """Create a real LocalExecutor for testing."""
         with tempfile.TemporaryDirectory() as temp_dir:
-            executor = LocalExecutor(project_dir=temp_dir)
+            executor = get_executor(project_dir=temp_dir)
+
+            # Ensure complete test isolation by clearing any existing tables
+            # This prevents test interference when table names are reused
+            if hasattr(executor, "duckdb_engine") and executor.duckdb_engine:  # type: ignore
+                try:
+                    # Get list of all tables and drop them
+                    tables_result = executor.duckdb_engine.execute_query(  # type: ignore
+                        "SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'"
+                    )
+                    for row in tables_result.fetchall():
+                        table_name = row[0]
+                        executor.duckdb_engine.execute_query(f"DROP TABLE IF EXISTS {table_name}")  # type: ignore
+                except Exception:
+                    pass  # Ignore errors if no tables exist yet
+
             yield executor
 
     def test_typo_in_table_name_scenario(self, executor):

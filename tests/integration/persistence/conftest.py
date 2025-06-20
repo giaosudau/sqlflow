@@ -6,7 +6,8 @@ from typing import Any, Dict, Generator
 
 import pytest
 
-from sqlflow.core.executors.local_executor import LocalExecutor
+from sqlflow.core.executors import get_executor
+from sqlflow.core.executors.base_executor import BaseExecutor
 
 
 @pytest.fixture(scope="function")
@@ -50,7 +51,7 @@ def temp_persistent_project() -> Generator[Dict[str, Any], None, None]:
 
 
 @pytest.fixture(scope="function")
-def persistent_executor(temp_persistent_project: Dict[str, Any]) -> LocalExecutor:
+def persistent_executor(temp_persistent_project: Dict[str, Any]) -> BaseExecutor:
     """Create a LocalExecutor with persistent database configuration.
 
     Args:
@@ -61,7 +62,7 @@ def persistent_executor(temp_persistent_project: Dict[str, Any]) -> LocalExecuto
     -------
         LocalExecutor configured for persistent database operations
     """
-    executor = LocalExecutor(
+    executor = get_executor(
         project_dir=temp_persistent_project["project_dir"], profile_name="dev"
     )
     return executor

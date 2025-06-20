@@ -113,7 +113,6 @@ manager = VariableManager(config)
 sqlflow run pipeline.sql --vars key=value
 
 # Force old system for compatibility
-export SQLFLOW_USE_NEW_VARIABLES=false
 sqlflow run pipeline.sql --vars key=value
 ```
 

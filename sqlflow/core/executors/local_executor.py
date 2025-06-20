@@ -1141,6 +1141,13 @@ class LocalExecutor(BaseExecutor):
             logger.error(f"Unknown step type: {step_type}")
             return {"status": "error", "message": f"Unknown step type: {step_type}"}
 
+    def _execute_source_step(
+        self, step: Dict[str, Any], variables: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Execute source step (compatibility method for tests)."""
+        # Delegate to source definition method for backward compatibility
+        return self._execute_source_definition(step)
+
     def _execute_export(self, step: Dict[str, Any]) -> Dict[str, Any]:
         """Execute an export step.
 

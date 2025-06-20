@@ -75,39 +75,32 @@ class TestLoadStepHandler:
 
     def test_upsert_validation_requires_keys(self, real_execution_context):
         """Test that UPSERT mode requires upsert_keys."""
-        handler = LoadStepHandler()
+        LoadStepHandler()
 
-        # UPSERT without upsert_keys should fail during validation
-        upsert_step = LoadStep(
-            id="invalid_upsert",
-            source="data.csv",
-            target_table="table",
-            load_mode="upsert",
-            incremental_config={
-                "cursor_field": "updated_at"
-            },  # Has config but no upsert_keys
-        )
-
-        result = handler.execute(upsert_step, real_execution_context)
-        assert not result.is_successful()
-        assert result.error_message is not None
-        assert "UPSERT mode requires upsert_keys" in result.error_message
+        # UPSERT without upsert_keys should fail during LoadStep construction
+        with pytest.raises(ValueError, match="UPSERT mode requires upsert_keys"):
+            LoadStep(
+                id="invalid_upsert",
+                source="data.csv",
+                target_table="table",
+                load_mode="upsert",
+                incremental_config={
+                    "cursor_field": "updated_at"
+                },  # Has config but no upsert_keys
+            )
 
     def test_invalid_load_mode_validation(self, real_execution_context):
         """Test that invalid load modes are rejected."""
-        handler = LoadStepHandler()
+        LoadStepHandler()
 
-        invalid_step = LoadStep(
-            id="invalid_mode",
-            source="data.csv",
-            target_table="table",
-            load_mode="invalid_mode",  # type: ignore
-        )
-
-        result = handler.execute(invalid_step, real_execution_context)
-        assert not result.is_successful()
-        assert result.error_message is not None
-        assert "invalid load_mode 'invalid_mode'" in result.error_message
+        # Invalid load mode should fail during LoadStep construction
+        with pytest.raises(ValueError, match="invalid load_mode 'invalid_mode'"):
+            LoadStep(
+                id="invalid_mode",
+                source="data.csv",
+                target_table="table",
+                load_mode="invalid_mode",  # type: ignore
+            )
 
     def test_connector_creation_error_handling(
         self, real_execution_context, sample_load_step

@@ -374,7 +374,7 @@ class TestLoadStepHandlerRealIntegration:
 
     def test_validation_error_handling(self, real_execution_context, temp_data_dir):
         """Test validation error handling with invalid step configuration."""
-        handler = LoadStepHandler()
+        LoadStepHandler()
 
         # Test empty source - this will fail at step creation time
         with pytest.raises(ValueError, match="Load step source cannot be empty"):
@@ -396,30 +396,24 @@ class TestLoadStepHandlerRealIntegration:
         )
         test_data.to_csv(test_csv, index=False)
 
-        # Test invalid load mode
-        invalid_mode_step = LoadStep(
-            id="invalid_mode",
-            source=str(test_csv),
-            target_table="test_table",
-            load_mode="invalid_mode",
-        )
+        # Test invalid load mode - should fail during construction
+        with pytest.raises(ValueError, match="invalid load_mode 'invalid_mode'"):
+            LoadStep(
+                id="invalid_mode",
+                source=str(test_csv),
+                target_table="test_table",
+                load_mode="invalid_mode",  # type: ignore
+            )
 
-        result = handler.execute(invalid_mode_step, real_execution_context)
-        assert not result.is_successful()
-        assert "invalid load_mode" in result.error_message
-
-        # Test UPSERT without upsert_keys
-        invalid_upsert_step = LoadStep(
-            id="invalid_upsert",
-            source=str(test_csv),
-            target_table="test_table",
-            load_mode="upsert",
-            incremental_config={},  # Missing upsert_keys
-        )
-
-        result = handler.execute(invalid_upsert_step, real_execution_context)
-        assert not result.is_successful()
-        assert "UPSERT mode requires upsert_keys" in result.error_message
+        # Test UPSERT without upsert_keys - should fail during construction
+        with pytest.raises(ValueError, match="UPSERT mode requires upsert_keys"):
+            LoadStep(
+                id="invalid_upsert",
+                source=str(test_csv),
+                target_table="test_table",
+                load_mode="upsert",
+                incremental_config={},  # Missing upsert_keys
+            )
 
     def test_observability_data_collection(
         self, real_execution_context, customers_csv_file
@@ -534,90 +528,3 @@ class TestLoadStepHandlerRealIntegration:
             "SELECT COUNT(*) as count FROM concurrent_table"
         ).fetchdf()
         assert final_count["count"].iloc[0] == 10  # 5 + 5 from append
-
-
-class TestV1VsV2FeatureParity:
-    """Tests comparing V1 and V2 implementations for feature parity."""
-
-    @pytest.fixture
-    def v1_executor(self):
-        """Create V1 LocalExecutor for comparison testing."""
-        from sqlflow.core.executors.local_executor import LocalExecutor
-
-        return LocalExecutor(use_v2_load=False)
-
-    @pytest.fixture
-    def v2_executor(self):
-        """Create V2-enabled LocalExecutor for comparison testing."""
-        from sqlflow.core.executors.local_executor import LocalExecutor
-
-        return LocalExecutor(use_v2_load=True)
-
-    def test_load_step_result_structure_parity(
-        self, v1_executor, v2_executor, customers_csv_file
-    ):
-        """Test that V1 and V2 produce compatible result structures."""
-
-        # Mock LoadStep (simplified for this test)
-        class MockLoadStep:
-            def __init__(self, source_name, table_name, mode="REPLACE"):
-                self.source_name = source_name
-                self.table_name = table_name
-                self.mode = mode
-                self.incremental_config = {}
-
-        load_step = MockLoadStep(customers_csv_file, "customers_parity", "REPLACE")
-
-        # Execute with both V1 and V2
-        try:
-            v1_result = v1_executor.execute_load_step(load_step)
-        except Exception as e:
-            # V1 might fail due to missing configuration, that's expected
-            v1_result = {"status": "error", "error": str(e)}
-
-        try:
-            v2_result = v2_executor.execute_load_step(load_step)
-        except Exception as e:
-            # V2 might also fail due to configuration, that's expected
-            v2_result = {"status": "error", "error": str(e)}
-
-        # Both should return dictionary results
-        assert isinstance(v1_result, dict)
-        assert isinstance(v2_result, dict)
-
-        # Both should have status field
-        assert "status" in v1_result
-        assert "status" in v2_result
-
-    def test_performance_comparison_framework(
-        self, real_execution_context, customers_csv_file
-    ):
-        """Framework for comparing V1 vs V2 performance (implementation-ready)."""
-        # This test sets up the framework for performance comparison
-        # In a real implementation, you would execute both V1 and V2 and compare timings
-
-        handler = LoadStepHandler()
-
-        load_step = LoadStep(
-            id="performance_test",
-            source=customers_csv_file,
-            target_table="performance_test",
-            load_mode="replace",
-            options={"connector_type": "csv"},
-        )
-
-        # Measure V2 performance
-        start_time = datetime.now()
-        result = handler.execute(load_step, real_execution_context)
-        v2_duration = (datetime.now() - start_time).total_seconds() * 1000
-
-        assert result.is_successful()
-        assert v2_duration > 0
-
-        # V2 should have detailed performance metrics
-        assert result.performance_metrics is not None
-        assert result.execution_duration_ms > 0
-
-        # Framework is ready for V1 vs V2 comparison when both are available
-        print(f"V2 LoadStepHandler execution time: {v2_duration:.2f}ms")
-        print(f"V2 internal measurement: {result.execution_duration_ms:.2f}ms")

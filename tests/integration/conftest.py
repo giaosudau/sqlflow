@@ -9,7 +9,7 @@ import pandas as pd
 import pytest
 
 from sqlflow.core.engines.duckdb import DuckDBEngine
-from sqlflow.core.executors.local_executor import LocalExecutor
+from sqlflow.core.executors import get_executor
 
 
 @pytest.fixture(scope="function")
@@ -48,8 +48,8 @@ def duckdb_engine() -> Generator[DuckDBEngine, None, None]:
 
 
 @pytest.fixture(scope="function")
-def local_executor(duckdb_engine: DuckDBEngine) -> LocalExecutor:
-    """Create a LocalExecutor with a configured DuckDBEngine.
+def local_executor(duckdb_engine: DuckDBEngine):
+    """Create an executor with a configured DuckDBEngine.
 
     Args:
     ----
@@ -57,12 +57,15 @@ def local_executor(duckdb_engine: DuckDBEngine) -> LocalExecutor:
 
     Returns:
     -------
-        Configured LocalExecutor instance
+        Configured executor instance (V2 LocalOrchestrator by default)
+
+    Note:
+        V2 LocalOrchestrator manages database sessions differently than V1.
+        For tests requiring specific DuckDB engines, consider using the
+        DuckDBEngine fixture directly in test functions.
 
     """
-    executor = LocalExecutor()
-    executor.duckdb_engine = duckdb_engine
-    return executor
+    return get_executor()
 
 
 @pytest.fixture(scope="session")
