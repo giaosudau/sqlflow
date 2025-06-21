@@ -47,7 +47,6 @@ from .orchestration_strategy import (
 from .orchestrator import LocalOrchestrator
 from .result_builder import ExecutionResultBuilder
 from .results import PipelineExecutionSummary, StepExecutionResult
-from .steps import create_step_from_dict
 
 __all__ = [
     # Main orchestrator
@@ -70,6 +69,5 @@ __all__ = [
     "PipelineExecutionSummary",
     # Utilities
     "ensure_handlers_registered",
-    "create_step_from_dict",
     "PipelineExecutionError",
 ]

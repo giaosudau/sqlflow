@@ -1,6 +1,5 @@
 ---
 applyTo: "**"
-tools: ['codebase']
 ---
 # SQLFlow Engineering Principles
 

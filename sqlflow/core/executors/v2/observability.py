@@ -6,11 +6,13 @@ alerts, and performance analysis for pipeline execution.
 """
 
 import threading
+import time
 from collections import defaultdict, deque
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, ContextManager, Dict, Generator, List, Optional
 
 from sqlflow.logging import get_logger
 
@@ -71,21 +73,54 @@ class StepMetrics:
     ):
         """Add execution data to metrics."""
         self.calls += 1
-        self.total_time_ms += duration_ms
-        self.total_rows += rows if rows is not None else 0
-        self.recent_durations.append(duration_ms)
+
+        # Handle invalid duration_ms gracefully
+        if duration_ms is not None and isinstance(duration_ms, (int, float)):
+            self.total_time_ms += duration_ms
+            self.recent_durations.append(duration_ms)
+        else:
+            logger.warning(f"Invalid duration_ms: {duration_ms}, using 0.0")
+            self.total_time_ms += 0.0
+            self.recent_durations.append(0.0)
+
+        # Handle invalid rows gracefully - only count for successful executions
+        if (
+            success
+            and rows is not None
+            and isinstance(rows, (int, float))
+            and rows >= 0
+        ):
+            self.total_rows += int(rows)
+        elif not success:
+            # Failed executions don't contribute to row count
+            pass
+        else:
+            logger.warning(f"Invalid rows value: {rows}, using 0")
 
         if not success:
             self.failures += 1
 
-        if resource_usage:
+        if resource_usage and isinstance(resource_usage, dict):
             for resource, value in resource_usage.items():
-                self.resource_usage[resource] += value
+                if isinstance(value, (int, float)):
+                    self.resource_usage[resource] += value
 
     @property
     def avg_duration_ms(self) -> float:
         """Average execution duration."""
         return self.total_time_ms / max(self.calls, 1)
+
+    @property
+    def average_duration_ms(self) -> float:
+        """Average execution duration (alias for compatibility)."""
+        return self.avg_duration_ms
+
+    @property
+    def success_rate(self) -> float:
+        """Success rate as a percentage."""
+        if self.calls == 0:
+            return 0.0
+        return ((self.calls - self.failures) / self.calls) * 100
 
     @property
     def failure_rate(self) -> float:
@@ -142,10 +177,13 @@ class ObservabilityManager:
                 resource_usage=resource_usage,
             )
 
-        # Check for performance alerts
-        self._check_performance_alerts(step_id, step_type, duration_ms, event_data)
+        # Check for performance alerts - only if duration is valid
+        if duration_ms is not None and isinstance(duration_ms, (int, float)):
+            self._check_performance_alerts(step_id, step_type, duration_ms, event_data)
 
-        logger.debug(f"Step completed successfully: {step_id} ({duration_ms:.1f}ms)")
+        # Handle logging with safe duration formatting
+        safe_duration = duration_ms if isinstance(duration_ms, (int, float)) else 0.0
+        logger.debug(f"Step completed successfully: {step_id} ({safe_duration:.1f}ms)")
 
     def record_step_failure(
         self, step_id: str, step_type: str, error_message: str, duration_ms: float
@@ -168,6 +206,13 @@ class ObservabilityManager:
         event_data: Dict[str, Any],
     ) -> None:
         """Check for performance issues and generate alerts."""
+
+        # Handle invalid duration_ms gracefully
+        if duration_ms is None or not isinstance(duration_ms, (int, float)):
+            logger.warning(
+                f"Cannot check performance alerts for invalid duration: {duration_ms}"
+            )
+            return
 
         # Slow execution alerts
         if duration_ms > self.slow_step_threshold_ms:
@@ -212,6 +257,110 @@ class ObservabilityManager:
             self._alerts.append(alert)
 
         logger.error(f"PERFORMANCE ALERT: {alert.message}")
+
+    def record_recovery_attempt(
+        self, component: str, recovery_strategy: str, success: bool
+    ) -> None:
+        """Record error recovery attempts as required by Week 7-8.
+
+        Args:
+            component: Component that attempted recovery
+            recovery_strategy: Strategy used for recovery
+            success: Whether recovery was successful
+        """
+        alert_type = "recovery_success" if success else "recovery_failure"
+        severity = AlertSeverity.INFO if success else AlertSeverity.WARNING
+
+        message = f"Recovery {('succeeded' if success else 'failed')} for {component} using {recovery_strategy}"
+
+        alert = PerformanceAlert(
+            component=component,
+            alert_type=alert_type,
+            message=message,
+            severity=severity,
+            timestamp=datetime.utcnow(),
+            suggested_actions=(
+                [
+                    "Monitor component for stability",
+                    "Review recovery strategy effectiveness",
+                    "Consider improving error prevention",
+                ]
+                if success
+                else [
+                    "Investigate root cause of repeated failures",
+                    "Consider alternative recovery strategies",
+                    "Check system resources and connectivity",
+                ]
+            ),
+            metadata={"recovery_strategy": recovery_strategy, "success": success},
+        )
+
+        with self._lock:
+            self._alerts.append(alert)
+
+        logger.info(f"RECOVERY ALERT: {message}")
+
+    def check_system_health(self) -> Dict[str, Any]:
+        """Perform comprehensive system health check as per Week 7-8 requirements.
+
+        Returns:
+            Health status with actionable insights
+        """
+        with self._lock:
+            total_steps = sum(metrics.calls for metrics in self._step_metrics.values())
+            total_failures = sum(
+                metrics.failures for metrics in self._step_metrics.values()
+            )
+
+            health_status = {
+                "overall_health": "healthy",
+                "total_steps": total_steps,
+                "total_failures": total_failures,
+                "failure_rate": (total_failures / max(total_steps, 1)) * 100,
+                "alerts_count": len(self._alerts),
+                "critical_alerts": len(
+                    [a for a in self._alerts if a.severity == AlertSeverity.CRITICAL]
+                ),
+                "recommendations": [],
+            }
+
+            # Determine overall health
+            failure_rate = health_status["failure_rate"]
+            if failure_rate > 50:
+                health_status["overall_health"] = "critical"
+                health_status["recommendations"].append(
+                    "Immediate attention required - high failure rate"
+                )
+            elif failure_rate > 25:
+                health_status["overall_health"] = "degraded"
+                health_status["recommendations"].append(
+                    "Review failing components and error patterns"
+                )
+            elif failure_rate > 10:
+                health_status["overall_health"] = "warning"
+                health_status["recommendations"].append(
+                    "Monitor system for potential issues"
+                )
+
+            # Check for critical alerts
+            if health_status["critical_alerts"] > 0:
+                health_status["overall_health"] = "critical"
+                health_status["recommendations"].append(
+                    "Address critical alerts immediately"
+                )
+
+            # Performance recommendations
+            slow_steps = []
+            for step_type, metrics in self._step_metrics.items():
+                if metrics.avg_duration_ms > self.slow_step_threshold_ms:
+                    slow_steps.append(step_type)
+
+            if slow_steps:
+                health_status["recommendations"].append(
+                    f"Optimize slow step types: {', '.join(slow_steps)}"
+                )
+
+            return health_status
 
     def get_performance_summary(self) -> Dict[str, Any]:
         """Get comprehensive performance summary."""
@@ -274,3 +423,77 @@ class ObservabilityManager:
             alerts = [alert for alert in alerts if alert.severity == severity]
 
         return alerts
+
+    @contextmanager
+    def measure_execution(self, step_id: str, step_type: str) -> ContextManager[None]:
+        """Context manager to measure execution time of a step."""
+        start_time = time.perf_counter()
+        logger.info(f"Starting step {step_id} ({step_type})")
+
+        try:
+            yield
+        except Exception as e:
+            logger.error(f"Error in step {step_id} ({step_type}): {e}")
+            raise
+        finally:
+            end_time = time.perf_counter()
+            duration_ms = (end_time - start_time) * 1000
+            logger.info(
+                f"Step {step_id} ({step_type}) completed in {duration_ms:.1f}ms"
+            )
+
+    @contextmanager
+    def measure_scope(
+        self, scope_name: str, metadata: Optional[Dict[str, Any]] = None
+    ) -> Generator[None, None, None]:
+        """Context manager for measuring execution scope.
+
+        This provides the Week 7-8 requirement for comprehensive observability
+        with automatic timing and error tracking.
+
+        Args:
+            scope_name: Name of the scope being measured
+            metadata: Optional metadata to attach to measurements
+
+        Example:
+            with observability.measure_scope("data_processing", {"table": "customers"}):
+                # Code to measure
+                process_data()
+        """
+        start_time = time.perf_counter()
+        scope_metadata = metadata or {}
+
+        logger.debug(f"Starting scope measurement: {scope_name}")
+
+        try:
+            yield
+            duration_ms = (time.perf_counter() - start_time) * 1000
+            logger.debug(f"Completed scope: {scope_name} ({duration_ms:.1f}ms)")
+
+        except Exception as e:
+            duration_ms = (time.perf_counter() - start_time) * 1000
+            logger.error(f"Failed scope: {scope_name} ({duration_ms:.1f}ms) - {str(e)}")
+
+            # Generate alert for scope failure
+            alert = PerformanceAlert(
+                component=scope_name,
+                alert_type="scope_failure",
+                message=f"Scope {scope_name} failed: {str(e)}",
+                severity=AlertSeverity.ERROR,
+                timestamp=datetime.utcnow(),
+                suggested_actions=[
+                    "Check error logs for details",
+                    "Verify input data and configuration",
+                    "Review scope implementation for errors",
+                ],
+                metadata={
+                    **scope_metadata,
+                    "duration_ms": duration_ms,
+                    "error": str(e),
+                },
+            )
+
+            with self._lock:
+                self._alerts.append(alert)
+
+            raise  # Re-raise the exception

@@ -28,6 +28,9 @@ from .export_operations import ExportOrchestrator
 
 # New modular operations
 from .load_operations import CSVConnectorFactory, LoadStepExecutor
+
+# Week 9-10: Performance Optimization and Async Support imports
+from .memory_optimization import OptimizedMetricsCollector
 from .orchestration_strategy import (
     OrchestrationStrategy,
     SequentialOrchestrationStrategy,
@@ -104,21 +107,42 @@ class PipelineExecutor:
         profile_manager: ProfileManager,
         udf_registry: UDFRegistry,
         enable_optimizations: bool = True,
+        # Week 9-10: Performance optimization parameters
+        enable_async: bool = True,
+        enable_streaming: bool = False,
+        enable_concurrent: bool = True,
+        max_concurrent_steps: int = 5,
+        streaming_chunk_size: int = 1000,
         **kwargs,
     ):
-        """Initialize with clean dependency injection."""
+        """Initialize with clean dependency injection and performance optimizations."""
         self.engine_factory = engine_factory
         self.profile_manager = profile_manager
         self.udf_registry = udf_registry
         self.enable_optimizations = enable_optimizations
 
+        # Week 9-10: Performance optimization settings
+        self.enable_async = enable_async and enable_optimizations
+        self.enable_streaming = enable_streaming and enable_optimizations
+        self.enable_concurrent = enable_concurrent and enable_optimizations
+        self.max_concurrent_steps = max_concurrent_steps
+        self.streaming_chunk_size = streaming_chunk_size
+
         # Initialize core components
         self._engine = None
         self._current_profile = None
 
+        # Initialize performance components
+        self._metrics_collector = (
+            OptimizedMetricsCollector() if enable_optimizations else None
+        )
+
         logger.info(
             f"PipelineExecutor initialized with clean dependency injection, "
-            f"optimizations={'enabled' if enable_optimizations else 'disabled'}"
+            f"optimizations={'enabled' if enable_optimizations else 'disabled'}, "
+            f"async={'enabled' if self.enable_async else 'disabled'}, "
+            f"streaming={'enabled' if self.enable_streaming else 'disabled'}, "
+            f"concurrent={'enabled' if self.enable_concurrent else 'disabled'}"
         )
 
     def configure_engine(self, engine_type: str = "duckdb", **engine_config) -> None:
