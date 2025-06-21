@@ -165,6 +165,7 @@ markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "integration: marks tests as integration tests",
     "performance: marks tests as performance and load tests",
+    "asyncio: marks tests as async functions requiring asyncio",
 ]
 
 [tool.coverage.run]
@@ -202,4 +203,5 @@ test = [
     "pytest-cov",
     "requests-mock",
     "gspread",
+    "pytest-asyncio",
 ]
