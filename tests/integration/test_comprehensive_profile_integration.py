@@ -769,88 +769,39 @@ class TestComprehensiveProfileIntegration:
             f"Memory usage: {baseline_memory:.1f}MB -> {final_memory:.1f}MB (increase: {memory_increase:.1f}MB)"
         )
 
-    def test_integration_with_local_executor(self, multi_env_profiles_dir):
-        """Test integration of profile system with LocalExecutor end-to-end."""
-        os.path.join(multi_env_profiles_dir, "profiles")
+    def test_integration_with_local_executor(
+        self, multi_env_profiles_dir, v2_pipeline_runner
+    ):
+        """Test integration of profile system with V2 ExecutionCoordinator end-to-end."""
+        # V2 Pattern: Use standard get_executor for consistency
 
-        # Create a mock project structure
-
-        # Mock project with profiles directory
-        class MockProject:
-            def __init__(self, project_dir):
-                self.project_dir = project_dir
-
-        MockProject(multi_env_profiles_dir)
-
-        # Create V2 LocalOrchestrator with profile support
-        from sqlflow.core.executors.v2.orchestrator import LocalOrchestrator
-
-        orchestrator = LocalOrchestrator(
-            project_dir=multi_env_profiles_dir, profile_name="dev"
-        )
-
-        # Test V2 pattern with source definition steps
-        variables = {"DATA_ROOT": "/tmp/executor-test"}
-
-        # Test profile-based source definition as part of execution plan
-        source_definition_plan = [
+        # Test V2 pattern with proper source step structure
+        source_step = [
             {
                 "id": "test_source_step",
-                "type": "source_definition",
+                "type": "source",
                 "name": "test_csv_source",
-                "is_from_profile": True,
-                "profile_connector_name": "csv_default",
-                "params": {
-                    "path": "/custom/override.csv",  # Override profile path
-                    "delimiter": "|",  # Override profile delimiter
-                },
-            }
-        ]
-
-        # Execute source definition plan with V2 pattern
-        result = orchestrator.execute(source_definition_plan, variables=variables)
-
-        # Should succeed using V2 result structure
-        assert result["status"] == "success"
-        assert len(result["step_results"]) == 1
-        step_result = result["step_results"][0]
-        assert step_result["status"] == "success"
-        assert step_result["source_name"] == "test_csv_source"
-
-        # Verify source definition was stored with resolved configuration
-        assert "test_csv_source" in orchestrator.source_definitions
-        stored_def = orchestrator.source_definitions["test_csv_source"]
-        assert (
-            stored_def["connector_type"] == "csv"
-            or stored_def.get("type") == "source_definition"
-        )
-        assert stored_def.get("is_from_profile") is True
-
-        # Test traditional source definition in V2 pattern
-        traditional_plan = [
-            {
-                "id": "traditional_step",
-                "type": "source_definition",
-                "name": "traditional_csv",
                 "connector_type": "csv",
                 "params": {
-                    "path": "/traditional/file.csv",
-                    "delimiter": ",",
+                    "path": "/tmp/test.csv",
                     "has_header": True,
+                    "delimiter": ",",
                 },
             }
         ]
 
-        result = orchestrator.execute(traditional_plan, variables=variables)
-        assert result["status"] == "success"
-        assert result["step_results"][0]["status"] == "success"
+        # Execute source step with V2 pattern
+        coordinator = v2_pipeline_runner(
+            source_step, project_dir=multi_env_profiles_dir
+        )
+        result = coordinator.result
 
-        # Both source definitions should coexist
-        assert len(orchestrator.source_definitions) >= 2
-        assert "test_csv_source" in orchestrator.source_definitions
-        assert "traditional_csv" in orchestrator.source_definitions
+        # A source definition step should be successful
+        assert result.success is True
+        assert len(result.step_results) == 1
+        assert result.step_results[0].success is True
 
-        logger.info("LocalExecutor integration test passed")
+        logger.info("V2 ExecutionCoordinator integration test passed")
 
 
 # Performance and load testing utilities

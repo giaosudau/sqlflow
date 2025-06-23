@@ -1,57 +1,255 @@
-"""Load Step Executor following Single Responsibility Principle.
+"""Load Step Executor using functional decomposition.
 
-Handles data loading from various sources into target tables.
-Clean, focused implementation with proper error handling.
+Following Raymond Hettinger's guidance:
+- "Simple is better than complex"
+- "Explicit is better than implicit"
+- Small, focused functions instead of monster methods
+- Pure functions where possible
+- Clear data flow
 """
 
 import time
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Dict, List, Tuple
 
 from sqlflow.logging import get_logger
 
 from ..protocols.core import ExecutionContext, Step
-from .base import BaseStepExecutor, StepExecutionResult
+from ..results.models import StepResult
+from .base import BaseStepExecutor
+from .definitions import LoadStep
 
 logger = get_logger(__name__)
 
 
+# Pure functions for data processing
+def extract_load_details(step: LoadStep) -> Tuple[str, str, str]:
+    """Extract load step details from typed step - pure function.
+
+    Args:
+        step: Typed LoadStep object
+
+    Returns:
+        Tuple of (source, target_table, mode)
+    """
+    return step.source, step.target_table, step.mode.value
+
+
+def validate_load_inputs(source: str, target_table: str) -> None:
+    """Validate load inputs - pure function."""
+    if not source.strip():
+        raise ValueError("Load step source cannot be empty")
+    if not target_table.strip():
+        raise ValueError("Load step target_table cannot be empty")
+
+
+def determine_connector_type(source_name: str) -> str:
+    """Determine connector type from file extension - pure function."""
+    if source_name.endswith(".csv"):
+        return "csv"
+    elif source_name.endswith(".parquet"):
+        return "parquet"
+    elif source_name.endswith(".json"):
+        return "json"
+    else:
+        return "csv"  # Default
+
+
+def create_connector_config(source_name: str) -> Dict[str, Any]:
+    """Create connector configuration - pure function."""
+    return {"path": source_name}
+
+
+def get_source_definition(
+    context: ExecutionContext, source_name: str
+) -> Dict[str, Any]:
+    """Get source definition from context."""
+    if hasattr(context, "source_definitions"):
+        return context.source_definitions.get(source_name, {})
+    return {}
+
+
+def create_connector(step: LoadStep, context: ExecutionContext):
+    """Create appropriate connector for the data source."""
+    # Use getattr with a reasonable error message for missing connector_registry
+    connector_registry = getattr(context, "connector_registry", None)
+    if connector_registry is None:
+        raise RuntimeError("Context missing connector_registry")
+
+    source_name = extract_load_details(step)[0]
+
+    # Check for source definition first
+    source_definition = get_source_definition(context, source_name)
+
+    if source_definition:
+        connector_type = source_definition.get("connector_type", "csv")
+        configuration = source_definition.get("configuration", {})
+    else:
+        # Fallback to file extension detection
+        connector_type = determine_connector_type(source_name)
+        configuration = create_connector_config(source_name)
+        logger.warning(
+            f"No source definition found for '{source_name}', using fallback"
+        )
+
+    return connector_registry.create_source_connector(connector_type, configuration)
+
+
+def load_data_replace(engine: Any, data: Any, target_table: str, temp_view: str) -> int:
+    """Handle REPLACE load mode - pure business logic."""
+    engine.execute_query(f"DROP TABLE IF EXISTS {target_table}")
+    engine.execute_query(f"CREATE TABLE {target_table} AS SELECT * FROM {temp_view}")
+    return len(data)
+
+
+def load_data_append(engine: Any, data: Any, target_table: str, temp_view: str) -> int:
+    """Handle APPEND load mode - pure business logic."""
+    if not engine.table_exists(target_table):
+        engine.execute_query(
+            f"CREATE TABLE {target_table} AS SELECT * FROM {temp_view}"
+        )
+    else:
+        engine.execute_query(f"INSERT INTO {target_table} SELECT * FROM {temp_view}")
+    return len(data)
+
+
+def get_upsert_keys(step: LoadStep) -> List[str]:
+    """Get upsert keys from step definition.
+
+    Raises ValueError if upsert_keys are not explicitly provided for UPSERT mode.
+    This follows the principle "Explicit is better than implicit".
+    """
+    if not step.upsert_keys:
+        raise ValueError("upsert_keys cannot be empty for UPSERT mode")
+
+    return step.upsert_keys
+
+
+def load_data_upsert(
+    engine: Any, data: Any, target_table: str, temp_view: str, upsert_keys: List[str]
+) -> int:
+    """Handle UPSERT load mode - pure business logic."""
+    if not engine.table_exists(target_table):
+        engine.execute_query(
+            f"CREATE TABLE {target_table} AS SELECT * FROM {temp_view}"
+        )
+        return len(data)
+
+    # Build delete query based on number of keys
+    if len(upsert_keys) == 1:
+        key = upsert_keys[0]
+        delete_query = (
+            f"DELETE FROM {target_table} WHERE {key} IN (SELECT {key} FROM {temp_view})"
+        )
+    else:
+        key_list = ", ".join(upsert_keys)
+        delete_query = f"DELETE FROM {target_table} WHERE ({key_list}) IN (SELECT {key_list} FROM {temp_view})"
+
+    engine.execute_query(delete_query)
+    engine.execute_query(f"INSERT INTO {target_table} SELECT * FROM {temp_view}")
+
+    return len(data)
+
+
+def load_dataframe_to_table(
+    data: Any,
+    target_table: str,
+    load_mode: str,
+    step: LoadStep,
+    context: ExecutionContext,
+) -> int:
+    """Load pandas DataFrame to table - focused function."""
+    engine = context.engine
+    if not engine:
+        raise ValueError("No database engine available")
+
+    try:
+        import pandas as pd
+    except ImportError:
+        raise RuntimeError("pandas is required for DataFrame operations")
+
+    if not isinstance(data, pd.DataFrame):
+        raise ValueError("Expected pandas DataFrame")
+
+    # Create temporary view
+    temp_view = f"{target_table}_temp_{int(time.time() * 1000)}"
+    # Use getattr to access register_table method safely
+    register_table = getattr(engine, "register_table", None)
+    if register_table is None:
+        raise RuntimeError("Database engine does not support register_table method")
+    register_table(temp_view, data)
+
+    try:
+        # Dispatch to appropriate load function
+        if load_mode.upper() == "REPLACE":
+            rows_loaded = load_data_replace(engine, data, target_table, temp_view)
+        elif load_mode.upper() == "APPEND":
+            rows_loaded = load_data_append(engine, data, target_table, temp_view)
+        elif load_mode.upper() == "UPSERT":
+            upsert_keys = get_upsert_keys(step)
+            rows_loaded = load_data_upsert(
+                engine, data, target_table, temp_view, upsert_keys
+            )
+        else:
+            # Default to REPLACE
+            rows_loaded = load_data_replace(engine, data, target_table, temp_view)
+
+        return rows_loaded
+
+    finally:
+        # Always cleanup
+        engine.execute_query(f"DROP VIEW IF EXISTS {temp_view}")
+
+
 @dataclass
 class LoadStepExecutor(BaseStepExecutor):
-    """Executes load steps - SINGLE responsibility.
+    """Executes load steps using functional decomposition.
 
-    Handles only load operations:
-    - Data ingestion from various sources
-    - Target table creation and population
-    - Load mode handling (replace, append, upsert)
+    This executor only works with typed LoadStep objects.
+    Dictionary-based steps must be converted to typed steps before execution.
     """
 
     def can_execute(self, step: Any) -> bool:
-        """Check if this executor can handle the step."""
-        if hasattr(step, "type"):
-            return step.type == "load"
-        elif isinstance(step, dict):
-            return step.get("type") == "load"
-        return False
+        """Check if this executor can handle the step.
 
-    def execute(self, step: Step, context: ExecutionContext) -> StepExecutionResult:
-        """Execute load step with focused implementation."""
+        Only accepts typed LoadStep objects with step_type attribute.
+        """
+        return hasattr(step, "step_type") and step.step_type == "load"
+
+    def execute(self, step: Step, context: ExecutionContext) -> StepResult:
+        """Execute load step using functional approach.
+
+        Args:
+            step: Step object (should be LoadStep)
+            context: Execution context
+
+        Returns:
+            StepResult with execution details
+        """
         start_time = time.time()
         step_id = getattr(step, "id", "unknown")
 
         try:
             logger.info(f"Executing load step: {step_id}")
 
-            # Extract step details
-            source, target_table, load_mode = self._extract_load_details(step)
+            # Ensure we have a LoadStep
+            if not isinstance(step, LoadStep):
+                raise ValueError(
+                    f"LoadStepExecutor requires LoadStep, got {type(step)}"
+                )
+
+            # Extract and validate inputs
+            source, target_table, load_mode = extract_load_details(step)
+            validate_load_inputs(source, target_table)
 
             # Create connector and load data
-            with self._observability_scope(context, "load_step"):
-                connector = self._create_connector(step, context)
-                data = connector.read()
-                rows_loaded = self._load_data_to_table(
-                    data, target_table, load_mode, context
-                )
+            connector = create_connector(step, context)
+            data = connector.read()
+
+            # Load data using functional approach
+            rows_loaded = load_dataframe_to_table(
+                data, target_table, load_mode, step, context
+            )
 
             execution_time = time.time() - start_time
 
@@ -68,88 +266,3 @@ class LoadStepExecutor(BaseStepExecutor):
             execution_time = time.time() - start_time
             logger.error(f"Load step {step_id} failed: {error}")
             return self._handle_execution_error(step_id, error, execution_time)
-
-    def _extract_load_details(self, step: Step) -> tuple[str, str, str]:
-        """Extract load step details with validation."""
-        if hasattr(step, "source"):
-            source = step.source
-            target_table = step.target_table
-            load_mode = getattr(step, "load_mode", "replace")
-        elif isinstance(step, dict):
-            source = step.get("source", "")
-            target_table = step.get("target_table", "")
-            load_mode = step.get("load_mode", "replace")
-        else:
-            raise ValueError(f"Invalid step format: {type(step)}")
-
-        # Validation
-        if not source:
-            raise ValueError("Load step source cannot be empty")
-        if not target_table:
-            raise ValueError("Load step target_table cannot be empty")
-
-        return source, target_table, load_mode
-
-    def _create_connector(self, step: Step, context: ExecutionContext):
-        """Create appropriate connector for the data source."""
-        # Get connector registry from context
-        if not hasattr(context, "connector_registry"):
-            raise RuntimeError("Context missing connector_registry")
-
-        # Extract source configuration
-        if hasattr(step, "source"):
-            source_config = {
-                "source": step.source,
-                "options": getattr(step, "options", {}),
-            }
-        else:
-            source_config = step
-
-        return context.connector_registry.create_source_connector(source_config)
-
-    def _load_data_to_table(
-        self, data: Any, target_table: str, load_mode: str, context: ExecutionContext
-    ) -> int:
-        """Load data to target table using the database session."""
-        session = context.session
-
-        if load_mode == "replace":
-            # Drop and recreate table
-            session.execute(f"DROP TABLE IF EXISTS {target_table}")
-
-        # Load data using the database engine
-        if hasattr(data, "__iter__"):
-            # Handle iterable data
-            rows_loaded = 0
-            for chunk in data:
-                if hasattr(chunk, "to_sql"):
-                    # Pandas DataFrame
-                    chunk.to_sql(
-                        target_table, session.engine, if_exists="append", index=False
-                    )
-                    rows_loaded += len(chunk)
-                else:
-                    # Other formats - use engine's load method
-                    result = session.load_data(chunk, target_table)
-                    rows_loaded += result
-        else:
-            # Single data object
-            if hasattr(data, "to_sql"):
-                data.to_sql(
-                    target_table, session.engine, if_exists="append", index=False
-                )
-                rows_loaded = len(data)
-            else:
-                rows_loaded = session.load_data(data, target_table)
-
-        return rows_loaded
-
-    def _observability_scope(self, context: ExecutionContext, scope_name: str):
-        """Create observability scope for measurements."""
-        if hasattr(context, "observability"):
-            return context.observability.measure_scope(scope_name)
-        else:
-            # Fallback no-op context manager
-            from contextlib import nullcontext
-
-            return nullcontext()

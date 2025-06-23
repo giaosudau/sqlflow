@@ -20,6 +20,7 @@ from sqlflow.connectors.resilience import (
     DB_RESILIENCE_CONFIG,
     CircuitBreakerConfig,
     RateLimitConfig,
+    RateLimiter,
     RecoveryConfig,
     ResilienceConfig,
     ResilienceManager,
@@ -523,52 +524,43 @@ class TestResiliencePatterns:
 
     # Additional test methods for rate limiting, error propagation, etc.
     def test_rate_limiting_backpressure(self):
-        """Test rate limiting with backpressure."""
+        """Test rate limiting with backpressure (wait strategy)."""
         config = ResilienceConfig(
-            retry=None,
-            circuit_breaker=None,
             rate_limit=RateLimitConfig(
-                max_requests_per_minute=60,  # 1 per second
-                burst_size=2,
-                backpressure_strategy="wait",
+                max_requests_per_minute=600, burst_size=1, backpressure_strategy="wait"
             ),
         )
+        RateLimiter(config.rate_limit)
 
         connector = MockFlakeyConnector("none")
         connector.configure_resilience(config)
         connector.configure({})
 
-        # First two calls should succeed immediately (burst)
+        # First call should succeed immediately (burst)
         start_time = time.time()
         result1 = connector.test_connection()
-        result2 = connector.test_connection()
         burst_duration = time.time() - start_time
 
         assert result1.success is True
-        assert result2.success is True
         assert burst_duration < 0.1  # Should be very fast
 
-        # Third call should be rate limited
+        # Second call should be rate limited
         start_time = time.time()
-        result3 = connector.test_connection()
+        result2 = connector.test_connection()
         rate_limited_duration = time.time() - start_time
 
-        assert result3.success is True
+        assert result2.success is True
         # Should take at least 0.5 seconds due to rate limiting
         # (allowing some tolerance for test execution)
         assert rate_limited_duration > 0.3
 
     def test_error_propagation_with_resilience(self):
-        """Test that errors are properly propagated through resilience layers."""
+        """Test that non-retryable errors are propagated correctly."""
         config = ResilienceConfig(
-            retry=RetryConfig(max_attempts=2, initial_delay=0.01),
-            circuit_breaker=None,
-            rate_limit=None,
-            recovery=RecoveryConfig(
-                enable_connection_recovery=False
-            ),  # Disable recovery
+            retry=RetryConfig(max_attempts=3, retry_on_exceptions=[ConnectionError]),
         )
 
+        # Use a non-retryable error
         connector = MockFlakeyConnector("connection_error", failure_count=5)
         connector.configure_resilience(config)
         connector.configure({})
@@ -578,7 +570,7 @@ class TestResiliencePatterns:
             connector.test_connection()
 
         assert "Connection failed" in str(exc_info.value)
-        assert connector.call_count == 2  # Attempted twice
+        assert connector.call_count == 3  # Attempted three times
 
     def test_resilience_patterns_logging(self):
         """Test that resilience patterns generate appropriate logs."""

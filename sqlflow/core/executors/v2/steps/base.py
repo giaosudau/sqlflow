@@ -1,90 +1,88 @@
-"""Base step executor protocols and classes.
+"""Base Step Executor providing common functionality.
 
-Provides clean protocols for step execution following SOLID principles:
-- Single Responsibility Principle for each executor
-- Dependency inversion through protocols
-- Consistent error handling and result creation
+Following the DRY principle, this base class provides common
+functionality for all step executors, such as result creation
+and error handling.
 """
 
-from abc import abstractmethod
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Protocol
+from typing import Any, Dict, Optional
 
-from ..protocols.core import ExecutionContext, Step, StepResult
+from sqlflow.logging import get_logger
 
+from ..exceptions import ExecutionError
+from ..protocols.core import ExecutionContext, Step, StepExecutor
+from ..results.models import StepResult, create_error_result, create_success_result
 
-class StepExecutor(Protocol):
-    """Protocol for step executors with focused responsibilities.
-
-    Each executor handles exactly one step type following Single Responsibility Principle.
-    Uses protocols for dependency inversion and clean testing.
-    """
-
-    @abstractmethod
-    def can_execute(self, step: Any) -> bool:
-        """Check if this executor can handle the given step."""
-        ...
-
-    @abstractmethod
-    def execute(self, step: Step, context: ExecutionContext) -> StepResult:
-        """Execute the step and return a result."""
-        ...
+logger = get_logger(__name__)
 
 
 @dataclass
-class StepExecutionResult:
-    """Immutable result from step execution."""
+class BaseStepExecutor(StepExecutor):
+    """Base class for all step executors.
 
-    step_id: str
-    status: str
-    message: Optional[str] = None
-    error: Optional[str] = None
-    execution_time: Optional[float] = None
-    rows_affected: Optional[int] = None
-    table_name: Optional[str] = None
-    metadata: Dict[str, Any] = None
-
-    def __post_init__(self):
-        if self.metadata is None:
-            self.metadata = {}
-
-
-class BaseStepExecutor:
-    """Base class providing common functionality for step executors.
-
-    Following the DRY principle while maintaining single responsibility.
+    Provides common functionality for creating results and handling errors.
     """
 
-    def __init__(self):
-        """Initialize base executor."""
+    def can_execute(self, step: Step) -> bool:
+        """Check if this executor can handle the step."""
+        raise NotImplementedError("Subclasses must implement can_execute")
+
+    def execute(self, step: Step, context: ExecutionContext) -> StepResult:
+        """Execute the step with given context."""
+        raise NotImplementedError("Subclasses must implement execute")
 
     def _create_result(
         self,
         step_id: str,
         status: str,
-        message: Optional[str] = None,
-        error: Optional[str] = None,
-        execution_time: Optional[float] = None,
-        **kwargs,
-    ) -> StepExecutionResult:
-        """Create a standardized step execution result."""
-        return StepExecutionResult(
-            step_id=step_id,
-            status=status,
-            message=message,
-            error=error,
-            execution_time=execution_time,
-            **kwargs,
-        )
+        message: str,
+        execution_time: float,
+        rows_affected: int = 0,
+        table_name: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> StepResult:
+        """Create a successful step result."""
+        full_metadata = metadata or {}
+        if table_name:
+            full_metadata["target_table"] = table_name
+
+        if status == "success":
+            return create_success_result(
+                step_id=step_id,
+                duration_ms=execution_time * 1000,
+                rows_affected=rows_affected,
+                metadata=full_metadata,
+            )
+        else:
+            # Fallback for non-success status
+            return create_error_result(
+                step_id=step_id,
+                duration_ms=execution_time * 1000,
+                error_message=message,
+                metadata=full_metadata,
+            )
 
     def _handle_execution_error(
-        self, step_id: str, error: Exception, execution_time: Optional[float] = None
-    ) -> StepExecutionResult:
-        """Handle execution errors consistently."""
-        return self._create_result(
+        self, step_id: str, error: Exception, execution_time: float
+    ) -> StepResult:
+        """Handle execution errors and create an error result."""
+        if isinstance(error, ExecutionError):
+            # If it's already an ExecutionError, just return it as a result
+            return create_error_result(
+                step_id=step_id,
+                duration_ms=execution_time * 1000,
+                error_message=str(error),
+                metadata=error.context,
+            )
+
+        # Wrap other exceptions in ExecutionError
+        err = ExecutionError(step_id=step_id, message=str(error), original_error=error)
+        logger.error(f"Unhandled exception in step '{step_id}': {err}", exc_info=True)
+
+        return create_error_result(
             step_id=step_id,
-            status="error",
-            error=str(error),
-            execution_time=execution_time,
-            message=f"Step execution failed: {type(error).__name__}",
+            duration_ms=execution_time * 1000,
+            error_message=str(err),
+            metadata=err.context,
         )

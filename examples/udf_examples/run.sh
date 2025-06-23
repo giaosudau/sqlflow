@@ -1,9 +1,9 @@
 #!/bin/bash
 
-# 🐍 SQLFlow Python UDF Showcase
-# ===============================
-# A comprehensive demonstration of Python UDF capabilities in SQLFlow,
-# covering scalar functions, table functions, and advanced processing patterns.
+# 🐍 SQLFlow V2 Python UDF Showcase
+# ==================================
+# V2 architecture demonstration of Python UDF capabilities in SQLFlow,
+# using V2 ExecutionCoordinator with real step executors and UDF integration.
 
 set -e # Exit on any error, though we trap errors for logging.
 

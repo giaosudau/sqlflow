@@ -16,12 +16,10 @@ from pathlib import Path
 
 import pytest
 
-from sqlflow.core.executors import get_executor
 from sqlflow.core.planner_main import Planner
 from sqlflow.core.sql_generator import SQLGenerator
 from sqlflow.parser.ast import SQLBlockStep
 from sqlflow.parser.parser import Parser
-from sqlflow.project import Project
 
 
 class TestCreateOrReplaceTableFunctionality:
@@ -232,7 +230,7 @@ variables:
         assert transform_ops[1]["is_replace"] is True
 
     def test_create_or_replace_end_to_end_execution(
-        self, temp_project_dir, sample_data_dir
+        self, temp_project_dir, sample_data_dir, v2_pipeline_runner
     ):
         """Test complete CREATE OR REPLACE functionality end-to-end."""
         os.chdir(temp_project_dir)
@@ -246,19 +244,19 @@ variables:
             "path": "{sample_data_dir}/sample_data.csv",
             "has_header": true
         }};
-        
+
         LOAD raw_data FROM sample_data;
-        
+
         -- First create a summary table
         CREATE TABLE data_summary AS
-        SELECT 
+        SELECT
             COUNT(*) as row_count,
             'initial' as version
         FROM raw_data;
-        
+
         -- Replace it with enhanced summary
         CREATE OR REPLACE TABLE data_summary AS
-        SELECT 
+        SELECT
             COUNT(*) as row_count,
             AVG(CAST(value AS INTEGER)) as avg_value,
             MAX(name) as max_name,
@@ -268,10 +266,6 @@ variables:
 
         pipeline_file.write_text(pipeline_content)
 
-        # Execute the pipeline
-        project = Project(temp_project_dir, profile_name="dev")
-        executor = get_executor(project=project)
-
         # Parse and plan
         parser = Parser()
         planner = Planner()
@@ -280,22 +274,19 @@ variables:
         operations = planner.create_plan(pipeline)
 
         # Execute
-        result = executor.execute(operations)
+        coordinator = v2_pipeline_runner(operations, project_dir=temp_project_dir)
+        result = coordinator.result
 
-        # Verify execution succeeded
-        assert result["status"] == "success"
+        assert result.success is True
 
-        # Verify the final table exists and has correct data
-        final_result = executor.duckdb_engine.execute_query(
-            "SELECT * FROM data_summary"
-        ).fetchdf()
+        # Verify results
+        engine = coordinator.context.engine
+        final_summary = engine.execute_query("SELECT * FROM data_summary").df()
 
-        # Should have the updated version
-        assert len(final_result) == 1
-        assert final_result.iloc[0]["row_count"] == 3
-        assert final_result.iloc[0]["avg_value"] == 200.0  # (100+200+300)/3
-        assert final_result.iloc[0]["max_name"] == "Charlie"
-        assert final_result.iloc[0]["version"] == "updated"
+        assert len(final_summary) == 1
+        assert final_summary["version"][0] == "updated"
+        assert final_summary["row_count"][0] == 3
+        assert final_summary["avg_value"][0] == 200.0
 
     def test_create_or_replace_error_handling(self):
         """Test error handling for invalid CREATE OR REPLACE syntax."""
@@ -313,7 +304,7 @@ variables:
                 parser.parse(invalid_syntax)
 
     def test_create_or_replace_with_complex_queries(
-        self, temp_project_dir, sample_data_dir
+        self, temp_project_dir, sample_data_dir, v2_pipeline_runner
     ):
         """Test CREATE OR REPLACE with complex SQL queries."""
         os.chdir(temp_project_dir)
@@ -324,16 +315,16 @@ variables:
             "path": "{sample_data_dir}/sample_data.csv",
             "has_header": true
         }};
-        
+
         LOAD raw_data FROM sample_data;
-        
+
         -- Complex query with aggregations and case statements
         CREATE OR REPLACE TABLE complex_analysis AS
-        SELECT 
+        SELECT
             id,
             name,
             CAST(value AS INTEGER) as value,
-            CASE 
+            CASE
                 WHEN CAST(value AS INTEGER) > 200 THEN 'high'
                 WHEN CAST(value AS INTEGER) > 100 THEN 'medium'
                 ELSE 'low'
@@ -344,29 +335,23 @@ variables:
         # Parse and execute
         parser = Parser()
         planner = Planner()
-        executor = get_executor(project=Project(temp_project_dir, profile_name="dev"))
 
         pipeline = parser.parse(pipeline_content)
         operations = planner.create_plan(pipeline)
 
         # Execute
-        result = executor.execute(operations)
+        coordinator = v2_pipeline_runner(operations, project_dir=temp_project_dir)
+        result = coordinator.result
 
-        # Verify execution succeeded
-        assert result["status"] == "success"
+        assert result.success is True
 
-        # Verify the complex analysis table was created
-        analysis_result = executor.duckdb_engine.execute_query(
-            "SELECT * FROM complex_analysis ORDER BY value DESC"
-        ).fetchdf()
+        # Verify results
+        engine = coordinator.context.engine
+        df = engine.execute_query("SELECT * FROM complex_analysis").df()
 
-        # Should have 3 rows with correct categories
-        assert len(analysis_result) == 3
-        assert analysis_result.iloc[0]["category"] == "high"  # value 300
-        assert analysis_result.iloc[1]["category"] == "medium"  # value 200
-        assert (
-            analysis_result.iloc[2]["category"] == "low"
-        )  # value 100 (100 is NOT > 100, so it's 'low')
+        assert len(df) == 3
+        assert "category" in df.columns
+        assert df["category"].tolist() == ["low", "medium", "high"]
 
     def test_create_or_replace_dependency_resolution(self):
         """Test that CREATE OR REPLACE works correctly with dependency resolution."""

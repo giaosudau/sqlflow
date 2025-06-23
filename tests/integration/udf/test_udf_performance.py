@@ -278,60 +278,71 @@ def generate_test_data(size_category: str) -> pd.DataFrame:
 
 
 class TestPerformanceBenchmarks:
-    """Test performance benchmarks across different scenarios."""
+    """Test UDF performance against defined benchmarks."""
 
     @pytest.mark.parametrize("size", ["micro", "small", "medium"])
     def test_performance_scalar_udf_benchmarks(
-        self, performance_test_env: Dict[str, Any], size: str
+        self,
+        performance_test_env: Dict[str, Any],
+        v2_pipeline_runner,
+        tmp_path: Path,
+        size: str,
     ) -> None:
-        """User runs scalar UDFs on datasets of varying sizes."""
-        manager = PythonUDFManager(project_dir=performance_test_env["project_dir"])
-        manager.discover_udfs()
-
-        engine = DuckDBEngine(":memory:")
-        manager.register_udfs_with_engine(engine)
-
-        # Generate test data
-        test_data = generate_test_data(size)
+        """User runs scalar UDFs and checks performance against targets."""
+        project_dir = performance_test_env["project_dir"]
         target = PERFORMANCE_TARGETS[size]
+        test_data = generate_test_data(size)
+        source_path = tmp_path / f"test_data_{size}.csv"
+        test_data.to_csv(source_path, index=False)
 
-        # Register test data as table
-        engine.register_table("test_data", test_data)
+        def run_and_time_pipeline(query: str, name: str) -> float:
+            pipeline = {
+                "steps": [
+                    {
+                        "type": "load",
+                        "name": "test_data",
+                        "source": "csv",
+                        "uri": str(source_path),
+                    },
+                    {"type": "transform", "name": name, "query": query},
+                ]
+            }
+            _, execution_time = time_execution(
+                v2_pipeline_runner, pipeline["steps"], project_dir=project_dir
+            )
+            return execution_time
 
-        # Test simple scalar UDF performance
-        simple_result, simple_time = time_execution(
-            engine.execute_query,
-            "SELECT id, simple_add(value) as result FROM test_data",
+        # --- Test Simple UDF ---
+        query_simple = (
+            "SELECT python_udfs.performance_udfs.simple_add(value) FROM test_data"
         )
-        simple_result_df = simple_result.fetchdf()
-        simple_time_ms = simple_time * 1000
+        time_simple = run_and_time_pipeline(query_simple, "simple_add_results")
+        logger.info(f"Scalar UDF 'simple_add' ({size}): {time_simple * 1000:.2f} ms")
+        assert (
+            time_simple * 1000 <= target["max_time_ms"]
+        ), f"Simple UDF slow on {size} dataset"
 
-        # Test complex scalar UDF performance
-        complex_result, complex_time = time_execution(
-            engine.execute_query,
-            "SELECT id, complex_math(value) as result FROM test_data",
+        # --- Test Complex Math UDF ---
+        query_complex = (
+            "SELECT python_udfs.performance_udfs.complex_math(value) FROM test_data"
         )
-        complex_result_df = complex_result.fetchdf()
-        complex_time_ms = complex_time * 1000
-
-        # Validate results
-        assert len(simple_result_df) == target["rows"]
-        assert len(complex_result_df) == target["rows"]
-
-        # Performance assertions
+        time_complex = run_and_time_pipeline(query_complex, "complex_math_results")
+        logger.info(f"Scalar UDF 'complex_math' ({size}): {time_complex * 1000:.2f} ms")
         assert (
-            simple_time_ms < target["max_time_ms"]
-        ), f"Simple UDF too slow: {simple_time_ms:.2f}ms > {target['max_time_ms']}ms"
+            time_complex * 1000 <= target["max_time_ms"] * 1.5
+        ), f"Complex math UDF slow on {size} dataset"
 
-        # Complex UDF gets more lenient time limit
-        complex_limit = target["max_time_ms"] * 3
-        assert (
-            complex_time_ms < complex_limit
-        ), f"Complex UDF too slow: {complex_time_ms:.2f}ms > {complex_limit}ms"
-
+        # --- Test String UDF ---
+        query_string = (
+            "SELECT python_udfs.performance_udfs.string_processing(text) FROM test_data"
+        )
+        time_string = run_and_time_pipeline(query_string, "string_processing_results")
         logger.info(
-            f"✅ Scalar UDF performance ({size}): simple={simple_time_ms:.2f}ms, complex={complex_time_ms:.2f}ms"
+            f"Scalar UDF 'string_processing' ({size}): {time_string * 1000:.2f} ms"
         )
+        assert (
+            time_string * 1000 <= target["max_time_ms"]
+        ), f"String UDF slow on {size} dataset"
 
     @pytest.mark.parametrize("size", ["micro", "small", "medium"])
     def test_performance_table_udf_benchmarks(

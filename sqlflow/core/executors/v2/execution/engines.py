@@ -16,7 +16,7 @@ class DatabaseEngineAdapter:
 
     def execute_query(self, sql: str) -> Any:
         """Execute SQL query and return results."""
-        return self._engine.execute(sql)
+        return self._engine.execute_query(sql)
 
     def create_table_from_dataframe(self, df: Any, table_name: str, **kwargs) -> None:
         """Create table from pandas DataFrame."""
@@ -48,6 +48,9 @@ class DatabaseEngineAdapter:
     def native_engine(self) -> Any:
         """Access to underlying engine for advanced operations."""
         return self._engine
+
+    def get_table(self, table_name: str) -> Any:
+        return self._engine.get_table(table_name)
 
 
 def create_engine_adapter(

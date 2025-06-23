@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# SQLFlow Conditional Pipelines Demo Runner
-# This script validates, compiles, and runs all conditional pipeline demonstrations
-# Exits immediately if any step fails
+# SQLFlow V2 Conditional Pipelines Demo Runner
+# Pure V2 architecture - demonstrates conditional pipeline execution
+# Uses V2 ExecutionCoordinator with real step executors
 
 set -e  # Exit immediately if any command fails
 set -u  # Exit if undefined variable is used

@@ -1,83 +1,70 @@
-"""Immutable execution context management.
+"""Execution context using simple Python patterns.
 
-Following functional programming principles:
-- Immutable data structures
-- Clear separation of concerns
-- Type safety with protocols
-- Context manager for resource lifecycle
+Following Raymond Hettinger's guidance:
+- Simple dataclass instead of complex builders
+- Real immutability using frozen=True
+- Factory functions instead of builder patterns
+- "Simple is better than complex"
 """
 
 import time
 import uuid
-from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 
-from ..protocols import DatabaseEngine
+from sqlflow.connectors.registry import EnhancedConnectorRegistry
+from sqlflow.core.executors.v2.execution.engines import create_engine_adapter
+from sqlflow.project import Project
 
 
 @dataclass(frozen=True)
 class ExecutionContext:
-    """Immutable execution context.
+    """Simple, truly immutable execution context.
 
-    This is the core context that flows through the entire pipeline execution.
-    Being immutable ensures thread safety and prevents accidental state mutations.
+    Following the Parameter Object pattern correctly -
+    this object is actually immutable and carries only what's needed.
     """
 
     # Core identifiers
     execution_id: str
     started_at: float
 
-    # Configuration
-    profile: Dict[str, Any] = field(default_factory=dict)
+    # Required dependencies
+    engine: Any
+
+    # Optional dependencies with sensible defaults
     variables: Dict[str, Any] = field(default_factory=dict)
+    observability: Optional[Any] = None
+    project: Optional[Project] = None
+    connector_registry: Optional[EnhancedConnectorRegistry] = None
+    engine_adapter: Optional[Any] = None
+    artifact_manager: Optional[Any] = None
+    state_backend: Optional[Any] = None
 
-    # Resources (these are references, the objects themselves may be mutable)
-    session: Any = None
-    engine: Optional[DatabaseEngine] = None
+    # For source definitions - separate concern
+    _source_definitions: Dict[str, Any] = field(
+        default_factory=dict, init=False, repr=False
+    )
 
-    # Execution state
-    source_definitions: Dict[str, Any] = field(default_factory=dict)
+    def __post_init__(self):
+        """Initialize missing components with sensible defaults."""
+        # Only create what's actually missing - no automatic magic
+        if self.connector_registry is None:
+            registry = _create_default_registry()
+            object.__setattr__(self, "connector_registry", registry)
 
-    def with_variables(self, new_variables: Dict[str, Any]) -> "ExecutionContext":
-        """Create new context with updated variables."""
-        merged_variables = {**self.variables, **new_variables}
-        return ExecutionContext(
-            execution_id=self.execution_id,
-            started_at=self.started_at,
-            profile=self.profile,
-            variables=merged_variables,
-            session=self.session,
-            engine=self.engine,
-            source_definitions=self.source_definitions,
-        )
+        if self.engine_adapter is None and self.engine is not None:
+            adapter = create_engine_adapter("duckdb")
+            object.__setattr__(self, "engine_adapter", adapter)
 
-    def with_source_definition(
-        self, name: str, definition: Dict[str, Any]
-    ) -> "ExecutionContext":
-        """Create new context with additional source definition."""
-        new_definitions = {**self.source_definitions, name: definition}
-        return ExecutionContext(
-            execution_id=self.execution_id,
-            started_at=self.started_at,
-            profile=self.profile,
-            variables=self.variables,
-            session=self.session,
-            engine=self.engine,
-            source_definitions=new_definitions,
-        )
+    @property
+    def source_definitions(self) -> Dict[str, Any]:
+        """Access to source definitions - read-only view."""
+        return self._source_definitions.copy()
 
-    def with_engine(self, engine: DatabaseEngine) -> "ExecutionContext":
-        """Create new context with database engine."""
-        return ExecutionContext(
-            execution_id=self.execution_id,
-            started_at=self.started_at,
-            profile=self.profile,
-            variables=self.variables,
-            session=self.session,
-            engine=engine,
-            source_definitions=self.source_definitions,
-        )
+    def add_source_definition(self, name: str, definition: Dict[str, Any]) -> None:
+        """Add source definition - controlled mutation."""
+        self._source_definitions[name] = definition
 
     @property
     def execution_time(self) -> float:
@@ -85,159 +72,132 @@ class ExecutionContext:
         return time.time() - self.started_at
 
 
-class ExecutionContextFactory:
-    """Factory for creating execution contexts.
-
-    Follows the factory pattern for clean object creation.
-    """
-
-    @staticmethod
-    def create(
-        profile: Optional[Dict[str, Any]] = None,
-        variables: Optional[Dict[str, Any]] = None,
-        execution_id: Optional[str] = None,
-    ) -> ExecutionContext:
-        """Create new execution context.
-
-        Args:
-            profile: Profile configuration
-            variables: Execution variables
-            execution_id: Unique execution identifier
-
-        Returns:
-            New immutable execution context
-        """
-        return ExecutionContext(
-            execution_id=execution_id or str(uuid.uuid4()),
-            started_at=time.time(),
-            profile=profile or {},
-            variables=variables or {},
-        )
-
-    @staticmethod
-    def from_legacy_orchestrator(legacy_orchestrator: Any) -> ExecutionContext:
-        """Create context from legacy orchestrator for compatibility.
-
-        Args:
-            legacy_orchestrator: V1/legacy orchestrator instance
-
-        Returns:
-            New execution context with legacy state
-        """
-        # Extract state from legacy orchestrator
-        profile = getattr(legacy_orchestrator, "_profile", {})
-        variables = getattr(legacy_orchestrator, "_variables", {})
-        engine = getattr(legacy_orchestrator, "_engine", None)
-        source_definitions = getattr(legacy_orchestrator, "source_definitions", {})
-
-        context = ExecutionContextFactory.create(profile, variables)
-
-        if engine:
-            context = context.with_engine(engine)
-
-        if source_definitions:
-            new_context = context
-            for name, definition in source_definitions.items():
-                new_context = new_context.with_source_definition(name, definition)
-            context = new_context
-
-        return context
-
-
-@contextmanager
-def execution_session(
-    profile: Dict[str, Any],
+# Simple factory functions - the Pythonic way
+def create_execution_context(
+    engine: Any = None,
     variables: Optional[Dict[str, Any]] = None,
-    engine_factory=None,
-):
-    """Context manager for pipeline execution session.
+    observability: Optional[Any] = None,
+    project: Optional[Project] = None,
+    execution_id: Optional[str] = None,
+    artifact_manager: Optional[Any] = None,
+    state_backend: Optional[Any] = None,
+) -> ExecutionContext:
+    """Create execution context with sensible defaults.
 
-    This provides proper resource management for database connections
-    and other resources used during pipeline execution.
-
-    Args:
-        profile: Profile configuration
-        variables: Execution variables
-        engine_factory: Factory function for creating database engine
-
-    Yields:
-        ExecutionContext: Configured execution context
-
-    Example:
-        >>> with execution_session(profile, variables) as context:
-        ...     result = execute_pipeline(steps, context)
+    This is the Pythonic way - simple function with keyword arguments.
+    No builder pattern needed!
     """
-    context = ExecutionContextFactory.create(profile, variables)
+    return ExecutionContext(
+        execution_id=execution_id or str(uuid.uuid4()),
+        started_at=time.time(),
+        engine=engine,
+        variables=variables or {},
+        observability=observability,
+        project=project,
+        artifact_manager=artifact_manager,
+        state_backend=state_backend,
+    )
 
-    # Initialize database engine if factory provided
-    engine = None
-    if engine_factory and profile:
+
+def create_test_context(
+    engine: Any, variables: Optional[Dict[str, Any]] = None, **kwargs
+) -> ExecutionContext:
+    """Create test context - optimized for testing."""
+    return ExecutionContext(
+        execution_id="test-" + str(uuid.uuid4())[:8],
+        started_at=time.time(),
+        engine=engine,
+        variables=variables or {},
+        observability=None,  # Tests usually don't need observability
+        **kwargs,
+    )
+
+
+def _create_default_registry() -> EnhancedConnectorRegistry:
+    """Create default connector registry."""
+    registry = EnhancedConnectorRegistry()
+
+    # Register standard connectors - simple and explicit
+    _register_standard_connectors(registry)
+    return registry
+
+
+def _register_standard_connectors(registry: EnhancedConnectorRegistry) -> None:
+    """Register standard connectors - functional approach."""
+    connectors_to_register = [
+        ("csv", "sqlflow.connectors.csv", "CSVSource", "CSVDestination"),
+        (
+            "parquet",
+            "sqlflow.connectors.parquet",
+            "ParquetSource",
+            "ParquetDestination",
+        ),
+    ]
+
+    for conn_type, module_name, source_class, dest_class in connectors_to_register:
         try:
-            engine_config = profile.get("engine", {})
-            engine = engine_factory(**engine_config)
-            context = context.with_engine(engine)
-        except Exception as e:
-            # Log error but continue - some operations may not need database
-            import logging
+            module = __import__(module_name, fromlist=[source_class, dest_class])
+            source = getattr(module, source_class)
+            destination = getattr(module, dest_class)
 
-            logger = logging.getLogger(__name__)
-            logger.warning(f"Failed to initialize database engine: {e}")
-
-    try:
-        yield context
-    finally:
-        # Cleanup resources
-        if hasattr(engine, "close"):
-            try:
-                engine.close()
-            except Exception as e:
-                import logging
-
-                logger = logging.getLogger(__name__)
-                logger.warning(f"Error closing database engine: {e}")
+            registry.register_source(
+                conn_type, source, description=f"{conn_type.upper()} file connector"
+            )
+            registry.register_destination(
+                conn_type,
+                destination,
+                description=f"{conn_type.upper()} file connector",
+            )
+        except ImportError:
+            # Silently skip unavailable connectors
+            pass
 
 
-@dataclass(frozen=True)
-class StepExecutionResult:
-    """Immutable step execution result."""
+# Context manipulation functions - functional style
+def with_variables(
+    context: ExecutionContext, new_variables: Dict[str, Any]
+) -> ExecutionContext:
+    """Create new context with updated variables - functional approach."""
+    merged_variables = {**context.variables, **new_variables}
 
-    step_id: str
-    status: str  # "success", "error", "skipped"
-    message: Optional[str] = None
-    error: Optional[str] = None
-    execution_time: Optional[float] = None
-    data: Optional[Dict[str, Any]] = None
+    # Create new context with updated variables
+    new_context = ExecutionContext(
+        execution_id=context.execution_id,
+        started_at=context.started_at,
+        engine=context.engine,
+        variables=merged_variables,
+        observability=context.observability,
+        project=context.project,
+        connector_registry=context.connector_registry,
+        engine_adapter=context.engine_adapter,
+        artifact_manager=context.artifact_manager,
+        state_backend=context.state_backend,
+    )
 
-    @classmethod
-    def success(
-        cls,
-        step_id: str,
-        message: str = None,
-        execution_time: float = None,
-        data: Dict[str, Any] = None,
-    ) -> "StepExecutionResult":
-        """Create successful result."""
-        return cls(
-            step_id=step_id,
-            status="success",
-            message=message,
-            execution_time=execution_time,
-            data=data,
-        )
+    # Copy source definitions
+    for name, definition in context.source_definitions.items():
+        new_context.add_source_definition(name, definition)
 
-    @classmethod
-    def with_error(
-        cls, step_id: str, error_msg: str, execution_time: float = None
-    ) -> "StepExecutionResult":
-        """Create error result."""
-        return cls(
-            step_id=step_id,
-            status="error",
-            error=error_msg,
-            execution_time=execution_time,
-        )
+    return new_context
 
-    @classmethod
-    def skipped(cls, step_id: str, reason: str = None) -> "StepExecutionResult":
-        """Create skipped result."""
-        return cls(step_id=step_id, status="skipped", message=reason)
+
+def with_engine(context: ExecutionContext, engine: Any) -> ExecutionContext:
+    """Create new context with different engine."""
+    new_context = ExecutionContext(
+        execution_id=context.execution_id,
+        started_at=context.started_at,
+        engine=engine,
+        variables=context.variables,
+        observability=context.observability,
+        project=context.project,
+        connector_registry=context.connector_registry,
+        engine_adapter=context.engine_adapter,
+        artifact_manager=context.artifact_manager,
+        state_backend=context.state_backend,
+    )
+
+    # Copy source definitions
+    for name, definition in context.source_definitions.items():
+        new_context.add_source_definition(name, definition)
+
+    return new_context

@@ -2,17 +2,16 @@
 
 from .context import (
     ExecutionContext,
-    ExecutionContextFactory,
-    StepExecutionResult,
-    execution_session,
+    create_execution_context,
 )
-from .engines import DatabaseEngineAdapter, create_engine_adapter
+
+try:
+    from .engines import DatabaseEngineAdapter, create_engine_adapter
+except ImportError:
+    # Engine adapters might not exist yet in clean architecture
+    pass
 
 __all__ = [
     "ExecutionContext",
-    "ExecutionContextFactory",
-    "StepExecutionResult",
-    "execution_session",
-    "DatabaseEngineAdapter",
-    "create_engine_adapter",
+    "create_execution_context",
 ]

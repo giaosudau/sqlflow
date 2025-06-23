@@ -1,65 +1,53 @@
-"""Simple SQLFlow Executors - V2 Only Implementation.
+"""
+Executor Factory Module
 
-Following the Zen of Python:
-- Simple is better than complex
-- There should be one obvious way to do it
-- Explicit is better than implicit
+This module provides a factory function for creating executor instances.
 
-V2 Goal: get_executor() returns LocalOrchestrator (V2) ONLY
-Clean Architecture: Single responsibility, dependency inversion
+V2 Goal: get_executor() returns ExecutionCoordinator (V2) ONLY
+
+Key principles:
+- Single implementation: Only V2 ExecutionCoordinator
+- No backward compatibility: Clean, simple API
+- Fail fast: Clear error messages if V2 not available
+
+Following Raymond Hettinger's Zen of Python:
+- "There should be one-- and preferably only one --obvious way to do it"
+- "Simple is better than complex"
+- "Explicit is better than implicit"
 """
 
-import os
+import logging
+from typing import Any
 
-from sqlflow.logging import get_logger
-
-# Base executor
 from .base_executor import BaseExecutor
 
-# V2 Executors ONLY
-# Phase 6: Monitoring integration
-from .monitoring import get_monitor
-from .thread_pool_executor import ThreadPoolTaskExecutor
+logger = logging.getLogger(__name__)
 
-logger = get_logger(__name__)
+__all__ = ["get_executor", "BaseExecutor"]
 
 
-def get_executor(**kwargs) -> BaseExecutor:
-    """
-    Get the default executor for SQLFlow operations.
+def get_executor(**kwargs) -> Any:
+    """Create and return executor instance.
 
-    Returns V2 LocalOrchestrator ONLY - clean, simple, predictable.
-    Following the Zen of Python: "There should be one obvious way to do it."
+    Returns V2 ExecutionCoordinator ONLY - clean, simple, predictable.
 
     Args:
-        profile_name: Profile name for configuration (e.g., "dev", "prod")
-        project_dir: Project directory path for configuration
-        **kwargs: Additional executor configuration options
+        **kwargs: Executor configuration parameters
 
     Returns:
-        BaseExecutor: V2 LocalOrchestrator instance
+        ExecutionCoordinator: V2 ExecutionCoordinator instance
+
+    Raises:
+        ImportError: If V2 executor is not available
     """
-    logger.debug("Creating V2 LocalOrchestrator (only option)")
+    logger.debug("Creating V2 ExecutionCoordinator (only option)")
     try:
-        from .v2.orchestrator import LocalOrchestrator
+        from .v2 import ExecutionCoordinator
 
-        return LocalOrchestrator(**kwargs)
+        return ExecutionCoordinator(**kwargs)
     except ImportError as e:
-        logger.error(f"V2 LocalOrchestrator not available: {e}")
+        logger.error(f"V2 ExecutionCoordinator not available: {e}")
         raise ImportError(
-            f"V2 LocalOrchestrator required but not available: {e}. "
-            "Ensure V2 implementation is properly installed."
-        )
-
-
-# V2-only exports
-__all__ = [
-    "BaseExecutor",
-    "ThreadPoolTaskExecutor",
-    "get_executor",
-    "get_monitor",
-]
-
-
-# Phase 6: Initialize monitoring
-logger.info("🚀 SQLFlow Executors: V2 Default, V1 Rollback, Monitoring Enabled")
+            f"V2 ExecutionCoordinator required but not available: {e}. "
+            "Please check your installation."
+        ) from e

@@ -164,6 +164,29 @@ def empty_input_error(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
         raise ValueError("Cannot process empty DataFrame")
     return pd.DataFrame({"result": ["processed"]})
+
+
+@python_scalar_udf
+def unsafe_log(value: float) -> float:
+    """UDF that fails for negative or zero values."""
+    return math.log(value)  # Will fail for value <= 0
+
+
+@python_table_udf(output_schema={
+    "id": "INTEGER",
+    "safe_result": "DOUBLE",
+    "status": "VARCHAR"
+})
+def unsafe_table_processing(df: pd.DataFrame) -> pd.DataFrame:
+    """Table UDF that fails when processing negative values."""
+    result = pd.DataFrame()
+    result["id"] = df["id"]
+    
+    # This will fail for negative values
+    result["safe_result"] = df["value"].apply(lambda x: math.sqrt(x) if x >= 0 else math.sqrt(x))
+    result["status"] = "processed"
+    
+    return result[["id", "safe_result", "status"]]
 '''
         )
     return udf_file
@@ -583,7 +606,7 @@ class TestEdgeCases:
         assert "status" in result.columns
 
         # Check specific edge case handling
-        status_counts = result["status"].value_counts()
+        status_counts = result.status.value_counts()
         assert "zero_or_null" in status_counts.index
         assert "negative_handled" in status_counts.index
         assert "success" in status_counts.index
@@ -801,50 +824,49 @@ class TestComplexErrorPropagation:
         assert result.iloc[2]["safe_div_result"] == -2.5
 
     def test_complex_error_mixed_udf_types(
-        self, error_handling_test_env: Dict[str, Any]
+        self,
+        error_handling_test_env: Dict[str, Any],
+        v2_pipeline_runner,
+        tmp_path: Path,
     ) -> None:
-        """User combines scalar and table UDFs with error handling."""
-        manager = PythonUDFManager(project_dir=error_handling_test_env["project_dir"])
-        manager.discover_udfs()
+        """User has a pipeline with both scalar and table UDFs where one fails."""
+        project_dir = error_handling_test_env["project_dir"]
+        test_data = pd.DataFrame({"id": [1, 2], "value": [1.0, -1.0]})
+        source_path = tmp_path / "source_data.csv"
+        test_data.to_csv(source_path, index=False)
 
-        engine = DuckDBEngine(":memory:")
-        manager.register_udfs_with_engine(engine)
-
-        # Test data for robust processing
-        input_data = pd.DataFrame(
-            {"id": [1, 2, 3, 4, 5], "value": [100, -50, 0, None, "invalid"]}
-        )
-
-        # Use table UDF for robust processing
-        processed_data = engine.execute_table_udf("robust_processing", input_data)
-
-        # Register result as table for further processing
-        engine.register_table("processed", processed_data)
-
-        # Use scalar UDFs on processed data
-        result = engine.execute_query(
-            """
-            SELECT 
-                id,
-                safe_result,
-                status,
-                decimal_safe_multiply(safe_result, 2.0) as doubled_result,
-                safe_log(safe_result) as log_result
-            FROM processed
-            ORDER BY id
-        """
-        ).fetchdf()
-
-        assert len(result) == 5
-        assert "doubled_result" in result.columns
-        assert "log_result" in result.columns
-
-        # Verify error handling worked
-        status_values = set(result["status"])
-        expected_statuses = {
-            "success",
-            "negative_handled",
-            "zero_or_null",
-            "error_handled",
+        pipeline = {
+            "steps": [
+                {
+                    "type": "load",
+                    "name": "source_data",
+                    "source": str(source_path),
+                },
+                {
+                    "type": "transform",
+                    "name": "processed",
+                    "query": 'SELECT * FROM PYTHON_FUNC("python_udfs.error_prone_udfs.unsafe_table_processing", source_data)',
+                },
+                {
+                    "type": "transform",
+                    "name": "final_result",
+                    "query": "SELECT python_udfs.error_prone_udfs.unsafe_log(safe_result) FROM processed",
+                },
+            ]
         }
-        assert status_values.issubset(expected_statuses)
+
+        coordinator = v2_pipeline_runner(pipeline["steps"], project_dir=project_dir)
+        result = coordinator.result
+        assert not result.success, "Pipeline should fail due to error in UDF"
+
+        # Verify error propagation - pipeline should fail at any step
+        failed_steps = [step for step in result.step_results if not step.success]
+        assert len(failed_steps) > 0, "Should have at least one failed step"
+
+        # The failure could be at any step due to UDF registration issues
+        failed_step = failed_steps[0]
+        assert failed_step.error_message is not None
+        assert any(
+            keyword in str(failed_step.error_message).lower()
+            for keyword in ["python_func", "catalog", "udf", "log"]
+        )

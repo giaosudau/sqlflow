@@ -12,6 +12,7 @@ from sqlflow.cli.utils import parse_vars, resolve_pipeline_name
 from sqlflow.core.dependencies import DependencyResolver
 from sqlflow.core.executors import get_executor
 from sqlflow.core.executors.base_executor import BaseExecutor
+from sqlflow.core.executors.v2.orchestration.coordinator import ExecutionCoordinator
 from sqlflow.core.planner_main import Planner
 from sqlflow.core.storage.artifact_manager import ArtifactManager
 from sqlflow.logging import configure_logging, get_logger
@@ -1512,6 +1513,7 @@ def _execute_and_handle_result(
     pipeline_name: str,
     artifact_manager: ArtifactManager,
     start_time: datetime.datetime,
+    execution_id: str,
 ) -> bool:
     """Execute operations and handle the execution result.
 
@@ -1523,6 +1525,7 @@ def _execute_and_handle_result(
         pipeline_name: Name of the pipeline
         artifact_manager: Artifact manager
         start_time: Start time of execution
+        execution_id: Execution ID for tracking
 
     Returns:
     -------
@@ -1535,11 +1538,34 @@ def _execute_and_handle_result(
     try:
         # Execute pipeline with CLI variables
         logger.debug("Calling executor.execute...")
-        result = executor.execute(operations, variables=variables)
-        logger.debug(f"Execution result: {result.get('status', 'unknown')}")
+        if isinstance(executor, ExecutionCoordinator):
+            # Create execution context for V2 executor
+            from sqlflow.core.executors.v2.execution.context import (
+                create_execution_context,
+            )
 
-        # Enhanced error detection - check for any error indicators
-        status = result.get("status", "unknown")
+            context = create_execution_context(
+                engine=getattr(executor, "engine", None),
+                variables=variables or {},
+                execution_id=execution_id,
+                artifact_manager=artifact_manager,
+            )
+            result = executor.execute(operations, context)
+        else:
+            result = executor.execute(operations, variables=variables)
+
+        # Handle V2 ExecutionResult object
+        if hasattr(result, "success"):
+            # V2 ExecutionResult object
+            status = "success" if result.success else "failed"
+            logger.debug(f"Execution result: {status}")
+        else:
+            # Legacy dictionary result
+            if isinstance(result, dict):
+                status = result.get("status", "unknown")
+            else:
+                status = "unknown"
+            logger.debug(f"Execution result: {status}")
 
         # Verify DuckDB tables if needed
         _verify_duckdb_tables(executor)
@@ -1566,10 +1592,23 @@ def _execute_and_handle_result(
             artifact_manager.finalize_execution(pipeline_name, True)
             return True
         elif status in ["failed", "error"]:
-            error_message = result.get("error", result.get("message", "Unknown error"))
+            # Handle V2 ExecutionResult error information
+            if hasattr(result, "failed_steps") and result.failed_steps:
+                # V2 ExecutionResult with failed steps
+                failed_step_result = result.failed_steps[0]  # Get first failed step
+                error_message = failed_step_result.error_message or "Unknown error"
+                failed_step = failed_step_result.step_id
+            else:
+                # Legacy dictionary result
+                if isinstance(result, dict):
+                    error_message = result.get(
+                        "error", result.get("message", "Unknown error")
+                    )
+                    failed_step = result.get("failed_step", "unknown step")
+                else:
+                    error_message = "Unknown error"
+                    failed_step = "unknown step"
 
-            # Enhanced error reporting with step context
-            failed_step = result.get("failed_step", "unknown step")
             detailed_error = f"Failed at {failed_step}: {error_message}"
 
             typer.echo(f"❌ Pipeline failed: {detailed_error}")
@@ -1865,7 +1904,13 @@ def _execute_pipeline_operations_and_report(
 
     # Execute operations and handle result
     return _execute_and_handle_result(
-        executor, operations, variables, pipeline_name, artifact_manager, start_time
+        executor,
+        operations,
+        variables,
+        pipeline_name,
+        artifact_manager,
+        start_time,
+        execution_id,
     )
 
 

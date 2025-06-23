@@ -477,6 +477,13 @@ class TestUpsertTransformHandlerIntegration:
     """Integration tests for UpsertTransformHandler with real DuckDB."""
 
     @pytest.fixture
+    def duckdb_engine(self):
+        """Create real DuckDB engine for testing."""
+        engine = DuckDBEngine(":memory:")
+        yield engine
+        engine.close()
+
+    @pytest.fixture
     def handler(self, duckdb_engine):
         """Create an UpsertTransformHandler for testing."""
         return UpsertTransformHandler(duckdb_engine)

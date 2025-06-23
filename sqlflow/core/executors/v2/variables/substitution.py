@@ -13,17 +13,19 @@ This module embodies the Zen of Python:
 """
 
 import logging
-from string import Template
 from typing import Any, Dict, List
 
 logger = logging.getLogger(__name__)
 
 
 def substitute_variables(text: str, variables: Dict[str, Any]) -> str:
-    """Pure function to substitute variables in text using safe Template substitution.
+    """Pure function to substitute variables in text.
+
+    Supports both ${variable} and {{variable}} syntax for compatibility.
+    Optimized for performance with minimal regex usage.
 
     Args:
-        text: Template string with $variable placeholders
+        text: Template string with $variable or {{variable}} placeholders
         variables: Dictionary of variable names and values
 
     Returns:
@@ -33,7 +35,7 @@ def substitute_variables(text: str, variables: Dict[str, Any]) -> str:
         >>> substitute_variables("Hello $name", {"name": "World"})
         'Hello World'
 
-        >>> substitute_variables("SELECT * FROM $table", {"table": "users"})
+        >>> substitute_variables("SELECT * FROM {{table}}", {"table": "users"})
         'SELECT * FROM users'
     """
     if not isinstance(text, str):
@@ -43,12 +45,92 @@ def substitute_variables(text: str, variables: Dict[str, Any]) -> str:
         return text
 
     try:
-        # Use safe_substitute to avoid KeyError for missing variables
-        template = Template(text)
-        return template.safe_substitute(variables)
+        return _perform_substitution(text, variables)
     except Exception as e:
         logger.debug(f"Variable substitution failed for text '{text[:50]}...': {e}")
         return text
+
+
+def _perform_substitution(text: str, variables: Dict[str, Any]) -> str:
+    """Perform the actual variable substitution with optimizations."""
+    result = text
+
+    # Quick optimization: if no $ or { characters, skip substitution
+    if "$" not in result and "{" not in result:
+        return result
+
+    # Optimize: Only substitute variables that actually appear in the text
+    # This avoids O(n*m) complexity when most variables aren't used
+    relevant_variables = []
+    for key, value in variables.items():
+        # Check if any variable syntax appears in text
+        if f"${key}" in result or f"${{{key}}}" in result or f"{{{{{key}}}}}" in result:
+            relevant_variables.append((key, value))
+
+    if not relevant_variables:
+        return result
+
+    # Sort only the relevant variables by length (longest first) to avoid partial matches
+    relevant_variables.sort(key=lambda x: len(x[0]), reverse=True)
+
+    # Handle all variable syntaxes efficiently
+    for key, value in relevant_variables:
+        result = _substitute_single_variable(result, key, value)
+
+    return result
+
+
+def _substitute_single_variable(text: str, key: str, value: Any) -> str:
+    """Substitute a single variable in all supported syntax forms."""
+    str_value = str(value)
+    result = text
+
+    # Handle {{variable}} syntax (Jinja2-style) - simple replace
+    jinja_placeholder = f"{{{{{key}}}}}"
+    if jinja_placeholder in result:
+        result = result.replace(jinja_placeholder, str_value)
+
+    # Handle ${variable} syntax (shell-style) - simple replace
+    dollar_brace_placeholder = f"${{{key}}}"
+    if dollar_brace_placeholder in result:
+        result = result.replace(dollar_brace_placeholder, str_value)
+
+    # Handle $variable syntax (simple dollar prefix)
+    dollar_placeholder = f"${key}"
+    if dollar_placeholder in result:
+        result = _substitute_dollar_variable(result, key, str_value)
+
+    return result
+
+
+def _substitute_dollar_variable(text: str, key: str, str_value: str) -> str:
+    """Substitute $variable syntax with boundary checking."""
+    dollar_placeholder = f"${key}"
+
+    if dollar_placeholder not in text:
+        return text
+
+    # Split on the placeholder and rejoin with value,
+    # but be careful with boundaries
+    parts = text.split(dollar_placeholder)
+    if len(parts) <= 1:
+        return text
+
+    new_parts = [parts[0]]
+    for i in range(1, len(parts)):
+        # Check if this is a word boundary
+        # (next char is not alphanumeric or _)
+        if _is_word_boundary(parts[i]):
+            new_parts.append(str_value + parts[i])
+        else:
+            new_parts.append(dollar_placeholder + parts[i])
+
+    return "".join(new_parts)
+
+
+def _is_word_boundary(text_after: str) -> bool:
+    """Check if the text represents a word boundary."""
+    return not text_after or (not text_after[0].isalnum() and text_after[0] != "_")
 
 
 def substitute_in_dict(
@@ -64,7 +146,9 @@ def substitute_in_dict(
         New dictionary with variables substituted
 
     Examples:
-        >>> substitute_in_dict({"query": "SELECT * FROM $table"}, {"table": "users"})
+        >>> substitute_in_dict(
+        ...     {"query": "SELECT * FROM $table"}, {"table": "users"}
+        ... )
         {'query': 'SELECT * FROM users'}
     """
     if not isinstance(data, dict) or not variables:
@@ -116,7 +200,8 @@ def substitute_in_step(
 ) -> Dict[str, Any]:
     """Pure function to substitute variables in a pipeline step.
 
-    This is a specialized version of substitute_in_dict optimized for step processing.
+    This is a specialized version of substitute_in_dict
+    optimized for step processing.
 
     Args:
         step: Pipeline step configuration

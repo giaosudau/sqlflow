@@ -1,73 +1,76 @@
-"""V2 Executor: Clean, modular, and maintainable pipeline execution.
+"""SQLFlow V2 Execution Engine.
 
-Refactored following expert recommendations from:
-- Martin Fowler: Parameter Objects, Strategy Pattern, Factory Pattern
-- Kent Beck: Simple Design, Small Methods, Test-Driven Development
-- Robert Martin: SOLID Principles, Clean Code, Clean Architecture
-- Andy Hunt & Dave Thomas: DRY, Orthogonality, Pragmatic Programming
-- Jon Bentley: Performance Awareness, Algorithm Efficiency
+Simple, Pythonic pipeline execution following the Zen of Python:
+- "Simple is better than complex"
+- "Explicit is better than implicit"
+- "Flat is better than nested"
+- "Readability counts"
 
-Architecture:
-- Separated concerns into focused modules
-- Dependency injection for testability
-- Strategy pattern for execution approaches
-- Parameter objects for complex interfaces
-- Builder pattern for result construction
-
-Modules:
-- orchestrator: Main orchestration logic (much smaller now)
-- database_session: Database session management
-- execution_context: Context factory and dependency injection
-- execution_request: Parameter objects and request encapsulation
-- orchestration_strategy: Strategy pattern for different execution approaches
-- result_builder: Result construction with comprehensive metrics
-- handlers_registration: Handler registration logic
+Public API for V2 execution engine.
 """
 
-# Core components for extension and testing
-from .database_session import DatabaseSessionManager
-from .execution_context import ExecutionContextFactory
-from .execution_request import (
-    ExecutionEnvironment,
-    ExecutionSummary,
-    OrchestrationRequest,
+# Core execution components
+from .execution.context import (
+    ExecutionContext,
+    create_execution_context,
+    create_test_context,
+    with_engine,
+    with_variables,
 )
-from .handlers_registration import ensure_handlers_registered
+from .observability.metrics import SimpleObservabilityManager
+from .orchestration.coordinator import ExecutionCoordinator
 
-# Existing components (maintain compatibility)
-from .observability import ObservabilityManager
-from .orchestration_strategy import (
-    OrchestrationStrategy,
-    PipelineExecutionError,
-    SequentialOrchestrationStrategy,
-    VariableSubstitutionMixin,
+# Result models
+from .results.models import (
+    ExecutionResult,
+    StepResult,
+    create_error_result,
+    create_execution_result,
+    create_success_result,
 )
 
-# Main orchestrator (backward compatibility)
-from .orchestrator import LocalOrchestrator
-from .result_builder import ExecutionResultBuilder
-from .results import PipelineExecutionSummary, StepExecutionResult
+# Step definitions and registry
+from .steps.definitions import (
+    ExportFormat,
+    ExportStep,
+    LoadMode,
+    LoadStep,
+    SourceStep,
+    TransformStep,
+    create_step_from_dict,
+)
+from .steps.registry import (
+    StepExecutorRegistry,
+    create_default_registry,
+)
 
+# Clean public API - only what users need
 __all__ = [
-    # Main orchestrator
-    "LocalOrchestrator",
-    # Core components
-    "DatabaseSessionManager",
-    "ExecutionContextFactory",
-    "ExecutionResultBuilder",
-    # Request/response objects
-    "OrchestrationRequest",
-    "ExecutionSummary",
-    "ExecutionEnvironment",
-    # Strategy pattern
-    "OrchestrationStrategy",
-    "SequentialOrchestrationStrategy",
-    "VariableSubstitutionMixin",
-    # Observability and results
-    "ObservabilityManager",
-    "StepExecutionResult",
-    "PipelineExecutionSummary",
-    # Utilities
-    "ensure_handlers_registered",
-    "PipelineExecutionError",
+    # Main execution
+    "ExecutionCoordinator",
+    # Context management
+    "ExecutionContext",
+    "create_execution_context",
+    "create_test_context",
+    "with_variables",
+    "with_engine",
+    # Step definitions
+    "LoadStep",
+    "TransformStep",
+    "ExportStep",
+    "SourceStep",
+    "LoadMode",
+    "ExportFormat",
+    "create_step_from_dict",
+    # Registry
+    "StepExecutorRegistry",
+    "create_default_registry",
+    # Results
+    "ExecutionResult",
+    "StepResult",
+    "create_success_result",
+    "create_error_result",
+    "create_execution_result",
+    # Observability
+    "SimpleObservabilityManager",
 ]
