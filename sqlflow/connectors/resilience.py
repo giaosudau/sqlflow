@@ -271,21 +271,10 @@ class RecoveryConfig:
 class ResilienceConfig:
     """Main configuration for all resilience patterns."""
 
-    retry: Optional[RetryConfig] = None
-    circuit_breaker: Optional[CircuitBreakerConfig] = None
-    rate_limit: Optional[RateLimitConfig] = None
-    recovery: Optional[RecoveryConfig] = None
-
-    def __post_init__(self):
-        """Set defaults if not provided."""
-        if self.retry is None:
-            self.retry = RetryConfig()
-        if self.circuit_breaker is None:
-            self.circuit_breaker = CircuitBreakerConfig()
-        if self.rate_limit is None:
-            self.rate_limit = RateLimitConfig()
-        if self.recovery is None:
-            self.recovery = RecoveryConfig()
+    retry: RetryConfig = field(default_factory=RetryConfig)
+    circuit_breaker: CircuitBreakerConfig = field(default_factory=CircuitBreakerConfig)
+    rate_limit: RateLimitConfig = field(default_factory=RateLimitConfig)
+    recovery: RecoveryConfig = field(default_factory=RecoveryConfig)
 
 
 class RetryHandler:
@@ -826,6 +815,20 @@ class ResilienceManager:
             RecoveryHandler(config.recovery) if config.recovery else None
         )
 
+        # Create default handlers for None components
+        self._ensure_default_handlers()
+
+    def _ensure_default_handlers(self):
+        """Create default handlers for None components."""
+        if self.retry_handler is None:
+            self.retry_handler = RetryHandler(RetryConfig())
+        if self.circuit_breaker is None:
+            self.circuit_breaker = CircuitBreaker(CircuitBreakerConfig(), self.name)
+        if self.rate_limiter is None:
+            self.rate_limiter = RateLimiter(RateLimitConfig())
+        if self.recovery_handler is None:
+            self.recovery_handler = RecoveryHandler(RecoveryConfig())
+
     def execute_resilient_operation(
         self,
         func: Callable,
@@ -943,25 +946,32 @@ def rate_limit(config: RateLimitConfig, key: str = "default"):
     return decorator
 
 
-# Predefined configurations for different connector types
+# Default resilience configuration for database connectors
 DB_RESILIENCE_CONFIG = ResilienceConfig(
     retry=RetryConfig(
         max_attempts=3,
-        initial_delay=1.0,
-        retry_on_exceptions=[
+        initial_delay=0.5,
+        max_delay=10.0,
+        backoff_multiplier=1.5,
+        retry_on_exceptions=PSYCOPG2_EXCEPTIONS
+        + [
+            requests.exceptions.ConnectionError,
+            requests.exceptions.Timeout,
             ConnectionError,
             TimeoutError,
-            # PostgreSQL specific exceptions (if available)
-            *PSYCOPG2_EXCEPTIONS,
         ],
     ),
-    circuit_breaker=CircuitBreakerConfig(failure_threshold=5, recovery_timeout=30.0),
-    rate_limit=RateLimitConfig(max_requests_per_minute=300, burst_size=50),
+    circuit_breaker=CircuitBreakerConfig(
+        failure_threshold=5, recovery_timeout=30.0, success_threshold=2
+    ),
+    rate_limit=RateLimitConfig(max_requests_per_minute=300, burst_size=20),
     recovery=RecoveryConfig(
-        enable_connection_recovery=True, enable_credential_refresh=False
+        enable_connection_recovery=True,
+        enable_credential_refresh=False,  # Usually handled by connection recovery
     ),
 )
 
+# Default resilience configuration for API-based connectors
 API_RESILIENCE_CONFIG = ResilienceConfig(
     retry=RetryConfig(
         max_attempts=5,

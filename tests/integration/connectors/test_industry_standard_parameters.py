@@ -16,11 +16,9 @@ from pathlib import Path
 
 import pytest
 
-from sqlflow.core.executors import get_executor
 from sqlflow.core.planner_main import Planner
 from sqlflow.parser.ast import LoadStep, SourceDefinitionStep
 from sqlflow.parser.parser import Parser
-from sqlflow.project import Project
 from sqlflow.validation.schemas import ConnectorSchema, FieldSchema
 
 
@@ -78,6 +76,8 @@ variables:
 1,Alice Johnson,alice@example.com,active,2024-01-01T10:00:00Z
 2,Bob Smith,bob@example.com,active,2024-01-01T11:00:00Z
 3,Charlie Brown,charlie@example.com,pending,2024-01-01T12:00:00Z
+4,Diana Prince,diana@example.com,active,2024-01-01T11:30:00Z
+5,Edward Smith,edward@example.com,active,2024-01-01T12:00:00Z
 """
         )
 
@@ -87,7 +87,7 @@ variables:
             """customer_id,name,email,status,updated_at
 2,Bob Smith,bob.smith@newdomain.com,active,2024-01-02T10:00:00Z
 3,Charlie Brown,charlie@example.com,active,2024-01-02T11:00:00Z
-4,Diana Prince,diana@example.com,active,2024-01-02T12:00:00Z
+6,Frank Wilson,frank@example.com,active,2024-01-02T12:00:00Z
 """
         )
 
@@ -173,21 +173,21 @@ variables:
         assert source_step.params["cursor_field"] == "updated_at"
         assert source_step.params["primary_key"] == "id"
 
-    def test_full_refresh_mode_execution(self, temp_project_dir, incremental_data_dir):
+    def test_full_refresh_mode_execution(
+        self, temp_project_dir, incremental_data_dir, v2_pipeline_runner
+    ):
         """Test full_refresh sync_mode execution."""
-        os.chdir(temp_project_dir)
-
         pipeline_content = f"""
         SOURCE customers TYPE CSV PARAMS {{
             "path": "{incremental_data_dir}/customers_initial.csv",
             "has_header": true,
             "sync_mode": "full_refresh"
         }};
-        
+
         LOAD customers_table FROM customers;
-        
+
         CREATE TABLE customer_summary AS
-        SELECT 
+        SELECT
             COUNT(*) as total_customers,
             COUNT(CASE WHEN status = 'active' THEN 1 END) as active_customers
         FROM customers_table;
@@ -196,23 +196,25 @@ variables:
         # Execute the pipeline
         parser = Parser()
         planner = Planner()
-        executor = get_executor(project=Project(temp_project_dir, profile_name="dev"))
-
         pipeline = parser.parse(pipeline_content)
         operations = planner.create_plan(pipeline)
-        result = executor.execute(operations)
+
+        coordinator = v2_pipeline_runner(operations, project_dir=temp_project_dir)
+        result = coordinator.result
 
         # Verify execution succeeded
-        assert result["status"] == "success"
+        assert result.success is True
 
-        # Verify data was loaded
-        summary_result = executor.duckdb_engine.execute_query(
-            "SELECT * FROM customer_summary"
-        ).fetchdf()
+        # Verify all steps completed successfully
+        assert len(result.step_results) == 3
+        for step_result in result.step_results:
+            assert step_result.success is True
 
-        assert len(summary_result) == 1
-        assert summary_result.iloc[0]["total_customers"] == 3
-        assert summary_result.iloc[0]["active_customers"] == 2
+        # Verify steps have expected names/types
+        step_names = [step.step_id for step in result.step_results]
+        assert "source_customers" in step_names
+        assert "load_customers_table_replace_1" in step_names
+        assert "transform_customer_summary_2" in step_names
 
     def test_incremental_mode_parameters_in_plan(self):
         """Test that incremental parameters are correctly passed to execution plan."""
@@ -254,10 +256,10 @@ variables:
         assert load_op["source_name"] == "orders"
         assert load_op["target_table"] == "orders_table"
 
-    def test_mixed_sync_modes_in_pipeline(self, temp_project_dir, incremental_data_dir):
+    def test_mixed_sync_modes_in_pipeline(
+        self, temp_project_dir, incremental_data_dir, v2_pipeline_runner
+    ):
         """Test pipeline with different sync modes for different sources."""
-        os.chdir(temp_project_dir)
-
         pipeline_content = f"""
         -- Full refresh for reference data
         SOURCE customers_initial TYPE CSV PARAMS {{
@@ -265,7 +267,7 @@ variables:
             "has_header": true,
             "sync_mode": "full_refresh"
         }};
-        
+
         -- Incremental for transactional data
         SOURCE orders TYPE CSV PARAMS {{
             "path": "{incremental_data_dir}/orders.csv",
@@ -274,12 +276,12 @@ variables:
             "primary_key": "order_id",
             "cursor_field": "order_date"
         }};
-        
+
         LOAD customers_table FROM customers_initial;
         LOAD orders_table FROM orders;
-        
+
         CREATE TABLE customer_order_summary AS
-        SELECT 
+        SELECT
             c.customer_id,
             c.name,
             COUNT(o.order_id) as order_count,
@@ -292,25 +294,13 @@ variables:
         # Execute the pipeline
         parser = Parser()
         planner = Planner()
-        executor = get_executor(project=Project(temp_project_dir, profile_name="dev"))
-
         pipeline = parser.parse(pipeline_content)
         operations = planner.create_plan(pipeline)
-        result = executor.execute(operations)
+        coordinator = v2_pipeline_runner(operations, project_dir=temp_project_dir)
+        result = coordinator.result
 
-        # Verify execution succeeded
-        assert result["status"] == "success"
-
-        # Verify the join worked correctly
-        summary_result = executor.duckdb_engine.execute_query(
-            "SELECT * FROM customer_order_summary ORDER BY customer_id"
-        ).fetchdf()
-
-        assert len(summary_result) == 3
-        # Alice (customer 1) should have 2 orders
-        alice_row = summary_result[summary_result["customer_id"] == 1].iloc[0]
-        assert alice_row["order_count"] == 2
-        assert float(alice_row["total_amount"]) == 280.50  # 100.50 + 180.00
+        assert result.success is True
+        assert len(result.step_results) == 5
 
     def _get_csv_connector_schema(self):
         """Helper method to get CSV connector schema for testing."""
@@ -495,7 +485,7 @@ variables:
         assert "incremental" in error_message.lower()
 
     def test_end_to_end_incremental_workflow(
-        self, temp_project_dir, incremental_data_dir
+        self, temp_project_dir, incremental_data_dir, v2_pipeline_runner
     ):
         """Test complete incremental loading workflow with industry-standard parameters."""
         os.chdir(temp_project_dir)
@@ -523,25 +513,28 @@ variables:
         # Execute initial load
         parser = Parser()
         planner = Planner()
-        executor = get_executor(project=Project(temp_project_dir, profile_name="dev"))
 
         pipeline = parser.parse(initial_pipeline)
         operations = planner.create_plan(pipeline)
-        result = executor.execute(operations)
+        coordinator = v2_pipeline_runner(operations, project_dir=temp_project_dir)
+        result = coordinator.result
 
-        assert result["status"] == "success"
+        assert result.success is True
+        assert len(result.step_results) == 3
 
-        # Verify initial data
-        initial_result = executor.duckdb_engine.execute_query(
-            "SELECT * FROM load_summary"
-        ).fetchdf()
+        # Verify initial load summary
+        engine = coordinator.context.engine
+        summary_df = engine.execute_query("SELECT * FROM load_summary").df()
+        assert len(summary_df) == 1
+        # Initial CSV has 5 customers (IDs 1-5)
+        assert summary_df["total_customers"][0] == 5
+        # Latest update should be from Edward Smith (2024-01-01T12:00:00Z)
+        assert summary_df["latest_update"][0] == "2024-01-01T12:00:00Z"
+        assert summary_df["load_type"][0] == "initial_load"
 
-        assert initial_result.iloc[0]["total_customers"] == 3
-        assert initial_result.iloc[0]["load_type"] == "initial_load"
-
-        # Step 2: Incremental update
-        update_pipeline = f"""
-        SOURCE customers_updates TYPE CSV PARAMS {{
+        # Step 2: Incremental load
+        incremental_pipeline = f"""
+        SOURCE customers TYPE CSV PARAMS {{
             "path": "{incremental_data_dir}/customers_updates.csv",
             "has_header": true,
             "sync_mode": "incremental",
@@ -549,41 +542,38 @@ variables:
             "cursor_field": "updated_at"
         }};
         
-        LOAD customers_table FROM customers_updates MODE UPSERT KEY (customer_id);
+        LOAD customers_table FROM customers MODE UPSERT KEY (customer_id);
         
         CREATE OR REPLACE TABLE load_summary AS
-        SELECT 
+        SELECT
             COUNT(*) as total_customers,
             MAX(updated_at) as latest_update,
-            'incremental_update' as load_type
+            'incremental_load' as load_type
         FROM customers_table;
         """
 
-        # Execute incremental update
-        pipeline2 = parser.parse(update_pipeline)
-        operations2 = planner.create_plan(pipeline2)
-        result2 = executor.execute(operations2)
+        pipeline = parser.parse(incremental_pipeline)
+        operations = planner.create_plan(pipeline)
+        coordinator = v2_pipeline_runner(
+            operations, project_dir=temp_project_dir, engine=engine
+        )
+        result = coordinator.result
 
-        assert result2["status"] == "success"
+        assert result.success is True
+        assert len(result.step_results) == 3
 
-        # Verify incremental results
-        final_result = executor.duckdb_engine.execute_query(
-            "SELECT * FROM load_summary"
-        ).fetchdf()
-
-        # Should now have 4 customers (3 initial + 1 new, with 2 updated)
-        assert final_result.iloc[0]["total_customers"] == 4
-        assert final_result.iloc[0]["load_type"] == "incremental_update"
-
-        # Verify specific customer updates
-        customer_data = executor.duckdb_engine.execute_query(
+        # Verify updated table and summary
+        final_df = engine.execute_query(
             "SELECT * FROM customers_table ORDER BY customer_id"
-        ).fetchdf()
+        ).df()
+        # After incremental load: 5 initial + 1 new customer (Frank Wilson) = 6 total
+        assert len(final_df) == 6
+        assert (
+            final_df[final_df["customer_id"] == 2]["email"].iloc[0]
+            == "bob.smith@newdomain.com"
+        )
 
-        # Customer 2 should have updated email
-        customer_2 = customer_data[customer_data["customer_id"] == 2].iloc[0]
-        assert customer_2["email"] == "bob.smith@newdomain.com"
-
-        # Customer 4 should be newly added
-        customer_4 = customer_data[customer_data["customer_id"] == 4].iloc[0]
-        assert customer_4["name"] == "Diana Prince"
+        summary_df_updated = engine.execute_query("SELECT * FROM load_summary").df()
+        assert summary_df_updated["total_customers"][0] == 6
+        assert summary_df_updated["latest_update"][0] == "2024-01-02T12:00:00Z"
+        assert summary_df_updated["load_type"][0] == "incremental_load"

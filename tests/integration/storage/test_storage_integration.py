@@ -326,7 +326,7 @@ class TestStorageEngineIntegration:
     """Test integration between storage components and engines."""
 
     def test_storage_with_engine_execution(
-        self, persistent_storage_setup: dict[str, Any]
+        self, persistent_storage_setup: dict[str, Any], v2_pipeline_runner
     ):
         """Test storage integration with engine execution."""
         setup = persistent_storage_setup
@@ -371,6 +371,13 @@ class TestStorageEngineIntegration:
         state_backend.create_run(
             run_id, {"artifact_execution_id": execution_id, "engine_type": "duckdb"}
         )
+
+        # Run pipeline
+        coordinator = v2_pipeline_runner(
+            plan["steps"], engine=engine, artifact_manager=artifact_manager
+        )
+
+        assert coordinator.result.success
 
         # Execute query through engine
         result = engine.execute_query(

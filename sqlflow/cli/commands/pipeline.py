@@ -88,12 +88,17 @@ def _execute_pipeline_with_progress(
         Execution results dictionary
     """
     from sqlflow.cli.factories import create_executor_for_command
+    from sqlflow.core.engines.duckdb.engine import DuckDBEngine
+    from sqlflow.core.executors.v2.execution.context import create_test_context
 
     def executor_callback(operation):
         """Callback function to execute a single operation."""
         executor = create_executor_for_command(profile, variables)
         try:
-            result = executor.execute([operation], variables)
+            # Create proper ExecutionContext for V2
+            engine = DuckDBEngine(":memory:")
+            context = create_test_context(engine=engine, variables=variables or {})
+            result = executor.execute([operation], context)
             return {"status": "success", "result": result}
         except Exception as e:
             return {"status": "error", "message": str(e)}

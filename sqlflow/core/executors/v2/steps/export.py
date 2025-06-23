@@ -5,13 +5,15 @@ Clean, focused implementation with proper error handling.
 """
 
 import time
+from contextlib import nullcontext
 from dataclasses import dataclass
 from typing import Any
 
 from sqlflow.logging import get_logger
 
 from ..protocols.core import ExecutionContext, Step
-from .base import BaseStepExecutor, StepExecutionResult
+from ..results.models import StepResult
+from .base import BaseStepExecutor
 
 logger = get_logger(__name__)
 
@@ -28,13 +30,9 @@ class ExportStepExecutor(BaseStepExecutor):
 
     def can_execute(self, step: Any) -> bool:
         """Check if this executor can handle the step."""
-        if hasattr(step, "type"):
-            return step.type == "export"
-        elif isinstance(step, dict):
-            return step.get("type") == "export"
-        return False
+        return hasattr(step, "step_type") and step.step_type == "export"
 
-    def execute(self, step: Step, context: ExecutionContext) -> StepExecutionResult:
+    def execute(self, step: Step, context: ExecutionContext) -> StepResult:
         """Execute export step with focused implementation."""
         start_time = time.time()
         step_id = getattr(step, "id", "unknown")
@@ -77,16 +75,9 @@ class ExportStepExecutor(BaseStepExecutor):
 
     def _extract_export_details(self, step: Step) -> tuple[str, str, str]:
         """Extract export step details with validation."""
-        if hasattr(step, "source_table"):
-            source_table = step.source_table
-            destination = getattr(step, "destination", "")
-            export_format = getattr(step, "format", "csv")
-        elif isinstance(step, dict):
-            source_table = step.get("source_table", "")
-            destination = step.get("destination", "")
-            export_format = step.get("format", "csv")
-        else:
-            raise ValueError(f"Invalid step format: {type(step)}")
+        source_table = getattr(step, "source_table", "")
+        destination = getattr(step, "destination", "")
+        export_format = getattr(step, "format", "csv")
 
         # Validation
         if not source_table:
@@ -98,55 +89,78 @@ class ExportStepExecutor(BaseStepExecutor):
 
     def _read_source_data(self, source_table: str, context: ExecutionContext):
         """Read data from the source table."""
-        session = context.session
+        engine = context.engine
 
-        # Execute query to get data
+        if not engine:
+            raise ValueError("No database engine available in execution context")
+
+        # Use engine's execute_query method to get results, then convert to DataFrame
         query = f"SELECT * FROM {source_table}"
-        result = session.execute(query)
+        result = engine.execute_query(query)
 
-        # Convert to appropriate format for export
-        if hasattr(result, "fetchall"):
-            try:
-                # Try to get raw data first
-                data = result.fetchall()
-                return data
-            except Exception:
-                # If fetchall fails, try pandas
-                try:
-                    import pandas as pd
+        # Convert result to pandas DataFrame
+        try:
+            import pandas as pd
 
-                    data = pd.read_sql(query, session.engine)
-                    return data
-                except (ImportError, Exception):
-                    # Fallback to result itself
-                    return result
-        else:
-            return result
+            # For DuckDB engine, the result should have a df() method
+            if hasattr(result, "df"):
+                return result.df()
+            # If result is already a DataFrame, return it
+            elif hasattr(result, "columns") and hasattr(result, "values"):
+                return result
+            # If result has fetchall method (like cursor), convert to DataFrame
+            elif hasattr(result, "fetchall"):
+                rows = result.fetchall()
+                if hasattr(result, "description") and result.description:
+                    columns = [desc[0] for desc in result.description]
+                    return pd.DataFrame(rows, columns=columns)
+                else:
+                    return pd.DataFrame(rows)
+            else:
+                # Last resort: try to convert whatever we got to DataFrame
+                return pd.DataFrame(result)
+
+        except ImportError:
+            raise RuntimeError("pandas is required for export operations")
+        except Exception as e:
+            raise RuntimeError(f"Failed to convert query result to DataFrame: {e}")
 
     def _create_destination_connector(self, step: Step, context: ExecutionContext):
         """Create appropriate connector for the destination."""
-        # Get connector registry from context
         if not hasattr(context, "connector_registry"):
             raise RuntimeError("Context missing connector_registry")
 
         # Extract destination configuration
-        if hasattr(step, "destination"):
-            dest_config = {
-                "destination": step.destination,
-                "format": getattr(step, "format", "csv"),
-                "options": getattr(step, "options", {}),
-            }
-        else:
-            dest_config = step
+        destination_path = getattr(step, "destination", "")
+        export_format = getattr(step, "format", "csv")
+        options = getattr(step, "options", {})
 
-        return context.connector_registry.create_destination_connector(dest_config)
+        # Determine connector type based on file extension
+        if destination_path.endswith(".csv"):
+            connector_type = "csv"
+        elif destination_path.endswith(".parquet"):
+            connector_type = "parquet"
+        elif destination_path.endswith(".json"):
+            connector_type = "json"
+        else:
+            # Default to CSV for unknown extensions
+            connector_type = "csv"
+
+        # Create resolved configuration
+        resolved_config = {
+            "path": destination_path,  # CSV connector expects 'path', not 'destination'
+            "format": export_format,
+            **options,
+        }
+
+        return context.connector_registry.create_destination_connector(
+            connector_type, resolved_config
+        )
 
     def _observability_scope(self, context: ExecutionContext, scope_name: str):
         """Create observability scope for measurements."""
-        if hasattr(context, "observability"):
+        if hasattr(context, "observability") and context.observability is not None:
             return context.observability.measure_scope(scope_name)
         else:
             # Fallback no-op context manager
-            from contextlib import nullcontext
-
             return nullcontext()

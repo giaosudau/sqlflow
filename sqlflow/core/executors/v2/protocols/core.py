@@ -1,195 +1,199 @@
-"""Core protocols for clean architecture.
+"""Core protocols for SQLFlow V2 clean architecture.
 
-Following Python protocol best practices:
-- Define clear interfaces using typing.Protocol
-- Enable structural subtyping (duck typing with type safety)
-- Support dependency inversion principle
-- Allow for easy testing with mock implementations
+Following the Zen of Python and Raymond Hettinger's guidance:
+- "Simple is better than complex"
+- "Explicit is better than implicit"
+- "Beautiful is better than ugly"
+- "Flat is better than nested"
+
+These protocols define the essential contracts using structural typing
+with typing.Protocol - the most Pythonic way to define interfaces.
+
+Design Philosophy:
+- Protocols over abstract base classes (more Pythonic)
+- Composition over inheritance (following Strategy pattern)
+- Immutable data structures where possible
+- Clear separation of concerns
 """
 
-from abc import abstractmethod
 from typing import Any, Dict, Iterator, List, Optional, Protocol
 
-from ..validation import ValidationResult
 
-
+# Core Data Protocols
 class Step(Protocol):
-    """Protocol for pipeline steps."""
+    """Protocol for all step definitions.
 
-    type: str
-    id: str
+    Using structural typing - any object with these attributes
+    can be treated as a Step.
+    """
+
+    @property
+    def id(self) -> str: ...  # noqa
+
+    @property
+    def step_type(self) -> str: ...  # noqa
 
 
 class StepResult(Protocol):
     """Protocol for step execution results."""
 
-    step_id: str
-    status: str
-    message: Optional[str] = None
-    error: Optional[str] = None
-    execution_time: Optional[float] = None
-
-
-class ExecutionContext(Protocol):
-    """Protocol for execution context."""
+    @property
+    def step_id(self) -> str: ...  # noqa
 
     @property
-    def session(self) -> Any:
-        """Database session."""
-        ...
+    def success(self) -> bool: ...  # noqa
 
     @property
-    def variables(self) -> Dict[str, Any]:
-        """Execution variables."""
-        ...
+    def duration_ms(self) -> float: ...  # noqa: E704
 
     @property
-    def profile(self) -> Dict[str, Any]:
-        """Profile configuration."""
-        ...
+    def rows_affected(self) -> int: ...  # noqa
+
+    @property
+    def error_message(self) -> Optional[str]: ...  # noqa
 
 
+# Engine and Data Access Protocols
 class DatabaseEngine(Protocol):
-    """Protocol for database engines."""
+    """Protocol for database engines.
 
-    @abstractmethod
+    Clean interface following the Interface Segregation Principle.
+    """
+
     def execute_query(self, sql: str) -> Any:
-        """Execute SQL query and return results."""
+        """Execute SQL query and return result."""
         ...
 
-    @abstractmethod
-    def create_table_from_dataframe(self, df: Any, table_name: str, **kwargs) -> None:
-        """Create table from pandas DataFrame."""
+    def table_exists(self, table_name: str) -> bool:
+        """Check if table exists."""
         ...
 
-    @abstractmethod
-    def read_table(self, table_name: str) -> Any:
-        """Read table into DataFrame."""
-        ...
-
-
-class StepExecutor(Protocol):
-    """Protocol for step executors."""
-
-    @abstractmethod
-    def execute(self, step: Dict[str, Any], context: ExecutionContext) -> StepResult:
-        """Execute a pipeline step."""
-        ...
-
-    @abstractmethod
-    def can_execute(self, step: Dict[str, Any]) -> bool:
-        """Check if this executor can handle the step."""
+    def get_table_schema(self, table_name: str) -> Dict[str, str]:
+        """Get table schema as column -> type mapping."""
         ...
 
 
-class ConnectorProtocol(Protocol):
+class DataConnector(Protocol):
     """Protocol for data connectors."""
 
-    @abstractmethod
     def read(self) -> Iterator[Any]:
         """Read data from source."""
         ...
 
-    @abstractmethod
-    def write(self, data: Iterator[Any]) -> int:
-        """Write data to destination."""
+    def write(self, data: Any, destination: str) -> int:
+        """Write data to destination, return rows written."""
         ...
 
 
-class VariableSubstitutor(Protocol):
-    """Protocol for variable substitution."""
+# Execution Context Protocol
+class ExecutionContext(Protocol):
+    """Protocol for execution context.
 
-    @abstractmethod
-    def substitute(self, text: str, variables: Dict[str, Any]) -> str:
-        """Substitute variables in text."""
+    Immutable context following the Parameter Object pattern.
+    Carries all dependencies needed for execution.
+    """
+
+    @property
+    def engine(self) -> Optional[DatabaseEngine]:
+        """Database engine instance (optional for testing)."""
         ...
 
-    @abstractmethod
-    def substitute_in_dict(
-        self, data: Dict[str, Any], variables: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """Substitute variables in dictionary."""
+    @property
+    def variables(self) -> Dict[str, Any]:
+        """Execution variables (immutable view)."""
         ...
 
-
-class Validator(Protocol):
-    """Protocol for validation."""
-
-    @abstractmethod
-    def validate(self, data: Any) -> ValidationResult:
-        """Validate data and return result."""
+    @property
+    def observability(self) -> Optional["ObservabilityManager"]:
+        """Observability manager (optional)."""
         ...
 
-
-class ProfileManager(Protocol):
-    """Protocol for profile management."""
-
-    @abstractmethod
-    def load_profile(self, name: str) -> Dict[str, Any]:
-        """Load profile configuration."""
+    @property
+    def source_definitions(self) -> Dict[str, Any]:
+        """Source definitions (immutable view)."""
         ...
 
-    @abstractmethod
-    def get_engine_config(self, profile: Dict[str, Any]) -> Dict[str, Any]:
-        """Extract engine configuration from profile."""
+    def add_source_definition(self, name: str, definition: Dict[str, Any]) -> None:
+        """Add source definition - controlled mutation."""
         ...
 
 
-class UDFRegistry(Protocol):
-    """Protocol for UDF registry."""
+# Observability Protocol
+class ObservabilityManager(Protocol):
+    """Protocol for observability and monitoring.
 
-    @abstractmethod
-    def register_udf(self, name: str, func: Any) -> None:
-        """Register a user-defined function."""
+    Simple interface for performance tracking and metrics.
+    """
+
+    def start_step(self, step_id: str) -> None:
+        """Start monitoring a step."""
         ...
 
-    @abstractmethod
-    def get_udf(self, name: str) -> Optional[Any]:
-        """Get registered UDF."""
+    def end_step(
+        self, step_id: str, success: bool, error: Optional[str] = None
+    ) -> None:
+        """End monitoring a step."""
         ...
 
-    @abstractmethod
-    def list_udfs(self) -> List[str]:
-        """List all registered UDFs."""
+    def record_rows_affected(self, step_id: str, rows: int) -> None:
+        """Record number of rows affected by a step."""
         ...
 
-
-class MetricsCollector(Protocol):
-    """Protocol for metrics collection."""
-
-    @abstractmethod
-    def record_step_start(self, step_id: str) -> None:
-        """Record step start time."""
-        ...
-
-    @abstractmethod
-    def record_step_end(self, step_id: str, status: str) -> None:
-        """Record step completion."""
-        ...
-
-    @abstractmethod
     def get_metrics(self) -> Dict[str, Any]:
         """Get collected metrics."""
         ...
 
 
-class ExecutionStrategy(Protocol):
-    """Protocol for execution strategies."""
+# Execution Protocols
+class StepExecutor(Protocol):
+    """Protocol for step executors.
 
-    @abstractmethod
-    def execute_steps(
-        self, steps: List[Dict[str, Any]], context: ExecutionContext
-    ) -> List[StepResult]:
-        """Execute steps according to strategy."""
+    Following the Strategy Pattern - each executor implements
+    a specific algorithm for handling a step type.
+    """
+
+    def can_execute(self, step: Step) -> bool:
+        """Check if this executor can handle the step."""
+        ...
+
+    def execute(self, step: Step, context: ExecutionContext) -> StepResult:
+        """Execute the step with given context."""
         ...
 
 
-class ResultBuilder(Protocol):
-    """Protocol for building execution results."""
+class ExecutionStrategy(Protocol):
+    """Protocol for execution strategies.
 
-    @abstractmethod
-    def build_result(
-        self, step_results: List[StepResult], context: ExecutionContext
-    ) -> Dict[str, Any]:
-        """Build final execution result."""
+    Different strategies for executing multiple steps:
+    - Sequential: one after another
+    - Parallel: concurrent execution where safe
+    - Streaming: continuous processing
+    """
+
+    def execute(self, steps: List[Step], context: ExecutionContext) -> List[StepResult]:
+        """Execute steps using this strategy."""
+        ...
+
+
+# Utility Protocols
+class VariableSubstitution(Protocol):
+    """Protocol for variable substitution in SQL and configs."""
+
+    def substitute(self, text: str, variables: Dict[str, Any]) -> str:
+        """Substitute variables in text using {{variable}} syntax."""
+        ...
+
+
+class StepRegistry(Protocol):
+    """Protocol for step executor registry.
+
+    Type-safe registry for finding the right executor for each step.
+    """
+
+    def register(self, executor: StepExecutor) -> None:
+        """Register a step executor."""
+        ...
+
+    def find_executor(self, step: Step) -> StepExecutor:
+        """Find executor for the given step."""
         ...

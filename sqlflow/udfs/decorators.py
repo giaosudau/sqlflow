@@ -130,7 +130,9 @@ def _validate_table_udf_input(
 
 
 def _validate_table_udf_output(
-    func: Callable, result: Any, output_schema: Optional[Dict[str, str]] = None
+    func: Callable[..., Any],
+    result: Any,
+    output_schema: Optional[Dict[str, str]] = None,
 ) -> None:
     """Validate the output of a table UDF function.
 
@@ -145,53 +147,97 @@ def _validate_table_udf_output(
         ValueError: If the output is invalid
 
     """
+    _validate_result_is_dataframe(func, result)
+
+    if output_schema:
+        _validate_output_columns(func, result, output_schema)
+        _convert_types_if_needed(result, output_schema)
+
+
+def _validate_result_is_dataframe(func: Callable[..., Any], result: Any) -> None:
+    """Validate that result is a pandas DataFrame."""
     if not isinstance(result, pd.DataFrame):
         raise ValueError(
             f"Table UDF {func.__name__} must return a pandas DataFrame, "
             f"got {type(result)}"
         )
 
-    if output_schema:
-        # Validate result DataFrame has all the expected columns
-        missing_cols = [col for col in output_schema if col not in result.columns]
-        if missing_cols:
-            raise ValueError(
-                f"Table UDF {func.__name__} output is missing expected columns: {missing_cols}"
+
+def _validate_output_columns(
+    func: Callable[..., Any], result: pd.DataFrame, output_schema: Dict[str, str]
+) -> None:
+    """Validate that result DataFrame has all expected columns."""
+    missing_cols = [col for col in output_schema if col not in result.columns]
+    if missing_cols:
+        raise ValueError(
+            f"Table UDF {func.__name__} output is missing expected columns: {missing_cols}"
+        )
+
+
+def _convert_types_if_needed(
+    result: pd.DataFrame, output_schema: Dict[str, str]
+) -> None:
+    """Convert DataFrame column types to match expected schema."""
+    dtype_map = _get_dtype_compatibility_map()
+
+    for col_name, expected_type in output_schema.items():
+        if col_name in result.columns:
+            _convert_column_type_if_compatible(
+                result, col_name, expected_type, dtype_map
             )
 
-        # Check for type compatibility where possible
-        for col_name, expected_type in output_schema.items():
-            if col_name in result.columns:
-                # Map pandas dtype to Python type name for comparison
-                # This is a simplified version; a more robust implementation would
-                # use a comprehensive mapping of pandas dtypes to SQL types
-                dtype_map = {
-                    "int64": ["int", "integer", "int64", "bigint"],
-                    "float64": ["float", "double", "float64", "numeric", "decimal"],
-                    "bool": ["bool", "boolean"],
-                    "object": ["str", "string", "varchar", "text", "char"],
-                }
 
-                actual_dtype = str(result[col_name].dtype).lower()
-                expected_type_lower = expected_type.lower()
+def _get_dtype_compatibility_map() -> Dict[str, List[str]]:
+    """Get mapping of pandas dtypes to compatible SQL types."""
+    return {
+        "int64": ["int", "integer", "int64", "bigint"],
+        "float64": ["float", "double", "float64", "numeric", "decimal"],
+        "bool": ["bool", "boolean"],
+        "object": ["str", "string", "varchar", "text", "char"],
+    }
 
-                # Check if the actual type is compatible with the expected type
-                type_match = False
-                for dtype, compatible_types in dtype_map.items():
-                    if actual_dtype.startswith(dtype) and any(
-                        expected_type_lower.startswith(t) for t in compatible_types
-                    ):
-                        type_match = True
-                        break
 
-                if not type_match:
-                    # This is a warning rather than an error for flexibility
-                    import warnings
+def _convert_column_type_if_compatible(
+    result: pd.DataFrame,
+    col_name: str,
+    expected_type: str,
+    dtype_map: Dict[str, List[str]],
+) -> None:
+    """Convert column type if compatible, otherwise perform explicit conversions."""
+    actual_dtype = str(result[col_name].dtype).lower()
+    expected_type_lower = expected_type.lower()
 
-                    warnings.warn(
-                        f"Column '{col_name}' in {func.__name__} output has type '{actual_dtype}', "
-                        f"which may not be compatible with expected type '{expected_type}'"
-                    )
+    # Check if types are already compatible
+    if _types_are_compatible(actual_dtype, expected_type_lower, dtype_map):
+        return
+
+    # Perform explicit type conversions for common cases
+    _perform_explicit_type_conversion(result, col_name, expected_type)
+
+
+def _types_are_compatible(
+    actual_dtype: str, expected_type_lower: str, dtype_map: Dict[str, List[str]]
+) -> bool:
+    """Check if actual and expected types are compatible."""
+    for dtype, compatible_types in dtype_map.items():
+        if actual_dtype.startswith(dtype) and any(
+            expected_type_lower.startswith(t) for t in compatible_types
+        ):
+            return True
+    return False
+
+
+def _perform_explicit_type_conversion(
+    result: pd.DataFrame, col_name: str, expected_type: str
+) -> None:
+    """Perform explicit type conversions for common cases."""
+    expected_upper = expected_type.upper()
+    current_dtype = result[col_name].dtype
+
+    if expected_upper == "FLOAT" and current_dtype == "int64":
+        result[col_name] = result[col_name].astype("float64")
+    elif expected_upper == "INTEGER" and current_dtype == "float64":
+        result[col_name] = result[col_name].astype("int64")
 
 
 def _create_param_info(

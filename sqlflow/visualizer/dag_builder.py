@@ -1,6 +1,6 @@
 """DAG builder for SQLFlow pipelines."""
 
-from typing import Dict, List
+from typing import Any, Dict, List, Optional
 
 import networkx as nx
 
@@ -98,21 +98,42 @@ class PipelineDAG:
         """
         return not nx.is_directed_acyclic_graph(self.graph)
 
-    def topological_sort(self) -> List[str]:
-        """Sort nodes in topological order.
+    def find_cycle(self) -> Optional[List[str]]:
+        """Find a cycle in the DAG.
 
-        Returns
-        -------
-            List of node IDs in topological order
+        Returns:
+            A list of nodes representing the cycle, or None if no cycle exists.
+        """
+        try:
+            # find_cycle returns edges, so we extract the nodes.
+            cycle_edges = list(nx.find_cycle(self.graph))
+            # To get a clean node path, we take the source node of each edge.
+            return [u for u, v in cycle_edges]
+        except nx.NetworkXNoCycle:
+            return None
 
+    def get_topological_sort(self) -> List[str]:
+        """Get a topological sort of the DAG.
+
+        Returns:
+            A list of nodes in topological order.
         """
         return list(nx.topological_sort(self.graph))
+
+    def get_independent_nodes(self) -> List[str]:
+        """Get all nodes with no incoming dependencies."""
+        return [node for node, in_degree in self.graph.in_degree if in_degree == 0]
+
+    def remove_node(self, node_id: str):
+        """Remove a node and its outgoing edges from the graph."""
+        if self.graph.has_node(node_id):
+            self.graph.remove_node(node_id)
 
 
 class DAGBuilder:
     """Builds a DAG from a pipeline."""
 
-    def build_dag(self, pipeline_steps: List[Dict]) -> PipelineDAG:
+    def build_dag(self, pipeline_steps: List[Dict[str, Any]]) -> PipelineDAG:
         """Build a DAG from pipeline steps.
 
         Args:

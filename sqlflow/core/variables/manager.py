@@ -92,11 +92,8 @@ class VariableManager:
         self._config = config or VariableConfig()
         self._resolved_cache = None  # Cache for resolved variables
 
-        # Initialize error handler
-        from sqlflow.core.variables.error_handling import (
-            ErrorHandler,
-            ErrorStrategy,
-        )
+        # Initialize error handler with default strategy
+        from sqlflow.core.variables.error_handling import ErrorHandler, ErrorStrategy
 
         self._error_handler = ErrorHandler(ErrorStrategy.WARN_CONTINUE)
         self._error_handler.set_total_variables(self._count_total_variables())

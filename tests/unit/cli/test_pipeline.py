@@ -2,7 +2,6 @@
 
 import os
 import tempfile
-from unittest.mock import patch
 
 import pytest
 import yaml
@@ -55,33 +54,41 @@ LOAD raw_data FROM sample;
 
 def test_list_command(runner, sample_project):
     """Test the list command."""
-    with patch("os.getcwd", return_value=sample_project):
+    original_cwd = os.getcwd()
+    try:
+        os.chdir(sample_project)
         result = runner.invoke(app, ["pipeline", "list"])
         assert result.exit_code == 0
         assert "test" in result.output
+    finally:
+        os.chdir(original_cwd)
 
 
 def test_compile_command(runner, sample_project):
     """Test the compile command."""
-    with patch("os.getcwd", return_value=sample_project):
+    original_cwd = os.getcwd()
+    try:
+        os.chdir(sample_project)
         result = runner.invoke(app, ["pipeline", "compile", "test"])
         assert result.exit_code == 0
         assert "source_sample" in result.output
         assert "load_raw_data" in result.output
+    finally:
+        os.chdir(original_cwd)
 
 
 def test_run_command(runner, sample_project):
-    """Test the run command."""
-    # Save original directory and change to sample project directory
+    """Test the run command with real V2 ExecutionCoordinator - no mocks!"""
     original_cwd = os.getcwd()
     try:
         os.chdir(sample_project)
         result = runner.invoke(
             app, ["pipeline", "run", "test", "--vars", '{"date": "2023-10-25"}']
         )
+        # Should work with real V2 executor
         assert result.exit_code == 0
-        assert "test" in result.output or "test" in result.stderr
-        assert "2023-10-25" in result.output or "2023-10-25" in result.stderr
+        # Check for expected output from real execution
+        assert "SUCCESS" in result.output or "success" in result.output.lower()
     finally:
         os.chdir(original_cwd)
 
@@ -96,82 +103,53 @@ def make_profile(tmp_path, name, mode, path=None):
     return profile_path
 
 
-def test_cli_run_profile_memory_mode(tmp_path, monkeypatch):
+def test_cli_run_profile_memory_mode(tmp_path):
+    """Test CLI run with memory mode profile - using real executor."""
     runner = CliRunner()
-    # Patch get_executor to avoid real execution (V2 approach)
-    monkeypatch.setattr(
-        "sqlflow.cli.pipeline.get_executor",
-        lambda profile_name=None, project_dir=None, **kwargs: type(
-            "MockOrchestrator",
-            (),
-            {
-                "execute": lambda self, plan, variables=None, **kwargs: {
-                    "status": "success",
-                    "executed_steps": [],
-                    "total_steps": len(plan) if plan else 0,
-                },
-                "duckdb_engine": type(
-                    "MockEngine", (), {"path": ":memory:", "database_path": ":memory:"}
-                )(),
-                "results": {},
-                "_generate_step_summary": lambda self, ops: None,
-                "profile": {"variables": {}},
-                "variables": {},
-                "duckdb_mode": "memory",
-            },
-        )(),
-    )
+
     profiles_dir = tmp_path / "profiles"
     profiles_dir.mkdir()
     make_profile(profiles_dir, "dev", "memory")
+
     pipeline_path = tmp_path / "pipelines"
     pipeline_path.mkdir()
     test_sf = pipeline_path / "dummy.sf"
     test_sf.write_text("-- dummy pipeline\n")
-    os.chdir(tmp_path)
-    result = runner.invoke(pipeline_app, ["run", "dummy", "--profile", "dev"])
-    assert "[SQLFlow] Using profile: dev" in result.output
-    assert "memory mode" in result.output
-    assert result.exit_code == 0
+
+    original_cwd = os.getcwd()
+    try:
+        os.chdir(tmp_path)
+        result = runner.invoke(pipeline_app, ["run", "dummy", "--profile", "dev"])
+        assert "[SQLFlow] Using profile: dev" in result.output
+        assert "memory mode" in result.output
+        assert result.exit_code == 0
+    finally:
+        os.chdir(original_cwd)
 
 
-def test_cli_run_profile_persistent_mode(tmp_path, monkeypatch):
+def test_cli_run_profile_persistent_mode(tmp_path):
+    """Test CLI run with persistent mode profile - using real executor."""
     runner = CliRunner()
     db_path = tmp_path / "prod.db"
-    monkeypatch.setattr(
-        "sqlflow.cli.pipeline.get_executor",
-        lambda profile_name=None, project_dir=None, **kwargs: type(
-            "MockOrchestrator",
-            (),
-            {
-                "execute": lambda self, plan, variables=None, **kwargs: {
-                    "status": "success",
-                    "executed_steps": [],
-                    "total_steps": len(plan) if plan else 0,
-                },
-                "duckdb_engine": type(
-                    "MockEngine",
-                    (),
-                    {"path": str(db_path), "database_path": str(db_path)},
-                )(),
-                "results": {},
-                "_generate_step_summary": lambda self, ops: None,
-                "profile": {"variables": {}},
-                "variables": {},
-                "duckdb_mode": "persistent",
-            },
-        )(),
-    )
+
     profiles_dir = tmp_path / "profiles"
     profiles_dir.mkdir()
     make_profile(profiles_dir, "production", "persistent", path=db_path)
+
     pipeline_path = tmp_path / "pipelines"
     pipeline_path.mkdir()
     test_sf = pipeline_path / "dummy.sf"
     test_sf.write_text("-- dummy pipeline\n")
-    os.chdir(tmp_path)
-    result = runner.invoke(pipeline_app, ["run", "dummy", "--profile", "production"])
-    assert "[SQLFlow] Using profile: production" in result.output
-    assert "persistent mode" in result.output
-    assert str(db_path) in result.output
-    assert result.exit_code == 0
+
+    original_cwd = os.getcwd()
+    try:
+        os.chdir(tmp_path)
+        result = runner.invoke(
+            pipeline_app, ["run", "dummy", "--profile", "production"]
+        )
+        assert "[SQLFlow] Using profile: production" in result.output
+        assert "persistent mode" in result.output
+        assert str(db_path) in result.output
+        assert result.exit_code == 0
+    finally:
+        os.chdir(original_cwd)

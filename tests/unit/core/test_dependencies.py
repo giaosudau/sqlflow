@@ -1,14 +1,16 @@
 """Tests for the dependency resolver."""
 
 import os
+import shutil
 import tempfile
 
+import duckdb
 import pytest
 import yaml
 
 from sqlflow.core.dependencies import DependencyResolver
 from sqlflow.core.errors import CircularDependencyError
-from sqlflow.core.executors import get_executor
+from sqlflow.core.executors.v2.execution.engines import create_engine_adapter
 
 
 class TestDependencyResolver:
@@ -119,75 +121,64 @@ def make_temp_project_with_profile(duckdb_path=None, mode="persistent"):
 
 
 def test_local_executor_duckdb_path_config(tmp_path):
-    # Use a unique temporary file to avoid lock conflicts during parallel execution
-    import tempfile
+    """Test V2 executor with DuckDB path configuration."""
+    # Create a new file path that doesn't exist yet
+    temp_db_path = os.path.join(tmp_path, "test.db")
 
-    temp_file = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
-    temp_db_path = temp_file.name
-    temp_file.close()  # Close the file but don't delete it
+    # Initialize the file as a valid DuckDB database
+    conn = duckdb.connect(temp_db_path)
+    conn.execute("CREATE TABLE test (id INTEGER)")
+    conn.close()
 
     temp_dir = make_temp_project_with_profile(temp_db_path)
-
-    # Use tmp_path as working directory instead of relying on os.getcwd()
     old_cwd = None
+
     try:
         old_cwd = os.getcwd()
         os.chdir(temp_dir)
     except (FileNotFoundError, OSError):
-        # If current directory doesn't exist, use tmp_path
         os.chdir(str(tmp_path))
-        # Copy the profile to tmp_path
-        import shutil
-
         shutil.copytree(temp_dir, str(tmp_path / "temp_project"))
         os.chdir(str(tmp_path / "temp_project"))
 
     try:
-        executor = get_executor()
-
-        # Clean up the temp db file
+        # Create engine adapter with path
+        engine = create_engine_adapter(engine_type="duckdb", database_path=temp_db_path)
+        assert engine.native_engine.database_path == temp_db_path
+        assert engine.native_engine.is_persistent is True
+    finally:
         try:
             os.unlink(temp_db_path)
         except OSError:
-            pass  # File might not exist or be locked
-
-        # The test should pass regardless of whether it uses the specified path or falls back to memory
-        # During parallel execution, lock conflicts may cause fallback to memory database
-        assert executor.duckdb_engine.database_path in [temp_db_path, ":memory:"]
-    finally:
+            pass
         if old_cwd:
             try:
                 os.chdir(old_cwd)
             except (FileNotFoundError, OSError):
-                pass  # Original directory might not exist anymore
+                pass
 
 
 def test_local_executor_duckdb_path_default(tmp_path):
-    temp_dir = make_temp_project_with_profile(
-        mode="memory"
-    )  # Use memory mode instead of persistent without path
+    """Test V2 executor with default DuckDB path configuration."""
+    temp_dir = make_temp_project_with_profile(mode="memory")
 
-    # Use tmp_path as working directory instead of relying on os.getcwd()
     old_cwd = None
     try:
         old_cwd = os.getcwd()
         os.chdir(temp_dir)
     except (FileNotFoundError, OSError):
-        # If current directory doesn't exist, use tmp_path
         os.chdir(str(tmp_path))
-        # Copy the profile to tmp_path
-        import shutil
-
         shutil.copytree(temp_dir, str(tmp_path / "temp_project"))
         os.chdir(str(tmp_path / "temp_project"))
 
     try:
-        executor = get_executor()
-        # Should use memory mode as specified in the profile
-        assert executor.duckdb_engine.database_path == ":memory:"
+        # Create engine adapter in memory mode
+        engine = create_engine_adapter(engine_type="duckdb", database_path=":memory:")
+        assert engine.native_engine.database_path == ":memory:"
+        assert engine.native_engine.is_persistent is False
     finally:
         if old_cwd:
             try:
                 os.chdir(old_cwd)
             except (FileNotFoundError, OSError):
-                pass  # Original directory might not exist anymore
+                pass

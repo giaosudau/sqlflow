@@ -82,18 +82,27 @@ class TestUpsertOperationRegression:
         TYPE CSV OPTIONS {{ "header": true }};
         """
 
-        # Parse and plan
+        # Execute pipeline
         parser = SQLFlowParser(pipeline_sql)
         pipeline = parser.parse()
         planner = Planner()
         execution_plan = planner.create_plan(pipeline)
 
-        # Execute
+        # V2 Pattern: Create single coordinator with shared context to maintain database state
+        from sqlflow.core.engines.duckdb.engine import DuckDBEngine
+        from sqlflow.core.executors.v2.execution.context import create_test_context
+
         executor = get_executor()
-        result = executor.execute(execution_plan)
+
+        # Create shared context with persistent engine for the pipeline
+        engine = DuckDBEngine(":memory:")
+        context = create_test_context(engine=engine)
+
+        # Execute entire pipeline with shared context
+        result = executor.execute(execution_plan, context)
 
         # Verify execution succeeded
-        assert result["status"] == "success"
+        assert result.success is True
 
         # Verify result file was created
         result_file = os.path.join(data["temp_dir"], "result.csv")
@@ -165,17 +174,27 @@ class TestUpsertOperationRegression:
         TYPE CSV OPTIONS {{ "header": true }};
         """
 
-        # Parse and execute
+        # Execute pipeline
         parser = SQLFlowParser(pipeline_sql)
         pipeline = parser.parse()
         planner = Planner()
         execution_plan = planner.create_plan(pipeline)
 
+        # V2 Pattern: Create single coordinator with shared context to maintain database state
+        from sqlflow.core.engines.duckdb.engine import DuckDBEngine
+        from sqlflow.core.executors.v2.execution.context import create_test_context
+
         executor = get_executor()
-        result = executor.execute(execution_plan)
+
+        # Create shared context with persistent engine for the pipeline
+        engine = DuckDBEngine(":memory:")
+        context = create_test_context(engine=engine)
+
+        # Execute entire pipeline with shared context
+        result = executor.execute(execution_plan, context)
 
         # Verify execution succeeded
-        assert result["status"] == "success"
+        assert result.success is True
 
         # Verify results
         result_file = os.path.join(data["temp_dir"], "sales_result.csv")
@@ -240,36 +259,58 @@ class TestUpsertOperationRegression:
         assert "target_table" in upsert_step
 
     def test_upsert_operation_error_handling(self, setup_test_data):
-        """Test proper error handling when upsert keys don't exist."""
+        """Test that upsert operations handle invalid upsert keys properly.
+
+        V2 Pattern: Invalid upsert keys should cause execution failure with clear error message.
+        """
         data = setup_test_data
 
+        # Pipeline with invalid upsert key that doesn't exist in source data
         pipeline_sql = f"""
         SOURCE users_csv TYPE CSV PARAMS {{
             "path": "{data["users_path"]}", 
             "has_header": true
         }};
         
+        -- Load initial data
         LOAD users_table FROM users_csv MODE REPLACE;
+        
+        -- Try to upsert with nonexistent key (should fail)
         LOAD users_table FROM users_csv MODE UPSERT KEY (nonexistent_key);
         """
 
-        # Parse and plan
+        # Execute pipeline
         parser = SQLFlowParser(pipeline_sql)
         pipeline = parser.parse()
         planner = Planner()
         execution_plan = planner.create_plan(pipeline)
 
-        # Execute - should fail with proper error message
-        executor = get_executor()
-        result = executor.execute(execution_plan)
+        # V2 Pattern: Create single coordinator with shared context
+        from sqlflow.core.engines.duckdb.engine import DuckDBEngine
+        from sqlflow.core.executors.v2.execution.context import create_test_context
 
-        # Should fail but not with "missing upsert key" error from executor
-        # The error should be about the key not existing in the table
-        assert result["status"] == "failed"  # Updated to match actual status
-        # Should not contain the old error message that indicated missing upsert_keys parameter
-        assert "UPSERT operation requires at least one upsert key" not in str(
-            result.get("error", "")
-        )
+        executor = get_executor()
+
+        # Create shared context with persistent engine for the pipeline
+        engine = DuckDBEngine(":memory:")
+        context = create_test_context(engine=engine)
+
+        # Execute entire pipeline with shared context
+        result = executor.execute(execution_plan, context)
+
+        # V2 Pattern: Invalid upsert keys should cause failure (not graceful handling)
+        assert (
+            result.success is False
+        ), "Invalid upsert keys should cause pipeline failure"
+
+        # Verify the error message is helpful
+        failed_step = next(step for step in result.step_results if not step.success)
+        assert (
+            "nonexistent_key" in failed_step.error_message
+        ), "Error should mention the invalid key"
+        assert (
+            "not found" in failed_step.error_message.lower()
+        ), "Error should indicate key not found"
 
     def test_load_step_creation_from_execution_plan(self, setup_test_data):
         """Test that LoadStep objects are created correctly from execution plan."""
@@ -330,12 +371,27 @@ class TestUpsertOperationRegression:
         planner = Planner()
         execution_plan = planner.create_plan(pipeline)
 
-        # Execute - this should work now
+        # Execute pipeline
+        parser = SQLFlowParser(pipeline_sql)
+        pipeline = parser.parse()
+        planner = Planner()
+        execution_plan = planner.create_plan(pipeline)
+
+        # V2 Pattern: Create single coordinator with shared context to maintain database state
+        from sqlflow.core.engines.duckdb.engine import DuckDBEngine
+        from sqlflow.core.executors.v2.execution.context import create_test_context
+
         executor = get_executor()
-        result = executor.execute(execution_plan)
+
+        # Create shared context with persistent engine for the pipeline
+        engine = DuckDBEngine(":memory:")
+        context = create_test_context(engine=engine)
+
+        # Execute entire pipeline with shared context
+        result = executor.execute(execution_plan, context)
 
         # The key assertion: execution should succeed
-        assert result["status"] == "success", f"Execution failed: {result.get('error')}"
+        assert result.success is True, f"Execution failed: {result.error}"
 
         # Simplified verification: just check that upsert_keys are preserved in plan
         upsert_steps = [

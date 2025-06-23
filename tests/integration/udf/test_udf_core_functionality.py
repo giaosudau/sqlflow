@@ -303,131 +303,166 @@ class TestUDFRegistration:
 
 
 class TestUDFExecution:
-    """Test UDF execution in realistic scenarios."""
+    """Test end-to-end execution of UDFs with real data."""
 
     def test_execution_scalar_udf_with_real_data(
-        self, core_udf_test_env: Dict[str, Any]
+        self, core_udf_test_env: Dict[str, Any], v2_pipeline_runner, tmp_path: Path
     ) -> None:
-        """User applies scalar UDF to real dataset."""
-        engine = DuckDBEngine(":memory:")
-        manager = PythonUDFManager(project_dir=core_udf_test_env["project_dir"])
-        manager.discover_udfs()
-        manager.register_udfs_with_engine(engine)
-
-        # Create realistic customer data
-        engine.execute_query(
-            """
-            CREATE TABLE customers AS
-            SELECT * FROM VALUES
-                ('John', 'Smith', 1000.0),
-                ('Jane', 'Doe', 2500.0),
-                ('Bob', 'Johnson', 750.0)
-            AS t(first_name, last_name, purchase_amount)
-        """
+        """User executes query with scalar UDFs on a real dataset."""
+        project_dir = core_udf_test_env["project_dir"]
+        test_data = pd.DataFrame(
+            {
+                "first_name": ["John", "Jane"],
+                "last_name": ["Doe", "Smith"],
+                "amount": [100.0, 200.0],
+            }
         )
+        source_path = tmp_path / "test_data.csv"
+        test_data.to_csv(source_path, index=False)
 
-        # Apply multiple UDFs in single query
-        result = engine.execute_query(
-            """
-            SELECT 
-                format_name(first_name, last_name) as full_name,
-                add_ten(purchase_amount) as adjusted_amount,
-                calculate_tax(purchase_amount) as tax_owed
-            FROM customers
-            ORDER BY purchase_amount DESC
-        """
-        ).fetchdf()
+        pipeline = {
+            "steps": [
+                {
+                    "type": "load",
+                    "name": "sales",
+                    "source": str(source_path),
+                },
+                {
+                    "type": "transform",
+                    "name": "final_data",
+                    "query": """
+                        SELECT
+                            python_udfs.basic_udfs.format_name(first_name, last_name) as full_name,
+                            python_udfs.basic_udfs.calculate_tax(amount, 0.1) as tax
+                        FROM sales
+                    """,
+                },
+            ]
+        }
 
-        assert len(result) == 3
-        assert result.iloc[0]["full_name"] == "Jane Doe"
-        assert result.iloc[0]["adjusted_amount"] == 2510.0
-        assert result.iloc[0]["tax_owed"] == 200.0  # 2500 * 0.08
+        coordinator = v2_pipeline_runner(pipeline["steps"], project_dir=project_dir)
+        result = coordinator.result
+        assert result.success, "Pipeline execution should succeed"
+
+        # Verify results
+        df = coordinator.context.engine.execute_query("SELECT * FROM final_data").df()
+        assert len(df) == 2
+        assert df.iloc[0]["full_name"] == "John Doe"
+        assert df.iloc[1]["tax"] == 20.0
 
     def test_execution_table_udf_with_aggregation(
-        self, core_udf_test_env: Dict[str, Any]
+        self, core_udf_test_env: Dict[str, Any], v2_pipeline_runner, tmp_path: Path
     ) -> None:
-        """User uses table UDF for data aggregation and analysis."""
-        engine = DuckDBEngine(":memory:")
-        manager = PythonUDFManager(project_dir=core_udf_test_env["project_dir"])
-        manager.discover_udfs()
-        manager.register_udfs_with_engine(engine)
-
-        # Create order data as DataFrame for table UDF
-        order_data = pd.DataFrame(
+        """User executes table UDF that performs aggregation."""
+        project_dir = core_udf_test_env["project_dir"]
+        test_data = pd.DataFrame(
             {
-                "order_id": [1, 2, 3, 4, 5],
-                "customer_id": [101, 101, 102, 101, 103],
-                "amount": [250.0, 150.0, 300.0, 100.0, 200.0],
+                "order_id": [1, 2, 3, 4],
+                "customer_id": [101, 102, 101, 103],
+                "amount": [100.0, 150.0, 200.0, 50.0],
             }
         )
+        source_path = tmp_path / "test_data.csv"
+        test_data.to_csv(source_path, index=False)
 
-        # Use table UDF for customer summary programmatically
-        result = engine.execute_table_udf("customer_summary", order_data)
+        pipeline = {
+            "steps": [
+                {
+                    "type": "load",
+                    "name": "orders",
+                    "source": str(source_path),
+                },
+                {
+                    "type": "transform",
+                    "name": "customer_summary",
+                    "query": 'SELECT * FROM PYTHON_FUNC("python_udfs.basic_udfs.customer_summary", orders)',
+                },
+            ]
+        }
 
-        assert len(result) == 3
+        coordinator = v2_pipeline_runner(pipeline["steps"], project_dir=project_dir)
+        result = coordinator.result
+        assert result.success, "Pipeline execution should succeed"
 
-        # Customer 101: 3 orders, $500 total
-        customer_101 = result[result["customer_id"] == 101].iloc[0]
-        assert customer_101["order_count"] == 3
-        assert customer_101["total_amount"] == 500.0
-
-        # Customer 102: 1 order, $300 total
-        customer_102 = result[result["customer_id"] == 102].iloc[0]
-        assert customer_102["order_count"] == 1
-        assert customer_102["total_amount"] == 300.0
+        # Verify results
+        df = coordinator.context.engine.execute_query(
+            "SELECT * FROM customer_summary ORDER BY customer_id"
+        ).df()
+        assert len(df) == 3
+        summary_101 = df[df["customer_id"] == 101]
+        assert summary_101["total_amount"].iloc[0] == 300.0
+        assert summary_101["order_count"].iloc[0] == 2
 
     def test_execution_udfs_in_complex_query(
-        self, core_udf_test_env: Dict[str, Any]
+        self, core_udf_test_env: Dict[str, Any], v2_pipeline_runner, tmp_path: Path
     ) -> None:
-        """User combines multiple UDFs in complex analytical query."""
-        engine = DuckDBEngine(":memory:")
-        manager = PythonUDFManager(project_dir=core_udf_test_env["project_dir"])
-        manager.discover_udfs()
-        manager.register_udfs_with_engine(engine)
+        """User combines table UDFs with other SQL operations like JOINs."""
+        project_dir = core_udf_test_env["project_dir"]
 
-        # Create sales data as DataFrame for table UDF
+        # Create test data
         sales_data = pd.DataFrame(
             {
-                "period": ["2024-Q1", "2024-Q2", "2024-Q3", "2024-Q4"],
-                "revenue": [100000.0, 120000.0, 110000.0, 135000.0],
+                "order_id": [1, 2, 3],
+                "customer_id": [101, 102, 101],
+                "amount": [100.0, 200.0, 50.0],
             }
         )
+        sales_path = tmp_path / "sales.csv"
+        sales_data.to_csv(sales_path, index=False)
 
-        # Use table UDF to get enriched data first
-        enriched_data = engine.execute_table_udf("revenue_analysis", sales_data)
+        customer_data = pd.DataFrame(
+            {"id": [101, 102], "name": ["John Doe", "Jane Smith"]}
+        )
+        customers_path = tmp_path / "customers.csv"
+        customer_data.to_csv(customers_path, index=False)
 
-        # Register the result as a table for SQL query
-        engine.register_table("enriched", enriched_data)
+        pipeline = {
+            "steps": [
+                {
+                    "type": "load",
+                    "name": "sales",
+                    "source": str(sales_path),
+                },
+                {
+                    "type": "load",
+                    "name": "customers",
+                    "source": str(customers_path),
+                },
+                {
+                    "type": "transform",
+                    "name": "customer_summary_data",
+                    "query": 'SELECT * FROM PYTHON_FUNC("python_udfs.basic_udfs.customer_summary", sales)',
+                },
+                {
+                    "type": "transform",
+                    "name": "enriched_customer_data",
+                    "query": """
+                        SELECT
+                            c.name,
+                            cs.total_amount,
+                            cs.order_count
+                        FROM customers c
+                        JOIN customer_summary_data cs ON c.id = cs.customer_id
+                    """,
+                },
+            ]
+        }
+        coordinator = v2_pipeline_runner(pipeline["steps"], project_dir=project_dir)
+        result = coordinator.result
+        assert result.success, "Pipeline should succeed"
 
-        # Complex query using both table and scalar UDFs
-        result = engine.execute_query(
-            """
-            SELECT 
-                period,
-                revenue,
-                growth_rate,
-                add_ten(growth_rate) as adjusted_growth_rate,
-                calculate_tax(revenue, 0.25) as tax_estimate
-            FROM enriched
-            ORDER BY period
-        """
-        ).fetchdf()
-
-        assert len(result) == 4
-
-        # Q2 should show growth compared to Q1
-        q2_data = result[result["period"] == "2024-Q2"].iloc[0]
-        assert q2_data["growth_rate"] == pytest.approx(
-            20.0, rel=1e-6
-        )  # (120k - 100k) / 100k * 100
-        assert q2_data["adjusted_growth_rate"] == pytest.approx(
-            30.0, rel=1e-6
-        )  # 20 + 10
-        assert q2_data["tax_estimate"] == 30000.0  # 120k * 0.25
+        # Verify results
+        df = coordinator.context.engine.execute_query(
+            "SELECT * FROM enriched_customer_data"
+        ).df()
+        assert len(df) == 2
+        john_doe = df[df["name"] == "John Doe"].iloc[0]
+        assert john_doe["total_amount"] == 150.0
+        assert john_doe["order_count"] == 2
 
 
 class TestUDFQueryProcessing:
-    """Test UDF query processing and substitution."""
+    """Test query processing and substitution with UDFs."""
 
     def test_query_processing_with_variable_substitution(
         self, core_udf_test_env: Dict[str, Any]
@@ -474,42 +509,43 @@ class TestUDFQueryProcessing:
         assert widget_b["tax"] == 7.5  # 75 * 0.1
 
     def test_query_processing_preserves_udf_functionality(
-        self, core_udf_test_env: Dict[str, Any]
+        self, core_udf_test_env: Dict[str, Any], v2_pipeline_runner, tmp_path: Path
     ) -> None:
-        """User's complex queries with UDFs are processed correctly."""
-        engine = DuckDBEngine(":memory:")
-        manager = PythonUDFManager(project_dir=core_udf_test_env["project_dir"])
-        manager.discover_udfs()
-        manager.register_udfs_with_engine(engine)
+        """User has a query with both variables and UDFs, which should be processed correctly."""
+        project_dir = core_udf_test_env["project_dir"]
 
-        # Use table UDF programmatically to create enriched data
-        input_data = pd.DataFrame({"id": [1, 2], "value": [100.0, 200.0]})
+        test_data = pd.DataFrame({"value": [10, 20, 30]})
+        source_path = tmp_path / "test_data.csv"
+        test_data.to_csv(source_path, index=False)
 
-        enriched_data = engine.execute_table_udf("enrich_data", input_data)
-        engine.register_table("step2", enriched_data)
+        pipeline = {
+            "variables": {"TAX_RATE": 0.2},
+            "steps": [
+                {
+                    "type": "load",
+                    "name": "step1",
+                    "source": str(source_path),
+                },
+                {
+                    "type": "transform",
+                    "name": "step2",
+                    "query": "SELECT python_udfs.basic_udfs.calculate_tax(value, {{TAX_RATE}}) as tax FROM step1",
+                },
+            ],
+        }
 
-        # Multi-step query with CTEs and UDFs
-        query = """
-            SELECT 
-                id,
-                value,
-                category,
-                add_ten(value) as enhanced_value,
-                format_name(category, 'tier') as tier_name
-            FROM step2
-            ORDER BY id
-        """
+        coordinator = v2_pipeline_runner(
+            pipeline["steps"],
+            project_dir=project_dir,
+            variables=pipeline.get("variables"),
+        )
+        result = coordinator.result
+        assert result.success, "Pipeline execution should succeed"
 
-        result = engine.execute_query(query).fetchdf()
-
-        assert len(result) == 2
-        assert result.iloc[0]["category"] == "medium"  # 100 -> medium
-        assert result.iloc[0]["enhanced_value"] == 110.0
-        assert result.iloc[0]["tier_name"] == "medium tier"
-
-        assert result.iloc[1]["category"] == "high"  # 200 -> high
-        assert result.iloc[1]["enhanced_value"] == 210.0
-        assert result.iloc[1]["tier_name"] == "high tier"
+        # Verify results
+        df = coordinator.context.engine.execute_query("SELECT * FROM step2").df()
+        assert len(df) == 3
+        assert df["tax"].tolist() == [2.0, 4.0, 6.0]
 
 
 class TestUDFNamespaceIsolation:

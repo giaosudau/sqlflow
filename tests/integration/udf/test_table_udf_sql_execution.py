@@ -6,13 +6,11 @@ were returning error messages instead of being executed externally.
 """
 
 import tempfile
+from pathlib import Path
 from typing import Any, Dict
 
 import pandas as pd
 import pytest
-
-from sqlflow.core.engines.duckdb import DuckDBEngine
-from sqlflow.udfs.manager import PythonUDFManager
 
 
 @pytest.fixture
@@ -66,14 +64,11 @@ def add_sales_calculations(df: pd.DataFrame) -> pd.DataFrame:
 class TestTableUDFSQLExecution:
     """Test table UDF execution in actual SQL queries."""
 
-    def test_table_udf_in_from_clause_basic(self, table_udf_test_env: Dict[str, Any]):
+    def test_table_udf_in_from_clause_basic(
+        self, table_udf_test_env: Dict[str, Any], v2_pipeline_runner, tmp_path: Path
+    ):
         """Test basic table UDF execution in FROM clause - this would have caught the bug."""
-        engine = DuckDBEngine(":memory:")
-        manager = PythonUDFManager(project_dir=table_udf_test_env["project_dir"])
-
-        # Discover and register UDFs
-        manager.discover_udfs()
-        manager.register_udfs_with_engine(engine)
+        project_dir = table_udf_test_env["project_dir"]
 
         # Create test data
         test_data = pd.DataFrame(
@@ -85,20 +80,36 @@ class TestTableUDFSQLExecution:
                 "quantity": [2, 1, 3],
             }
         )
+        source_path = tmp_path / "sales_data.csv"
+        test_data.to_csv(source_path, index=False)
 
-        # Register test data
-        engine.register_table("sales_data", test_data)
+        pipeline = {
+            "project": "udf_from_clause_test",
+            "pipeline": "basic_test",
+            "steps": [
+                {
+                    "type": "load",
+                    "name": "sales_data",
+                    "source": str(source_path),
+                },
+                {
+                    "type": "transform",
+                    "name": "calculated_sales",
+                    "query": 'SELECT * FROM PYTHON_FUNC("python_udfs.test_table_udfs.add_sales_calculations", sales_data)',
+                },
+            ],
+        }
 
-        # THIS IS THE CRITICAL TEST - Execute SQL with table UDF in FROM clause
-        # Use the proper UDF query processing path
-        query = 'SELECT * FROM PYTHON_FUNC("python_udfs.test_table_udfs.add_sales_calculations", sales_data)'
+        # Execute pipeline
+        coordinator = v2_pipeline_runner(pipeline["steps"], project_dir=project_dir)
+        result = coordinator.result
+        assert result.success
 
-        # Process query for UDFs first (this is what LocalExecutor does)
-        processed_query = engine.process_query_for_udfs(query, manager.udfs)
-        result = engine.execute_query(processed_query)
-        df = result.fetchdf()
+        # Verify the table UDF was actually executed
+        df = coordinator.context.engine.execute_query(
+            "SELECT * FROM calculated_sales"
+        ).df()
 
-        # Verify the table UDF was actually executed (not just error messages)
         assert len(df) == 3, "Should return 3 rows"
         assert "total" in df.columns, "Should have 'total' column added by UDF"
         assert "tax" in df.columns, "Should have 'tax' column added by UDF"
@@ -106,21 +117,17 @@ class TestTableUDFSQLExecution:
             "final_price" in df.columns
         ), "Should have 'final_price' column added by UDF"
 
-        # Verify calculations are correct (proves UDF was executed, not error message)
+        # Verify calculations are correct
         first_row = df.iloc[0]
         assert first_row["total"] == 100.0, "50.0 * 2 = 100.0"
         assert first_row["tax"] == 8.0, "100.0 * 0.08 = 8.0"
         assert first_row["final_price"] == 108.0, "100.0 + 8.0 = 108.0"
 
     def test_table_udf_returns_data_not_error_messages(
-        self, table_udf_test_env: Dict[str, Any]
+        self, table_udf_test_env: Dict[str, Any], v2_pipeline_runner, tmp_path: Path
     ):
         """Regression test: Ensure table UDFs return actual data, not error messages."""
-        engine = DuckDBEngine(":memory:")
-        manager = PythonUDFManager(project_dir=table_udf_test_env["project_dir"])
-
-        manager.discover_udfs()
-        manager.register_udfs_with_engine(engine)
+        project_dir = table_udf_test_env["project_dir"]
 
         # Create test data
         test_data = pd.DataFrame(
@@ -132,14 +139,34 @@ class TestTableUDFSQLExecution:
                 "quantity": [1, 2],
             }
         )
+        source_path = tmp_path / "test_sales.csv"
+        test_data.to_csv(source_path, index=False)
 
-        engine.register_table("test_sales", test_data)
+        pipeline = {
+            "project": "udf_error_msg_test",
+            "pipeline": "regression_test",
+            "steps": [
+                {
+                    "type": "load",
+                    "name": "test_sales",
+                    "source": str(source_path),
+                },
+                {
+                    "type": "transform",
+                    "name": "calculated_sales",
+                    "query": 'SELECT * FROM PYTHON_FUNC("python_udfs.test_table_udfs.add_sales_calculations", test_sales)',
+                },
+            ],
+        }
 
-        # Execute table UDF with proper query processing
-        query = 'SELECT * FROM PYTHON_FUNC("python_udfs.test_table_udfs.add_sales_calculations", test_sales)'
-        processed_query = engine.process_query_for_udfs(query, manager.udfs)
-        result = engine.execute_query(processed_query)
-        df = result.fetchdf()
+        # Execute pipeline
+        coordinator = v2_pipeline_runner(pipeline["steps"], project_dir=project_dir)
+        result = coordinator.result
+        assert result.success
+
+        df = coordinator.context.engine.execute_query(
+            "SELECT * FROM calculated_sales"
+        ).df()
 
         # CRITICAL: Should NOT contain error messages
         column_names = list(df.columns)
@@ -156,14 +183,10 @@ class TestTableUDFSQLExecution:
         assert df.iloc[1]["total"] > 0, "Should have calculated values"
 
     def test_table_udf_external_processing_actually_works(
-        self, table_udf_test_env: Dict[str, Any]
+        self, table_udf_test_env: Dict[str, Any], v2_pipeline_runner, tmp_path: Path
     ):
         """Regression test: Verify external processing workaround is actually functioning."""
-        engine = DuckDBEngine(":memory:")
-        manager = PythonUDFManager(project_dir=table_udf_test_env["project_dir"])
-
-        manager.discover_udfs()
-        manager.register_udfs_with_engine(engine)
+        project_dir = table_udf_test_env["project_dir"]
 
         # Create specific test data to verify UDF processing
         test_data = pd.DataFrame(
@@ -175,14 +198,34 @@ class TestTableUDFSQLExecution:
                 "quantity": [3],
             }
         )
+        source_path = tmp_path / "specific_test.csv"
+        test_data.to_csv(source_path, index=False)
 
-        engine.register_table("specific_test", test_data)
+        pipeline = {
+            "project": "udf_external_processing_test",
+            "pipeline": "regression_test",
+            "steps": [
+                {
+                    "type": "load",
+                    "name": "specific_test",
+                    "source": str(source_path),
+                },
+                {
+                    "type": "transform",
+                    "name": "calculated_data",
+                    "query": 'SELECT * FROM PYTHON_FUNC("python_udfs.test_table_udfs.add_sales_calculations", specific_test)',
+                },
+            ],
+        }
 
-        # Execute table UDF with proper query processing
-        query = 'SELECT * FROM PYTHON_FUNC("python_udfs.test_table_udfs.add_sales_calculations", specific_test)'
-        processed_query = engine.process_query_for_udfs(query, manager.udfs)
-        result = engine.execute_query(processed_query)
-        df = result.fetchdf()
+        # Execute pipeline
+        coordinator = v2_pipeline_runner(pipeline["steps"], project_dir=project_dir)
+        result = coordinator.result
+        assert result.success
+
+        df = coordinator.context.engine.execute_query(
+            "SELECT * FROM calculated_data"
+        ).df()
 
         # Verify the UDF was actually executed with correct calculations
         row = df.iloc[0]
@@ -203,23 +246,11 @@ class TestTableUDFSQLExecution:
             abs(row["final_price"] - expected_final) < 0.01
         ), f"Final should be ~{expected_final}, got {row['final_price']}"
 
-    def test_table_udf_query_transformation_debug(
-        self, table_udf_test_env: Dict[str, Any]
+    def test_table_udf_query_transformation_is_correct_e2e(
+        self, table_udf_test_env: Dict[str, Any], v2_pipeline_runner, tmp_path: Path
     ):
-        """Debug test: Check what happens during query transformation."""
-        engine = DuckDBEngine(":memory:")
-        manager = PythonUDFManager(project_dir=table_udf_test_env["project_dir"])
-
-        manager.discover_udfs()
-        manager.register_udfs_with_engine(engine)
-
-        # Verify UDF was discovered
-        assert (
-            len(manager.udfs) > 0
-        ), f"Should discover UDFs, found: {list(manager.udfs.keys())}"
-        assert (
-            "python_udfs.test_table_udfs.add_sales_calculations" in manager.udfs
-        ), f"Should find specific UDF, available: {list(manager.udfs.keys())}"
+        """Test that the query transformation for table UDFs works end-to-end."""
+        project_dir = table_udf_test_env["project_dir"]
 
         # Create test data
         test_data = pd.DataFrame(
@@ -231,27 +262,33 @@ class TestTableUDFSQLExecution:
                 "quantity": [2],
             }
         )
+        source_path = tmp_path / "debug_test.csv"
+        test_data.to_csv(source_path, index=False)
 
-        engine.register_table("debug_test", test_data)
+        pipeline = {
+            "project": "udf_debug_test",
+            "pipeline": "transformation_test",
+            "steps": [
+                {
+                    "type": "load",
+                    "name": "debug_test",
+                    "source": str(source_path),
+                },
+                {
+                    "type": "transform",
+                    "name": "final_data",
+                    "query": 'SELECT * FROM PYTHON_FUNC("python_udfs.test_table_udfs.add_sales_calculations", debug_test)',
+                },
+            ],
+        }
 
-        # Test query transformation
-        original_query = 'SELECT * FROM PYTHON_FUNC("python_udfs.test_table_udfs.add_sales_calculations", debug_test)'
-        processed_query = engine.process_query_for_udfs(original_query, manager.udfs)
+        # Execute pipeline
+        coordinator = v2_pipeline_runner(pipeline["steps"], project_dir=project_dir)
+        result = coordinator.result
+        assert result.success
 
-        # The processed query should be different from the original
-        assert (
-            processed_query != original_query
-        ), f"Query should be transformed. Original: {original_query}, Processed: {processed_query}"
-
-        # The processed query should NOT contain PYTHON_FUNC
-        assert (
-            "PYTHON_FUNC" not in processed_query
-        ), f"Processed query should not contain PYTHON_FUNC: {processed_query}"
-
-        # Execute the processed query
-        result = engine.execute_query(processed_query)
-        df = result.fetchdf()
-
-        # Verify results
-        assert len(df) == 1, "Should return 1 row"
-        assert "total" in df.columns, "Should have calculated columns"
+        # Verify that the UDF was executed correctly by checking the output
+        df = coordinator.context.engine.execute_query("SELECT * FROM final_data").df()
+        assert len(df) == 1
+        assert "final_price" in df.columns
+        assert df.iloc[0]["final_price"] == 108.0

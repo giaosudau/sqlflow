@@ -82,6 +82,7 @@ dev = [
     "coverage>=7.0.0",
     "pytest>=7.0.0",
     "pytest-cov>=4.1.0",
+    "pytest-timeout>=2.1.0",
     "mock>=5.0.0",
     "moto[s3]>=5.0.0",
     "requests-mock>=1.9.3",
@@ -153,7 +154,8 @@ disallow_incomplete_defs = true
 
 [tool.pytest.ini_options]
 minversion = "6.0"
-addopts = "-ra -q --strict-markers"
+addopts = "-ra -q --strict-markers --timeout=60"
+timeout_method = "thread"
 testpaths = [
     "tests",
 ]
@@ -166,6 +168,7 @@ markers = [
     "integration: marks tests as integration tests",
     "performance: marks tests as performance and load tests",
     "asyncio: marks tests as async functions requiring asyncio",
+    "timeout: marks tests with timeout constraints to prevent hanging",
 ]
 
 [tool.coverage.run]

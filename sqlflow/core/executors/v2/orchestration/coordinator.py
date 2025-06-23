@@ -1,215 +1,185 @@
-"""Main orchestration coordinator - Clean Architecture Implementation.
+"""Clean orchestration coordinator for V2 executor.
 
-This module embodies the principles from the refactoring plan:
-- Single Responsibility: Coordinates execution, doesn't implement details
-- Dependency Inversion: Depends on abstractions (protocols)
-- Open/Closed: Easy to extend with new step types and strategies
-- Composition over Inheritance: Uses dependency injection
+Following Raymond Hettinger's philosophy:
+- "Simple is better than complex"
+- "Flat is better than nested"
+- "Readability counts"
 
-Less than 200 lines as mandated by Raymond Hettinger.
+This coordinator is the heart of the V2 executor, but it's designed
+to be small, focused, and easy to understand. It orchestrates the
+execution of pipeline steps without being a god class.
+
+Key principles:
+- Single responsibility: coordinate step execution
+- Dependency injection: all dependencies passed in
+- Immutable context: no side effects
+- Clear error handling
+
+Maximum complexity: < 150 lines as per the implementation plan.
 """
 
 import logging
 import time
 from typing import Any, Dict, List, Optional
 
-from ..execution import ExecutionContext, StepExecutionResult
-from ..protocols import ExecutionStrategy, StepExecutor
-from ..validation import validate_pipeline, validate_variables
-from ..variables import substitute_in_step
+from sqlflow.core.executors.v2.execution.context import ExecutionContext
+from sqlflow.core.executors.v2.protocols.core import Step, StepResult
+from sqlflow.core.executors.v2.results.models import (
+    ExecutionResult,
+    create_execution_result,
+)
+from sqlflow.core.executors.v2.steps.definitions import create_step_from_dict
+from sqlflow.core.executors.v2.steps.registry import StepExecutorRegistry
 
 logger = logging.getLogger(__name__)
 
 
-class PipelineCoordinator:
-    """Clean pipeline coordinator with dependency injection.
+class ExecutionCoordinator:
+    """Clean, focused orchestration coordinator.
 
-    This class implements the Coordinator pattern:
-    - Orchestrates the execution flow
-    - Delegates actual work to specialized components
-    - Manages the execution context
-    - Handles error propagation and cleanup
-
-    Following Clean Architecture principles:
-    - Dependencies point inward (to abstractions)
-    - Core business logic is isolated
-    - Easy to test with mock implementations
+    This class coordinates the execution of pipeline steps without
+    becoming a god class. It follows the Single Responsibility Principle
+    and uses dependency injection for all its needs.
     """
 
     def __init__(
         self,
-        strategy: ExecutionStrategy,
-        step_executors: List[StepExecutor],
-        enable_validation: bool = True,
+        registry: Optional[StepExecutorRegistry] = None,
+        **kwargs,
     ):
-        """Initialize coordinator with dependencies.
+        """Initialize coordinator with step registry.
 
         Args:
-            strategy: Strategy for executing steps
-            step_executors: List of step executors
-            enable_validation: Whether to validate inputs
+            registry: Step executor registry for clean architecture
+            **kwargs: Additional arguments for extensibility
         """
-        self._strategy = strategy
-        self._step_executors = step_executors
-        self._enable_validation = enable_validation
+        if registry is None:
+            # Create default registry with all standard executors
+            from ..steps.registry import create_default_registry
 
-        logger.info(
-            f"PipelineCoordinator initialized with {len(step_executors)} executors"
-        )
+            registry = create_default_registry()
 
-    def execute_pipeline(
+        self.registry = registry
+        self.result: Optional[ExecutionResult] = None
+        self.context: Optional[ExecutionContext] = None
+
+        logger.info("ExecutionCoordinator initialized")
+
+    def execute(
         self,
         steps: List[Dict[str, Any]],
         context: ExecutionContext,
-        variables: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
-        """Execute pipeline with clean error handling.
+        fail_fast: bool = True,
+    ) -> ExecutionResult:
+        """Execute a complete pipeline.
+
+        Simple, clean execution with fail-fast behavior.
 
         Args:
-            steps: Pipeline steps to execute
+            steps: List of step dictionaries to execute
             context: Execution context
-            variables: Additional variables for substitution
-
-        Returns:
-            Execution result with status and details
+            fail_fast: Whether to stop execution on first failure
         """
-        start_time = time.time()
-        execution_id = context.execution_id
+        self.context = context
+        if not steps:
+            logger.info("Empty pipeline - nothing to execute")
+            self.result = create_execution_result([])
+            return self.result
+
+        logger.info(f"Starting pipeline execution with {len(steps)} steps")
+
+        # Convert dictionary steps to typed steps
+        typed_steps = self._convert_steps(steps, context)
+
+        # Execute each step
+        step_results = []
+        for step in typed_steps:
+            step_result = self._execute_single_step(step, context)
+            step_results.append(step_result)
+
+            # Fail-fast: stop on first failure
+            if not step_result.success and fail_fast:
+                logger.error(f"Pipeline stopped due to step failure: {step.id}")
+                break
+
+        result = create_execution_result(
+            step_results=step_results, variables=context.variables
+        )
+        self.result = result
 
         logger.info(
-            f"Starting pipeline execution {execution_id} with {len(steps)} steps"
+            f"Pipeline execution completed with status: {'success' if result.success else 'failed'}"
         )
+        return result
+
+    def _convert_steps(
+        self, step_dicts: List[Dict[str, Any]], context: ExecutionContext
+    ) -> List[Step]:
+        """Convert dictionary steps to typed steps with variable substitution."""
+        typed_steps = []
+        for step_dict in step_dicts:
+            try:
+                # Apply variable substitution to step configuration
+                if context.variables:
+                    from ..variables.substitution import substitute_in_step
+
+                    step_dict = substitute_in_step(step_dict, context.variables)
+
+                typed_step = create_step_from_dict(step_dict)
+                typed_steps.append(typed_step)
+            except Exception as e:
+                step_id = step_dict.get("id", "unknown")
+                logger.error(f"Failed to convert step {step_id}: {e}")
+                raise ValueError(f"Invalid step definition for '{step_id}': {e}")
+        return typed_steps
+
+    def _execute_single_step(self, step: Step, context: ExecutionContext) -> StepResult:
+        """Execute a single step with proper error handling."""
+        logger.info(f"Executing step: {step.id}")
+
+        # Start observability tracking
+        if context.observability:
+            context.observability.start_step(step.id)
+
+        start_time = time.time()
 
         try:
-            # Validation phase
-            if self._enable_validation:
-                validation_result = self._validate_inputs(steps, variables)
-                if not validation_result["is_valid"]:
-                    return self._build_validation_error_result(
-                        validation_result, start_time
-                    )
+            # Find and execute step
+            executor = self.registry.find_executor(step)
+            result = executor.execute(step, context)
 
-            # Variable substitution phase
-            processed_context = self._prepare_context(context, variables)
-            processed_steps = self._substitute_variables(
-                steps, processed_context.variables
-            )
+            # Record success
+            if context.observability:
+                context.observability.end_step(
+                    step.id, result.success, result.error_message
+                )
+                context.observability.record_rows_affected(
+                    step.id, result.rows_affected
+                )
 
-            # Execution phase
-            step_results = self._strategy.execute_steps(
-                processed_steps, processed_context
-            )
+            duration = (time.time() - start_time) * 1000
+            logger.info(f"Step {step.id} completed in {duration:.1f}ms")
 
-            # Result building phase
-            return self._build_success_result(
-                step_results, start_time, processed_context
-            )
+            return result
 
         except Exception as e:
-            logger.error(f"Pipeline execution {execution_id} failed: {e}")
-            return self._build_error_result(str(e), start_time, execution_id)
+            duration = (time.time() - start_time) * 1000
+            error_msg = str(e)
 
-    def _validate_inputs(
-        self, steps: List[Dict[str, Any]], variables: Optional[Dict[str, Any]]
-    ) -> Dict[str, Any]:
-        """Validate pipeline inputs."""
-        # Validate pipeline structure
-        pipeline_validation = validate_pipeline(steps)
+            # Record failure
+            if context.observability:
+                context.observability.end_step(step.id, False, error_msg)
 
-        # Validate variables if provided
-        variables_validation = None
-        if variables is not None:
-            variables_validation = validate_variables(variables)
+            logger.error(f"Step {step.id} failed after {duration:.1f}ms: {error_msg}")
 
-        errors = []
-        warnings = []
+            # Create error result
+            from sqlflow.core.executors.v2.results.models import create_error_result
 
-        if not pipeline_validation.is_valid:
-            errors.extend(
-                [f"{e.field}: {e.message}" for e in pipeline_validation.errors]
+            return create_error_result(
+                step_id=step.id, duration_ms=duration, error_message=error_msg
             )
-        warnings.extend(pipeline_validation.warnings)
 
-        if variables_validation and not variables_validation.is_valid:
-            errors.extend(
-                [f"{e.field}: {e.message}" for e in variables_validation.errors]
-            )
-        if variables_validation:
-            warnings.extend(variables_validation.warnings)
 
-        return {"is_valid": len(errors) == 0, "errors": errors, "warnings": warnings}
-
-    def _prepare_context(
-        self, context: ExecutionContext, variables: Optional[Dict[str, Any]]
-    ) -> ExecutionContext:
-        """Prepare execution context with variables."""
-        if variables:
-            return context.with_variables(variables)
-        return context
-
-    def _substitute_variables(
-        self, steps: List[Dict[str, Any]], variables: Dict[str, Any]
-    ) -> List[Dict[str, Any]]:
-        """Substitute variables in all steps."""
-        if not variables:
-            return steps
-
-        return [substitute_in_step(step, variables) for step in steps]
-
-    def _build_validation_error_result(
-        self, validation_result: Dict[str, Any], start_time: float
-    ) -> Dict[str, Any]:
-        """Build result for validation errors."""
-        return {
-            "status": "validation_error",
-            "errors": validation_result["errors"],
-            "warnings": validation_result["warnings"],
-            "executed_steps": [],
-            "step_results": [],
-            "total_steps": 0,
-            "execution_time": time.time() - start_time,
-        }
-
-    def _build_success_result(
-        self,
-        step_results: List[StepExecutionResult],
-        start_time: float,
-        context: ExecutionContext,
-    ) -> Dict[str, Any]:
-        """Build successful execution result."""
-        failed_steps = [r for r in step_results if r.status == "error"]
-        overall_status = "failed" if failed_steps else "success"
-
-        return {
-            "status": overall_status,
-            "executed_steps": [r.step_id for r in step_results],
-            "step_results": [
-                {
-                    "step_id": r.step_id,
-                    "status": r.status,
-                    "message": r.message,
-                    "error": r.error,
-                    "execution_time": r.execution_time,
-                    "data": r.data,
-                }
-                for r in step_results
-            ],
-            "total_steps": len(step_results),
-            "execution_time": time.time() - start_time,
-            "execution_id": context.execution_id,
-            "source_definitions": dict(context.source_definitions),
-        }
-
-    def _build_error_result(
-        self, error_message: str, start_time: float, execution_id: str
-    ) -> Dict[str, Any]:
-        """Build error result for unexpected failures."""
-        return {
-            "status": "error",
-            "error": error_message,
-            "executed_steps": [],
-            "step_results": [],
-            "total_steps": 0,
-            "execution_time": time.time() - start_time,
-            "execution_id": execution_id,
-        }
+def create_coordinator(registry: StepExecutorRegistry) -> ExecutionCoordinator:
+    """Factory function for creating execution coordinators."""
+    return ExecutionCoordinator(registry)

@@ -557,12 +557,56 @@ class AdvancedUDFQueryProcessor:
             Query with UDF references replaced
 
         """
-        return re.sub(
+        # First handle PYTHON_FUNC patterns
+        processed_query = re.sub(
             RegexPatterns.UDF_PYTHON_FUNC,
             self._replace_udf_call,
             query,
             flags=re.IGNORECASE,
         )
+
+        # Then handle direct dotted UDF calls like python_udfs.module.function(args)
+        processed_query = self._replace_direct_dotted_udf_calls(processed_query)
+
+        return processed_query
+
+    def _replace_direct_dotted_udf_calls(self, query: str) -> str:
+        """Replace direct dotted UDF calls like python_udfs.module.function(args).
+
+        Args:
+        ----
+            query: Query with potential dotted UDF calls
+
+        Returns:
+        -------
+            Query with dotted UDF calls replaced with simple names
+
+        """
+        # Pattern to match dotted UDF calls: python_udfs.module.function(args)
+        dotted_udf_pattern = (
+            r"\b([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)+)\s*\("
+        )
+
+        def replace_dotted_udf(match):
+            full_name = match.group(1)  # e.g., python_udfs.basic_udfs.calculate_tax
+            flat_name = full_name.split(".")[-1]  # e.g., calculate_tax
+
+            # Check if this is a registered UDF
+            if flat_name in self.engine.registered_udfs:
+                logger.debug(f"Replacing dotted UDF call: {full_name} -> {flat_name}")
+                return f"{flat_name}("
+            else:
+                # Keep original if not a registered UDF
+                return match.group(0)
+
+        processed_query = re.sub(
+            dotted_udf_pattern,
+            replace_dotted_udf,
+            query,
+            flags=re.IGNORECASE,
+        )
+
+        return processed_query
 
     def _replace_udf_call(self, match: re.Match) -> str:
         """Replace a single UDF call match.
