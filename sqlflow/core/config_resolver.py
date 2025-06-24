@@ -1,17 +1,15 @@
-"""Configuration resolution and merging for SQLFlow profile-based connectors.
+"""Configuration Resolution for SQLFlow
 
-This module provides configuration resolution with priority-based merging
-and variable substitution for connector configurations.
-
-Raymond Hettinger: Single source of truth for configuration resolution.
+This module handles configuration merging and variable substitution using
+V2 functional approach for better performance and simplicity.
 """
 
+import json
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from sqlflow.core.profiles import ProfileManager
-from sqlflow.core.variables import substitute_variables
-from sqlflow.core.variables.manager import VariableConfig, VariableManager
+from sqlflow.core.variables import substitute_any
 from sqlflow.logging import get_logger
 
 if TYPE_CHECKING:
@@ -88,21 +86,18 @@ class ConfigurationResolver:
     def __init__(
         self,
         profile_manager: ProfileManager,
-        variable_manager: Optional[VariableManager] = None,
     ):
         """Initialize ConfigurationResolver.
 
         Args:
             profile_manager: ProfileManager instance for profile access
-            variable_manager: VariableManager for variable substitution
         """
         self.profile_manager = profile_manager
-        self.variable_manager = variable_manager or VariableManager(VariableConfig())
 
         # Performance optimization: cache resolved configurations
         self._resolution_cache = {}
 
-        logger.debug("Initialized ConfigurationResolver")
+        logger.debug("Initialized ConfigurationResolver with V2 variables")
 
     def resolve_config(
         self,
@@ -205,7 +200,7 @@ class ConfigurationResolver:
         logger.debug(f"Pre-substitution config: {resolved_config}")
 
         # 5. Apply variable substitution to the final configuration
-        resolved_config = substitute_variables(resolved_config, merged_variables)
+        resolved_config = substitute_any(resolved_config, merged_variables)
 
         # Cache the result
         self._resolution_cache[cache_key] = resolved_config.copy()
@@ -217,8 +212,6 @@ class ConfigurationResolver:
 
     def _build_cache_key(self, config: ResolutionConfig) -> str:
         """Build a hashable cache key using string representation."""
-        import json
-
         # Create a simple, deterministic cache key
         key_dict = {
             "profile": config.profile_name,
@@ -246,7 +239,7 @@ class ConfigurationResolver:
     def substitute_variables(
         self, config: Dict[str, Any], variables: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """Substitute variables in configuration using the variable manager.
+        """Substitute variables in configuration using V2 functions.
 
         Args:
             config: Configuration dictionary with potential variable placeholders
@@ -255,7 +248,7 @@ class ConfigurationResolver:
         Returns:
             Configuration with variables substituted
         """
-        return self.variable_manager.substitute(config)
+        return substitute_any(config, variables)
 
     # Connector defaults - simplified approach
     # Zen of Python: "There should be one obvious way to do it"

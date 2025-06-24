@@ -1,26 +1,42 @@
-"""Unified Variable Management System for SQLFlow.
+"""SQLFlow Variables Module - V2 Implementation Only
 
-This module provides the VariableManager class as the single source of truth
-for variable substitution across the entire codebase.
-
-Following Zen of Python principles:
-- Simple is better than complex
-- There should be one obvious way to do it
-- Explicit is better than implicit
+Pure functional approach following Zen of Python principles.
+Simple, explicit variable substitution without complex class hierarchies.
 """
 
-from .manager import (
-    VariableConfig,
-    VariableManager,
+from .v2 import (  # Core substitution functions; Priority resolution; Context formatting; Validation; Types
+    ValidationResult,
+    VariableContext,
+    VariableError,
+    find_variables,
+    format_for_context,
+    resolve_from_environment,
+    resolve_variables,
+    substitute_any,
+    substitute_in_dict,
+    substitute_in_list,
+    substitute_simple_dollar,
     substitute_variables,
     validate_variables,
 )
-from .validator import VariableValidator
 
 __all__ = [
-    "VariableManager",
-    "VariableConfig",
-    "VariableValidator",
+    # Core substitution functions
     "substitute_variables",
+    "substitute_in_dict",
+    "substitute_in_list",
+    "substitute_simple_dollar",
+    "substitute_any",
+    "find_variables",
+    # Priority resolution
+    "resolve_variables",
+    "resolve_from_environment",
+    # Context formatting
+    "format_for_context",
+    # Validation
     "validate_variables",
+    "VariableError",
+    # Types
+    "VariableContext",
+    "ValidationResult",
 ]

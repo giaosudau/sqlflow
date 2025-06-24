@@ -18,6 +18,8 @@ from .resolution import (
     resolve_variables,
 )
 from .substitution import (
+    find_variables,
+    substitute_any,
     substitute_in_dict,
     substitute_in_list,
     substitute_simple_dollar,
@@ -38,6 +40,8 @@ __all__ = [
     "substitute_in_dict",
     "substitute_in_list",
     "substitute_simple_dollar",
+    "substitute_any",
+    "find_variables",
     # Priority resolution
     "resolve_variables",
     "resolve_from_environment",

@@ -1,19 +1,11 @@
-"""Planner for SQLFlow pipelines.
+"""SQLFlow Execution Plan Builder and Planner.
 
-This module contains the planner that converts a validated SQLFlow DAG
-into a linear, JSON-serialized ExecutionPlan consumable by an executor.
-
-Error Handling Convention:
-- To avoid duplicate error messages, planner methods should avoid logging at ERROR level
-- Instead, log detailed information at DEBUG level and raise appropriately-formatted exceptions
-- PlanningError and EvaluationError objects should contain all user-facing information
-- CLI code is responsible for presenting errors to users in a clean, readable format
-- Variable missing/validation errors are logged at INFO level to help troubleshooting
+Orchestrates the conversion of SQLFlow pipelines into executable plans.
 """
 
 import json
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 from sqlflow.core.dependencies import DependencyResolver
 from sqlflow.core.errors import PlanningError
@@ -27,7 +19,11 @@ from sqlflow.core.planner.interfaces import (
 )
 from sqlflow.core.planner.order_resolver import ExecutionOrderResolver
 from sqlflow.core.planner.step_builder import StepBuilder
-from sqlflow.core.variables.manager import VariableConfig, VariableManager
+from sqlflow.core.variables import (
+    find_variables,
+    resolve_variables,
+    substitute_variables,
+)
 from sqlflow.logging import get_logger
 from sqlflow.parser.ast import (
     ConditionalBlockStep,
@@ -125,15 +121,13 @@ class ExecutionPlanBuilder:
         # Get all variables (including set variables from pipeline)
         all_variables = self._get_effective_variables(pipeline, variables)
 
-        # Create manager for validation
-        config = VariableConfig(cli_variables=all_variables)
-        manager = VariableManager(config)
-
-        # Log comprehensive variable reference report
-        self._log_modern_variable_reference_report(referenced_vars, manager, pipeline)
+        # Use V2 validation approach
+        self._log_modern_variable_reference_report(
+            referenced_vars, all_variables, pipeline
+        )
 
         # Verify all variables have values or defaults
-        self._verify_variable_values_modern(referenced_vars, manager, pipeline)
+        self._verify_variable_values_modern(referenced_vars, all_variables, pipeline)
 
     def _serialize_pipeline_for_validation(self, pipeline: Pipeline) -> str:
         """Serialize pipeline steps to text for variable validation."""
@@ -146,13 +140,13 @@ class ExecutionPlanBuilder:
 
     def _log_modern_variable_reference_report(
         self,
-        referenced_vars: set,
-        manager: VariableManager,
+        referenced_vars: Set[str],
+        all_variables: Dict[str, Any],
         pipeline: Pipeline,
     ) -> None:
-        """Log a detailed report of all variable references using the modern manager."""
+        """Log a detailed report of all variable references using V2 functions."""
         logger.debug("----- Variable Reference Report -----")
-        resolved_vars = manager.get_resolved_variables()
+        resolved_vars = resolve_variables(all_variables, all_variables)
         for var in sorted(referenced_vars):
             if var in resolved_vars:
                 value = resolved_vars[var]
@@ -165,8 +159,8 @@ class ExecutionPlanBuilder:
 
     def _verify_variable_values_modern(
         self,
-        referenced_vars: set,
-        manager: VariableManager,
+        referenced_vars: Set[str],
+        all_variables: Dict[str, Any],
         pipeline: Pipeline,
     ) -> None:
         """Verify all referenced variables have values or defaults.
@@ -177,9 +171,9 @@ class ExecutionPlanBuilder:
         missing_vars = []
         invalid_defaults = []
 
-        resolved_vars = manager.get_resolved_variables()
+        resolved_vars = resolve_variables(all_variables, all_variables)
         for var in referenced_vars:
-            # Check if variable has a value through the manager
+            # Check if variable has a value through the resolved variables
             has_value = var in resolved_vars
             has_default = self._has_default_in_pipeline(var, pipeline)
 
@@ -1270,30 +1264,23 @@ class ExecutionPlanBuilder:
             Flattened pipeline with only steps from true conditions
 
         """
-        # Get pipeline-defined variables including those with defaults
+        # Extract variables defined by SET statements
         defined_vars = self._extract_set_defined_variables(pipeline)
 
-        # Create a complete variable dictionary by combining provided and defined variables
-        all_variables = variables.copy()
-        for var_name, var_value in defined_vars.items():
-            if var_name not in all_variables:
-                all_variables[var_name] = var_value
+        # Merge all variables for condition evaluation (priority: variables > defined_vars)
+        all_variables = defined_vars.copy()
+        all_variables.update(variables)  # variables override defined_vars
+
+        # Log the variables for debugging
+        for var_name, var_value in all_variables.items():
+            if var_name not in variables:
                 logger.debug(
                     f"Added pipeline-defined variable for conditional evaluation: {var_name}={var_value}"
                 )
 
-        # Create a modern VariableManager with priority-based resolution
-        # Note: We don't have access to CLI/profile variables here, so we use all_variables as CLI variables
-        variable_config = VariableConfig(
-            cli_variables=all_variables,
-            profile_variables={},
-            set_variables=defined_vars,
-        )
-        variable_manager = VariableManager(variable_config)
-
-        # Create evaluator with complete variable set and modern variable manager
+        # Create evaluator with complete variable set using V2 approach
         logger.debug(f"Creating ConditionEvaluator with variables: {all_variables}")
-        evaluator = ConditionEvaluator(all_variables, variable_manager)
+        evaluator = ConditionEvaluator(all_variables)
 
         flattened_pipeline = Pipeline()
         for step in pipeline.steps:
@@ -2101,16 +2088,7 @@ class Planner:
         set_variables = self.builder._extract_set_defined_variables(pipeline)
         logger.debug(f"SET variables with defaults from pipeline: {set_variables}")
 
-        # Create VariableManager with priority-based resolution
-        variable_config = VariableConfig(
-            cli_variables=variables,
-            profile_variables=profile_variables,
-            set_variables=set_variables,
-        )
-        variable_manager = VariableManager(variable_config)
-
-        # Build the plan using all variables for validation purposes
-        # For backward compatibility with builder expectations, provide merged variables
+        # Create merged variables with priority: CLI > profile > SET
         all_variables = {}
         if set_variables:
             all_variables.update(set_variables)
@@ -2119,16 +2097,19 @@ class Planner:
         if variables:
             all_variables.update(variables)
 
+        # Build the plan using all variables for validation purposes
         execution_plan = self.builder.build_plan(pipeline, all_variables)
 
-        # Apply variable substitution to the execution plan using the modern manager
-        execution_plan = variable_manager.substitute(execution_plan)
+        # Apply variable substitution to the execution plan using V2 functions
+        execution_plan = substitute_variables(json.dumps(execution_plan), all_variables)
+        execution_plan = json.loads(execution_plan)
 
-        # Check for any missing variables and log warnings
-        # Convert the plan back to text to validate variable usage
+        # Check for any missing variables using V2 validation
         plan_text = json.dumps(execution_plan)
-        validation_result = variable_manager.validate(plan_text)
-        missing_vars = validation_result.missing_variables
+        referenced_vars = find_variables(plan_text)
+        resolved_vars = resolve_variables(all_variables, all_variables)
+        missing_vars = [var for var in referenced_vars if var not in resolved_vars]
+
         if missing_vars:
             logger.warning(
                 f"Plan contains unresolved variables: {', '.join(missing_vars)}"

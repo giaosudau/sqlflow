@@ -18,8 +18,7 @@ except ImportError:
     # This can happen during installation when dependencies are not yet satisfied
     pass
 
-# Import core modules for easier access
-from sqlflow.core.variables import VariableConfig, VariableManager
+# V2 Variables module uses pure functions - no need for global imports
 
 from .exceptions import (
     ConnectorError,
