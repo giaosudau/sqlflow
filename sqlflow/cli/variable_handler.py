@@ -3,11 +3,17 @@
 import logging
 from typing import Any, Dict, Optional, Tuple
 
+from sqlflow.core.variables import (
+    find_variables,
+    resolve_variables,
+    substitute_variables,
+)
+
 logger = logging.getLogger(__name__)
 
 
 class VariableHandler:
-    """Handles variable substitution in SQLFlow pipeline text using centralized engine."""
+    """Handles variable substitution in SQLFlow pipeline text using V2 functions."""
 
     def __init__(self, variables: Optional[Dict[str, Any]] = None):
         """Initialize the variable handler.
@@ -18,13 +24,7 @@ class VariableHandler:
 
         """
         self._variables = variables or {}
-
-        # Use new VariableManager system (Phase 4: Feature flags removed)
-        from sqlflow.core.variables.manager import VariableConfig, VariableManager
-
-        config = VariableConfig(cli_variables=self._variables)
-        self._manager = VariableManager(config)
-        logger.debug("VariableHandler initialized with VariableManager system")
+        logger.debug("VariableHandler initialized with V2 functions")
 
     @property
     def variables(self) -> Dict[str, Any]:
@@ -46,8 +46,8 @@ class VariableHandler:
         if not text:
             return text
 
-        # Use new VariableManager system
-        return self._manager.substitute(text)
+        # Use V2 substitute_variables function
+        return substitute_variables(text, self._variables)
 
     def validate_variable_usage(self, text: str) -> bool:
         """Validate that all required variables are provided.
@@ -61,19 +61,21 @@ class VariableHandler:
             True if all required variables are available or have defaults
 
         """
-        # Use new VariableManager validation
-        result = self._manager.validate(text)
-        if not result.is_valid:
-            logger.error(
-                f"Missing required variables: {', '.join(result.missing_variables)}"
-            )
+        # Use V2 validation functions
+        referenced_vars = find_variables(text)
+        resolved_vars = resolve_variables(self._variables, self._variables)
+        # Extract variable names from VariableInfo objects
+        missing_vars = [
+            var.name for var in referenced_vars if var.name not in resolved_vars
+        ]
+
+        if missing_vars:
+            logger.error(f"Missing required variables: {', '.join(missing_vars)}")
             return False
         return True
 
     def _parse_variable_expr(self, expr: str) -> Tuple[str, Optional[str]]:
         """Parse a variable expression into name and default value.
-
-        This method is kept for backward compatibility but delegates to the engine.
 
         Args:
         ----

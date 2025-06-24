@@ -12,8 +12,7 @@ from typing import Any, Dict, List, Optional
 
 import yaml
 
-from sqlflow.core.variables import substitute_variables
-from sqlflow.core.variables.manager import VariableConfig, VariableManager
+from sqlflow.core.variables import substitute_in_dict
 from sqlflow.logging import get_logger
 
 logger = get_logger(__name__)
@@ -114,7 +113,7 @@ class VariableResolver:
         """Perform one pass of variable substitution."""
         # ZEN OF PYTHON: Simple is better than complex
         # Use utility function - one obvious way to do it
-        return substitute_variables(variables, variables)
+        return substitute_in_dict(variables, variables)
 
     def _has_converged(self, previous: Dict[str, Any], current: Dict[str, Any]) -> bool:
         """Check if variable resolution has converged (no more changes)."""
@@ -135,7 +134,6 @@ class ProfileManager:
         self.environment = environment
         self._profile_cache: Dict[str, Dict[str, Any]] = {}
         self._cache_timestamps: Dict[str, float] = {}
-        self._variable_manager = VariableManager(VariableConfig())
 
         logger.debug(
             f"Initialized ProfileManager for environment '{environment}' in '{profile_dir}'"
@@ -264,9 +262,12 @@ class ProfileManager:
             logger.debug(
                 "Substituting environment variables in profile variables section"
             )
-            substituted_data["variables"] = substitute_variables(
-                substituted_data["variables"], dict(os.environ)
-            )
+            env_vars = dict(os.environ)
+            variables = substituted_data["variables"]
+            if isinstance(variables, dict):
+                substituted_data["variables"] = substitute_in_dict(variables, env_vars)
+            else:
+                substituted_data["variables"] = variables
 
         # Iterative resolution of profile variables that reference each other
         if "variables" in substituted_data:
@@ -287,7 +288,7 @@ class ProfileManager:
 
         # ZEN OF PYTHON: Simple is better than complex
         # Use utility function - one obvious way to do it
-        substituted_data = substitute_variables(substituted_data, profile_variables)
+        substituted_data = substitute_in_dict(substituted_data, profile_variables)
 
         logger.debug("Variable substitution completed")
         return substituted_data
@@ -376,9 +377,10 @@ class ProfileManager:
             ValidationResult with validation status and messages
         """
         if profile_data is None:
-            profile_data = self._load_profile_data(profile_path)
-            if isinstance(profile_data, ValidationResult):
-                return profile_data  # Return error result
+            try:
+                profile_data = self._load_profile_data(profile_path)
+            except ValueError as e:
+                return ValidationResult(is_valid=False, errors=[str(e)], warnings=[])
 
         if profile_data is None:
             profile_data = {}
@@ -400,15 +402,14 @@ class ProfileManager:
         is_valid = len(errors) == 0
         return ValidationResult(is_valid=is_valid, errors=errors, warnings=warnings)
 
-    def _load_profile_data(self, profile_path: str):
-        """Load profile data from file, returning ValidationResult on error."""
+    def _load_profile_data(self, profile_path: str) -> Dict[str, Any]:
+        """Load profile data from file, raising exception on error."""
         try:
             with open(profile_path, "r", encoding="utf-8") as f:
-                return yaml.safe_load(f)
+                data = yaml.safe_load(f)
+                return data if data is not None else {}
         except (OSError, yaml.YAMLError) as e:
-            return ValidationResult(
-                is_valid=False, errors=[f"Failed to load profile: {e}"], warnings=[]
-            )
+            raise ValueError(f"Failed to load profile: {e}")
 
     def _validate_version(
         self, profile_data: Dict[str, Any], warnings: List[str]

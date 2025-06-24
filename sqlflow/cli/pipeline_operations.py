@@ -41,8 +41,12 @@ def compile_pipeline_to_plan(*args, **kwargs):
         # Load pipeline
         pipeline_content = load_pipeline(pipeline_name, project)
 
-        # Substitute variables
-        substituted_content = substitute_variables(pipeline_content, variables or {})
+        # Substitute variables - ensure we pass string content, not Pipeline object
+        if hasattr(pipeline_content, "text") or hasattr(pipeline_content, "__str__"):
+            content_str = str(pipeline_content)
+        else:
+            content_str = pipeline_content
+        substituted_content = substitute_variables(content_str, variables or {})
 
         # Plan pipeline
         operations = plan_pipeline(substituted_content, project, variables)
@@ -130,28 +134,11 @@ def parse_variables(variables_str):
 
 
 def substitute_variables(template: str, variables: dict) -> str:
-    """Substitute variables in template string."""
-    from sqlflow.core.variables.manager import VariableConfig, VariableManager
+    """Substitute variables in template string using V2 functions."""
+    from sqlflow.core.variables import substitute_variables as v2_substitute
 
-    # Create variable configuration
-    config = VariableConfig(
-        cli_variables=variables or {}, profile_variables={}, env_variables={}
-    )
-
-    # Create variable manager
-    manager = VariableManager(config)
-
-    # Validate variables
-    validation_result = manager.validate(template)
-
-    # Log warnings for missing variables
-    if validation_result.missing_variables:
-        logger.warning(
-            f"Missing variables: {', '.join(validation_result.missing_variables)}"
-        )
-
-    # Substitute variables
-    return manager.substitute(template)
+    # Use V2 substitute_variables directly - simpler and more efficient
+    return v2_substitute(template, variables or {})
 
 
 def plan_pipeline(pipeline_text, project, variables):

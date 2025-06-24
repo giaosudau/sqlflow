@@ -5,9 +5,9 @@ This module provides a class to evaluate conditional expressions with variable s
 
 import ast
 import re
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
-from sqlflow.core.variables.manager import VariableConfig, VariableManager
+from sqlflow.core.variables import substitute_variables
 from sqlflow.logging import get_logger
 
 logger = get_logger(__name__)
@@ -31,27 +31,15 @@ class EvaluationError(Exception):
 class ConditionEvaluator:
     """Evaluates conditional expressions with variable substitution."""
 
-    def __init__(
-        self,
-        variables: Dict[str, Any],
-        variable_manager: Optional[VariableManager] = None,
-    ):
+    def __init__(self, variables: Dict[str, Any]):
         """Initialize with a variables dictionary.
 
         Args:
         ----
             variables: Dictionary of variable names to values
-            variable_manager: Optional VariableManager to use for substitution.
-                                If not provided, creates one from variables.
 
         """
         self.variables = variables
-        if variable_manager is not None:
-            self.variable_manager = variable_manager
-        else:
-            # Create manager with variables
-            config = VariableConfig(cli_variables=variables)
-            self.variable_manager = VariableManager(config)
         # Define operators that are allowed
         self.operators = {
             # Comparison operators
@@ -118,8 +106,7 @@ class ConditionEvaluator:
     def substitute_variables(self, condition: str) -> str:
         """Substitute variables in a condition string for condition evaluation.
 
-        Phase 2 Architectural Cleanup: Now uses the unified VariableSubstitutionEngine
-        with AST context for consistent behavior across the system.
+        Uses V2 variable substitution with AST context for consistent behavior.
 
         Args:
         ----
@@ -130,13 +117,9 @@ class ConditionEvaluator:
             Condition with variables substituted and formatted for AST evaluation
 
         """
-        from sqlflow.core.variables.substitution_engine import (
-            VariableSubstitutionEngine,
-        )
-
-        # Create engine with current variables and use AST context
-        engine = VariableSubstitutionEngine(self.variables)
-        return engine.substitute(condition, context="ast")
+        # Use V2 substitute_variables and format for AST context
+        result = substitute_variables(condition, self.variables)
+        return result
 
     def _is_inside_quotes(self, condition: str, start_pos: int, end_pos: int) -> bool:
         """Check if a variable is inside quotes."""
@@ -270,27 +253,12 @@ class ConditionEvaluator:
         -------
             Condition formatted for Python AST evaluation
         """
-        from sqlflow.core.variables.parser import StandardVariableParser
-
         # Handle any remaining unsubstituted variables (missing variables) - convert to None
-        parse_result = StandardVariableParser.find_variables(condition)
+        # Simple pattern matching for ${var} style variables
+        import re
 
-        if parse_result.has_variables:
-            new_parts = []
-            last_end = 0
-
-            for expr in parse_result.expressions:
-                # Append the text between the last match and this one
-                new_parts.append(condition[last_end : expr.span[0]])
-
-                # Convert missing variables to None for AST evaluation
-                new_parts.append("None")
-                last_end = expr.span[1]
-
-            # Append the rest of the string after the last match
-            new_parts.append(condition[last_end:])
-
-            condition = "".join(new_parts)
+        variable_pattern = r"\$\{[^}]+\}"
+        condition = re.sub(variable_pattern, "None", condition)
 
         # Find unquoted identifiers and quote them if they look like string values
         # This handles cases like: global == 'us-east' -> 'global' == 'us-east'

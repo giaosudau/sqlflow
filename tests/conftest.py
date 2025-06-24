@@ -7,7 +7,6 @@ import pandas as pd
 import pytest
 
 from sqlflow.core.engines.duckdb.engine import DuckDBEngine
-from sqlflow.core.variables import VariableConfig
 
 
 @pytest.fixture
@@ -79,21 +78,6 @@ def sample_csv_data_with_headers() -> str:
 
     """
     return "user_id,full_name,email,age\n1,John Doe,john@email.com,25\n2,Jane Smith,jane@email.com,30\n"
-
-
-@pytest.fixture
-def test_variable_config() -> VariableConfig:
-    """Return a test variable configuration.
-
-    Returns
-    -------
-        VariableConfig instance for testing
-
-    """
-    return VariableConfig(
-        cli_variables={"env": "test", "table": "users", "debug": "true"},
-        profile_variables={"db_host": "localhost", "db_port": "5432"},
-    )
 
 
 @pytest.fixture

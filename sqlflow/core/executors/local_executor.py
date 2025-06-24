@@ -658,7 +658,17 @@ class LocalExecutor(BaseExecutor):
 
             # Create V2 execution context if any V2 features are enabled
             if self._use_v2_load or self._use_v2_observability:
-                # Create proper VariableManager with VariableConfig
+                # Use V2 variable resolution for execution context
+                from sqlflow.core.variables import resolve_variables
+
+                # Create resolved variables for V2 context
+                resolved_variables = resolve_variables(
+                    profile_vars=self.variables or {},
+                    env_vars=dict(os.environ),
+                )
+
+                # Create a minimal variable manager for V2 context compatibility
+                # This is a temporary bridge until V2 ExecutionContext is updated
                 from sqlflow.core.variables.manager import VariableConfig
 
                 variable_config = VariableConfig(
@@ -3038,9 +3048,9 @@ class LocalExecutor(BaseExecutor):
 
         # ZEN OF PYTHON: Simple is better than complex
         # Use utility function - one obvious way to do it
-        from sqlflow.core.variables import substitute_variables
+        from sqlflow.core.variables import substitute_any
 
-        result = substitute_variables(options_dict, self.variables)
+        result = substitute_any(options_dict, self.variables)
         return result if isinstance(result, dict) else options_dict
 
     def _prepare_export_parameters(

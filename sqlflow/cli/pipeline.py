@@ -77,26 +77,30 @@ def _apply_variable_substitution(pipeline_text: str, variables: Dict[str, Any]) 
 
     Args:
     ----
-        pipeline_text: Pipeline text with variables
-        variables: Dictionary of variable values
+        pipeline_text: The pipeline text
+        variables: Variables to substitute
 
     Returns:
     -------
         Pipeline text with variables substituted
 
     """
-    from sqlflow.core.variables.manager import VariableConfig, VariableManager
+    from sqlflow.core.variables import (
+        find_variables,
+        resolve_variables,
+        substitute_variables,
+    )
 
-    # Create a variable manager using new unified system
-    config = VariableConfig(cli_variables=variables)
-    manager = VariableManager(config)
+    # Substitute variables in the pipeline text using V2 functions
+    result = substitute_variables(pipeline_text, variables)
 
-    # Substitute variables in the pipeline text
-    result = manager.substitute(pipeline_text)
+    # Log any missing variables using V2 validation
+    referenced_vars = find_variables(pipeline_text)
+    resolved_vars = resolve_variables(variables, variables)
+    missing_vars = [
+        var.name for var in referenced_vars if var.name not in resolved_vars
+    ]
 
-    # Log any missing variables using new validation system
-    validation_result = manager.validate(pipeline_text)
-    missing_vars = validation_result.missing_variables
     if missing_vars:
         logger.warning(
             f"Pipeline contains missing variables: {', '.join(missing_vars)}"
@@ -225,17 +229,22 @@ def _compile_pipeline_to_plan(
             all_variables.update(variables)
             logger.debug(f"Added CLI variables for compilation: {variables}")
 
-        # Apply variable substitution - the manager will automatically check environment variables
-        from sqlflow.core.variables.manager import VariableConfig, VariableManager
-
-        # Use new VariableManager with priority-based resolution
-        config = VariableConfig(
-            cli_variables=variables or {},
-            profile_variables=profile_variables or {},
-            set_variables={},  # SET variables will be extracted during parsing
+        # Apply variable substitution - V2 functions will automatically check environment variables
+        from sqlflow.core.variables import (
+            find_variables,
+            resolve_variables,
+            substitute_variables,
         )
-        manager = VariableManager(config)
-        pipeline_text = manager.substitute(pipeline_text)
+
+        # Create merged variables with priority: CLI > profile > SET
+        all_variables = {}
+        if profile_variables:
+            all_variables.update(profile_variables)
+        if variables:
+            all_variables.update(variables)
+
+        # Use V2 variable substitution
+        pipeline_text = substitute_variables(pipeline_text, all_variables)
 
         logger.debug(
             f"Pipeline text after CLI substitution (first 500 chars): {pipeline_text[:500]}"
@@ -243,9 +252,13 @@ def _compile_pipeline_to_plan(
 
         logger.debug("Applied variable substitution before compilation")
 
-        # Log any missing variables using new validation system
-        validation_result = manager.validate(pipeline_text)
-        missing_vars = validation_result.missing_variables
+        # Log any missing variables using V2 validation
+        referenced_vars = find_variables(pipeline_text)
+        resolved_vars = resolve_variables(all_variables, all_variables)
+        missing_vars = [
+            var.name for var in referenced_vars if var.name not in resolved_vars
+        ]
+
         if missing_vars:
             logger.warning(
                 f"Missing variables during compilation: {', '.join(missing_vars)}"
@@ -919,7 +932,11 @@ def _read_and_substitute_pipeline(pipeline_path: str, variables: dict) -> str:
         Pipeline text with variables substituted
 
     """
-    from sqlflow.core.variables.manager import VariableConfig, VariableManager
+    from sqlflow.core.variables import (
+        find_variables,
+        resolve_variables,
+        substitute_variables,
+    )
 
     # Read the pipeline file
     with open(pipeline_path, "r") as f:
@@ -929,18 +946,19 @@ def _read_and_substitute_pipeline(pipeline_path: str, variables: dict) -> str:
     if not variables:
         return pipeline_text
 
-    # Create variable manager with new system
-    config = VariableConfig(cli_variables=variables)
-    manager = VariableManager(config)
+    # Use V2 variable substitution
+    result = substitute_variables(pipeline_text, variables)
 
-    # Substitute variables in the pipeline text
-    result = manager.substitute(pipeline_text)
+    # Log any missing variables using V2 validation
+    referenced_vars = find_variables(pipeline_text)
+    resolved_vars = resolve_variables(variables, variables)
+    missing_vars = [
+        var.name for var in referenced_vars if var.name not in resolved_vars
+    ]
 
-    # Log any missing variables using new validation system
-    validation_result = manager.validate(pipeline_text)
-    if validation_result.missing_variables:
+    if missing_vars:
         logger.warning(
-            f"Pipeline contains missing variables: {', '.join(validation_result.missing_variables)}"
+            f"Pipeline contains missing variables: {', '.join(missing_vars)}"
         )
 
     return result
@@ -1324,17 +1342,21 @@ def _get_execution_operations(
 
             logger.debug(f"Final combined variables for parsing: {all_variables}")
 
-            # Substitute variables in pipeline text BEFORE parsing using new VariableManager
-            from sqlflow.core.variables.manager import VariableConfig, VariableManager
-
-            # Use new VariableManager with priority-based resolution
-            config = VariableConfig(
-                cli_variables=variables or {},
-                profile_variables=profile_variables or {},
-                set_variables={},  # SET variables will be extracted during parsing
+            # Substitute variables in pipeline text using V2 functions
+            from sqlflow.core.variables import (
+                resolve_variables,
+                substitute_variables,
+                validate_variables,
             )
-            manager = VariableManager(config)
-            pipeline_text = manager.substitute(pipeline_text)
+
+            # Use V2 variable resolution with priority-based resolution
+            all_variables = resolve_variables(
+                cli_vars=variables or {},
+                profile_vars=profile_variables or {},
+                set_vars={},  # SET variables will be extracted during parsing
+                env_vars=dict(os.environ),
+            )
+            pipeline_text = substitute_variables(pipeline_text, all_variables)
 
             logger.debug(
                 f"Pipeline text after CLI substitution (first 500 chars): {pipeline_text[:500]}"
@@ -1342,11 +1364,11 @@ def _get_execution_operations(
 
             logger.debug("Applied variable substitution before parsing")
 
-            # Log any missing variables using new validation system
-            validation_result = manager.validate(pipeline_text)
-            if validation_result.missing_variables:
+            # Log any missing variables using V2 validation
+            missing_vars = validate_variables(pipeline_text, all_variables)
+            if missing_vars:
                 logger.warning(
-                    f"Missing variables during compilation: {', '.join(validation_result.missing_variables)}"
+                    f"Missing variables during compilation: {', '.join(missing_vars)}"
                 )
 
             # Parse the pipeline (now with variables substituted)
