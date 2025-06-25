@@ -529,7 +529,7 @@ class TestUDFQueryProcessing:
                 {
                     "type": "transform",
                     "name": "step2",
-                    "query": "SELECT python_udfs.basic_udfs.calculate_tax(value, {{TAX_RATE}}) as tax FROM step1",
+                    "query": "SELECT calculate_tax(value, ${TAX_RATE}) as tax FROM step1",
                 },
             ],
         }
