@@ -62,13 +62,26 @@ Everything you need in one file, using SQL you already know.
 
 **SQLFlow approach**: Install with `pip install sqlflow-core`, run anywhere Python runs. No servers, no databases to manage, no infrastructure to maintain.
 
-```python
+```yaml
+# profiles/dev.yml - Fast development
+name: "dev"
+engine:
+  type: "duckdb"
+  mode: "memory"  # Fast, temporary
+
+# profiles/production.yml - Reliable production  
+name: "production"
+engine:
+  type: "duckdb"
+  mode: "persistent"  # Saves data to disk
+  database_path: "/data/analytics.db"
+
 # From: sqlflow/core/engines/duckdb/engine.py
 class DuckDBEngine(SQLEngine):
     def __init__(self, database_path: Optional[str] = None):
         # Runs in memory for development, persists to disk for production
         # Zero configuration required
-        self.connection = duckdb.connect(database_path or ":memory:")
+        self.connection = duckdb.connect(database_path or ":memory:")   
 ```
 
 ### Problem 3: Cost and Resource Requirements
@@ -104,6 +117,15 @@ def advanced_cohort_analysis(df: pd.DataFrame) -> pd.DataFrame:
         'revenue': 'sum',
         'retention_rate': lambda x: x.mean()
     })
+    
+# Use Scalar UDF in SQL
+SELECT 
+    customer_id,
+    PYTHON_FUNC("udfs.calculate_customer_ltv", total_revenue, 3) as score
+FROM customer_summary;    
+
+# Use Table UDF in SQL
+SELECT * FROM PYTHON_FUNC("udfs.advanced_cohort_analysis", raw_sales);
 ```
 
 The beauty is that these integrate seamlessly with SQL - no separate processes, no API calls, no context switching.

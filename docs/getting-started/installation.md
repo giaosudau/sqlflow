@@ -110,7 +110,7 @@ pip install git+https://github.com/giaosudau/sqlflow.git@v0.1.7
 ### Development Branch
 ```bash
 # Install from development branch
-pip install git+https://github.com/giaosudau/sqlflow.git@main
+pip install git+https://github.com/giaosudau/sqlflow.git@dev
 
 # Install in editable mode for development
 git clone https://github.com/giaosudau/sqlflow.git
