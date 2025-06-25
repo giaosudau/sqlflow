@@ -28,7 +28,6 @@ try:
     from sqlflow.core.executors.v2.context import ExecutionContext
     from sqlflow.core.executors.v2.handlers import LoadStepHandler
     from sqlflow.core.executors.v2.observability import ObservabilityManager
-    from sqlflow.core.variables.manager import VariableManager
 
     enhanced_registry = EnhancedConnectorRegistry
     V2_AVAILABLE = True
@@ -667,15 +666,8 @@ class LocalExecutor(BaseExecutor):
                     env_vars=dict(os.environ),
                 )
 
-                # Create a minimal variable manager for V2 context compatibility
-                # This is a temporary bridge until V2 ExecutionContext is updated
-                from sqlflow.core.variables.manager import VariableConfig
-
-                variable_config = VariableConfig(
-                    profile_variables=self.variables or {},
-                    env_variables=dict(os.environ),
-                )
-                variable_manager = VariableManager(variable_config)
+                # Use V2 variable functions directly - no need for complex manager
+                # This follows Zen of Python: Simple is better than complex
 
                 # Import the global enhanced_registry instance
                 from sqlflow.connectors.registry.enhanced_registry import (
@@ -685,7 +677,7 @@ class LocalExecutor(BaseExecutor):
                 self._v2_context = ExecutionContext.create(
                     sql_engine=self.duckdb_engine,
                     connector_registry=enhanced_registry,
-                    variable_manager=variable_manager,
+                    variable_manager=None,  # V2 doesn't need complex manager
                     watermark_manager=self.watermark_manager,
                     observability_manager=self._v2_observability_manager
                     or ObservabilityManager(run_id="dummy"),

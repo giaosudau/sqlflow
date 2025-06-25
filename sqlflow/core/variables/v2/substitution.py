@@ -10,6 +10,7 @@ for all V1 syntax patterns. Following Zen of Python principles:
 import re
 from typing import Any, Dict, List
 
+from .formatting import format_for_context
 from .types import VariableInfo
 
 # Unified regex pattern for all syntax forms
@@ -202,3 +203,40 @@ def _clean_default_value(default: str) -> str:
             return inner
 
     return default
+
+
+def substitute_variables_for_sql(text: str, variables: Dict[str, Any]) -> str:
+    """Substitute variables in text with SQL-appropriate formatting.
+
+    This function substitutes variables and formats the values for SQL context,
+    ensuring proper quoting of string values while leaving SQL keywords unquoted.
+
+    Args:
+        text: Text containing variable placeholders
+        variables: Dictionary of variable values
+
+    Returns:
+        Text with variables substituted and formatted for SQL context
+    """
+    if not text:
+        return text
+
+    # Use variables or empty dict if None
+    vars_dict = variables or {}
+
+    def replace(match):
+        var_name = match.group(1).strip()
+        default = match.group(2).strip() if match.group(2) else None
+
+        if var_name in vars_dict:
+            # Format the variable value for SQL context
+            value = vars_dict[var_name]
+            return format_for_context(value, "sql")
+        elif default is not None:
+            # Format the default value for SQL context
+            cleaned_default = _clean_default_value(default)
+            return format_for_context(cleaned_default, "sql")
+        else:
+            return match.group(0)  # Keep original if no replacement
+
+    return re.sub(_VARIABLE_PATTERN, replace, text)

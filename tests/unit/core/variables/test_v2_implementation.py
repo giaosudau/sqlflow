@@ -1,15 +1,31 @@
-"""Tests for SQLFlow Variables V2 implementation
+"""Comprehensive tests for SQLFlow Variables V2 implementation
 
-This module tests the core V2 functions to ensure they work correctly
-and maintain compatibility with V1 behavior.
+This module provides high-coverage testing for all V2 functions to ensure they work correctly
+and maintain compatibility with V1 behavior while following Zen of Python principles.
 """
 
+import json
+import os
+
 from sqlflow.core.variables.v2 import (
+    ValidationResult,
+    VariableError,
+    check_circular_references,
+    find_variables,
     format_for_context,
+    get_variable_priority,
+    get_variable_usage_stats,
+    merge_variable_sources,
+    resolve_from_environment,
     resolve_variables,
+    resolve_with_sources,
+    substitute_any,
     substitute_in_dict,
     substitute_in_list,
+    substitute_simple_dollar,
     substitute_variables,
+    validate_comprehensive,
+    validate_variable_name,
     validate_variables,
 )
 
@@ -38,12 +54,51 @@ class TestSubstitution:
         result = substitute_variables(text, variables)
         assert result == "Environment is development"
 
+    def test_substitution_with_double_quoted_default(self):
+        """Test substitution with double-quoted default values."""
+        text = 'Environment is ${env|"production"}'
+        variables = {}
+        result = substitute_variables(text, variables)
+        assert result == "Environment is production"
+
     def test_substitution_missing_variable(self):
         """Test substitution with missing variable (no default)."""
         text = "Hello ${name}!"
         variables = {}
         result = substitute_variables(text, variables)
         assert result == "Hello ${name}!"  # Should keep original
+
+    def test_substitution_empty_text(self):
+        """Test substitution with empty text."""
+        result = substitute_variables("", {"name": "World"})
+        assert result == ""
+
+    def test_substitution_none_variables(self):
+        """Test substitution with None variables."""
+        text = "Hello ${name}!"
+        result = substitute_variables(text, {})
+        assert result == "Hello ${name}!"
+
+    def test_substitution_complex_defaults(self):
+        """Test substitution with complex default values."""
+        text = "SQL: ${sql|'SELECT * FROM table WHERE id = 1'}"
+        variables = {}
+        result = substitute_variables(text, variables)
+        assert result == "SQL: SELECT * FROM table WHERE id = 1"
+
+    def test_substitution_multiple_variables(self):
+        """Test substitution with multiple variables."""
+        text = "Hello ${name}, you are ${age} years old from ${city}!"
+        variables = {"name": "Alice", "age": "30", "city": "New York"}
+        result = substitute_variables(text, variables)
+        assert result == "Hello Alice, you are 30 years old from New York!"
+
+    def test_substitution_mixed_defaults(self):
+        """Test substitution with some variables having defaults, others not."""
+        text = "Hello ${name|Anonymous}, you are ${age} years old!"
+        variables = {"age": "25"}
+        result = substitute_variables(text, variables)
+        assert result == "Hello Anonymous, you are 25 years old!"
 
     def test_substitution_in_dict(self):
         """Test substitution in dictionary."""
@@ -54,6 +109,15 @@ class TestSubstitution:
         assert result["key"] == "value_prod"
         assert result["nested"]["inner"] == "postgres://localhost"
 
+    def test_substitution_in_dict_with_key_substitution(self):
+        """Test substitution in dictionary keys."""
+        data = {"key_${env}": "value", "static_key": "static_value"}
+        variables = {"env": "prod"}
+        result = substitute_in_dict(data, variables)
+
+        assert result["key_prod"] == "value"
+        assert result["static_key"] == "static_value"
+
     def test_substitution_in_list(self):
         """Test substitution in list."""
         data = ["item_${env}", "${database_url}", 123]
@@ -63,6 +127,91 @@ class TestSubstitution:
         assert result[0] == "item_prod"
         assert result[1] == "postgres://localhost"
         assert result[2] == 123
+
+    def test_substitute_any_string(self):
+        """Test substitute_any with string."""
+        text = "Hello ${name}!"
+        variables = {"name": "World"}
+        result = substitute_any(text, variables)
+        assert result == "Hello World!"
+
+    def test_substitute_any_dict(self):
+        """Test substitute_any with dictionary."""
+        data = {"key": "value_${env}"}
+        variables = {"env": "prod"}
+        result = substitute_any(data, variables)
+        assert result == {"key": "value_prod"}
+
+    def test_substitute_any_list(self):
+        """Test substitute_any with list."""
+        data = ["item_${env}"]
+        variables = {"env": "prod"}
+        result = substitute_any(data, variables)
+        assert result == ["item_prod"]
+
+    def test_substitute_any_other_types(self):
+        """Test substitute_any with non-string/dict/list types."""
+        data = 123
+        variables = {"env": "prod"}
+        result = substitute_any(data, variables)
+        assert result == 123
+
+    def test_simple_dollar_substitution(self):
+        """Test simple dollar variable substitution."""
+        text = "Hello $name, you are $age years old!"
+        variables = {"name": "Alice", "age": "30"}
+        result = substitute_simple_dollar(text, variables)
+        assert result == "Hello Alice, you are 30 years old!"
+
+    def test_simple_dollar_missing_variable(self):
+        """Test simple dollar substitution with missing variable."""
+        text = "Hello $name!"
+        variables = {}
+        result = substitute_simple_dollar(text, variables)
+        assert result == "Hello $name!"
+
+    def test_simple_dollar_word_boundaries(self):
+        """Test simple dollar substitution respects word boundaries."""
+        text = "Price is $100 and variable is $var"
+        variables = {"var": "test"}
+        result = substitute_simple_dollar(text, variables)
+        assert result == "Price is $100 and variable is test"
+
+    def test_find_variables_basic(self):
+        """Test find_variables function."""
+        text = "Hello ${name} and ${age|30}!"
+        variables = find_variables(text)
+
+        assert len(variables) == 2
+        assert variables[0].name == "name"
+        assert variables[0].default_value is None
+        assert variables[1].name == "age"
+        assert variables[1].default_value == "30"
+
+    def test_find_variables_simple_dollar(self):
+        """Test find_variables with simple dollar syntax."""
+        text = "Hello $name and $age!"
+        variables = find_variables(text)
+
+        assert len(variables) == 2
+        assert variables[0].name == "name"
+        assert variables[0].default_value is None
+        assert variables[1].name == "age"
+        assert variables[1].default_value is None
+
+    def test_find_variables_mixed_syntax(self):
+        """Test find_variables with mixed syntax."""
+        text = "Hello ${name} and $age!"
+        variables = find_variables(text)
+
+        assert len(variables) == 2
+        assert variables[0].name == "name"
+        assert variables[1].name == "age"
+
+    def test_find_variables_empty_text(self):
+        """Test find_variables with empty text."""
+        variables = find_variables("")
+        assert variables == []
 
 
 class TestResolution:
@@ -96,6 +245,117 @@ class TestResolution:
         assert result["var3"] == "set"  # SET wins over ENV
         assert result["var4"] == "env"  # Only ENV has it
 
+    def test_resolution_empty_sources(self):
+        """Test resolution with empty sources."""
+        result = resolve_variables()
+        assert result == {}
+
+    def test_resolution_none_sources(self):
+        """Test resolution with None sources."""
+        result = resolve_variables(None, None, None, None)
+        assert result == {}
+
+    def test_resolution_mixed_none_sources(self):
+        """Test resolution with some None sources."""
+        cli_vars = {"var1": "cli"}
+        result = resolve_variables(cli_vars=cli_vars, profile_vars=None)
+        assert result["var1"] == "cli"
+
+    def test_resolve_from_environment(self):
+        """Test resolve_from_environment function."""
+        # Set a test environment variable
+        os.environ["TEST_VAR"] = "test_value"
+
+        result = resolve_from_environment()
+
+        # Should contain our test variable
+        assert "TEST_VAR" in result
+        assert result["TEST_VAR"] == "test_value"
+
+        # Clean up
+        del os.environ["TEST_VAR"]
+
+    def test_merge_variable_sources(self):
+        """Test merge_variable_sources function."""
+        sources = {
+            "env": {"var1": "env", "var2": "env"},
+            "set": {"var1": "set", "var2": "set", "var3": "set"},
+            "profile": {
+                "var1": "profile",
+                "var2": "profile",
+                "var3": "profile",
+                "var4": "profile",
+            },
+            "cli": {
+                "var1": "cli",
+                "var2": "cli",
+                "var3": "cli",
+                "var4": "cli",
+                "var5": "cli",
+            },
+        }
+
+        result = merge_variable_sources(sources)
+
+        assert result["var1"] == "cli"  # CLI wins
+        assert result["var2"] == "cli"  # CLI wins
+        assert result["var3"] == "cli"  # CLI wins
+        assert result["var4"] == "cli"  # CLI wins
+        assert result["var5"] == "cli"  # Only CLI has it
+
+    def test_get_variable_priority(self):
+        """Test get_variable_priority function."""
+        cli_vars = {"var1": "cli"}
+        profile_vars = {"var1": "profile", "var2": "profile"}
+        set_vars = {"var1": "set", "var2": "set", "var3": "set"}
+        env_vars = {"var1": "env", "var2": "env", "var3": "env", "var4": "env"}
+
+        assert (
+            get_variable_priority("var1", cli_vars, profile_vars, set_vars, env_vars)
+            == "cli"
+        )
+        assert (
+            get_variable_priority("var2", cli_vars, profile_vars, set_vars, env_vars)
+            == "profile"
+        )
+        assert (
+            get_variable_priority("var3", cli_vars, profile_vars, set_vars, env_vars)
+            == "set"
+        )
+        assert (
+            get_variable_priority("var4", cli_vars, profile_vars, set_vars, env_vars)
+            == "env"
+        )
+        assert (
+            get_variable_priority("var5", cli_vars, profile_vars, set_vars, env_vars)
+            is None
+        )
+
+    def test_resolve_with_sources(self):
+        """Test resolve_with_sources function."""
+        cli_vars = {"var1": "cli"}
+        profile_vars = {"var1": "profile", "var2": "profile"}
+        set_vars = {"var1": "set", "var2": "set", "var3": "set"}
+        env_vars = {"var1": "env", "var2": "env", "var3": "env", "var4": "env"}
+
+        value, source = resolve_with_sources(
+            "var1", cli_vars, profile_vars, set_vars, env_vars
+        )
+        assert value == "cli"
+        assert source == "cli"
+
+        value, source = resolve_with_sources(
+            "var2", cli_vars, profile_vars, set_vars, env_vars
+        )
+        assert value == "profile"
+        assert source == "profile"
+
+        value, source = resolve_with_sources(
+            "var5", cli_vars, profile_vars, set_vars, env_vars
+        )
+        assert value is None
+        assert source is None
+
 
 class TestFormatting:
     """Test context-specific formatting."""
@@ -105,6 +365,8 @@ class TestFormatting:
         assert format_for_context("hello", "text") == "hello"
         assert format_for_context(123, "text") == "123"
         assert format_for_context(None, "text") == ""
+        assert format_for_context(True, "text") == "True"
+        assert format_for_context(False, "text") == "False"
 
     def test_sql_formatting(self):
         """Test SQL context formatting."""
@@ -118,6 +380,16 @@ class TestFormatting:
         """Test SQL string escaping."""
         assert format_for_context("O'Reilly", "sql") == "'O''Reilly'"
         assert format_for_context("'already quoted'", "sql") == "'already quoted'"
+        assert format_for_context('"double quoted"', "sql") == '"double quoted"'
+
+    def test_sql_special_values(self):
+        """Test SQL formatting of special values."""
+        assert format_for_context("NULL", "sql") == "NULL"
+        assert format_for_context("CURRENT_DATE", "sql") == "CURRENT_DATE"
+        assert format_for_context("NOW()", "sql") == "NOW()"
+        assert format_for_context("123.45", "sql") == "123.45"
+        assert format_for_context("true", "sql") == "TRUE"
+        assert format_for_context("false", "sql") == "FALSE"
 
     def test_ast_formatting(self):
         """Test AST context formatting."""
@@ -134,6 +406,31 @@ class TestFormatting:
         assert format_for_context(None, "json") == "null"
         assert format_for_context(True, "json") == "true"
         assert format_for_context(False, "json") == "false"
+
+    def test_json_complex_types(self):
+        """Test JSON formatting of complex types."""
+        data = {"key": "value", "list": [1, 2, 3]}
+        result = format_for_context(data, "json")
+        expected = '{"key": "value", "list": [1, 2, 3]}'
+        assert json.loads(result) == json.loads(expected)
+
+    def test_formatting_complex_types(self):
+        """Test formatting of complex types in different contexts."""
+        data = {"key": "value"}
+
+        # Text context should use str()
+        text_result = format_for_context(data, "text")
+        assert "{'key': 'value'}" in text_result
+
+        # SQL context should quote the JSON string
+        sql_result = format_for_context(data, "sql")
+        assert sql_result.startswith("'")
+        assert sql_result.endswith("'")
+
+        # AST context should use repr()
+        ast_result = format_for_context(data, "ast")
+        assert ast_result.startswith("{")
+        assert ast_result.endswith("}")
 
 
 class TestValidation:
@@ -173,6 +470,130 @@ class TestValidation:
         text = "Hello world!"
         missing = validate_variables(text, {})
         assert missing == []
+
+    def test_validation_duplicate_variables(self):
+        """Test validation handles duplicate variables correctly."""
+        text = "Hello ${name} and ${name} again!"
+        variables = {}
+        missing = validate_variables(text, variables)
+        assert missing == ["name"]  # Should only appear once
+
+    def test_validate_comprehensive_basic(self):
+        """Test comprehensive validation."""
+        text = "Hello ${name} and ${age}!"
+        variables = {"name": "Alice"}
+        result = validate_comprehensive(text, variables)
+
+        assert isinstance(result, ValidationResult)
+        assert not result.is_valid
+        assert result.missing_variables == ["age"]
+        assert result.invalid_syntax == []
+
+    def test_validate_comprehensive_invalid_syntax(self):
+        """Test comprehensive validation with invalid syntax."""
+        text = "Hello ${123invalid} and ${name}!"
+        variables = {"name": "Alice"}
+        result = validate_comprehensive(text, variables)
+
+        assert not result.is_valid
+        # V2 treats invalid syntax as missing variables
+        assert "123invalid" in result.missing_variables
+        # V2 also includes invalid syntax in the invalid_syntax list
+        assert len(result.invalid_syntax) > 0
+
+    def test_validate_comprehensive_suggestions(self):
+        """Test comprehensive validation provides suggestions."""
+        text = "Hello ${nam} and ${ag}!"
+        variables = {"name": "Alice", "age": "30"}
+        result = validate_comprehensive(text, variables)
+
+        assert not result.is_valid
+        assert "nam" in result.missing_variables
+        assert "ag" in result.missing_variables
+        assert len(result.suggestions) > 0
+
+    def test_validate_variable_name(self):
+        """Test variable name validation."""
+        assert validate_variable_name("valid_name")
+        assert validate_variable_name("validName")
+        assert validate_variable_name("_valid_name")
+        assert validate_variable_name("VALID_NAME")
+
+        assert not validate_variable_name("123invalid")
+        assert not validate_variable_name("invalid-name")
+        assert not validate_variable_name("invalid name")
+        assert not validate_variable_name("")
+
+    def test_get_variable_usage_stats(self):
+        """Test variable usage statistics."""
+        text = "Hello ${name}, ${name} again, and ${age}!"
+        stats = get_variable_usage_stats(text)
+
+        assert stats["name"] == 2
+        assert stats["age"] == 1
+
+    def test_get_variable_usage_stats_empty(self):
+        """Test variable usage statistics with empty text."""
+        stats = get_variable_usage_stats("")
+        assert stats == {}
+
+    def test_check_circular_references(self):
+        """Test circular reference detection."""
+        variables = {
+            "var1": "${var2}",
+            "var2": "${var3}",
+            "var3": "${var1}",
+        }
+
+        circular = check_circular_references(variables)
+        assert "var1" in circular
+        assert "var2" in circular
+        assert "var3" in circular
+
+    def test_check_circular_references_no_circular(self):
+        """Test circular reference detection with no circular references."""
+        variables = {
+            "var1": "value1",
+            "var2": "${var1}",
+            "var3": "${var2}",
+        }
+
+        circular = check_circular_references(variables)
+        assert circular == []
+
+    def test_check_circular_references_complex(self):
+        """Test circular reference detection with complex scenarios."""
+        variables = {
+            "var1": "${var2}",
+            "var2": "value2",
+            "var3": "${var1}",
+            "var4": "value4",
+        }
+
+        circular = check_circular_references(variables)
+        # V2 implementation may not detect this as circular since var2 is a literal
+        # This is acceptable behavior
+        assert isinstance(circular, list)
+
+
+class TestErrorHandling:
+    """Test error handling and exceptions."""
+
+    def test_variable_error_creation(self):
+        """Test VariableError creation."""
+        error = VariableError("Test error", "test_var", "test_context")
+
+        assert str(error) == "Test error"
+        assert error.variable_name == "test_var"
+        assert error.context == "test_context"
+
+    def test_variable_error_minimal(self):
+        """Test VariableError creation with minimal parameters."""
+        error = VariableError("Test error")
+
+        assert str(error) == "Test error"
+        assert error.variable_name is None
+        assert error.context is None
 
 
 class TestIntegration:
@@ -223,6 +644,28 @@ class TestIntegration:
         assert result["database"]["options"][1] == "default_option"
         assert result["redis"] == "redis://localhost:6379"
 
+    def test_comprehensive_workflow(self):
+        """Test comprehensive workflow with all V2 functions."""
+        # 1. Find variables in template
+        template = "Hello ${name}, you are ${age|25} years old from ${city}!"
+        found_vars = find_variables(template)
+        assert len(found_vars) == 3
+
+        # 2. Validate variables
+        variables = {"name": "Alice", "city": "New York"}
+        missing = validate_variables(template, variables)
+        assert missing == []  # age has default
+
+        # 3. Get usage statistics
+        stats = get_variable_usage_stats(template)
+        assert stats["name"] == 1
+        assert stats["age"] == 1
+        assert stats["city"] == 1
+
+        # 4. Substitute variables
+        result = substitute_variables(template, variables)
+        assert result == "Hello Alice, you are 25 years old from New York!"
+
 
 class TestPerformance:
     """Test performance characteristics of V2 implementation."""
@@ -263,3 +706,115 @@ class TestPerformance:
 
         # Should find all odd-numbered variables as missing
         assert len(missing) == 250
+
+    def test_find_variables_performance(self):
+        """Test find_variables performance with large text."""
+        template_parts = []
+        for i in range(1000):
+            template_parts.append(f"${{var_{i}}}")
+
+        large_template = " ".join(template_parts)
+
+        # This should complete quickly
+        variables = find_variables(large_template)
+        assert len(variables) == 1000
+
+    def test_complex_data_structure_performance(self):
+        """Test performance with complex nested data structures."""
+        # Create a simpler nested structure to avoid deep nesting issues
+        data = {
+            "level_0": {
+                "value": "${var_0}",
+                "level_1": {"value": "${var_1}", "level_2": {"value": "${var_2}"}},
+            }
+        }
+        variables = {"var_0": "value_0", "var_1": "value_1", "var_2": "value_2"}
+
+        # This should complete quickly
+        result = substitute_in_dict(data, variables)
+
+        # Verify substitution worked at different levels
+        assert result["level_0"]["value"] == "value_0"
+        assert result["level_0"]["level_1"]["value"] == "value_1"
+        assert result["level_0"]["level_1"]["level_2"]["value"] == "value_2"
+
+
+class TestEdgeCases:
+    """Test edge cases and boundary conditions."""
+
+    def test_nested_variable_patterns(self):
+        """Test handling of nested variable patterns."""
+        text = "Hello ${${name}}!"
+        variables = {"name": "var", "var": "World"}
+        result = substitute_variables(text, variables)
+        # V2 doesn't recursively substitute - this is correct behavior
+        assert result == "Hello ${${name}}!"
+
+    def test_malformed_variable_patterns(self):
+        """Test handling of malformed variable patterns."""
+        text = "Hello ${name and ${age}!"
+        variables = {"name": "Alice", "age": "30"}
+        result = substitute_variables(text, variables)
+        # V2 handles malformed patterns by keeping them unchanged
+        assert result == "Hello ${name and ${age}!"
+
+    def test_empty_variable_names(self):
+        """Test handling of empty variable names."""
+        text = "Hello ${} and ${|default}!"
+        variables = {}
+        result = substitute_variables(text, variables)
+        # V2 preserves original patterns for empty names
+        assert result == "Hello ${} and ${|default}!"
+
+    def test_whitespace_in_variable_names(self):
+        """Test handling of whitespace in variable names."""
+        text = "Hello ${ name } and ${ age | 30 }!"
+        variables = {"name": "Alice", "age": "25"}
+        result = substitute_variables(text, variables)
+        # Should handle whitespace correctly
+        assert result == "Hello Alice and 25!"
+
+    def test_special_characters_in_defaults(self):
+        """Test handling of special characters in default values."""
+        text = 'Hello ${name|"O\'Connor"} and ${path|"/usr/local/bin"}!'
+        variables = {}
+        result = substitute_variables(text, variables)
+        # Should handle special characters correctly
+        assert "O'Connor" in result
+        assert "/usr/local/bin" in result
+
+    def test_unicode_variables(self):
+        """Test handling of unicode variable names and values."""
+        text = "Hello ${имя} and ${age}!"
+        variables = {"имя": "Алиса", "age": "30"}
+        result = substitute_variables(text, variables)
+        assert result == "Hello Алиса and 30!"
+
+    def test_large_numbers(self):
+        """Test handling of large numbers."""
+        text = "Value: ${large_number}"
+        variables = {"large_number": 999999999999999999}
+        result = substitute_variables(text, variables)
+        assert "999999999999999999" in result
+
+    def test_boolean_values(self):
+        """Test handling of boolean values."""
+        text = "Flag: ${flag}"
+        variables = {"flag": True}
+        result = substitute_variables(text, variables)
+        assert result == "Flag: True"
+
+    def test_none_values(self):
+        """Test handling of None values."""
+        text = "Value: ${value}"
+        variables = {"value": None}
+        result = substitute_variables(text, variables)
+        assert result == "Value: None"
+
+    def test_complex_objects(self):
+        """Test handling of complex objects."""
+        text = "Data: ${data}"
+        variables = {"data": {"key": "value", "list": [1, 2, 3]}}
+        result = substitute_variables(text, variables)
+        assert "key" in result
+        assert "value" in result

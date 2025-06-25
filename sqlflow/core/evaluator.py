@@ -119,6 +119,11 @@ class ConditionEvaluator:
         """
         # Use V2 substitute_variables and format for AST context
         result = substitute_variables(condition, self.variables)
+
+        # Post-process the result to ensure proper AST formatting
+        # This handles cases where default values need proper quoting
+        result = self._format_for_ast_evaluation(result)
+
         return result
 
     def _is_inside_quotes(self, condition: str, start_pos: int, end_pos: int) -> bool:

@@ -17,12 +17,14 @@ from .v2 import (  # Core substitution functions; Priority resolution; Context f
     substitute_in_list,
     substitute_simple_dollar,
     substitute_variables,
+    substitute_variables_for_sql,
     validate_variables,
 )
 
 __all__ = [
     # Core substitution functions
     "substitute_variables",
+    "substitute_variables_for_sql",
     "substitute_in_dict",
     "substitute_in_list",
     "substitute_simple_dollar",

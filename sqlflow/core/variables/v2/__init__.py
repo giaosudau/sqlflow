@@ -14,8 +14,11 @@ from .formatting import (
     format_for_context,
 )
 from .resolution import (
+    get_variable_priority,
+    merge_variable_sources,
     resolve_from_environment,
     resolve_variables,
+    resolve_with_sources,
 )
 from .substitution import (
     find_variables,
@@ -24,6 +27,7 @@ from .substitution import (
     substitute_in_list,
     substitute_simple_dollar,
     substitute_variables,
+    substitute_variables_for_sql,
 )
 from .types import (
     ValidationResult,
@@ -31,12 +35,17 @@ from .types import (
 )
 from .validation import (
     VariableError,
+    check_circular_references,
+    get_variable_usage_stats,
+    validate_comprehensive,
+    validate_variable_name,
     validate_variables,
 )
 
 __all__ = [
     # Core substitution functions
     "substitute_variables",
+    "substitute_variables_for_sql",
     "substitute_in_dict",
     "substitute_in_list",
     "substitute_simple_dollar",
@@ -45,10 +54,17 @@ __all__ = [
     # Priority resolution
     "resolve_variables",
     "resolve_from_environment",
+    "merge_variable_sources",
+    "get_variable_priority",
+    "resolve_with_sources",
     # Context formatting
     "format_for_context",
     # Validation
     "validate_variables",
+    "validate_comprehensive",
+    "validate_variable_name",
+    "check_circular_references",
+    "get_variable_usage_stats",
     "VariableError",
     # Types
     "VariableContext",
