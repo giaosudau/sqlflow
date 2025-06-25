@@ -752,27 +752,13 @@ class DuckDBEngine(SQLEngine):
 
     # Phase 2: Use unified VariableSubstitutionEngine
     def substitute_variables(self, template: str) -> str:
-        """Substitute variables in a template with SQL-appropriate formatting.
+        """Substitute variables in a template with SQL-appropriate formatting using V2 functions."""
+        if not template:
+            return template
+        from sqlflow.core.variables.v2 import substitute_variables_for_sql
 
-        Phase 2 Architectural Cleanup: Now uses the unified VariableSubstitutionEngine
-        with SQL context for consistent behavior across the system.
-
-        Args:
-        ----
-            template: Template string with variables in the form ${var_name}
-
-        Returns:
-        -------
-            Template with variables substituted and formatted for SQL
-
-        """
-        from sqlflow.core.variables.substitution_engine import (
-            VariableSubstitutionEngine,
-        )
-
-        # Create engine with current variables and use SQL context
-        engine = VariableSubstitutionEngine(self.variables)
-        return engine.substitute(template, context="sql")
+        # Use the SQL-specific substitution function that properly formats values
+        return substitute_variables_for_sql(template, self.variables)
 
     def _format_sql_value(self, value: Any) -> str:
         """Format a value for SQL based on its type."""

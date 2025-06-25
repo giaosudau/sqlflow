@@ -47,7 +47,7 @@ class TestPipelineValidationWithEnvironmentVariables:
             os.environ[key] = value
 
     def test_validation_with_environment_variables(self):
-        """Test that validation works with environment variables in pipeline."""
+        """Test that validation passes even when environment variables are missing (V2 behavior)."""
         pipeline_content = """-- Test with environment variables
 SOURCE test_source TYPE SHOPIFY PARAMS {
     "shop_domain": "${TEST_SHOPIFY_STORE}",
@@ -58,19 +58,33 @@ SOURCE test_source TYPE SHOPIFY PARAMS {
 LOAD orders FROM test_source;
 """
 
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".sf", delete=False) as f:
-            f.write(pipeline_content)
-            f.flush()
+        # Temporarily remove the environment variables to test missing case
+        original_store = os.environ.get("TEST_SHOPIFY_STORE")
+        original_token = os.environ.get("TEST_SHOPIFY_TOKEN")
 
-            try:
-                # Validation should handle missing environment variables gracefully
-                errors = validate_pipeline(f.name)
-                # Should pass validation even with missing environment variables
-                # since validation uses substitution with fallbacks
-                assert len(errors) == 0
+        if "TEST_SHOPIFY_STORE" in os.environ:
+            del os.environ["TEST_SHOPIFY_STORE"]
+        if "TEST_SHOPIFY_TOKEN" in os.environ:
+            del os.environ["TEST_SHOPIFY_TOKEN"]
 
-            finally:
-                Path(f.name).unlink()
+        try:
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".sf", delete=False) as f:
+                f.write(pipeline_content)
+                f.flush()
+
+                try:
+                    errors = validate_pipeline(f.name)
+                    # V2 behavior: Missing env vars don't cause validation to fail
+                    # They're just left unsubstituted for runtime resolution
+                    assert len(errors) == 0
+                finally:
+                    Path(f.name).unlink()
+        finally:
+            # Restore environment variables
+            if original_store is not None:
+                os.environ["TEST_SHOPIFY_STORE"] = original_store
+            if original_token is not None:
+                os.environ["TEST_SHOPIFY_TOKEN"] = original_token
 
     def test_validation_with_invalid_shopify_parameters(self):
         """Test validation with invalid Shopify parameters."""

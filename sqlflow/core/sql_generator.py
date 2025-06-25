@@ -376,46 +376,28 @@ COPY (
     def _substitute_variables(
         self, sql: str, variables: Dict[str, Any]
     ) -> tuple[str, int]:
-        """Substitute variables in SQL with unified engine.
-
-        Phase 2 Architectural Cleanup: Now uses the unified VariableSubstitutionEngine
-        with SQL context for consistent behavior across the system.
+        """Substitute variables in SQL with V2 engine.
 
         Args:
-        ----
             sql: SQL string with variables.
             variables: Dictionary of variables.
 
         Returns:
-        -------
             A tuple containing:
             - SQL with variables substituted
             - Total number of replacements made
-
         """
         if not sql:
             return "", 0
 
-        from sqlflow.core.variables.substitution_engine import (
-            VariableSubstitutionEngine,
-        )
-        from sqlflow.core.variables.unified_parser import get_unified_parser
+        from sqlflow.core.variables.v2 import find_variables, substitute_variables
 
-        # Use unified engine for substitution
-        engine = VariableSubstitutionEngine(variables)
-        substituted_sql = engine.substitute(sql, context="sql")
-
-        # Count replacements for compatibility
-        parser = get_unified_parser()
-        parse_result = parser.parse(sql)
-        total_replacements = (
-            len(parse_result.expressions) if parse_result.has_variables else 0
-        )
+        substituted_sql = substitute_variables(sql, variables)
+        total_replacements = len(find_variables(sql))
 
         logger.debug(
-            f"Variable substitution complete using unified engine. Replacements: {total_replacements}"
+            f"Variable substitution complete using V2 engine. Replacements: {total_replacements}"
         )
-
         return substituted_sql, total_replacements
 
 

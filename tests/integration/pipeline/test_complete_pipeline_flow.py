@@ -192,7 +192,7 @@ class TestDuckDBEngineIntegration:
         assert "'test_string'" in result  # Strings get quoted for SQL
         assert "42" in result  # Integers don't get quoted
         assert "3.14" in result  # Floats don't get quoted
-        assert "true" in result  # Booleans get SQL format (lowercase)
+        assert "TRUE" in result  # Booleans get SQL format (uppercase per SQL standard)
 
     def test_empty_table_operations(self):
         """Test operations with empty tables."""

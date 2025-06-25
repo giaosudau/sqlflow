@@ -15,24 +15,15 @@ JSON_STRING = re.compile(r'"(?:\\.|[^"\\])*"')
 def replace_variables_for_validation(
     text: str, dummy_values: Optional[Dict[str, Any]] = None
 ) -> str:
-    """Replace ${var} style variables with dummy values for JSON validation."""
+    """Replace ${var} style variables with dummy values for JSON validation using V2 functions."""
     if dummy_values is None:
         dummy_values = {"run_date": "2023-01-01"}
 
-    def replace_var(match):
-        var = match.group(0)[2:-1]  # Strip ${ and }
-        if "|" in var:
-            var = var.split("|")[0]
-        # Don't add quotes - let the context determine if quotes are needed
-        return dummy_values.get(var, "dummy")
+    # Use V2 substitute_variables function instead of custom regex
+    from sqlflow.core.variables import substitute_variables
 
-    # First, replace variables with dummy values
-    from sqlflow.core.variables.unified_parser import get_unified_parser
-
-    # Use unified parser instead of local pattern
-    parser = get_unified_parser()
-    pattern = parser.get_pattern()
-    text_with_vars_replaced = pattern.sub(replace_var, text)
+    # First, replace variables with dummy values using V2 functions
+    text_with_vars_replaced = substitute_variables(text, dummy_values)
 
     # Remove trailing commas in JSON objects and arrays which are invalid in standard JSON
     # but common in code - handle both objects/arrays and multi-line formats
