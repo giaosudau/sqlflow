@@ -1,23 +1,22 @@
-"""SQLFlow Variables Module V2 - Simple, Functional, Performant
+"""SQLFlow Variables Module V2 - Pure Functional Implementation
 
-This module provides the V2 implementation of variable substitution following
-Zen of Python principles:
+This module provides a clean, simple, and performant variable substitution system
+following Zen of Python principles. All functions are pure with no side effects.
+
+Following Raymond Hettinger and Guido van Rossum's recommendations:
 - Simple is better than complex
-- There should be one obvious way to do it
 - Explicit is better than implicit
-
-All V2 functions are pure functions with no side effects, making them
-easy to test, understand, and maintain.
+- Use built-in features (lru_cache, frozen dataclasses)
+- Clear, readable code over clever abstractions
 """
 
-from .formatting import (
-    format_for_context,
-)
+from .formatting import format_for_context
 from .resolution import (
     get_variable_priority,
     merge_variable_sources,
     resolve_from_environment,
     resolve_variables,
+    resolve_variables_legacy,
     resolve_with_sources,
 )
 from .substitution import (
@@ -32,41 +31,43 @@ from .substitution import (
 from .types import (
     ValidationResult,
     VariableContext,
+    VariableInfo,
+    VariableSources,
 )
 from .validation import (
     VariableError,
-    check_circular_references,
-    get_variable_usage_stats,
-    validate_comprehensive,
     validate_variable_name,
     validate_variables,
+    validate_variables_with_details,
 )
 
 __all__ = [
     # Core substitution functions
     "substitute_variables",
-    "substitute_variables_for_sql",
+    "substitute_simple_dollar",
     "substitute_in_dict",
     "substitute_in_list",
-    "substitute_simple_dollar",
     "substitute_any",
-    "find_variables",
-    # Priority resolution
+    "substitute_variables_for_sql",
+    # Resolution functions
     "resolve_variables",
+    "resolve_variables_legacy",
     "resolve_from_environment",
-    "merge_variable_sources",
     "get_variable_priority",
     "resolve_with_sources",
-    # Context formatting
-    "format_for_context",
-    # Validation
+    "merge_variable_sources",
+    # Validation functions
     "validate_variables",
-    "validate_comprehensive",
+    "validate_variables_with_details",
     "validate_variable_name",
-    "check_circular_references",
-    "get_variable_usage_stats",
-    "VariableError",
-    # Types
+    # Formatting functions
+    "format_for_context",
+    # Utility functions
+    "find_variables",
+    # Types and exceptions
     "VariableContext",
+    "VariableSources",
     "ValidationResult",
+    "VariableInfo",
+    "VariableError",
 ]

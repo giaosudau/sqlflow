@@ -1,58 +1,41 @@
 """Validation and error handling for SQLFlow Variables V2
 
-This module implements simple, effective validation and error handling for
-variable substitution operations.
-
-Following Zen of Python principles:
+This module implements pure functions for variable validation with clear,
+actionable error messages. Following Zen of Python principles:
 - Simple is better than complex
-- Errors should never pass silently
+- Explicit is better than implicit
 - Pure functions with no side effects
 """
 
 import re
 from typing import Any, Dict, List, Optional
 
-from .substitution import find_variables
-from .types import ValidationResult
+from .types import ValidationResult, VariableInfo
 
-
-class VariableError(Exception):
-    """Simple variable error with context."""
-
-    def __init__(
-        self,
-        message: str,
-        variable_name: Optional[str] = None,
-        context: Optional[str] = None,
-    ):
-        super().__init__(message)
-        self.variable_name = variable_name
-        self.context = context
+# Compile patterns once for performance
+_VARIABLE_PATTERN = re.compile(r"\$\{([^}|]+)(?:\|([^}]+))?\}")
+_SIMPLE_DOLLAR_PATTERN = re.compile(r"\$([a-zA-Z_][a-zA-Z0-9_]*)")
 
 
 def validate_variables(text: str, variables: Dict[str, Any]) -> List[str]:
     """Validate variables and return missing ones.
 
     Args:
-        text: Text to validate for variable usage
-        variables: Available variables
+        text: Text containing variable placeholders
+        variables: Dictionary of available variables
 
     Returns:
-        List of missing variable names
+        List of missing variable names (unique, no duplicates)
     """
     if not text:
         return []
 
     missing = []
-    found_vars = find_variables(text)
+    found_variables = find_variables(text)
 
-    for var_info in found_vars:
-        var_name = var_info.name
-        default = var_info.default_value
-
-        # Variable is missing if it's not in variables and has no default
-        if var_name not in variables and default is None:
-            missing.append(var_name)
+    for var_info in found_variables:
+        if var_info.name not in variables and var_info.default_value is None:
+            missing.append(var_info.name)
 
     # Remove duplicates while preserving order
     seen = set()
@@ -65,217 +48,275 @@ def validate_variables(text: str, variables: Dict[str, Any]) -> List[str]:
     return unique_missing
 
 
-def validate_comprehensive(text: str, variables: Dict[str, Any]) -> ValidationResult:
-    """Comprehensive validation with detailed results.
+def validate_variables_with_details(
+    text: str, variables: Dict[str, Any]
+) -> ValidationResult:
+    """Validate variables and return detailed validation result.
 
     Args:
-        text: Text to validate
-        variables: Available variables
+        text: Text containing variable placeholders
+        variables: Dictionary of available variables
 
     Returns:
-        ValidationResult with detailed validation information
+        ValidationResult with detailed information
     """
     if not text:
-        return ValidationResult(
-            is_valid=True, missing_variables=[], invalid_syntax=[], suggestions=[]
-        )
+        return ValidationResult(is_valid=True)
 
-    found_vars = find_variables(text)
-    missing_vars = []
+    missing_variables = []
     invalid_syntax = []
     suggestions = []
 
-    for var_info in found_vars:
-        var_name = var_info.name
-        default = var_info.default_value
+    found_variables = find_variables(text)
 
-        # Check for missing variables
-        if var_name not in variables and default is None:
-            missing_vars.append(var_name)
+    for var_info in found_variables:
+        # Check if variable is missing
+        if var_info.name not in variables and var_info.default_value is None:
+            missing_variables.append(var_info.name)
 
-            # Suggest similar variable names
-            similar = _find_similar_variables(var_name, list(variables.keys()))
+            # Provide suggestions for similar variable names
+            similar = _find_similar_variables(var_info.name, list(variables.keys()))
             if similar:
                 suggestions.append(
-                    f"'{var_name}' not found. Did you mean: {', '.join(similar)}?"
+                    f"'{var_info.name}' not found. Did you mean: {', '.join(similar)}"
                 )
 
-        # Check for invalid syntax
-        if not _is_valid_variable_name(var_name):
+        # Check for invalid syntax patterns
+        if _has_invalid_syntax(var_info):
             invalid_syntax.append(var_info.full_match)
 
-    # Remove duplicates
-    missing_vars = list(dict.fromkeys(missing_vars))
-    invalid_syntax = list(dict.fromkeys(invalid_syntax))
-
-    is_valid = len(missing_vars) == 0 and len(invalid_syntax) == 0
+    is_valid = len(missing_variables) == 0 and len(invalid_syntax) == 0
 
     return ValidationResult(
         is_valid=is_valid,
-        missing_variables=missing_vars,
+        missing_variables=missing_variables,
         invalid_syntax=invalid_syntax,
         suggestions=suggestions,
     )
 
 
-def check_circular_references(variables: Dict[str, Any]) -> List[str]:
-    """Check for circular references in variable definitions.
+def find_variables(text: str) -> List[VariableInfo]:
+    """Find all variables in text without substituting them.
 
     Args:
-        variables: Dictionary of variables to check
+        text: Text to scan for variables
 
     Returns:
-        List of variables involved in circular references
-    """
-    circular = []
-
-    for var_name, value in variables.items():
-        if isinstance(value, str):
-            if _has_circular_reference(var_name, value, variables):
-                circular.append(var_name)
-
-    return circular
-
-
-def validate_variable_name(name: str) -> bool:
-    """Validate that a variable name follows proper conventions.
-
-    Args:
-        name: Variable name to validate
-
-    Returns:
-        True if valid, False otherwise
-    """
-    return _is_valid_variable_name(name)
-
-
-def get_variable_usage_stats(text: str) -> Dict[str, int]:
-    """Get statistics about variable usage in text.
-
-    Args:
-        text: Text to analyze
-
-    Returns:
-        Dictionary mapping variable names to usage counts
+        List of VariableInfo objects for found variables
     """
     if not text:
-        return {}
+        return []
 
-    found_vars = find_variables(text)
-    usage_counts = {}
+    variables = []
 
-    for var_info in found_vars:
-        var_name = var_info.name
-        usage_counts[var_name] = usage_counts.get(var_name, 0) + 1
+    # Find ${var} and ${var|default} patterns
+    for match in _VARIABLE_PATTERN.finditer(text):
+        var_name = match.group(1).strip()
+        default = match.group(2).strip() if match.group(2) else None
 
-    return usage_counts
+        variables.append(
+            VariableInfo(
+                name=var_name,
+                default_value=_clean_default_value(default) if default else None,
+                start_pos=match.start(),
+                end_pos=match.end(),
+                full_match=match.group(0),
+            )
+        )
+
+    # Find $var patterns
+    for match in _SIMPLE_DOLLAR_PATTERN.finditer(text):
+        var_name = match.group(1)
+
+        variables.append(
+            VariableInfo(
+                name=var_name,
+                default_value=None,
+                start_pos=match.start(),
+                end_pos=match.end(),
+                full_match=match.group(0),
+            )
+        )
+
+    return variables
 
 
-def _is_valid_variable_name(name: str) -> bool:
-    """Check if a variable name is valid.
+def validate_variable_name(var_name: str) -> bool:
+    """Validate a single variable name.
 
     Args:
-        name: Variable name to validate
+        var_name: Variable name to validate
 
     Returns:
         True if valid, False otherwise
     """
-    if not name:
+    if not var_name:
         return False
 
-    # Basic validation: starts with letter or underscore, contains only alphanumeric and underscore
-    return bool(re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", name))
+    # Check for valid characters
+    if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", var_name):
+        return False
+
+    # Check for reserved words
+    reserved_words = {
+        "and",
+        "as",
+        "assert",
+        "break",
+        "class",
+        "continue",
+        "def",
+        "del",
+        "elif",
+        "else",
+        "except",
+        "finally",
+        "for",
+        "from",
+        "global",
+        "if",
+        "import",
+        "in",
+        "is",
+        "lambda",
+        "nonlocal",
+        "not",
+        "or",
+        "pass",
+        "raise",
+        "return",
+        "try",
+        "while",
+        "with",
+        "yield",
+    }
+
+    return var_name.lower() not in reserved_words
 
 
-def _find_similar_variables(target: str, available: List[str]) -> List[str]:
-    """Find variables with similar names for suggestions.
+def _clean_default_value(default: str) -> str:
+    """Clean default value by removing quotes if appropriate.
 
     Args:
-        target: Variable name to find similar ones for
-        available: List of available variable names
+        default: Raw default value from regex match
 
     Returns:
-        List of similar variable names (max 3)
+        Cleaned default value
     """
+    if not default:
+        return default
+
+    # Remove outer quotes if present
+    if len(default) >= 2:
+        if (default.startswith('"') and default.endswith('"')) or (
+            default.startswith("'") and default.endswith("'")
+        ):
+            return default[1:-1]
+
+    return default
+
+
+def _find_similar_variables(
+    target: str, available_vars: List[str], max_suggestions: int = 3
+) -> List[str]:
+    """Find similar variable names for suggestions.
+
+    Args:
+        target: Target variable name
+        available_vars: List of available variable names
+        max_suggestions: Maximum number of suggestions to return
+
+    Returns:
+        List of similar variable names
+    """
+    if not target or not available_vars:
+        return []
+
+    # Simple similarity check - Raymond's preference for simplicity
     similar = []
     target_lower = target.lower()
 
-    for var in available:
+    for var in available_vars:
         var_lower = var.lower()
 
-        # Check for common patterns
-        if (
-            # Same length, different by 1-2 characters
-            (len(target) == len(var) and _char_diff_count(target_lower, var_lower) <= 2)
-            or
-            # One is substring of the other
-            target_lower in var_lower
-            or var_lower in target_lower
-            or
-            # Similar prefix/suffix
-            (
-                len(target) > 3
-                and (
-                    target_lower[:3] == var_lower[:3]
-                    or target_lower[-3:] == var_lower[-3:]
-                )
-            )
-        ):
+        # Exact prefix match
+        if var_lower.startswith(target_lower):
+            similar.append(var)
+        # Contains the target
+        elif target_lower in var_lower:
+            similar.append(var)
+        # Levenshtein-like check for typos
+        elif _simple_similarity(target_lower, var_lower) > 0.7:
             similar.append(var)
 
-    return similar[:3]  # Return max 3 suggestions
+    # Return unique suggestions, limited by max_suggestions
+    unique_suggestions = list(dict.fromkeys(similar))  # Preserve order
+    return unique_suggestions[:max_suggestions]
 
 
-def _char_diff_count(str1: str, str2: str) -> int:
-    """Count character differences between two strings of same length.
+def _simple_similarity(str1: str, str2: str) -> float:
+    """Calculate simple similarity between two strings.
 
     Args:
         str1: First string
         str2: Second string
 
     Returns:
-        Number of different characters
+        Similarity score between 0 and 1
     """
-    if len(str1) != len(str2):
-        return len(str1) + len(str2)  # Return large number for different lengths
+    if str1 == str2:
+        return 1.0
 
-    return sum(c1 != c2 for c1, c2 in zip(str1, str2))
+    # Simple character-based similarity
+    common_chars = set(str1) & set(str2)
+    total_chars = set(str1) | set(str2)
+
+    if not total_chars:
+        return 0.0
+
+    return len(common_chars) / len(total_chars)
 
 
-def _has_circular_reference(
-    var_name: str,
-    value: str,
-    variables: Dict[str, Any],
-    visited: Optional[set[str]] = None,
-) -> bool:
-    """Check if a variable has circular references.
+def _has_invalid_syntax(var_info: VariableInfo) -> bool:
+    """Check if variable has invalid syntax.
 
     Args:
-        var_name: Name of the variable being checked
-        value: Value of the variable (string)
-        variables: All variables dictionary
-        visited: Set of already visited variables (for recursion)
+        var_info: VariableInfo object to check
 
     Returns:
-        True if circular reference exists
+        True if syntax is invalid
     """
-    if visited is None:
-        visited = set()
-
-    if var_name in visited:
+    # Check for empty variable names
+    if not var_info.name.strip():
         return True
 
-    visited.add(var_name)
-
-    # Find variables referenced in the value
-    referenced_vars = find_variables(value)
-
-    for var_info in referenced_vars:
-        ref_name = var_info.name
-        if ref_name in variables and isinstance(variables[ref_name], str):
-            if _has_circular_reference(
-                ref_name, variables[ref_name], variables, visited.copy()
-            ):
-                return True
+    # Check for invalid characters in variable name
+    if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", var_info.name):
+        return True
 
     return False
+
+
+class VariableError(Exception):
+    """Simple variable error with context.
+
+    Following Raymond's recommendation: simple, focused exceptions.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        variable_name: Optional[str] = None,
+        context: Optional[str] = None,
+    ):
+        super().__init__(message)
+        self.variable_name = variable_name
+        self.context = context
+
+    def __str__(self) -> str:
+        message = super().__str__()
+        if self.variable_name:
+            message += f" (variable: {self.variable_name})"
+        if self.context:
+            message += f" (context: {self.context})"
+        return message

@@ -8,12 +8,13 @@ for all V1 syntax patterns. Following Zen of Python principles:
 """
 
 import re
+from functools import lru_cache
 from typing import Any, Dict, List
 
 from .formatting import format_for_context
 from .types import VariableInfo
 
-# Unified regex pattern for all syntax forms
+# Compile patterns once for performance
 _VARIABLE_PATTERN = re.compile(r"\$\{([^}|]+)(?:\|([^}]+))?\}")
 _SIMPLE_DOLLAR_PATTERN = re.compile(r"\$([a-zA-Z_][a-zA-Z0-9_]*)")
 
@@ -37,21 +38,40 @@ def substitute_variables(text: str, variables: Dict[str, Any]) -> str:
     if not text:
         return text
 
-    # Use variables or empty dict if None
-    vars_dict = variables or {}
+    # Always run substitution logic so defaults are applied
+    result = _substitute_braced_variables(text, variables)
+    result = _substitute_simple_variables(result, variables)
+    return result
+
+
+def _substitute_braced_variables(text: str, variables: Dict[str, Any]) -> str:
+    """Substitute ${var} and ${var|default} patterns."""
 
     def replace(match):
         var_name = match.group(1).strip()
         default = match.group(2).strip() if match.group(2) else None
 
-        if var_name in vars_dict:
-            return str(vars_dict[var_name])
+        if var_name in variables:
+            return str(variables[var_name])
         elif default is not None:
             return _clean_default_value(default)
         else:
             return match.group(0)  # Keep original if no replacement
 
-    return re.sub(_VARIABLE_PATTERN, replace, text)
+    return _VARIABLE_PATTERN.sub(replace, text)
+
+
+def _substitute_simple_variables(text: str, variables: Dict[str, Any]) -> str:
+    """Substitute $variable patterns."""
+
+    def replace(match):
+        var_name = match.group(1)
+        if var_name in variables:
+            return str(variables[var_name])
+        else:
+            return match.group(0)  # Keep original if no replacement
+
+    return _SIMPLE_DOLLAR_PATTERN.sub(replace, text)
 
 
 def substitute_simple_dollar(text: str, variables: Dict[str, Any]) -> str:
@@ -67,14 +87,7 @@ def substitute_simple_dollar(text: str, variables: Dict[str, Any]) -> str:
     if not text or not variables:
         return text
 
-    def replace(match):
-        var_name = match.group(1)
-        if var_name in variables:
-            return str(variables[var_name])
-        else:
-            return match.group(0)  # Keep original if no replacement
-
-    return re.sub(_SIMPLE_DOLLAR_PATTERN, replace, text)
+    return _substitute_simple_variables(text, variables)
 
 
 def substitute_in_dict(
@@ -178,8 +191,11 @@ def find_variables(text: str) -> List[VariableInfo]:
     return variables
 
 
+@lru_cache(maxsize=1000)
 def _clean_default_value(default: str) -> str:
     """Clean default value by removing quotes if appropriate.
+
+    Using Raymond Hettinger's recommendation: built-in cache for performance.
 
     Args:
         default: Raw default value from regex match
@@ -190,17 +206,12 @@ def _clean_default_value(default: str) -> str:
     if not default:
         return default
 
-    # Remove outer quotes if present and it's a simple string
+    # Remove outer quotes if present
     if len(default) >= 2:
         if (default.startswith('"') and default.endswith('"')) or (
             default.startswith("'") and default.endswith("'")
         ):
-            # Only remove quotes for simple strings, not complex expressions
-            inner = default[1:-1]
-            # Keep quotes for complex expressions like SQL lists
-            if "," in inner and ('"' in inner or "'" in inner):
-                return default
-            return inner
+            return default[1:-1]
 
     return default
 
@@ -239,4 +250,4 @@ def substitute_variables_for_sql(text: str, variables: Dict[str, Any]) -> str:
         else:
             return match.group(0)  # Keep original if no replacement
 
-    return re.sub(_VARIABLE_PATTERN, replace, text)
+    return _VARIABLE_PATTERN.sub(replace, text)
