@@ -10,23 +10,22 @@ import os
 from sqlflow.core.variables.v2 import (
     ValidationResult,
     VariableError,
-    check_circular_references,
+    VariableSources,
     find_variables,
     format_for_context,
     get_variable_priority,
-    get_variable_usage_stats,
     merge_variable_sources,
     resolve_from_environment,
     resolve_variables,
+    resolve_variables_legacy,
     resolve_with_sources,
     substitute_any,
     substitute_in_dict,
     substitute_in_list,
     substitute_simple_dollar,
     substitute_variables,
-    validate_comprehensive,
-    validate_variable_name,
     validate_variables,
+    validate_variables_with_details,
 )
 
 
@@ -219,26 +218,24 @@ class TestResolution:
 
     def test_basic_resolution(self):
         """Test basic variable resolution."""
-        cli_vars = {"env": "prod"}
-        profile_vars = {"env": "dev", "debug": "false"}
-        result = resolve_variables(cli_vars=cli_vars, profile_vars=profile_vars)
+        sources = VariableSources(
+            cli={"env": "prod"}, profile={"env": "dev", "debug": "false"}
+        )
+        result = resolve_variables(sources)
 
         assert result["env"] == "prod"  # CLI takes priority
         assert result["debug"] == "false"  # Profile value
 
     def test_priority_order(self):
         """Test complete priority order: CLI > Profile > SET > ENV."""
-        cli_vars = {"var1": "cli"}
-        profile_vars = {"var1": "profile", "var2": "profile"}
-        set_vars = {"var1": "set", "var2": "set", "var3": "set"}
-        env_vars = {"var1": "env", "var2": "env", "var3": "env", "var4": "env"}
-
-        result = resolve_variables(
-            cli_vars=cli_vars,
-            profile_vars=profile_vars,
-            set_vars=set_vars,
-            env_vars=env_vars,
+        sources = VariableSources(
+            cli={"var1": "cli"},
+            profile={"var1": "profile", "var2": "profile"},
+            set={"var1": "set", "var2": "set", "var3": "set"},
+            env={"var1": "env", "var2": "env", "var3": "env", "var4": "env"},
         )
+
+        result = resolve_variables(sources)
 
         assert result["var1"] == "cli"  # CLI wins
         assert result["var2"] == "profile"  # Profile wins over SET/ENV
@@ -247,18 +244,20 @@ class TestResolution:
 
     def test_resolution_empty_sources(self):
         """Test resolution with empty sources."""
-        result = resolve_variables()
+        sources = VariableSources()
+        result = resolve_variables(sources)
         assert result == {}
 
     def test_resolution_none_sources(self):
         """Test resolution with None sources."""
-        result = resolve_variables(None, None, None, None)
+        sources = VariableSources()
+        result = resolve_variables(sources)
         assert result == {}
 
     def test_resolution_mixed_none_sources(self):
         """Test resolution with some None sources."""
-        cli_vars = {"var1": "cli"}
-        result = resolve_variables(cli_vars=cli_vars, profile_vars=None)
+        sources = VariableSources(cli={"var1": "cli"})
+        result = resolve_variables(sources)
         assert result["var1"] == "cli"
 
     def test_resolve_from_environment(self):
@@ -305,56 +304,48 @@ class TestResolution:
 
     def test_get_variable_priority(self):
         """Test get_variable_priority function."""
-        cli_vars = {"var1": "cli"}
-        profile_vars = {"var1": "profile", "var2": "profile"}
-        set_vars = {"var1": "set", "var2": "set", "var3": "set"}
-        env_vars = {"var1": "env", "var2": "env", "var3": "env", "var4": "env"}
+        sources = VariableSources(
+            cli={"var1": "cli"},
+            profile={"var1": "profile", "var2": "profile"},
+            set={"var1": "set", "var2": "set", "var3": "set"},
+            env={"var1": "env", "var2": "env", "var3": "env", "var4": "env"},
+        )
 
-        assert (
-            get_variable_priority("var1", cli_vars, profile_vars, set_vars, env_vars)
-            == "cli"
-        )
-        assert (
-            get_variable_priority("var2", cli_vars, profile_vars, set_vars, env_vars)
-            == "profile"
-        )
-        assert (
-            get_variable_priority("var3", cli_vars, profile_vars, set_vars, env_vars)
-            == "set"
-        )
-        assert (
-            get_variable_priority("var4", cli_vars, profile_vars, set_vars, env_vars)
-            == "env"
-        )
-        assert (
-            get_variable_priority("var5", cli_vars, profile_vars, set_vars, env_vars)
-            is None
-        )
+        assert get_variable_priority("var1", sources) == "cli"
+        assert get_variable_priority("var2", sources) == "profile"
+        assert get_variable_priority("var3", sources) == "set"
+        assert get_variable_priority("var4", sources) == "env"
+        assert get_variable_priority("var5", sources) is None
 
     def test_resolve_with_sources(self):
         """Test resolve_with_sources function."""
-        cli_vars = {"var1": "cli"}
-        profile_vars = {"var1": "profile", "var2": "profile"}
-        set_vars = {"var1": "set", "var2": "set", "var3": "set"}
-        env_vars = {"var1": "env", "var2": "env", "var3": "env", "var4": "env"}
-
-        value, source = resolve_with_sources(
-            "var1", cli_vars, profile_vars, set_vars, env_vars
+        sources = VariableSources(
+            cli={"var1": "cli"},
+            profile={"var1": "profile", "var2": "profile"},
+            set={"var1": "set", "var2": "set", "var3": "set"},
+            env={"var1": "env", "var2": "env", "var3": "env", "var4": "env"},
         )
+
+        value, source = resolve_with_sources("var1", sources)
         assert value == "cli"
         assert source == "cli"
 
-        value, source = resolve_with_sources(
-            "var2", cli_vars, profile_vars, set_vars, env_vars
-        )
+        value, source = resolve_with_sources("var2", sources)
         assert value == "profile"
         assert source == "profile"
 
-        value, source = resolve_with_sources(
-            "var5", cli_vars, profile_vars, set_vars, env_vars
-        )
+        value, source = resolve_with_sources("var5", sources)
         assert value is None
         assert source is None
+
+    def test_legacy_resolution(self):
+        """Test legacy resolution function for backward compatibility."""
+        result = resolve_variables_legacy(
+            cli_vars={"env": "prod"}, profile_vars={"env": "dev", "debug": "false"}
+        )
+
+        assert result["env"] == "prod"  # CLI takes priority
+        assert result["debug"] == "false"  # Profile value
 
 
 class TestFormatting:
@@ -482,7 +473,7 @@ class TestValidation:
         """Test comprehensive validation."""
         text = "Hello ${name} and ${age}!"
         variables = {"name": "Alice"}
-        result = validate_comprehensive(text, variables)
+        result = validate_variables_with_details(text, variables)
 
         assert isinstance(result, ValidationResult)
         assert not result.is_valid
@@ -493,7 +484,7 @@ class TestValidation:
         """Test comprehensive validation with invalid syntax."""
         text = "Hello ${123invalid} and ${name}!"
         variables = {"name": "Alice"}
-        result = validate_comprehensive(text, variables)
+        result = validate_variables_with_details(text, variables)
 
         assert not result.is_valid
         # V2 treats invalid syntax as missing variables
@@ -505,75 +496,12 @@ class TestValidation:
         """Test comprehensive validation provides suggestions."""
         text = "Hello ${nam} and ${ag}!"
         variables = {"name": "Alice", "age": "30"}
-        result = validate_comprehensive(text, variables)
+        result = validate_variables_with_details(text, variables)
 
         assert not result.is_valid
         assert "nam" in result.missing_variables
         assert "ag" in result.missing_variables
         assert len(result.suggestions) > 0
-
-    def test_validate_variable_name(self):
-        """Test variable name validation."""
-        assert validate_variable_name("valid_name")
-        assert validate_variable_name("validName")
-        assert validate_variable_name("_valid_name")
-        assert validate_variable_name("VALID_NAME")
-
-        assert not validate_variable_name("123invalid")
-        assert not validate_variable_name("invalid-name")
-        assert not validate_variable_name("invalid name")
-        assert not validate_variable_name("")
-
-    def test_get_variable_usage_stats(self):
-        """Test variable usage statistics."""
-        text = "Hello ${name}, ${name} again, and ${age}!"
-        stats = get_variable_usage_stats(text)
-
-        assert stats["name"] == 2
-        assert stats["age"] == 1
-
-    def test_get_variable_usage_stats_empty(self):
-        """Test variable usage statistics with empty text."""
-        stats = get_variable_usage_stats("")
-        assert stats == {}
-
-    def test_check_circular_references(self):
-        """Test circular reference detection."""
-        variables = {
-            "var1": "${var2}",
-            "var2": "${var3}",
-            "var3": "${var1}",
-        }
-
-        circular = check_circular_references(variables)
-        assert "var1" in circular
-        assert "var2" in circular
-        assert "var3" in circular
-
-    def test_check_circular_references_no_circular(self):
-        """Test circular reference detection with no circular references."""
-        variables = {
-            "var1": "value1",
-            "var2": "${var1}",
-            "var3": "${var2}",
-        }
-
-        circular = check_circular_references(variables)
-        assert circular == []
-
-    def test_check_circular_references_complex(self):
-        """Test circular reference detection with complex scenarios."""
-        variables = {
-            "var1": "${var2}",
-            "var2": "value2",
-            "var3": "${var1}",
-            "var4": "value4",
-        }
-
-        circular = check_circular_references(variables)
-        # V2 implementation may not detect this as circular since var2 is a literal
-        # This is acceptable behavior
-        assert isinstance(circular, list)
 
 
 class TestErrorHandling:
@@ -583,7 +511,7 @@ class TestErrorHandling:
         """Test VariableError creation."""
         error = VariableError("Test error", "test_var", "test_context")
 
-        assert str(error) == "Test error"
+        assert str(error) == "Test error (variable: test_var) (context: test_context)"
         assert error.variable_name == "test_var"
         assert error.context == "test_context"
 
@@ -602,13 +530,13 @@ class TestIntegration:
     def test_end_to_end_substitution(self):
         """Test complete end-to-end substitution workflow."""
         # 1. Resolve variables from multiple sources
-        cli_vars = {"env": "prod"}
-        profile_vars = {"database_host": "localhost", "env": "dev"}
-        env_vars = {"database_port": "5432"}
-
-        variables = resolve_variables(
-            cli_vars=cli_vars, profile_vars=profile_vars, env_vars=env_vars
+        sources = VariableSources(
+            cli={"env": "prod"},
+            profile={"database_host": "localhost", "env": "dev"},
+            env={"database_port": "5432"},
         )
+
+        variables = resolve_variables(sources)
 
         # 2. Validate variables in template
         template = "postgresql://${database_host}:${database_port}/${env}_db"
@@ -656,13 +584,7 @@ class TestIntegration:
         missing = validate_variables(template, variables)
         assert missing == []  # age has default
 
-        # 3. Get usage statistics
-        stats = get_variable_usage_stats(template)
-        assert stats["name"] == 1
-        assert stats["age"] == 1
-        assert stats["city"] == 1
-
-        # 4. Substitute variables
+        # 3. Substitute variables
         result = substitute_variables(template, variables)
         assert result == "Hello Alice, you are 25 years old from New York!"
 

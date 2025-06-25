@@ -6,7 +6,7 @@ by the V2 variables implementation.
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 
 class VariableContext(Enum):
@@ -16,6 +16,20 @@ class VariableContext(Enum):
     SQL = "sql"
     AST = "ast"
     JSON = "json"
+
+
+@dataclass(frozen=True)
+class VariableSources:
+    """Immutable variable sources with clear priority order.
+
+    Following Raymond Hettinger's recommendation: use frozen dataclasses
+    for better performance and clearer intent.
+    """
+
+    cli: Dict[str, Any] = field(default_factory=dict)
+    profile: Dict[str, Any] = field(default_factory=dict)
+    set: Dict[str, Any] = field(default_factory=dict)
+    env: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass

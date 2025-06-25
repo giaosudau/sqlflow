@@ -18,6 +18,8 @@ from .types import VariableContext
 def format_for_context(value: Any, context: str = "text") -> str:
     """Format value for specific context with V1 compatibility.
 
+    Following Guido's preference: simple, readable if-elif chains.
+
     Args:
         value: The value to format
         context: Context type ('text', 'sql', 'ast', 'json')
@@ -28,6 +30,7 @@ def format_for_context(value: Any, context: str = "text") -> str:
     if value is None:
         return _format_none_for_context(context)
 
+    # Simple, readable dispatch - Guido's preference
     if context == VariableContext.SQL.value:
         return _format_for_sql(value)
     elif context == VariableContext.JSON.value:
