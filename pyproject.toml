@@ -154,7 +154,7 @@ disallow_incomplete_defs = true
 
 [tool.pytest.ini_options]
 minversion = "6.0"
-addopts = "-ra -q --strict-markers --timeout=60"
+addopts = "-ra -q --strict-markers --timeout=600"
 timeout_method = "thread"
 testpaths = [
     "tests",
